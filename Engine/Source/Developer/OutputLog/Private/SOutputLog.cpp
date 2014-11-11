@@ -729,6 +729,14 @@ bool SOutputLog::CreateLogMessages( const TCHAR* V, ELogVerbosity::Type Verbosit
 			Style = FName(TEXT("Log.Normal"));
 		}
 
+		// Determine how to format timestamps
+		ELogTimes::Type LogTimestampMode = ELogTimes::None;
+		if (UObjectInitialized())
+		{
+			// Logging can happen very late during shutdown, even after the UObject system has been torn down, hence the init check above
+			LogTimestampMode = GetDefault<UEditorStyleSettings>()->LogTimestampMode;
+		}
+
 		const int32 OldNumMessages = OutMessages.Num();
 
 		// handle multiline strings by breaking them apart by line
@@ -739,15 +747,15 @@ bool SOutputLog::CreateLogMessages( const TCHAR* V, ELogVerbosity::Type Verbosit
 		bool bIsFirstLineInMessage = true;
 		for (const FTextRange& LineRange : LineRanges)
 		{
-			if (LineRange.IsEmpty())
-				continue;
+			if (!LineRange.IsEmpty())
+			{
+				FString Line = CurrentLogDump.Mid(LineRange.BeginIndex, LineRange.Len());
+				Line = Line.ConvertTabsToSpaces(4);
 
-			FString Line = CurrentLogDump.Mid(LineRange.BeginIndex, LineRange.Len());
-			Line = Line.ConvertTabsToSpaces(4);
+				OutMessages.Add(MakeShareable(new FLogMessage(MakeShareable(new FString((bIsFirstLineInMessage) ? FOutputDevice::FormatLogLine(Verbosity, Category, *Line, LogTimestampMode) : Line)), Style)));
 
-			OutMessages.Add(MakeShareable(new FLogMessage(MakeShareable(new FString((bIsFirstLineInMessage) ? FOutputDevice::FormatLogLine(Verbosity, Category, *Line) : Line)), Style)));
-
-			bIsFirstLineInMessage = false;
+				bIsFirstLineInMessage = false;
+			}
 		}
 
 		return OldNumMessages != OutMessages.Num();
