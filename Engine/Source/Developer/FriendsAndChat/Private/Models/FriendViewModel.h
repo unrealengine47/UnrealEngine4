@@ -14,6 +14,7 @@ namespace EFriendActionType
 		BlockFriend,				// Block a friend
 		RemoveFriend,				// Remove a friend
 		JoinGame,					// Join a Friends game
+		RejectGame,					// Reject a game request
 		InviteToGame,				// Invite to game
 		SendFriendRequest,			// Send a friend request
 		Updating,					// Updating;
@@ -31,6 +32,7 @@ namespace EFriendActionType
 			case BlockFriend: return NSLOCTEXT("FriendsList","BlockFriend", "Block");
 			case RemoveFriend: return NSLOCTEXT("FriendsList","RemoveFriend", "Remove");
 			case JoinGame: return NSLOCTEXT("FriendsList","JoingGame", "Join Game");
+			case RejectGame: return NSLOCTEXT("FriendsList","RejectGame", "Reject");
 			case InviteToGame: return NSLOCTEXT("FriendsList","Invite to game", "Invite to Game");
 			case SendFriendRequest: return NSLOCTEXT("FriendsList","SendFriendRequst", "Send Friend Request");
 			case Updating: return NSLOCTEXT("FriendsList","Updating", "Updating");
@@ -50,6 +52,7 @@ public:
 	virtual void PerformAction(const EFriendActionType::Type ActionType) = 0;
 	virtual FText GetFriendName() const = 0;
 	virtual FText GetFriendLocation() const = 0;
+	virtual FString GetClientId() const = 0;
 	virtual bool IsOnline() const = 0;
 };
 
@@ -59,4 +62,4 @@ public:
  * @return the newly created FriendViewModel implementation.
  */
 FACTORY(TSharedRef< FFriendViewModel >, FFriendViewModel,
-	const TSharedRef<class FFriendStuct>& FFriendStuct);
+	const TSharedRef<class IFriendItem>& IFriendItem);

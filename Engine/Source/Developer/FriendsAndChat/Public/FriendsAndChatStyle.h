@@ -40,16 +40,6 @@ struct FRIENDSANDCHAT_API FFriendsAndChatStyle
 	 */
 	static const FFriendsAndChatStyle& GetDefault();
 
-	/** Close button style */
-	UPROPERTY()
-	FButtonStyle CloseButtonStyle;
-	FFriendsAndChatStyle& SetCloseButtonStyle( const FButtonStyle& InButtonStyle);
-
-	/** Minimize button style */
-	UPROPERTY()
-	FButtonStyle MinimizeButtonStyle;
-	FFriendsAndChatStyle& SetMinimizeStyle( const FButtonStyle& InButtonStyle);
-
 	/** Search button style */
 	UPROPERTY()
 	FButtonStyle SearchButtonStyle;
@@ -104,6 +94,11 @@ struct FRIENDSANDCHAT_API FFriendsAndChatStyle
 	FSlateBrush FriendsComboDropdownImageBrush;
 	FFriendsAndChatStyle& SetFriendsComboDropdownImageBrush(const FSlateBrush& BrushStyle);
 
+	/** Friend combo callout Image */
+	UPROPERTY(EditAnywhere, Category = Appearance)
+	FSlateBrush FriendsCalloutBrush;
+	FFriendsAndChatStyle& SetFriendsCalloutBrush(const FSlateBrush& BrushStyle);
+
 	/** Offline brush style */
 	UPROPERTY(EditAnywhere, Category=Appearance)
 	FSlateBrush OfflineBrush;
@@ -155,4 +150,20 @@ struct FRIENDSANDCHAT_API FFriendsAndChatStyle
 	UPROPERTY(EditAnywhere, Category=Appearance)
 	FLinearColor PartyChatColor;
 	FFriendsAndChatStyle& SetPartyChatColor(const FLinearColor& InFontColor);
+
+	UPROPERTY(EditAnywhere, Category=Appearance)
+	FLinearColor NetworkChatColor;
+	FFriendsAndChatStyle& SetNetworkChatColor(const FLinearColor& InFontColor);
+
+	UPROPERTY(EditAnywhere, Category=Appearance)
+	FSlateBrush ChatGlobalBrush;
+	FFriendsAndChatStyle& SetChatGlobalBrush(const FSlateBrush& Brush);
+
+	UPROPERTY(EditAnywhere, Category=Appearance)
+	FSlateBrush ChatPartyBrush;
+	FFriendsAndChatStyle& SetChatPartyBrush(const FSlateBrush& Brush);
+
+	UPROPERTY(EditAnywhere, Category=Appearance)
+	FSlateBrush ChatWhisperBrush;
+	FFriendsAndChatStyle& SetChatWhisperBrush(const FSlateBrush& Brush);
 };

@@ -6,20 +6,6 @@
 const FName FFriendsAndChatStyle::TypeName( TEXT("FFriendsAndChatStyle") );
 
 
-FFriendsAndChatStyle& FFriendsAndChatStyle::SetCloseButtonStyle( const FButtonStyle& InButtonStyle)
-{
-	CloseButtonStyle = InButtonStyle; 
-	return *this; 
-}
-
-
-FFriendsAndChatStyle& FFriendsAndChatStyle::SetMinimizeStyle( const FButtonStyle& InButtonStyle)
-{
-	MinimizeButtonStyle = InButtonStyle; 
-	return *this;
-}
-
-
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetSearchButtonStyle( const FButtonStyle& InButtonStyle)
 {
 	SearchButtonStyle = InButtonStyle; 
@@ -64,7 +50,6 @@ FFriendsAndChatStyle& FFriendsAndChatStyle::SetTitleBarBrush(const FSlateBrush& 
 	return *this;
 }
 
-
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendImageBrush(const FSlateBrush& Brush)
 {
 	FriendImageBrush = Brush;
@@ -83,12 +68,18 @@ FFriendsAndChatStyle& FFriendsAndChatStyle::SetLauncherImageBrush(const FSlateBr
 	return *this;
 }
 
-
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendsComboDropdownImageBrush(const FSlateBrush& Brush)
 {
 	FriendsComboDropdownImageBrush = Brush;
 	return *this;
 }
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendsCalloutBrush(const FSlateBrush& Brush)
+{
+	FriendsCalloutBrush = Brush;
+	return *this;
+}
+
 
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetOfflineBrush(const FSlateBrush& InOffLine)
 {
@@ -109,7 +100,6 @@ FFriendsAndChatStyle& FFriendsAndChatStyle::SetAwayBrush(const FSlateBrush& InAw
 	return *this; 
 }
 
-
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetBackgroundBrush(const FSlateBrush& InBackground)
 {
 	Background = InBackground;
@@ -121,7 +111,6 @@ FFriendsAndChatStyle& FFriendsAndChatStyle::SetTextStyle(const FTextBlockStyle& 
 	TextStyle = InTextStle;
 	return *this;
 }
-
 
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetFontStyle(const FSlateFontInfo& InFontStyle)
 {
@@ -156,6 +145,30 @@ FFriendsAndChatStyle& FFriendsAndChatStyle::SetWhisplerChatColor(const FLinearCo
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetPartyChatColor(const FLinearColor& InFontColor)
 {
 	PartyChatColor = InFontColor;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetNetworkChatColor(const FLinearColor& InFontColor)
+{
+	NetworkChatColor = InFontColor;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetChatGlobalBrush(const FSlateBrush& Brush)
+{
+	ChatGlobalBrush = Brush;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetChatPartyBrush(const FSlateBrush& Brush)
+{
+	ChatPartyBrush = Brush;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetChatWhisperBrush(const FSlateBrush& Brush)
+{
+	ChatWhisperBrush = Brush;
 	return *this;
 }
 

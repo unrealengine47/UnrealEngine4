@@ -44,8 +44,6 @@ static TAutoConsoleVariable<int32> CVarViewportTest(
 bool GShouldLogOutAFrameOfMoveComponent = false;
 bool GShouldLogOutAFrameOfSetBodyTransform = false;
 
-extern int32 GetBoundFullScreenModeCVar();
-
 //////////////////////////////////////////////////////////////////////////
 // ULocalPlayer
 
@@ -228,6 +226,13 @@ bool ULocalPlayer::SpawnPlayActor(const FString& URL,FString& OutError, UWorld* 
 		if (PlayerName.Len() > 0)
 		{
 			PlayerURL.AddOption(*FString::Printf(TEXT("Name=%s"), *PlayerName));
+		}
+
+		// Send any game-specific url options for this player
+		FString GameUrlOptions = GetGameLoginOptions();
+		if (GameUrlOptions.Len() > 0)
+		{
+			PlayerURL.AddOption(*FString::Printf(TEXT("%s"), *GameUrlOptions));
 		}
 
 		// Get player unique id

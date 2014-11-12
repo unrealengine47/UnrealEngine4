@@ -10,7 +10,15 @@ public:
 
 	virtual void EnumerateActions(TArray<EFriendActionType::Type>& Actions)
 	{
-		if(FriendItem->IsPendingAccepted())
+		if(FriendItem->IsGameRequest())
+		{
+			if (FriendItem->IsGameJoinable())
+			{
+				Actions.Add(EFriendActionType::JoinGame);
+			}
+			Actions.Add(EFriendActionType::RejectGame);
+		}
+		else if(FriendItem->IsPendingAccepted())
 		{
 			Actions.Add(EFriendActionType::Updating);
 		}
@@ -20,19 +28,18 @@ public:
 			{
 				case EInviteStatus::Accepted :
 				{
-					if(FriendItem->IsOnline())
+					if (FriendItem->IsGameJoinable())
 					{
 						Actions.Add(EFriendActionType::JoinGame);
 					}
-
-					if( FFriendsAndChatManager::Get()->IsInSession())
+					if (FFriendsAndChatManager::Get()->IsInJoinableGameSession())
 					{
 						Actions.Add(EFriendActionType::InviteToGame);
 					}
-
-					// TODO. Move to user is online. Here for testing until Chat is ready
-					Actions.Add(EFriendActionType::Chat);
-
+					if (FriendItem->IsOnline())
+					{
+						Actions.Add(EFriendActionType::Chat);
+					}
 					Actions.Add(EFriendActionType::RemoveFriend);
 				}
 				break;
@@ -58,7 +65,11 @@ public:
 	{
 		switch(ActionType)
 		{
-			case EFriendActionType::AcceptFriendRequest : AcceptFriend(); break;
+			case EFriendActionType::AcceptFriendRequest : 
+			{
+				AcceptFriend();
+				break;
+			}
 			case EFriendActionType::RemoveFriend :
 			case EFriendActionType::IgnoreFriendRequest :
 			case EFriendActionType::BlockFriend :
@@ -66,12 +77,33 @@ public:
 			case EFriendActionType::CancelFriendRequest:
 			{
 				RemoveFriend();
+				break;
 			}
-			break;
-			case EFriendActionType::SendFriendRequest : SendFriendRequest(); break;
-			case EFriendActionType::InviteToGame : InviteToGame(); break;
-			case EFriendActionType::JoinGame : JoinGame(); break;
-			case EFriendActionType::Chat : StartChat(); break;
+			case EFriendActionType::SendFriendRequest : 
+			{
+				SendFriendRequest();
+				break;
+			}
+			case EFriendActionType::InviteToGame : 
+			{
+				InviteToGame();
+				break;
+			}
+			case EFriendActionType::JoinGame : 
+			{
+				JoinGame();
+				break;
+			}
+			case EFriendActionType::RejectGame:
+			{
+				RejectGame();
+				break;
+			}
+			case EFriendActionType::Chat:
+			{
+				StartChat();
+				break;
+			}
 		}
 	}
 
@@ -95,6 +127,11 @@ public:
 		return FriendItem.IsValid() ? FriendItem->IsOnline() : false;
 	}
 
+	virtual FString GetClientId() const override
+	{
+		return FriendItem.IsValid() ? FriendItem->GetClientId() : FString();
+	}
+
 private:
 
 	void RemoveFriend() const
@@ -109,7 +146,7 @@ private:
 
 	void SendFriendRequest() const
 	{
-		if ( FriendItem.IsValid() && FriendItem->GetOnlineFriend().IsValid() )
+		if (FriendItem.IsValid())
 		{
 			FFriendsAndChatManager::Get()->RequestFriend(FText::FromString(FriendItem->GetName()));
 		}
@@ -117,17 +154,30 @@ private:
 
 	void InviteToGame()
 	{
-		if ( FriendItem.IsValid() && FriendItem->GetOnlineFriend().IsValid() )
+		if (FriendItem.IsValid() && 
+			FriendItem->GetOnlineFriend().IsValid())
 		{
-			//FFriendsMessageManager::Get()->InviteFriendToGame( FriendItem->GetOnlineFriend()->GetUserId() );
+			FFriendsAndChatManager::Get()->SendGameInvite(FriendItem);
 		}
 	}
 
 	void JoinGame()
 	{
-		if ( FriendItem.IsValid() && FriendItem->GetOnlineFriend().IsValid() )
+		if (FriendItem.IsValid() && 
+			FriendItem->GetOnlineFriend().IsValid() && 
+			FriendItem->IsGameRequest())
 		{
-			//FFriendsMessageManager::Get()->RequestJoinAGame( FriendItem->GetOnlineFriend()->GetUserId() );
+			FFriendsAndChatManager::Get()->AcceptGameInvite(FriendItem);
+		}
+	}
+
+	void RejectGame()
+	{
+		if (FriendItem.IsValid() &&
+			FriendItem->GetOnlineFriend().IsValid() &&
+			FriendItem->IsGameRequest())
+		{
+			FFriendsAndChatManager::Get()->RejectGameInvite(FriendItem);
 		}
 	}
 
@@ -149,21 +199,21 @@ private:
 	}
 
 	FFriendViewModelImpl(
-		const TSharedRef<FFriendStuct>& FriendItem
+		const TSharedRef<IFriendItem>& FriendItem
 		)
 		: FriendItem(FriendItem)
 	{
 	}
 
 private:
-	TSharedPtr<FFriendStuct> FriendItem;
+	TSharedPtr<IFriendItem> FriendItem;
 
 private:
 	friend FFriendViewModelFactory;
 };
 
 TSharedRef< FFriendViewModel > FFriendViewModelFactory::Create(
-	const TSharedRef<FFriendStuct>& FriendItem
+	const TSharedRef<IFriendItem>& FriendItem
 	)
 {
 	TSharedRef< FFriendViewModelImpl > ViewModel(new FFriendViewModelImpl(FriendItem));

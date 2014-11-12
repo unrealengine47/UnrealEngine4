@@ -49,13 +49,6 @@ public:
 	 */
 	virtual void JoinPublicChatRoom(const FString& RoomName) = 0;
 
-	/**
-	 * Set that we are in a session, so can send join game requests.
-	 *
-	 * @param bInSession If we are in a session.
-	 */
-	virtual void SetInSession( bool bInSession ) = 0;
-
 	/** Log out and kill the friends list window. */
 	virtual void Logout() = 0;
 
@@ -71,8 +64,11 @@ public:
 	DECLARE_EVENT_OneParam(IFriendsAndChatManager, FOnFriendsUserSettingsUpdatedEvent, /*struct*/ FFriendsAndChatSettings& /* New Options */)
 	virtual FOnFriendsUserSettingsUpdatedEvent& OnFriendsUserSettingsUpdated() = 0;
 
-	DECLARE_EVENT_OneParam(IFriendsAndChatManager, FOnFriendsSendNetworkMessageEvent, /*struct*/ FString& /* the message */)
+	DECLARE_EVENT_OneParam(IFriendsAndChatManager, FOnFriendsSendNetworkMessageEvent, /*struct*/ const FString& /* the message */)
 	virtual FOnFriendsSendNetworkMessageEvent& OnFriendsSendNewtworkMessage() = 0;
+
+	DECLARE_EVENT_TwoParams(IFriendsAndChatManager, FOnFriendsJoinGameEvent, const FUniqueNetId& /*FriendId*/, const FString& /*SessionId*/)
+	virtual FOnFriendsJoinGameEvent& OnFriendsJoinGame() = 0;
 
 public:
 

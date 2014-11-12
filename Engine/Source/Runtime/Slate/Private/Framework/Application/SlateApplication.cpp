@@ -693,7 +693,6 @@ FSlateApplication::FSlateApplication()
 	, bMenuAnimationsEnabled( true )
 	, AppIcon( FCoreStyle::Get().GetBrush("DefaultAppIcon") )
 	, VirtualDesktopRect( 0,0,0,0 )
-	, HittestGrid( MakeShareable( new FHittestGrid() ) )
 {
 #if WITH_UNREAL_DEVELOPER_TOOLS
 	FModuleManager::Get().LoadModule(TEXT("Settings"));
@@ -712,8 +711,6 @@ FSlateApplication::FSlateApplication()
 
 	NormalExecutionGetter.BindRaw( this, &FSlateApplication::IsNormalExecution );
 	PointerIndexLastPositionMap.Add(CursorPointerIndex, FVector2D::ZeroVector);
-
-	//AnalogCursor = MakeShareable(new FAnalogCursor);
 }
 
 FSlateApplication::~FSlateApplication()
@@ -815,7 +812,7 @@ FWidgetPath FSlateApplication::LocateWindowUnderMouse( FVector2D ScreenspaceMous
 
 		if ( Window->IsVisible() && AcceptsInput && Window->IsScreenspaceMouseWithin(ScreenspaceMouseCoordinate) && !bPrevWindowWasModal )
 		{
-			const TArray<FWidgetAndPointer> WidgetsAndCursors = HittestGrid->GetBubblePath( ScreenspaceMouseCoordinate, bIgnoreEnabledStatus );
+			const TArray<FWidgetAndPointer> WidgetsAndCursors = Window->GetHittestGrid()->GetBubblePath(ScreenspaceMouseCoordinate, bIgnoreEnabledStatus);
 			return FWidgetPath( WidgetsAndCursors );
 		}
 	}
@@ -908,8 +905,9 @@ void FSlateApplication::DrawWindowAndChildren( const TSharedRef<SWindow>& Window
 		FGeometry WindowGeometry = WindowToDraw->GetWindowGeometryInWindow();
 		int32 MaxLayerId = 0;
 		{
+			WindowToDraw->GetHittestGrid()->ClearGridForNewFrame( VirtualDesktopRect );
 			MaxLayerId = WindowToDraw->PaintWindow(
-				FPaintArgs(WindowToDraw, *HittestGrid, WindowToDraw->GetPositionInScreen(), GetCurrentTime(), GetDeltaTime()),
+				FPaintArgs(WindowToDraw, *WindowToDraw->GetHittestGrid(), WindowToDraw->GetPositionInScreen(), GetCurrentTime(), GetDeltaTime()),
 				WindowGeometry, WindowToDraw->GetClippingRectangleInWindow(),
 				WindowElementList,
 				0,
@@ -1034,12 +1032,6 @@ void FSlateApplication::PrivateDrawWindows( TSharedPtr<SWindow> DrawOnlyThisWind
 	{
 		SCOPE_CYCLE_COUNTER( STAT_SlateDrawWindowTime );
 
-		const bool bClearHittestGrid = !DrawOnlyThisWindow.IsValid();
-		if ( bClearHittestGrid )
-		{
-			HittestGrid->BeginFrame( VirtualDesktopRect );
-		}
-
 		TSharedPtr<SWindow> ActiveModalWindow = GetActiveModalWindow(); 
 
 		if (ActiveModalWindow.IsValid())
@@ -1096,9 +1088,9 @@ void FSlateApplication::FinishedInputThisFrame()
 {
 	const float DeltaTime = GetDeltaTime();
 
-	if (AnalogCursor.IsValid())
+	if (AnalogCursor.IsValid() && PlatformApplication->Cursor.IsValid())
 	{
-		AnalogCursor->Tick(DeltaTime, PlatformApplication->Cursor);
+		AnalogCursor->Tick(DeltaTime, *this, PlatformApplication->Cursor.ToSharedRef());
 	}
 
 	// All the input events have been processed.
@@ -1477,10 +1469,7 @@ void FSlateApplication::AddModalWindow( TSharedRef<SWindow> InSlateWindow, const
 		return;
 	}
 
-	// If we are spawning a modal window, we don't want to allow the possibility of input events being routed to non-modal geometry that existed on the hittest grid last frame.
-	// To this end we clear the grid now. This means that input events that occur on the first frame will be missed, however since the user couldn't even see the window yet, this is ok.
-	// @todo slate : switch to FHittestGrid per window
-	HittestGrid->BeginFrame( VirtualDesktopRect );
+
 
 	// Push the active modal window onto the stack.  
 	ActiveModalWindows.AddUnique( InSlateWindow );
@@ -2992,6 +2981,18 @@ void FSlateApplication::SetDragTriggerDistnace( float ScreenPixels )
 	DragTriggerDistnace = ScreenPixels;
 }
 
+void FSlateApplication::SetAnalogCursorEnable(bool bEnable)
+{
+	if (bEnable && !AnalogCursor.IsValid())
+	{
+		AnalogCursor = MakeShareable(new FAnalogCursor);
+	}
+	else
+	{
+		AnalogCursor.Reset();
+	}
+}
+
 FVector2D FSlateApplication::CalculatePopupWindowPosition( const FSlateRect& InAnchor, const FVector2D& InSize, const EOrientation Orientation ) const
 {
 	// Do nothing if this window has no size
@@ -3450,6 +3451,12 @@ bool FSlateApplication::OnKeyDown( const int32 KeyCode, const uint32 CharacterCo
 
 bool FSlateApplication::ProcessKeyDownEvent( FKeyEvent& InKeyEvent )
 {
+	// Analog cursor gets first chance at the input
+	if (AnalogCursor.IsValid() && AnalogCursor->HandleKeyDownEvent(*this, InKeyEvent))
+	{
+		return true;
+	}
+
 	FReply Reply = FReply::Unhandled();
 
 	LastUserInteractionTime = this->GetCurrentTime();
@@ -3529,6 +3536,12 @@ bool FSlateApplication::OnKeyUp( const int32 KeyCode, const uint32 CharacterCode
 
 bool FSlateApplication::ProcessKeyUpEvent( FKeyEvent& InKeyEvent )
 {
+	// Analog cursor gets first chance at the input
+	if (AnalogCursor.IsValid() && AnalogCursor->HandleKeyUpEvent(*this, InKeyEvent))
+	{
+		return true;
+	}
+
 	FReply Reply = FReply::Unhandled();
 
 	LastUserInteractionTime = this->GetCurrentTime();
@@ -3555,6 +3568,12 @@ bool FSlateApplication::ProcessKeyUpEvent( FKeyEvent& InKeyEvent )
 
 bool FSlateApplication::ProcessAnalogInputEvent(FAnalogInputEvent& InAnalogInputEvent)
 {
+	// Analog cursor gets first chance at the input
+	if (AnalogCursor.IsValid() && AnalogCursor->HandleAnalogInputEvent(*this, InAnalogInputEvent))
+	{
+		return true;
+	}
+
 	FReply Reply = FReply::Unhandled();
 
 	LastUserInteractionTime = this->GetCurrentTime();
@@ -3650,7 +3669,10 @@ bool FSlateApplication::ProcessMouseButtonDownEvent( const TSharedPtr< FGenericW
 	LastUserInteractionTime = this->GetCurrentTime();
 	LastUserInteractionTimeForThrottling = LastUserInteractionTime;
 	
-	PlatformApplication->SetCapture( PlatformWindow );
+	if (PlatformWindow.IsValid())
+	{
+		PlatformApplication->SetCapture(PlatformWindow);
+	}
 	PressedMouseButtons.Add( MouseEvent.GetEffectingButton() );
 
 	bool bInGame = false;
@@ -4419,7 +4441,7 @@ bool FSlateApplication::AttemptNavigation(const FNavigationEvent& NavigationEven
 				// Switch worlds for widgets in the current path 
 				FScopedSwitchWorldHack SwitchWorld(FocusedWidgetPath);
 
-				NewFocusedWidget = HittestGrid->FindNextFocusableWidget(FocusedArrangedWidget, NavigationType, NavigationReply, BoundaryWidget);
+				NewFocusedWidget = FocusedWidgetPath.GetWindow()->GetHittestGrid()->FindNextFocusableWidget(FocusedArrangedWidget, NavigationType, NavigationReply, BoundaryWidget);
 			}
 		}
 	}
@@ -4440,14 +4462,6 @@ bool FSlateApplication::OnControllerAnalog( EControllerButtons::Type Button, int
 	int32 UserIndex = GetUserIndexForController(ControllerId);
 	
 	FAnalogInputEvent AnalogInputEvent(Key, PlatformApplication->GetModifierKeys(), UserIndex, false, 0, 0, AnalogValue);
-	
-	if (AnalogCursor.IsValid())
-	{
-		if (AnalogCursor->HandleAnalog(AnalogInputEvent))
-		{
-			return true;
-		}
-	}
 
 	return ProcessAnalogInputEvent(AnalogInputEvent);
 }
@@ -4468,14 +4482,6 @@ bool FSlateApplication::OnControllerButtonReleased( EControllerButtons::Type But
 	int32 UserIndex = GetUserIndexForController(ControllerId);
 	
 	FKeyEvent KeyEvent(Key, PlatformApplication->GetModifierKeys(),UserIndex, IsRepeat,  0, 0);
-
-	if (AnalogCursor.IsValid())
-	{
-		if (AnalogCursor->HandleReleased(KeyEvent))
-		{
-			return true;
-		}
-	}
 
 	return ProcessKeyUpEvent(KeyEvent);
 }

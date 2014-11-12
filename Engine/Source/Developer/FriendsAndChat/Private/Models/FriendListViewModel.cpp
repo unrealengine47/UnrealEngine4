@@ -54,7 +54,14 @@ public:
 private:
 	void Initialize()
 	{
-		FFriendsAndChatManager::Get()->OnFriendsListUpdated().AddSP( this, &FFriendListViewModelImpl::RefreshFriendsList );
+		if (ListType == EFriendsDisplayLists::GameInviteDisplay)
+		{
+			FFriendsAndChatManager::Get()->OnGameInvitesUpdated().AddSP(this, &FFriendListViewModelImpl::RefreshFriendsList);
+		}
+		else
+		{
+			FFriendsAndChatManager::Get()->OnFriendsListUpdated().AddSP(this, &FFriendListViewModelImpl::RefreshFriendsList);
+		}
 		RefreshFriendsList();
 	}
 
@@ -65,58 +72,64 @@ private:
 	void RefreshFriendsList()
 	{
 		FriendsList.Empty();
+		TArray< TSharedPtr< IFriendItem > > OnlineFriendsList;
+		TArray< TSharedPtr< IFriendItem > > OfflineFriendsList;
+		TArray< TSharedPtr< IFriendItem > > FriendItemList;
 
-		TArray< TSharedPtr< FFriendStuct > > OnlineFriendsList;
-		TArray< TSharedPtr< FFriendStuct > > OfflineFriendsList;
-
-		TArray< TSharedPtr< FFriendStuct > > FriendItemList;
-		FFriendsAndChatManager::Get()->GetFilteredFriendsList( FriendItemList );
-		for( const auto& FriendItem : FriendItemList)
+		if(ListType == EFriendsDisplayLists::GameInviteDisplay)
 		{
-			switch (ListType)
+			FFriendsAndChatManager::Get()->GetFilteredGameInviteList(OfflineFriendsList);
+		}
+		else if (ListType == EFriendsDisplayLists::RecentPlayersDisplay)
+		{
+			OfflineFriendsList = FFriendsAndChatManager::Get()->GetrecentPlayerList();
+		}
+		else
+		{
+			FFriendsAndChatManager::Get()->GetFilteredFriendsList( FriendItemList );
+			for( const auto& FriendItem : FriendItemList)
 			{
-				case EFriendsDisplayLists::DefaultDisplay :
+				switch (ListType)
 				{
-					if(FriendItem->GetInviteStatus() == EInviteStatus::Accepted)
+					case EFriendsDisplayLists::DefaultDisplay :
 					{
-						if(FriendItem->IsOnline())
+						if(FriendItem->GetInviteStatus() == EInviteStatus::Accepted)
 						{
-							OnlineFriendsList.Add(FriendItem);
+							if(FriendItem->IsOnline())
+							{
+								OnlineFriendsList.Add(FriendItem);
+							}
+							else
+							{
+								OfflineFriendsList.Add(FriendItem);
+							}
 						}
-						else
+					}
+					break;
+					case EFriendsDisplayLists::FriendRequestsDisplay :
+					{
+						if( FriendItem->GetInviteStatus() == EInviteStatus::PendingInbound)
 						{
-							OfflineFriendsList.Add(FriendItem);
+							OfflineFriendsList.Add(FriendItem.ToSharedRef());
 						}
 					}
-				}
-				break;
-				case EFriendsDisplayLists::RecentPlayersDisplay :
-				{
-				}
-				break;
-				case EFriendsDisplayLists::FriendRequestsDisplay :
-				{
-					if( FriendItem->GetInviteStatus() == EInviteStatus::PendingInbound)
+					break;
+					case EFriendsDisplayLists::OutgoingFriendInvitesDisplay :
 					{
-						OfflineFriendsList.Add(FriendItem.ToSharedRef());
+						if( FriendItem->GetInviteStatus() == EInviteStatus::PendingOutbound)
+						{
+							OfflineFriendsList.Add(FriendItem.ToSharedRef());
+						}
 					}
+					break;
 				}
-				break;
-				case EFriendsDisplayLists::OutgoingFriendInvitesDisplay :
-				{
-					if( FriendItem->GetInviteStatus() == EInviteStatus::PendingOutbound)
-					{
-						OfflineFriendsList.Add(FriendItem.ToSharedRef());
-					}
-				}
-				break;
 			}
 		}
 
 		/** Functor for sorting friends list */
 		struct FCompareGroupByName
 		{
-			FORCEINLINE bool operator()( const TSharedPtr< FFriendStuct > A, const TSharedPtr< FFriendStuct > B ) const
+			FORCEINLINE bool operator()( const TSharedPtr< IFriendItem > A, const TSharedPtr< IFriendItem > B ) const
 			{
 				check( A.IsValid() );
 				check ( B.IsValid() );

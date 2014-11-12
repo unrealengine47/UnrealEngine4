@@ -11,6 +11,8 @@ namespace EFriendsAndManagerState
 		Idle,								// Idle - can accept requests
 		RequestingFriendsList,				// Requesting a list refresh
 		RequestFriendsListRefresh,			// List request in progress
+		RequestingRecentPlayersIDs,			// Requesting recent player ids
+		RequestRecentPlayersListRefresh,	// Recent players request in progress
 		ProcessFriendsList,					// Process the Friends List after a list refresh
 		RequestingFriendName,				// Requesting a friend add
 		DeletingFriends,					// Deleting a friend
@@ -43,7 +45,6 @@ public:
 	virtual void SetUserSettings(FFriendsAndChatSettings UserSettings) override;
 	virtual TSharedPtr< SWidget > GenerateFriendsListWidget( const FFriendsAndChatStyle* InStyle ) override;
 	virtual TSharedPtr< SWidget > GenerateChatWidget( const FFriendsAndChatStyle* InStyle ) override;
-	virtual void SetInSession( bool bInSession ) override;
 	virtual void InsertNetworkChatMessage(const FString InMessage) override;
 	virtual void JoinPublicChatRoom(const FString& RoomName) override;
 
@@ -52,28 +53,40 @@ public:
 	 *
 	 * @return True if we are in a game session.
 	 */
-	bool IsInSession();
+	bool IsInGameSession() const;
+
+	/**
+	 * Get if the player is in a session and that game is joinable.
+	 *
+	 * @return True if we are in a game session.
+	 */
+	bool IsInJoinableGameSession() const;
 
 	/**
 	 * Create the friends list window.
 	 *
 	 * @param FriendItem The friend to start a chat with.
 	 */
-	void GenerateChatWindow( TSharedPtr< FFriendStuct > FriendItem );
+	void GenerateChatWindow( TSharedPtr< IFriendItem > FriendItem );
+
+	/**
+	 * Set the chat widget contents.
+	 */
+	void SetChatWindowContents();
 
 	/**
 	 * Accept a friend request.
 	 *
 	 * @param FriendItem The friend to accept.
 	 */
-	void AcceptFriend( TSharedPtr< FFriendStuct > FriendItem );
+	void AcceptFriend( TSharedPtr< IFriendItem > FriendItem );
 
 	/**
 	 * Reject a friend request.
 	 *
 	 * @param FriendItem The friend to reject.
 	 */
-	void RejectFriend( TSharedPtr< FFriendStuct > FriendItem );
+	void RejectFriend( TSharedPtr< IFriendItem > FriendItem );
 
 	/**
 	 * Get the friends filtered list of friends.
@@ -81,7 +94,13 @@ public:
 	 * @param OutFriendsList  Array of friends to fill in.
 	 * @return the friend list count.
 	 */
-	int32 GetFilteredFriendsList( TArray< TSharedPtr< FFriendStuct > >& OutFriendsList );
+	int32 GetFilteredFriendsList( TArray< TSharedPtr< IFriendItem > >& OutFriendsList );
+
+	/**
+	 * Get the recent players list.
+	 * @return the list.
+	 */
+	TArray< TSharedPtr< IFriendItem > >& GetrecentPlayerList();
 
 	/**
 	 * Get outgoing request list.
@@ -89,7 +108,7 @@ public:
 	 * @param OutFriendsList  Array of friends to fill in.
 	 * @return The friend list count.
 	 */
-	int32 GetFilteredOutgoingFriendsList( TArray< TSharedPtr< FFriendStuct > >& OutFriendsList );
+	int32 GetFilteredOutgoingFriendsList( TArray< TSharedPtr< IFriendItem > >& OutFriendsList );
 
 	/**
 	 * Request a friend be added.
@@ -103,7 +122,36 @@ public:
 	 *
 	 * @param FriendItem The friend item to delete.
 	 */
-	void DeleteFriend( TSharedPtr< FFriendStuct > FriendItem );
+	void DeleteFriend( TSharedPtr< IFriendItem > FriendItem );
+
+	/**
+	 * Get incoming game invite list.
+	 *
+	 * @param OutFriendsList  Array of friends to fill in.
+	 * @return The friend list count.
+	 */
+	int32 GetFilteredGameInviteList(TArray< TSharedPtr< IFriendItem > >& OutFriendsList);
+
+	/**
+	 * Reject a game invite
+	 *
+	 * @param FriendItem friend with game invite info
+	 */
+	void RejectGameInvite(const TSharedPtr<IFriendItem>& FriendItem);
+
+	/**
+	 * Accept a game invite
+	 *
+	 * @param FriendItem friend with game invite info
+	 */
+	void AcceptGameInvite(const TSharedPtr<IFriendItem>& FriendItem);
+
+	/**
+	 * Send a game invite to a friend
+	 *
+	 * @param FriendItem friend to send game invite to
+	 */
+	void SendGameInvite(const TSharedPtr<IFriendItem>& FriendItem);
 
 	/**
 	 * Find a user ID.
@@ -128,12 +176,19 @@ public:
 	void SetUserIsOnline(bool bIsOnline);
 
 	/**
+	 * Send network message
+	 *
+	 * @param NetworkMessage - the message to send
+	 */
+	void SendNetworkMessage(const FString& NetworkMessage);
+
+	/**
 	 * Find a user.
 	 *
 	 * @param InUserName The user name to find.
 	 * @return The Friend ID.
 	 */
-	TSharedPtr< FFriendStuct > FindUser(const FUniqueNetId& InUserID);
+	TSharedPtr< IFriendItem > FindUser(const FUniqueNetId& InUserID);
 
 	// External events
 	DECLARE_DERIVED_EVENT(FFriendsAndChatManager, IFriendsAndChatManager::FOnFriendsNotificationEvent, FOnFriendsNotificationEvent)
@@ -160,12 +215,24 @@ public:
 		return FriendsSendNetworkMessageEvent;
 	}
 
+	DECLARE_DERIVED_EVENT(IFriendsAndChatManager, IFriendsAndChatManager::FOnFriendsJoinGameEvent, FOnFriendsJoinGameEvent)
+	virtual FOnFriendsJoinGameEvent& OnFriendsJoinGame() override
+	{
+		return FriendsJoinGameEvent;
+	}
+
 	// Internal events
 
 	DECLARE_EVENT(FFriendsAndChatManager, FOnFriendsUpdated)
 	virtual FOnFriendsUpdated& OnFriendsListUpdated()
 	{
 		return OnFriendsListUpdatedDelegate;
+	}
+
+	DECLARE_EVENT(FFriendsAndChatManager, FOnGameInvitesUpdated)
+	virtual FOnGameInvitesUpdated& OnGameInvitesUpdated()
+	{
+		return OnGameInvitesUpdatedDelegate;
 	}
 
 private:
@@ -177,6 +244,11 @@ private:
 	 * Request a list read
 	 */
 	void RequestListRefresh();
+
+	/**
+	 * Request recent player list
+	 */
+	void RequestRecentPlayersListRefresh();
 
 	/**
 	 * Pre process the friends list - find missing names etc
@@ -202,7 +274,7 @@ private:
 	void SendFriendInviteNotification();
 
 	/** Send a friend invite accepted notification. */
-	void SendInviteAcceptedNotification(TSharedPtr< FFriendStuct > Friend);
+	void SendInviteAcceptedNotification(TSharedPtr< IFriendItem > Friend);
 
 	/** Called when singleton is released. */
 	void ShutdownManager();
@@ -216,6 +288,15 @@ private:
 	 * @param ErrorStr			String representing the error condition.
 	 */
 	void OnReadFriendsListComplete( int32 LocalPlayer, bool bWasSuccessful, const FString& ListName, const FString& ErrorStr );
+
+	/**
+	 * Delegate used when the query for recent players has completed
+	 *
+	 * @param UserId the id of the user that made the request
+	 * @param bWasSuccessful true if the async action completed without error, false if there was an error
+	 * @param Error string representing the error condition
+	 */
+	void OnQueryRecentPlayersComplete(const FUniqueNetId& UserId, bool bWasSuccessful, const FString& ErrorStr);
 
 	/**
 	 * Delegate used when an invite send request has completed.
@@ -301,6 +382,17 @@ private:
 	void OnFriendInviteReceived(const FUniqueNetId& UserId, const FUniqueNetId& FriendId);
 
 	/**
+	 * Delegate called when an invite is received to a game session
+	 *
+	 * @param UserId user that received the game invite
+	 * @param FromId user that send the game invite
+	 * @param InviteResult info about the game session that can be joined
+	 */
+	void OnGameInviteReceived(const FUniqueNetId& UserId, const FUniqueNetId& FromId, const FOnlineSessionSearchResult& InviteResult);
+
+	void OnGameDestroyed(const FName SessionName, bool bWasSuccessful);
+
+	/**
 	 * Delegate used when a friend is removed.
 	 *
 	 * @param UserId		The user ID.
@@ -323,6 +415,20 @@ private:
 	 * @param FriendId	The friend ID.
 	 */
 	void OnInviteAccepted(const FUniqueNetId& UserId, const FUniqueNetId& FriendId);
+
+	/**
+	 * Handle the Chat window closed.
+	 *
+	 * @param InWindow - the window closed.
+	 */
+	void HandleChatWindowClosed(const TSharedRef<SWindow>& InWindow);
+
+	/**
+	 * Handle the Friends window closed.
+	 *
+	 * @param InWindow - the window closed.
+	 */
+	void HandleFriendsWindowClosed(const TSharedRef<SWindow>& InWindow);
 
 	/**
 	 * Handle an accept message accepted from a notification.
@@ -362,15 +468,19 @@ private:
 	// Holds the list of Unique Ids found for user names to add as friends
 	TArray< TSharedRef< FUniqueNetId > > QueryUserIds;
 	// Holds the full friends list used to build the UI
-	TArray< TSharedPtr< FFriendStuct > > FriendsList;
+	TArray< TSharedPtr< IFriendItem > > FriendsList;
+	// Holds the recent players list
+	TArray< TSharedPtr< IFriendItem > > RecentPlayersList;
 	// Holds the filtered friends list used in the UI
-	TArray< TSharedPtr< FFriendStuct > > FilteredFriendsList;
+	TArray< TSharedPtr< IFriendItem > > FilteredFriendsList;
 	// Holds the outgoing friend request list used in the UI
-	TArray< TSharedPtr< FFriendStuct > > FilteredOutgoingList;
+	TArray< TSharedPtr< IFriendItem > > FilteredOutgoingList;
 	// Holds the unprocessed friends list generated from a friends request update
-	TArray< TSharedPtr< FFriendStuct > > PendingFriendsList;
+	TArray< TSharedPtr< IFriendItem > > PendingFriendsList;
 	// Holds the list of incoming invites that need to be responded to
-	TArray< TSharedPtr< FFriendStuct > > PendingIncomingInvitesList;
+	TArray< TSharedPtr< IFriendItem > > PendingIncomingInvitesList;
+	// Holds the list of incoming game invites that need to be responded to
+	TMap< FString, TSharedPtr< IFriendItem > > PendingGameInvitesList;
 	// Holds the list of invites we have already responded to
 	TArray< TSharedPtr< FUniqueNetId > > NotifiedRequest;
 	// Holds the list messages sent out to be responded to
@@ -389,6 +499,8 @@ private:
 	FTickerDelegate UpdateFriendsTickerDelegate;
 	// Delegate when friend list has been read
 	FOnReadFriendsListCompleteDelegate OnReadFriendsCompleteDelegate;
+	// Delegate to use for querying for recent players 
+	FOnQueryRecentPlayersCompleteDelegate OnQueryRecentPlayersCompleteDelegate;
 	// Delegate when invites accepted
 	FOnAcceptInviteCompleteDelegate OnAcceptInviteCompleteDelegate;
 	// Delegate when invites have been sent
@@ -407,6 +519,10 @@ private:
 	FOnFriendsChangeDelegate OnFriendsListChangedDelegate;
 	// Delegate for an invite received
 	FOnInviteReceivedDelegate OnFriendInviteReceivedDelegate;
+	// Delegate for a game invite received
+	FOnSessionInviteReceivedDelegate OnGameInviteReceivedDelegate;
+	// Delegate for a game session being destroyed
+	FOnDestroySessionCompleteDelegate OnDestroySessionCompleteDelegate;
 	// Delegate for friend removed
 	FOnFriendRemovedDelegate OnFriendRemovedDelegate;
 	// Delegate for friend invite rejected
@@ -422,10 +538,14 @@ private:
 	FOnFriendsUserSettingsUpdatedEvent FriendsUserSettingsUpdatedDelegate;
 	// Holds the network chat message sent delegate
 	FOnFriendsSendNetworkMessageEvent FriendsSendNetworkMessageEvent;
+	// Holds the join game request delegate
+	FOnFriendsJoinGameEvent FriendsJoinGameEvent;
 
 	// Internal events
 	// Holds the delegate to call when the friends list gets updated - refresh the UI
 	FOnFriendsUpdated OnFriendsListUpdatedDelegate;
+	// Delegate for when list of active game invites updates
+	FOnGameInvitesUpdated OnGameInvitesUpdatedDelegate;
 
 	/* Identity stuff
 	*****************************************************************************/
@@ -466,13 +586,16 @@ private:
 	TSharedPtr< SWindow > ChatWindow;
 	// Holds the style used to create the Friends List widget
 	FFriendsAndChatStyle Style;
-	// Holds if the game is in session
-	bool bIsInSession;
 	// Holds if the Friends list is inited
 	bool bIsInited;
+	// true if the current game is allowed to be joined
+	bool bIsGameJoinable;
 	// Holds the Friends system user settings
 	FFriendsAndChatSettings UserSettings;
+	// Holds if we need a list refresh
 	bool bRequiresListRefresh;
+	// Holds if we need a recent player list refresh
+	bool bRequiresRecentPlayersRefresh;
 	// Holds the toast notification
 	TSharedPtr<SNotificationList> FriendsNotificationBox;
 

@@ -1,6 +1,7 @@
 // Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
 
 #include "SlateCorePrivatePCH.h"
+#include "HittestGrid.h"
 
 // this define is the first step to complete removal of the below hack
 #define PLATFORM_SPECIFIC_HACK 	0
@@ -511,6 +512,10 @@ bool SWindow::HasActiveChildren() const
 	return false;
 }
 
+TSharedRef<FHittestGrid> SWindow::GetHittestGrid()
+{
+	return HittestGrid;
+}
 
 void SWindow::Tick( const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime )
 {
@@ -1696,7 +1701,8 @@ EWindowZone::Type SWindow::GetCurrentWindowZone(FVector2D LocalMousePosition)
  * Default constructor. Protected because SWindows must always be used via TSharedPtr. Instead, use FSlateApplication::MakeWindow()
  */
 SWindow::SWindow()
-	: Opacity( 1.0f )
+	: bDragAnywhere( false )
+	, Opacity( 1.0f )
 	, SizingRule( ESizingRule::UserSized )
 	, bIsTransparent( false )
 	, bIsPopupWindow( false )
@@ -1723,6 +1729,7 @@ SWindow::SWindow()
 	, ContentSlot(nullptr)
 	, Style( &FCoreStyle::Get().GetWidgetStyle<FWindowStyle>("Window") )
 	, WindowBackground( &Style->BackgroundBrush )
+	, HittestGrid( MakeShareable(new FHittestGrid()) )
 	, bShouldShowWindowContentDuringOverlay( false )
 	, ExpectedMaxWidth( INDEX_NONE )
 	, ExpectedMaxHeight( INDEX_NONE )
