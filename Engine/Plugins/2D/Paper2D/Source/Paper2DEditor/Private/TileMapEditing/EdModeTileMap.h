@@ -1,6 +1,7 @@
 // Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
+#include "PaperTileSet.h"
 
 namespace ETileMapEditorTool
 {
@@ -89,10 +90,6 @@ protected:
 
 	// Compute a world space ray from the screen space mouse coordinates
 	FViewportCursorLocation CalculateViewRay(FEditorViewportClient* InViewportClient, FViewport* InViewport);
-
-	static AActor* GetFirstSelectedActorContainingTileMapComponent();
-
-	void CreateModeButtonInModeTray(FToolBarBuilder& Builder);
 	
 	TSharedRef<FExtender> AddCreationModeExtender(const TSharedRef<FUICommandList> InCommandList);
 

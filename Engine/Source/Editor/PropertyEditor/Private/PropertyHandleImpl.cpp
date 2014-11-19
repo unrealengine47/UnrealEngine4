@@ -10,6 +10,8 @@
 #include "Editor/UnrealEd/Public/Kismet2/KismetEditorUtilities.h"
 #include "IPropertyUtilities.h"
 #include "PropertyEditor.h"
+#include "Engine/Selection.h"
+#include "Engine/UserDefinedStruct.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogPropertyView, Log, All);
 
@@ -50,7 +52,7 @@ FPropertyAccess::Result FPropertyValueImpl::GetPropertyValueString( FString& Out
 	FReadAddressList ReadAddresses;
 	bool bAllValuesTheSame = InPropertyNode->GetReadAddress( !!InPropertyNode->HasNodeFlags(EPropertyNodeFlags::SingleSelectOnly), ReadAddresses, false, true );
 
-	if( ReadAddresses.Num() > 0 && bAllValuesTheSame || ReadAddresses.Num() == 1 ) 
+	if( (ReadAddresses.Num() > 0 && bAllValuesTheSame) || ReadAddresses.Num() == 1 ) 
 	{
 		ValueAddress = ReadAddresses.GetAddress(0);
 
@@ -229,7 +231,7 @@ bool FPropertyValueImpl::SendTextToObjectProperty( const FString& Text, EPropert
 
 		// If more than one object is selected, an empty field indicates their values for this property differ.
 		// Don't send it to the objects value in this case (if we did, they would all get set to None which isn't good).
-		if (!ParentNode || ParentNode->GetInstancesNum() > 1 && !Text.Len())
+		if ((!ParentNode || ParentNode->GetInstancesNum() > 1) && !Text.Len())
 		{
 			return false;
 		}

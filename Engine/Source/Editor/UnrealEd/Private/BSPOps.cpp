@@ -5,6 +5,7 @@
 #include "BSPOps.h"
 #include "Engine/Polys.h"
 #include "Components/BrushComponent.h"
+#include "GameFramework/Volume.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogBSPOps, Log, All);
 
@@ -1253,24 +1254,6 @@ void FBSPOps::RotateBrushVerts(ABrush* Brush, const FRotator& Rotation, bool bCl
 	}
 }
 
-
-void FBSPOps::HandleBrushRegistered(ABrush* Brush)
-{
-	// Only patch up the rotation if this is a level-placed actor (ie not a prefab).
-	if ( Brush && !Brush->GetActorRotation().IsZero() && Brush->GetOuter() && Brush->GetOuter()->IsA(ULevel::StaticClass()) )
-	{
-		if ( Brush->IsVolumeBrush() )
-		{
-			const FRotator OldRotation = Brush->GetActorRotation();
-			Brush->SetActorRotation(FRotator::ZeroRotator);
-			FBSPOps::RotateBrushVerts( Brush, OldRotation, false );
-		}
-		else
-		{
-			Brush->SetActorRotation(FRotator::ZeroRotator);
-		}
-	}
-}
 
 void FBSPOps::HandleVolumeShapeChanged(AVolume& Volume)
 {

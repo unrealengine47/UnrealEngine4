@@ -244,6 +244,10 @@ public:
 	UPROPERTY(EditAnywhere, Category=Input)
 	TEnumAsByte<EAutoReceiveInput::Type> AutoReceiveInput;
 
+	/** The priority of this input component when pushed in to the stack. */
+	UPROPERTY(EditAnywhere, Category=Input)
+	int32 InputPriority;
+
 	/** Component that handles input for this actor, if input is enabled. */
 	UPROPERTY()
 	class UInputComponent* InputComponent;
@@ -933,6 +937,10 @@ public:
 	/** Sets whether this actor can tick when paused. */
 	UFUNCTION(BlueprintCallable, Category="Utilities")
 	void SetTickableWhenPaused(bool bTickableWhenPaused);
+
+	/** Disables/Enables ticking for this actor (CanEverTick() has to be true, for tick enabling to work). */
+	UFUNCTION(BlueprintCallable, Category = "Utilities")
+	void SetTickEnabled(bool bEnable = true);
 
 	/** Allocate a MID for a given parent material. */
 	UFUNCTION(BlueprintCallable, meta=(DeprecatedFunction, DeprecationMessage="Use PrimitiveComponent.CreateAndSetMaterialInstanceDynamic instead.", BlueprintProtected = "true"), Category="Rendering|Material")

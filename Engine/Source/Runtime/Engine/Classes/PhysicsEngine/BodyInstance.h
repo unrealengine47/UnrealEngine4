@@ -188,13 +188,6 @@ public:
 	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category=Physics)
 	uint32 bEnableGravity:1;
 
-	/**
-	 * If true, this body will be put into the asynchronous physics scene. If false, it will be put into the synchronous physics scene.
-	 * If the body is static, it will be placed into both scenes regardless of the value of bUseAsyncScene.
-	 */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category=Physics)
-	uint32 bUseAsyncScene:1;
-
 	/** If true, it will update mass when scale changes **/
 	UPROPERTY()
 	uint32 bUpdateMassWhenScaleChanges:1;
@@ -216,6 +209,14 @@ public:
 	UPROPERTY(EditAnywhere, Category = Physics)
 	FVector CustomLockedAxis;
 
+	/** When a Locked Axis Mode is selected, will lock translation on the specified axis*/
+	UPROPERTY(EditAnywhere, Category = Physics, meta=(DisplayName = "Lock Axis Translation"))
+	uint32 bLockTranslation : 1;
+	
+	/** When a Locked Axis Mode is selected, will lock rotation to the specified axis*/
+	UPROPERTY(EditAnywhere, Category = Physics, meta=(DisplayName = "Lock Axis Rotation"))
+	uint32 bLockRotation : 1;
+
 	/** Locks physical movement along axis. */
 	void SetDOFLock(ELockedAxis::Type NewAxisMode);
 
@@ -235,6 +236,13 @@ public:
 #endif
 
 protected:
+
+	/**
+	 * If true, this body will be put into the asynchronous physics scene. If false, it will be put into the synchronous physics scene.
+	 * If the body is static, it will be placed into both scenes regardless of the value of bUseAsyncScene.
+	 */
+	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category=Physics)
+	uint32 bUseAsyncScene:1;
 
 	/** Whether this instance of the object has its own custom walkable slope override setting. */
 	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category=Physics)
@@ -396,6 +404,9 @@ public:
 	/** Returns whether this body wants (and can) use the async scene. */
 	bool UseAsyncScene() const;
 
+	/** Indicates whether this body should use the async scene. Must be called before body is init'd, will assert otherwise. Will have no affect if there is no async scene. */
+	void SetUseAsyncScene(bool bNewUseAsyncScene);
+
 #if WITH_PHYSX
 	/**
 	 * Return the PxRigidActor from the given scene (see EPhysicsSceneType), if SceneType is in the range [0, PST_MAX).
@@ -529,6 +540,9 @@ public:
 
 	/** return true if it uses Collision Profile System. False otherwise*/
 	bool DoesUseCollisionProfile() const;
+
+	/** Modify the mass scale of this body */
+	void SetMassScale(float InMassScale=1.f);
 
 	/** Update instance's mass properties (mass, inertia and center-of-mass offset) based on MassScale, InstanceMassScale and COMNudge. */
 	void UpdateMassProperties();

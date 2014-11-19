@@ -17,6 +17,9 @@
 #include "MessageLog.h"
 #include "Editor/UnrealEd/Classes/Settings/EditorLoadingSavingSettings.h"
 #include "BlueprintEditorUtils.h"
+#include "Engine/TimelineTemplate.h"
+#include "Engine/SimpleConstructionScript.h"
+#include "Engine/SCS_Node.h"
 #endif
 #include "Components/TimelineComponent.h"
 
@@ -672,7 +675,7 @@ void UBlueprint::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const
 
 	//NumReplicatedProperties
 	int32 NumReplicatedProperties = 0;
-	UBlueprintGeneratedClass* BlueprintClass = Cast<UBlueprintGeneratedClass>(GenClass);
+	UBlueprintGeneratedClass* BlueprintClass = Cast<UBlueprintGeneratedClass>(SkeletonGeneratedClass);
 	if (BlueprintClass)
 	{
 		NumReplicatedProperties = BlueprintClass->NumReplicatedProperties;

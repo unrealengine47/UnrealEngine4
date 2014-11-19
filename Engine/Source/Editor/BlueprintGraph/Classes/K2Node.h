@@ -3,10 +3,12 @@
 #pragma once
 #include "EdGraph/EdGraphNode.h"
 #include "BlueprintNodeSignature.h"
+#include "EngineLogs.h"
 #include "K2Node.generated.h"
 
 class UBlueprintNodeSpawner;
 class FBlueprintActionDatabaseRegistrar;
+class UDynamicBlueprintBinding;
 
 /** Helper struct to allow us to redirect properties and functions through renames and additionally between classes if necessary */
 struct FFieldRemapInfo
@@ -332,7 +334,7 @@ class UK2Node : public UEdGraphNode
 	 */
 	virtual FBlueprintNodeSignature GetSignature() const { return FBlueprintNodeSignature(GetClass()); }
 
-	BLUEPRINTGRAPH_API enum EBaseNodeRefreshPriority
+	enum BLUEPRINTGRAPH_API EBaseNodeRefreshPriority
 	{
 		Low_UsesDependentWildcard = 100,
 		Normal = 200,

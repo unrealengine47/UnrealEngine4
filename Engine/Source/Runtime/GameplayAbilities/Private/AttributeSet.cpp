@@ -6,7 +6,7 @@
 #include "HAL/OutputDevices.h"
 #include "AbilitySystemGlobals.h"
 
-#include "ComponentReregisterContext.h"	
+#include "ComponentReregisterContext.h"
 
 FGameplayAttribute::FGameplayAttribute(UProperty *NewProperty)
 {
@@ -14,7 +14,7 @@ FGameplayAttribute::FGameplayAttribute(UProperty *NewProperty)
 	Attribute = Cast<UNumericProperty>(NewProperty);
 }
 
-void FGameplayAttribute::SetNumericValueChecked(const float NewValue, class UAttributeSet* Dest) const
+void FGameplayAttribute::SetNumericValueChecked(float NewValue, class UAttributeSet* Dest) const
 {
 	UNumericProperty *NumericProperty = CastChecked<UNumericProperty>(Attribute);
 	void* ValuePtr = NumericProperty->ContainerPtrToValuePtr<void>(Dest);
@@ -324,7 +324,7 @@ void FAttributeSetInitter::InitAttributeSetDefaults(UAbilitySystemComponent* Abi
 				if (Set->ShouldInitProperty(bInitialInit, DataPair.Property))
 				{
 					FGameplayAttribute AttributeToModify(DataPair.Property);
-					AbilitySystemComponent->SetNumericAttribute(AttributeToModify, DataPair.Value);
+					AbilitySystemComponent->SetNumericAttributeBase(AttributeToModify, DataPair.Value);
 				}
 			}
 		}		

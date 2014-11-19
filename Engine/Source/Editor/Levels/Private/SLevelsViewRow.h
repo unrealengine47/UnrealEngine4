@@ -6,6 +6,7 @@
 #include "ISourceControlModule.h"
 #include "SVectorInputBox.h"
 #include "LevelUtils.h"
+#include "Engine/LevelStreaming.h"
 
 #define LOCTEXT_NAMESPACE "LevelsView"
 
@@ -66,7 +67,8 @@ public:
 
 	FSlateColor GetForegroundBasedOnSelection() const
 	{
-		return FEditorStyle::GetSlateColor("DefaultForeground");
+		static const FName DefaultForegroundName("DefaultForeground");
+		return FEditorStyle::GetSlateColor(DefaultForegroundName);
 	}
 
 protected:

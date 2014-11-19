@@ -10,7 +10,14 @@
 #include "PhATSharedData.h"
 #include "PhATPreviewViewportClient.h"
 #include "SPhATPreviewViewport.h"
-
+#include "GameFramework/WorldSettings.h"
+#include "CanvasTypes.h"
+#include "PhysicsEngine/BodySetup.h"
+#include "Engine/Font.h"
+#include "PhysicsEngine/PhysicsConstraintTemplate.h"
+#include "PhysicsEngine/PhysicsSettings.h"
+#include "PhysicsEngine/PhysicsHandleComponent.h"
+#include "DrawDebugHelpers.h"
 
 FPhATEdPreviewViewportClient::FPhATEdPreviewViewportClient(TWeakPtr<FPhAT> InPhAT, TSharedPtr<FPhATSharedData> Data)
 	: FEditorViewportClient(GLevelEditorModeTools(), &Data->PreviewScene)
@@ -64,7 +71,7 @@ FPhATEdPreviewViewportClient::FPhATEdPreviewViewportClient(TWeakPtr<FPhAT> InPhA
 	if (CollBoxExtent.X > CollBoxExtent.Y)
 	{
 		SetViewLocation( FVector(WorldSphere.Center.X, WorldSphere.Center.Y - 1.5*WorldSphere.W, WorldSphere.Center.Z) );
-		SetViewRotation( FRotator(0,90.f,0) );	
+		SetViewRotation( EditorViewportDefs::DefaultPerspectiveViewRotation );	
 	}
 	else
 	{
@@ -157,9 +164,9 @@ void FPhATEdPreviewViewportClient::DrawCanvas( FViewport& InViewport, FSceneView
 	if ((SharedData->bShowHierarchy && SharedData->EditorSimOptions->bShowNamesInHierarchy))
 	{
 		// Iterate over each graphics bone.
-		for (int32 i = 0; i <SharedData->EditorSkelComp->SpaceBases.Num(); ++i)
+		for(int32 i = 0; i <SharedData->EditorSkelComp->GetNumSpaceBases(); ++i)
 		{
-			FVector BonePos = SharedData->EditorSkelComp->ComponentToWorld.TransformPosition(SharedData->EditorSkelComp->SpaceBases[i].GetLocation());
+			FVector BonePos = SharedData->EditorSkelComp->ComponentToWorld.TransformPosition(SharedData->EditorSkelComp->GetSpaceBases()[i].GetLocation());
 
 			FPlane proj = View.Project(BonePos);
 			if (proj.W > 0.f) // This avoids drawing bone names that are behind us.
@@ -659,8 +666,14 @@ void FPhATEdPreviewViewportClient::Tick(float DeltaSeconds)
 		Setting->bWorldGravitySet = true;
 
 		// We back up the transforms array now
-		SharedData->EditorSkelComp->AnimationSpaceBases = SharedData->EditorSkelComp->SpaceBases;
+		SharedData->EditorSkelComp->AnimationSpaceBases = SharedData->EditorSkelComp->GetSpaceBases();
 		SharedData->EditorSkelComp->SetPhysicsBlendWeight(SharedData->EditorSimOptions->PhysicsBlend);
+
+		if(SharedData->Recorder.InRecording())
+		{
+			// make sure you don't allow switch SharedData->EditorSkelComp
+			SharedData->Recorder.UpdateRecord(SharedData->EditorSkelComp, DeltaSeconds);
+		}
 	}
 }
 

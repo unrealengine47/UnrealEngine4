@@ -7,6 +7,7 @@
 #include "UnrealEd.h"
 #include "BSPOps.h"
 #include "Engine/Polys.h"
+#include "Engine/Selection.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogEditorBsp, Log, All);
 
@@ -1182,6 +1183,8 @@ int UEditorEngine::bspBrushCSG
 			DestEdPoly.iLink = i;
 
 		// Transform it.
+		DestEdPoly.Scale( Actor->GetPrePivot(), Actor->GetActorScale() );
+		DestEdPoly.Rotate( Actor->GetPrePivot(), Actor->GetActorRotation() );
 		DestEdPoly.Transform( Actor->GetPrePivot(), Actor->GetActorLocation() );
 
 		// Add poly to the temp model.

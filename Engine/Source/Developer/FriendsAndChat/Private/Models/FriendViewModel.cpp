@@ -127,6 +127,11 @@ public:
 		return FriendItem.IsValid() ? FriendItem->IsOnline() : false;
 	}
 
+	virtual EOnlinePresenceState::Type GetOnlineStatus() const override
+	{
+		return FriendItem.IsValid() ? FriendItem->GetOnlineStatus() : EOnlinePresenceState::Offline;
+	}
+
 	virtual FString GetClientId() const override
 	{
 		return FriendItem.IsValid() ? FriendItem->GetClientId() : FString();
@@ -165,7 +170,7 @@ private:
 	{
 		if (FriendItem.IsValid() && 
 			FriendItem->GetOnlineFriend().IsValid() && 
-			FriendItem->IsGameRequest())
+			(FriendItem->IsGameRequest() || FriendItem->IsGameJoinable()))
 		{
 			FFriendsAndChatManager::Get()->AcceptGameInvite(FriendItem);
 		}
@@ -183,9 +188,9 @@ private:
 
 	void StartChat()
 	{
-		if ( FriendItem.IsValid() && FriendItem->GetOnlineFriend().IsValid() )
+		if (FriendItem.IsValid() && FriendItem->GetOnlineFriend().IsValid())
 		{
-			FFriendsAndChatManager::Get()->GenerateChatWindow(FriendItem);
+			FFriendsAndChatManager::Get()->SetChatFriend(FriendItem);
 		}
 	}
 

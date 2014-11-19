@@ -2,7 +2,7 @@
 
 #include "GeometryModePrivatePCH.h"
 #include "DynamicMeshBuilder.h"
-
+#include "Engine/Selection.h"
 
 IMPLEMENT_MODULE( FGeometryModeModule, GeometryMode );
 
@@ -119,10 +119,8 @@ void FEdModeGeometry::Enter()
 	
 	if (!Toolkit.IsValid())
 	{
-		// @todo: Remove this assumption when we make modes per level editor instead of global
-		auto ToolkitHost = FModuleManager::LoadModuleChecked< FLevelEditorModule >( "LevelEditor" ).GetFirstLevelEditor();
 		Toolkit = MakeShareable(new FGeometryMode);
-		Toolkit->Init(ToolkitHost);
+		Toolkit->Init(Owner->GetToolkitHost());
 	}
 
 	GetFromSource();

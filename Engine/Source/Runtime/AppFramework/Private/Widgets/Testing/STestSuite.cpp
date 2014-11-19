@@ -12,7 +12,6 @@
 #include "TransformCalculus3D.h"
 #include "SlateRenderTransform.h"
 #include "SlateLayoutTransform.h"
-#include "SWebBrowser.h"
 #include "SInlineEditableTextBlock.h"
 #include "STextEntryPopup.h"
 #include "SDPIScaler.h"
@@ -23,7 +22,7 @@
 #include "SVolumeControl.h"
 #include "SResponsiveGridPanel.h"
 #include "SColorPicker.h"
-
+#include "INotificationWidget.h"
 
 #define LOCTEXT_NAMESPACE "STestSuite"
 
@@ -3874,6 +3873,49 @@ protected:
 	TSharedPtr<STextBlock> OutputTextBlock;
 };
 
+class STestNotificationWidget : public SCompoundWidget, public INotificationWidget
+{
+public:
+
+	SLATE_BEGIN_ARGS(STestNotificationWidget){}
+	SLATE_END_ARGS()
+
+		void Construct(const FArguments& InArgs)
+	{
+		ChildSlot
+			[
+				SNew(SBorder)
+				.Padding(15.0f)
+				.BorderImage(FCoreStyle::Get().GetBrush("NotificationList.ItemBackground"))
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					[
+						SNew(SImage)
+						.Image(FTestStyle::Get().GetBrush("UE4Icon"))
+					]
+					+ SHorizontalBox::Slot()
+					.Padding(FMargin(15.0f, 0.0f, 0.0f, 0.0f))
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("TestingBigTextBigMargin", "Big notififcation text!"))
+						.Font(FSlateFontInfo(FPaths::EngineContentDir() / TEXT("Slate/Fonts/Roboto-Bold.ttf"), 30))
+					]
+				]
+			];
+	}
+
+	virtual void OnSetCompletionState(SNotificationItem::ECompletionState State) override
+	{
+	}
+
+	virtual TSharedRef< SWidget > AsWidget() override
+	{
+		return SharedThis(this);
+	}
+};
+
 class SNotificationListTest : public SCompoundWidget
 {
 public:
@@ -3912,6 +3954,13 @@ public:
 						.OnClicked(this, &SNotificationListTest::SpawnNotification2)
 						.Text( LOCTEXT("NotificationListTest-SpawnNotification2Label", "Spawn Notification2") )
 					]
+
+					+ SHorizontalBox::Slot().AutoWidth()
+						[
+							SNew(SButton)
+							.OnClicked(this, &SNotificationListTest::SpawnCustomNotification)
+							.Text(LOCTEXT("NotificationListTest-SpawnCustomNotificationLabel", "Spawn Custom Notification"))
+						]
 
 					+SHorizontalBox::Slot().AutoWidth()
 					[
@@ -4101,6 +4150,19 @@ protected:
 		FNotificationInfo Info( LOCTEXT("TestNotification02", "Another Notification" ));
 		SetNotificationInfoFlags(Info);
 		NotificationListPtr->AddNotification(Info);
+		return FReply::Handled();
+	}
+
+	FReply SpawnCustomNotification()
+	{
+		FNotificationInfo Info(SNew(STestNotificationWidget));
+		Info.bFireAndForget = true;
+		Info.ExpireDuration = 3.0f;
+		Info.FadeOutDuration = 3.0f;
+
+		SetNotificationInfoFlags(Info);
+		NotificationListPtr->AddNotification(Info);
+
 		return FReply::Handled();
 	}
 
@@ -4994,19 +5056,6 @@ TSharedRef<SDockTab> SpawnTab(const FSpawnTabArgs& Args, FName TabIdentifier)
 				]
 			];
 	}
-	else if (TabIdentifier == FName(TEXT("WebBrowserTab")))
-	{
-		const FString DocPath(FPaths::ConvertRelativePathToFull(FPaths::Combine(*FPaths::EngineDir(), TEXT("Documentation/HTML/INT/Resources/index.html"))));
-		return SNew(SDockTab)
-			.Label(LOCTEXT("WebBrowserTab", "Web Browser"))
-			.ToolTipText(LOCTEXT("WebBrowserTabToolTip", "Switches to the Web Browser to test its features."))
-			[
-				SNew(SWebBrowser)
-				.ParentWindow(Args.GetOwnerWindow())
-				//.InitialURL(DocPath)
-				//.InitialURL(TEXT("www.youtube.com"))
-			];
-	}
 #endif //WITH_FANCY_TEXT
 	else if (TabIdentifier == FName("LayoutRoundingTab"))
 	{
@@ -5243,10 +5292,6 @@ TSharedRef<SDockTab> SpawnTestSuite1( const FSpawnTabArgs& Args )
 
 	TestSuite1TabManager->RegisterTabSpawner( "RichEditableTextTab", FOnSpawnTab::CreateStatic( &SpawnTab, FName("RichEditableTextTab") ) )
 		.SetDisplayName( NSLOCTEXT("TestSuite1", "RichEditableTextTab", "Rich Editable Text Test") )
-		.SetGroup(TestSuiteMenu::SuiteTabs);
-
-	TestSuite1TabManager->RegisterTabSpawner("WebBrowserTab", FOnSpawnTab::CreateStatic(&SpawnTab, FName("WebBrowserTab")))
-		.SetDisplayName(NSLOCTEXT("TestSuite1", "WebBrowserTab", "Web Browser test"))
 		.SetGroup(TestSuiteMenu::SuiteTabs);
 
 	TestSuite1TabManager->RegisterTabSpawner( "LayoutRoundingTab", FOnSpawnTab::CreateStatic( &SpawnTab, FName("LayoutRoundingTab") ) )

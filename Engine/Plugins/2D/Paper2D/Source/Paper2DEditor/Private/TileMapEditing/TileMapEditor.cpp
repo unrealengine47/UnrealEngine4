@@ -14,6 +14,7 @@
 #include "Paper2DEditorModule.h"
 #include "STileMapEditorViewportToolbar.h"
 #include "SDockTab.h"
+#include "EdModeTileMap.h"
 
 #define LOCTEXT_NAMESPACE "TileMapEditor"
 
@@ -65,6 +66,11 @@ public:
 	void NotifyTileMapBeingEditedHasChanged()
 	{
 		EditorViewportClient->NotifyTileMapBeingEditedHasChanged();
+	}
+
+	void ActivateEditMode()
+	{
+		EditorViewportClient->ActivateEditMode();
 	}
 private:
 	// Pointer back to owning tile map editor instance (the keeper of state)
@@ -228,8 +234,7 @@ TSharedRef<SDockTab> FTileMapEditor::SpawnTab_ToolboxHost(const FSpawnTabArgs& A
 		.Icon(FEditorStyle::GetBrush("LevelEditor.Tabs.Modes"))
 		.Label(LOCTEXT("ToolboxHost_Title", "Toolbox"))
 		[
-			SNew(STextBlock)
-			.Text(LOCTEXT("ToolkitControlsGohere", "Toolkit controls go here"))
+			ToolboxPtr.ToSharedRef()
 		];
 }
 
@@ -288,6 +293,9 @@ void FTileMapEditor::InitTileMapEditor(const EToolkitMode::Type Mode, const TSha
 	BindCommands();
 
 	ViewportPtr = SNew(STileMapEditorViewport, SharedThis(this));
+	ToolboxPtr = SNew(SBorder)
+		.BorderImage(FEditorStyle::GetBrush("ToolPanel.GroupBorder"))
+		.Padding(0.f);
 
 	// Default layout
 	const TSharedRef<FTabManager::FLayout> StandaloneDefaultLayout = FTabManager::NewLayout("Standalone_TileMapEditor_Layout_v2")
@@ -339,17 +347,13 @@ void FTileMapEditor::InitTileMapEditor(const EToolkitMode::Type Mode, const TSha
 	// Initialize the asset editor and spawn the layout above
 	InitAssetEditor(Mode, InitToolkitHost, TileMapEditorAppName, StandaloneDefaultLayout, /*bCreateDefaultStandaloneMenu=*/ true, /*bCreateDefaultToolbar=*/ true, InitTileMap);
 
+	// Activate the edit mode
+	ViewportPtr->ActivateEditMode();
+
 	// Extend things
 	ExtendMenu();
 	ExtendToolbar();
 	RegenerateMenusAndToolbars();
-
-	// Activate the tile map edit mode
-	EditorModeToolsInstance.SetDefaultMode(FEdModeTileMap::EM_TileMap);
-	EditorModeToolsInstance.ActivateDefaultMode();
-
-	//@TODO: Need to be able to pass ToolkitHost.Get() into EditorModeToolsInstance, and have it in turn pass it into Enter/Leave on the individual modes I think
-	//@TODO: Need to be able to register the widget in the toolbox panel with ToolkitHost, so it can instance the ed mode widgets into it
 }
 
 void FTileMapEditor::BindCommands()
@@ -402,6 +406,41 @@ FString FTileMapEditor::GetWorldCentricTabPrefix() const
 FString FTileMapEditor::GetDocumentationLink() const
 {
 	return TEXT("Engine/Paper2D/TileMapEditor");
+}
+
+void FTileMapEditor::OnToolkitHostingStarted(const TSharedRef< class IToolkit >& Toolkit)
+{
+	TSharedPtr<SWidget> InlineContent = Toolkit->GetInlineContent();
+	if (InlineContent.IsValid())
+	{
+		ToolboxPtr->SetContent(InlineContent.ToSharedRef());
+	}
+}
+
+void FTileMapEditor::OnToolkitHostingFinished(const TSharedRef< class IToolkit >& Toolkit)
+{
+	ToolboxPtr->SetContent(SNullWidget::NullWidget);
+
+	//@TODO: MODETOOLS: How to handle multiple ed modes at once in a standalone asset editor?
+#if 0
+	bool FoundAnotherToolkit = false;
+	const TArray< TSharedPtr< IToolkit > >& HostedToolkits = LevelEditor.Pin()->GetHostedToolkits();
+	for (auto HostedToolkitIt = HostedToolkits.CreateConstIterator(); HostedToolkitIt; ++HostedToolkitIt)
+	{
+		if ((*HostedToolkitIt) != Toolkit)
+		{
+			UpdateInlineContent((*HostedToolkitIt)->GetInlineContent());
+			FoundAnotherToolkit = true;
+			break;
+		}
+	}
+
+	if (!FoundAnotherToolkit)
+	{
+		UpdateInlineContent(SNullWidget::NullWidget);
+	}
+
+#endif
 }
 
 FLinearColor FTileMapEditor::GetWorldCentricTabColorScale() const

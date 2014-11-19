@@ -113,6 +113,8 @@ namespace NavigationDebugDrawing
 void FNavigationLockContext::LockUpdates()
 {
 #if WITH_EDITOR
+	bIsLocked = true;
+
 	if (bSingleWorld)
 	{
 		UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(MyWorld);
@@ -138,6 +140,11 @@ void FNavigationLockContext::LockUpdates()
 void FNavigationLockContext::UnlockUpdates()
 {
 #if WITH_EDITOR
+	if (!bIsLocked)
+	{
+		return;
+	}
+
 	if (bSingleWorld)
 	{
 		UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(MyWorld);
@@ -2269,6 +2276,7 @@ void UNavigationSystem::PopulateNavOctree()
 	for (int32 LevelIndex = 0; LevelIndex < World->GetNumLevels(); ++LevelIndex) 
 	{
 		ULevel* Level = World->GetLevel(LevelIndex);
+		AddLevelCollisionToOctree(Level);
 
 		for (int32 ActorIndex=0; ActorIndex<Level->Actors.Num(); ActorIndex++)
 		{
@@ -2774,7 +2782,7 @@ void UNavigationSystem::RebuildAll()
 	{
 		ANavigationData* NavData = NavDataSet[NavDataIndex];
 
-		if (NavData && NavData->bRebuildAtRuntime || (GIsEditor && !bIsInGame))
+		if (NavData && (NavData->bRebuildAtRuntime || (GIsEditor && !bIsInGame)))
 		{
 			NavData->RebuildAll();
 		}
@@ -2983,8 +2991,13 @@ void UNavigationSystem::CleanUp(ECleanupMode Mode)
 }
 
 //----------------------------------------------------------------------//
-// Kismet functions
+// Blueprint functions
 //----------------------------------------------------------------------//
+UNavigationSystem* UNavigationSystem::GetNavigationSystem(UObject* WorldContext)
+{
+	return GetCurrent(WorldContext);
+}
+
 FVector UNavigationSystem::ProjectPointToNavigation(UObject* WorldContextObject, const FVector& Point, ANavigationData* NavData, TSubclassOf<UNavigationQueryFilter> FilterClass)
 {
 	FNavLocation ProjectedPoint(Point);

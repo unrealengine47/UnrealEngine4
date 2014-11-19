@@ -11,6 +11,8 @@
 #include "EditorClassUtils.h"
 #include "SSearchBox.h"
 #include "SWidgetSwitcher.h"
+#include "GameFramework/Volume.h"
+#include "Engine/PostProcessVolume.h"
 
 /**
  * These are the tab indexes, if the tabs are reorganized you need to adjust the
@@ -566,7 +568,8 @@ const FSlateBrush* SPlacementModeTools::PlacementGroupBorderImage( int32 Placeme
 {
 	if ( WidgetSwitcher->GetActiveWidgetIndex() == PlacementGroupIndex )
 	{
-		return FEditorStyle::GetBrush( "PlacementBrowser.ActiveTabBar" );
+		static FName PlacementBrowserActiveTabBarBrush( "PlacementBrowser.ActiveTabBar" );
+		return FEditorStyle::GetBrush( PlacementBrowserActiveTabBarBrush );
 	}
 	else
 	{

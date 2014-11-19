@@ -12,6 +12,17 @@
 #include "SWizard.h"
 #include "SHyperlink.h"
 #include "TutorialMetaData.h"
+#include "GameFramework/GameMode.h"
+#include "GameFramework/GameState.h"
+#include "GameFramework/Pawn.h"
+#include "GameFramework/WorldSettings.h"
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/Actor.h"
+#include "Camera/PlayerCameraManager.h"
+#include "GameFramework/HUD.h"
+#include "GameFramework/PlayerState.h"
+#include "Kismet/BlueprintFunctionLibrary.h"
 
 
 #define LOCTEXT_NAMESPACE "GameProjectGeneration"
@@ -69,6 +80,17 @@ private:
 	/** Pointer to the currently selected module in the new class dialog */
 	const TSharedPtr<FModuleContextInfo>* SelectedModuleInfoPtr;
 };
+
+static void FindPublicEngineHeaderFiles(TArray<FString>& OutFiles, const FString& Path)
+{
+	TArray<FString> ModuleDirs;
+	IFileManager::Get().FindFiles(ModuleDirs, *(Path / TEXT("*")), false, true);
+	for (const FString& ModuleDir : ModuleDirs)
+	{
+		IFileManager::Get().FindFilesRecursive(OutFiles, *(Path / ModuleDir / TEXT("Classes")), TEXT("*.h"), true, false, false);
+		IFileManager::Get().FindFilesRecursive(OutFiles, *(Path / ModuleDir / TEXT("Public")), TEXT("*.h"), true, false, false);
+	}
+}
 
 BEGIN_SLATE_FUNCTION_BUILD_OPTIMIZATION
 void SNewClassDialog::Construct( const FArguments& InArgs )
@@ -970,7 +992,8 @@ void SNewClassDialog::FinishClicked()
 	FString CppFilePath;
 
 	FText FailReason;
-	if ( GameProjectUtils::AddCodeToProject(NewClassName, NewClassPath, *SelectedModuleInfo, ParentClassInfo, HeaderFilePath, CppFilePath, FailReason) )
+	const TSet<FString>& DisallowedHeaderNames = FSourceCodeNavigation::GetSourceFileDatabase().GetDisallowedHeaderNames();
+	if (GameProjectUtils::AddCodeToProject(NewClassName, NewClassPath, *SelectedModuleInfo, ParentClassInfo, DisallowedHeaderNames, HeaderFilePath, CppFilePath, FailReason))
 	{
 		// Prevent periodic validity checks. This is to prevent a brief error message about the class already existing while you are exiting.
 		bPreventPeriodicValidityChecksUntilNextChange = true;
@@ -1200,7 +1223,8 @@ void SNewClassDialog::UpdateInputValidity()
 	// Validate the class name only if the path is valid
 	if ( bLastInputValidityCheckSuccessful )
 	{
-		bLastInputValidityCheckSuccessful = GameProjectUtils::IsValidClassNameForCreation(NewClassName, *SelectedModuleInfo, LastInputValidityErrorText);
+		const TSet<FString>& DisallowedHeaderNames = FSourceCodeNavigation::GetSourceFileDatabase().GetDisallowedHeaderNames();
+		bLastInputValidityCheckSuccessful = GameProjectUtils::IsValidClassNameForCreation(NewClassName, *SelectedModuleInfo, DisallowedHeaderNames, LastInputValidityErrorText);
 	}
 
 	LastPeriodicValidityCheckTime = FSlateApplication::Get().GetCurrentTime();

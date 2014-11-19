@@ -35,6 +35,7 @@
 #include "Components/ReflectionCaptureComponent.h"
 #include "Engine/GameEngine.h"
 #include "GameFramework/GameUserSettings.h"
+#include "GameFramework/GameMode.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogEngine, Log, All);
 
@@ -299,7 +300,7 @@ TSharedRef<SWindow> UGameEngine::CreateGameWindow()
 
 void UGameEngine::SwitchGameWindowToUseGameViewport()
 {
-	if ( ensure(GameViewportWindow.IsValid()) && GameViewportWindow.Pin()->GetContent() != GameViewportWidget )
+	if (GameViewportWindow.IsValid() && GameViewportWindow.Pin()->GetContent() != GameViewportWidget)
 	{
 		if( !GameViewportWidget.IsValid() )
 		{

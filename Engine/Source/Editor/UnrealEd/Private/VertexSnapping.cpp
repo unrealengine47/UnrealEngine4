@@ -4,6 +4,9 @@
 #include "VertexSnapping.h"
 #include "StaticMeshResources.h"
 #include "Components/BrushComponent.h"
+#include "Engine/Polys.h"
+#include "Engine/Selection.h"
+#include "EngineUtils.h"
 
 namespace VertexSnappingConstants
 {
@@ -715,7 +718,7 @@ bool FVertexSnappingImpl::SnapDraggedActorsToNearestVertex( FVector& DragDelta, 
 
 		FSceneView* View = ViewportClient->CalcSceneView( &ViewFamily );
 
-		FVector StartLocation = GLevelEditorModeTools().PivotLocation;
+		FVector StartLocation = ViewportClient->GetModeTools()->PivotLocation;
 
 		FVector DesiredUnsnappedLocation = StartLocation+DragDelta;
 					

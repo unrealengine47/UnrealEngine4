@@ -2339,7 +2339,7 @@ void UMaterial::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEve
 	}
 
 	// Check if the material is masked and uses a custom opacity (that's not 1.0f).
-	bIsMasked = ((EBlendMode(BlendMode) == BLEND_Masked) && (OpacityMask.Expression || (OpacityMask.UseConstant && OpacityMask.Constant < 0.999f)) || bUseMaterialAttributes);
+	bIsMasked = (((EBlendMode(BlendMode) == BLEND_Masked) && (OpacityMask.Expression || (OpacityMask.UseConstant && OpacityMask.Constant < 0.999f))) || bUseMaterialAttributes);
 
 	bool bRequiresCompilation = true;
 	if( PropertyThatChanged ) 
@@ -2937,7 +2937,7 @@ void UMaterial::BackupMaterialShadersToMemory(TMap<FMaterialShaderMap*, TScopedP
 	FMaterial::BackupEditorLoadedMaterialShadersToMemory(ShaderMapToSerializedShaderData);
 }
 
-void UMaterial::RestoreMaterialShadersFromMemory(EShaderPlatform ShaderPlatform, const TMap<FMaterialShaderMap*, TScopedPointer<TArray<uint8> > >& ShaderMapToSerializedShaderData)
+void UMaterial::RestoreMaterialShadersFromMemory(const TMap<FMaterialShaderMap*, TScopedPointer<TArray<uint8> > >& ShaderMapToSerializedShaderData)
 {
 	// Process FMaterialShaderMap's referenced by UObjects (UMaterial, UMaterialInstance)
 	for (TObjectIterator<UMaterialInterface> It; It; ++It)

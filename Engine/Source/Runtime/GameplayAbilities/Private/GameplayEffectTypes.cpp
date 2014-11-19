@@ -4,6 +4,7 @@
 #include "AbilitySystemInterface.h"
 #include "GameplayTagsModule.h"
 #include "GameplayEffectTypes.h"
+#include "AbilitySystemComponent.h"
 
 bool FGameplayEffectAttributeCaptureDefinition::operator==(const FGameplayEffectAttributeCaptureDefinition& Other) const
 {
@@ -40,21 +41,38 @@ void FGameplayEffectContext::AddInstigator(class AActor *InInstigator, class AAc
 	}
 }
 
+void FGameplayEffectContext::AddActors(TArray<TWeakObjectPtr<AActor>> InActors, bool bReset)
+{
+	if (bReset && Actors.Num())
+	{
+		Actors.Reset();
+	}
+
+	check(!Actors.Num());
+	Actors = InActors;
+}
+
 void FGameplayEffectContext::AddHitResult(const FHitResult InHitResult, bool bReset)
 {
 	if (bReset && HitResult.IsValid())
 	{
 		HitResult.Reset();
+		bHasWorldOrigin = false;
 	}
 
 	check(!HitResult.IsValid());
 	HitResult = TSharedPtr<FHitResult>(new FHitResult(InHitResult));
+	if (bHasWorldOrigin == false)
+	{
+		AddOrigin(InHitResult.TraceStart);
+	}
 }
 
 bool FGameplayEffectContext::NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess)
 {
 	Ar << Instigator;
 	Ar << EffectCauser;
+	Ar << Actors;
 
 	bool HasHitResults = HitResult.IsValid();
 	Ar << HasHitResults;
@@ -100,6 +118,19 @@ void FGameplayEffectContext::AddOrigin(FVector InOrigin)
 {
 	bHasWorldOrigin = true;
 	WorldOrigin = InOrigin;
+}
+
+void FGameplayEffectContext::GetOwnedGameplayTags(OUT FGameplayTagContainer &TagContainer) const
+{
+	IGameplayTagAssetInterface* TagInterface = Cast<IGameplayTagAssetInterface>(Instigator);
+	if (TagInterface)
+	{
+		TagInterface->GetOwnedGameplayTags(TagContainer);
+	}
+	else if (InstigatorAbilitySystemComponent)
+	{
+		InstigatorAbilitySystemComponent->GetOwnedGameplayTags(TagContainer);
+	}
 }
 
 bool FGameplayEffectContextHandle::NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess)

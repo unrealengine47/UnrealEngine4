@@ -23,6 +23,8 @@ public:
 	virtual FLinearColor GetWorldCentricTabColorScale() const override;
 	virtual FString GetWorldCentricTabPrefix() const override;
 	virtual FString GetDocumentationLink() const override;
+	virtual void OnToolkitHostingStarted(const TSharedRef< class IToolkit >& Toolkit) override;
+	virtual void OnToolkitHostingFinished(const TSharedRef< class IToolkit >& Toolkit) override;
 	// End of FAssetEditorToolkit
 
 	// FSerializableObject interface
@@ -36,7 +38,7 @@ public:
 protected:
 	UPaperTileMap* TileMapBeingEdited;
 	TSharedPtr<class STileMapEditorViewport> ViewportPtr;
-	FEditorModeTools EditorModeToolsInstance;
+	TSharedPtr<class SBorder> ToolboxPtr;
 
 protected:
 	void BindCommands();

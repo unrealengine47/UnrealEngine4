@@ -429,7 +429,7 @@ void InitDebugContext()
 		bDebugOutputInitialized = (glGetError() == GL_NO_ERROR);
 	}
 #endif // GL_AMD_debug_output
-	if (!bDebugOutputInitialized)
+	if (!bDebugOutputInitialized && !PLATFORM_MAC)
 	{
 		UE_LOG(LogRHI,Warning,TEXT("OpenGL debug output extension not supported!"));
 	}
@@ -650,7 +650,6 @@ static void InitRHICapabilitiesForGL()
 
 	GSupportsVolumeTextureRendering = FOpenGL::SupportsVolumeTextureRendering();
 	GSupportsRenderDepthTargetableShaderResources = true;
-	GSupportsVertexTextureFetch = true;
 	GSupportsRenderTargetFormat_PF_G8 = true;
 	GSupportsSeparateRenderTargetBlendState = FOpenGL::SupportsSeparateAlphaBlend();
 	GSupportsDepthBoundsTest = FOpenGL::SupportsDepthBoundsTest();
@@ -658,13 +657,11 @@ static void InitRHICapabilitiesForGL()
 	GSupportsRenderTargetFormat_PF_FloatRGBA = FOpenGL::SupportsColorBufferHalfFloat();
 
 	GSupportsShaderFramebufferFetch = FOpenGL::SupportsShaderFramebufferFetch();
-	GPixelCenterOffset = 0.0f;
 	GMaxShadowDepthBufferSizeX = FMath::Min<int32>(Value_GL_MAX_RENDERBUFFER_SIZE, 4096); // Limit to the D3D11 max.
 	GMaxShadowDepthBufferSizeY = FMath::Min<int32>(Value_GL_MAX_RENDERBUFFER_SIZE, 4096);
-	GSupportsVertexInstancing = true;
 	GHardwareHiddenSurfaceRemoval = FOpenGL::HasHardwareHiddenSurfaceRemoval();
 
-	GShaderPlatformForFeatureLevel[ERHIFeatureLevel::ES2] = (GMaxRHIFeatureLevel == ERHIFeatureLevel::ES2) ? GRHIShaderPlatform_DEPRECATED : SP_OPENGL_PCES2;
+	GShaderPlatformForFeatureLevel[ERHIFeatureLevel::ES2] = (GMaxRHIFeatureLevel == ERHIFeatureLevel::ES2) ? GMaxRHIShaderPlatform : SP_OPENGL_PCES2;
 	GShaderPlatformForFeatureLevel[ERHIFeatureLevel::ES3_1] = SP_NumPlatforms;
 	GShaderPlatformForFeatureLevel[ERHIFeatureLevel::SM4] = PLATFORM_MAC ? SP_OPENGL_SM4_MAC : SP_OPENGL_SM4;
 	GShaderPlatformForFeatureLevel[ERHIFeatureLevel::SM5] = OPENGL_ES31 ? SP_OPENGL_ES31_EXT : SP_OPENGL_SM5;
@@ -935,7 +932,7 @@ static bool VerifyCompiledShader(GLuint Shader, const ANSICHAR* GlslCode, bool I
 static void CheckTextureCubeLodSupport()
 {
 #if PLATFORM_ANDROID
-	if (IsES2Platform(GRHIShaderPlatform_DEPRECATED))
+	if (IsES2Platform(GMaxRHIShaderPlatform))
 	{
 		UE_LOG(LogRHI, Display, TEXT("Testing for shader compiler compatibility"));
 		// This code creates a sample program and finds out which hacks are required to compile it

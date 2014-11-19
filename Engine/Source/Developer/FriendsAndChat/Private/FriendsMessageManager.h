@@ -41,6 +41,7 @@ struct FFriendChatMessage
 	FText FromName;
 	FText Message;
 	FText MessageTimeText;
+	TSharedPtr<FUniqueNetId> SenderId;
 	bool bIsFromSelf;
 };
 
@@ -58,13 +59,18 @@ public:
 	virtual void LogIn() = 0;
 	virtual void LogOut() = 0;
 	virtual void JoinPublicRoom(const FString& RoomName) = 0;
-	virtual void SendRoomMessage(const FString& RoomName, const FString& MsgBody) = 0;
-	virtual void SendPrivateMessage(const FUniqueNetId& RecipientId, const FString& MsgBody) = 0;
-	virtual void SendNetworkMessage(const FString& MsgBody) = 0;
+	virtual bool SendRoomMessage(const FString& RoomName, const FString& MsgBody) = 0;
+	virtual bool SendPrivateMessage(const FUniqueNetId& RecipientId, const FString& MsgBody) = 0;
 	virtual void InsertNetworkMessage(const FString& MsgBody) = 0;
 
 	DECLARE_EVENT_OneParam(FFriendsMessageManager, FOnChatMessageReceivedEvent, const TSharedRef<FFriendChatMessage> /*The chat message*/)
 	virtual FOnChatMessageReceivedEvent& OnChatMessageRecieved() = 0;
+
+	DECLARE_EVENT_OneParam(FFriendsMessageManager, FOnChatPublicRoomJoinedEvent, const FString& /*RoomName*/)
+	virtual FOnChatPublicRoomJoinedEvent& OnChatPublicRoomJoined() = 0;
+
+	DECLARE_EVENT_OneParam(FFriendsMessageManager, FOnChatPublicRoomExitedEvent, const FString& /*RoomName*/)
+	virtual FOnChatPublicRoomExitedEvent& OnChatPublicRoomExited() = 0;
 };
 
 /**

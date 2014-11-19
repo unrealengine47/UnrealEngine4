@@ -23,6 +23,7 @@
 #include "ChunkManifestGenerator.h"
 #include "PhysicsPublic.h"
 #include "CookerSettings.h"
+#include "ShaderCompiler.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCookCommandlet, Log, All);
 
@@ -561,13 +562,13 @@ int32 UCookCommandlet::Main(const FString& CmdLineParams)
 		GenerateAssetRegistry(Platforms);
 
 		// new cook is better 
-		if ( Switches.Contains(TEXT("NEWCOOK")))
+		if ( Switches.Contains(TEXT("OLDCOOK")))
 		{
-			NewCook(Platforms, FilesInPath );
+			Cook(Platforms, FilesInPath);
 		}
 		else
 		{
-			Cook(Platforms, FilesInPath);
+			NewCook(Platforms, FilesInPath );
 		}
 	}
 	
@@ -1162,6 +1163,8 @@ bool UCookCommandlet::NewCook( const TArray<ITargetPlatform*>& Platforms, TArray
 		}
 
 
+		GShaderCompilingManager->ProcessAsyncResults(true, false);
+	
 		if (NonMapPackageCountSinceLastGC > 0)
 		{
 			// We should GC if we have packages to collect and we've been idle for some time.

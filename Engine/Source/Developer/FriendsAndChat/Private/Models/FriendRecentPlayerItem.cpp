@@ -40,6 +40,11 @@ const bool FFriendRecentPlayerItem::IsOnline() const
 	return false;
 }
 
+EOnlinePresenceState::Type FFriendRecentPlayerItem::GetOnlineStatus() const
+{
+	return EOnlinePresenceState::Offline;
+}
+
 const TSharedRef< FUniqueNetId > FFriendRecentPlayerItem::GetUniqueID() const
 {
 	return RecentPlayer->GetUserId();
@@ -47,7 +52,7 @@ const TSharedRef< FUniqueNetId > FFriendRecentPlayerItem::GetUniqueID() const
 
 const EFriendsDisplayLists::Type FFriendRecentPlayerItem::GetListType() const
 {
-	return EFriendsDisplayLists::GameInviteDisplay;
+	return EFriendsDisplayLists::RecentPlayersDisplay;
 }
 
 void FFriendRecentPlayerItem::SetOnlineFriend( TSharedPtr< FOnlineFriend > InOnlineFriend )

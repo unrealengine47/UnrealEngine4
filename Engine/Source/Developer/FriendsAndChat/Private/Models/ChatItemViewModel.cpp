@@ -32,6 +32,11 @@ public:
 		return DisplayName;
 	}
 
+	virtual TSharedRef<FFriendChatMessage> GetMessageItem() const override
+	{
+		return ChatMessage;
+	}
+
 	virtual FText GetMessageTime() override
 	{
 		return ChatMessage->MessageTimeText;
@@ -47,6 +52,15 @@ public:
 		return Owner->GetTimeTransparency();
 	}
 
+	virtual const bool UseOverrideColor() const override
+	{
+		return Owner->GetOverrideColorSet();
+	}
+
+	virtual const FSlateColor GetOverrideColor() const override
+	{
+		return Owner->GetFontOverrideColor();
+	}
 private:
 
 	FChatItemViewModelImpl(TSharedRef<FFriendChatMessage> ChatMessage, TSharedPtr<FChatViewModel> Owner)

@@ -11,6 +11,7 @@
 #include "Engine/ActorChannel.h"
 #include "DataChannel.h"
 #include "Engine/PackageMapClient.h"
+#include "GameFramework/GameMode.h"
 
 /*-----------------------------------------------------------------------------
 	UNetConnection implementation.
@@ -202,7 +203,7 @@ void UNetConnection::Close()
 			*LowLevelGetRemoteAddress(true),
 			*FDateTime::UtcNow().ToString(TEXT("%Y.%m.%d-%H.%M.%S")));
 
-		if (Channels[0] != NULL)
+		if (Channels[0] != NULL && Channels[0]->OpenedLocally)
 		{
 			Channels[0]->Close();
 		}

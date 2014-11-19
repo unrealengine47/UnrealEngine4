@@ -1,5 +1,6 @@
 // Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
 #pragma once
+#include "Layers/Layer.h"
 
 #define LOCTEXT_NAMESPACE "LayerStats"
 
@@ -123,7 +124,9 @@ private:
 
 		const auto Button = StatButtonWidgets[ StatsIndex ];
 
-		return ( Button.IsValid() && ( Button->IsHovered() || Button->IsPressed() ) ) ? FEditorStyle::GetSlateColor( "InvertedForeground" ) : FSlateColor::UseForeground();
+		static const FName InvertedForegroundName("InvertedForeground");
+
+		return ( Button.IsValid() && ( Button->IsHovered() || Button->IsPressed() ) ) ? FEditorStyle::GetSlateColor(InvertedForegroundName): FSlateColor::UseForeground();
 	}
 
 	/**

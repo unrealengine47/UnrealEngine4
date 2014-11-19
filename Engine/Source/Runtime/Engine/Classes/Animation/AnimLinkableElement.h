@@ -48,6 +48,13 @@ struct FAnimLinkableElement
 	/** Update the timing information for this element. Will not search for a new segment unless this element does not have one */
 	ENGINE_API void Update();
 
+	/** Link this element to an animation object (Sequence or Montage)
+	 *	@param AnimObject The object to link to
+	 *	@param AbsTime The absolute time to place this element
+	 *	@param InSlotIndex Slot index for montages (ignored otherwise)
+	 */
+	ENGINE_API void Link(UAnimSequenceBase* AnimObject, float AbsTime, int32 InSlotIndex = 0);
+
 	/** Link this element to a montage 
 	 * @param Montage The montage to link to
 	 * @param AbsMontageTime The time in the montage that this element should be placed at
@@ -105,6 +112,9 @@ struct FAnimLinkableElement
 	 */
 	ENGINE_API void SetSegmentIndex(int32 NewSegmentIndex) {SegmentIndex = NewSegmentIndex;}
 
+	/** Relinks this element if it is outside of its segments */
+	ENGINE_API void ConditionalRelink();
+
 protected:
 
 	/** Gets the segment in the current montage in the current slot that is at the time of this element */
@@ -150,9 +160,6 @@ protected:
 	UAnimSequenceBase* LinkedSequence;
 
 private:
-
-	/** Relinks this element if it is outside of its segments */
-	void ConditionalRelink();
 
 	/** Gets a time from an absolute LinkValue
 	 * @param NewLinkMethod The type of time to return

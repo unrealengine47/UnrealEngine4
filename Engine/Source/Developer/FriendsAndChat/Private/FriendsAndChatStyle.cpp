@@ -24,6 +24,12 @@ FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendsListClosedButtonStyle(cons
 	return *this;
 }
 
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetAddFriendCloseButtonStyle(const FButtonStyle& InAddFriendCloseButtonStyle)
+{
+	AddFriendCloseButtonStyle = InAddFriendCloseButtonStyle;
+	return *this;
+}
+
 
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendsListActionButtonStyle(const FButtonStyle& ButtonStyle)
 {
@@ -37,12 +43,29 @@ FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendsListCriticalButtonStyle(co
 	return *this;
 }
 
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendsListEmphasisButtonStyle(const FButtonStyle& ButtonStyle)
+{
+	FriendListEmphasisButtonStyle = ButtonStyle;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendsListComboButtonStyle(const FButtonStyle& ButtonStyle)
+{
+	FriendListComboButtonStyle = ButtonStyle;
+	return *this;
+}
+
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendsListItemButtonStyle(const FButtonStyle& ButtonStyle)
 {
 	FriendListItemButtonStyle = ButtonStyle;
 	return *this;
 }
 
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendsListItemButtonSimpleStyle(const FButtonStyle& ButtonStyle)
+{
+	FriendListItemButtonSimpleStyle = ButtonStyle;
+	return *this;
+}
 
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetTitleBarBrush(const FSlateBrush& Brush)
 {
@@ -71,6 +94,12 @@ FFriendsAndChatStyle& FFriendsAndChatStyle::SetLauncherImageBrush(const FSlateBr
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendsComboDropdownImageBrush(const FSlateBrush& Brush)
 {
 	FriendsComboDropdownImageBrush = Brush;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendsAddImageBrush(const FSlateBrush& Brush)
+{
+	FriendsAddImageBrush = Brush;
 	return *this;
 }
 
@@ -106,6 +135,36 @@ FFriendsAndChatStyle& FFriendsAndChatStyle::SetBackgroundBrush(const FSlateBrush
 	return *this;
 }
 
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendContainerHeader(const FSlateBrush& InFriendContainerHeader)
+{
+	FriendContainerHeader = InFriendContainerHeader;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendListHeader(const FSlateBrush& InFriendListHeader)
+{
+	FriendListHeader = InFriendListHeader;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendItemSelected(const FSlateBrush& InFriendItemSelected)
+{
+	FriendItemSelected = InFriendItemSelected;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendContainerBackground(const FSlateBrush& InFriendContainerBackground)
+{
+	FriendContainerBackground = InFriendContainerBackground;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetAddFriendEditBorder(const FSlateBrush& InAddFriendEditBorder)
+{
+	AddFriendEditBorder = InAddFriendEditBorder;
+	return *this;
+}
+
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetTextStyle(const FTextBlockStyle& InTextStle)
 {
 	TextStyle = InTextStle;
@@ -118,9 +177,21 @@ FFriendsAndChatStyle& FFriendsAndChatStyle::SetFontStyle(const FSlateFontInfo& I
 	return *this;
 }
 
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetFontStyleBold(const FSlateFontInfo& InFontStyle)
+{
+	FriendsFontStyleBold = InFontStyle;
+	return *this;
+}
+
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetFontStyleSmall(const FSlateFontInfo& FontStyle)
 {
 	FriendsFontStyleSmall = FontStyle;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetFontStyleSmallBold(const FSlateFontInfo& FontStyle)
+{
+	FriendsFontStyleSmallBold = FontStyle;
 	return *this;
 }
 
@@ -169,6 +240,18 @@ FFriendsAndChatStyle& FFriendsAndChatStyle::SetChatPartyBrush(const FSlateBrush&
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetChatWhisperBrush(const FSlateBrush& Brush)
 {
 	ChatWhisperBrush = Brush;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetAddFriendEditableTextStyle(const FEditableTextBoxStyle& InEditableTextStyle)
+{
+	AddFriendEditableTextStyle = InEditableTextStyle;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendCheckboxStyle(const FCheckBoxStyle& InFriendCheckboxStyle)
+{
+	FriendCheckboxStyle = InFriendCheckboxStyle;
 	return *this;
 }
 

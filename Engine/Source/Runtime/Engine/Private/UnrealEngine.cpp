@@ -48,6 +48,7 @@
 #include "Animation/SkeletalMeshActor.h"
 #include "GameFramework/HUD.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/GameMode.h"
 #include "Engine/LevelStreamingVolume.h"
 #include "Engine/LevelScriptActor.h"
 #include "Vehicles/TireType.h"
@@ -1727,23 +1728,26 @@ public:
 
 bool UEngine::InitializeHMDDevice()
 {
-	if (FParse::Param(FCommandLine::Get(),TEXT("emulatestereo")))
+	if (!GIsEditor)
 	{
-		TSharedPtr<FFakeStereoRenderingDevice> FakeStereoDevice(new FFakeStereoRenderingDevice());
-		StereoRenderingDevice = FakeStereoDevice;
-	}
-	// No reason to connect an HMD on a dedicated server.  Also fixes dedicated servers stealing the oculus connection.
-	else if(!HMDDevice.IsValid() && !FParse::Param(FCommandLine::Get(),TEXT("nohmd")) && !IsRunningDedicatedServer())
-	{
-		// Get a list of plugins that implement this feature
-		TArray<IHeadMountedDisplayModule*> HMDImplementations = IModularFeatures::Get().GetModularFeatureImplementations<IHeadMountedDisplayModule>( IHeadMountedDisplayModule::GetModularFeatureName() );
-		HMDImplementations.Sort(FHMDPluginSorter());
-		for( auto HMDModuleIt = HMDImplementations.CreateIterator(); HMDModuleIt && !HMDDevice.IsValid(); ++HMDModuleIt )
+		if (FParse::Param(FCommandLine::Get(), TEXT("emulatestereo")))
 		{
-			HMDDevice = (*HMDModuleIt)->CreateHeadMountedDisplay();
-			if( HMDDevice.IsValid() )
+			TSharedPtr<FFakeStereoRenderingDevice> FakeStereoDevice(new FFakeStereoRenderingDevice());
+			StereoRenderingDevice = FakeStereoDevice;
+		}
+		// No reason to connect an HMD on a dedicated server.  Also fixes dedicated servers stealing the oculus connection.
+		else if (!HMDDevice.IsValid() && !FParse::Param(FCommandLine::Get(), TEXT("nohmd")) && !IsRunningDedicatedServer())
+		{
+			// Get a list of plugins that implement this feature
+			TArray<IHeadMountedDisplayModule*> HMDImplementations = IModularFeatures::Get().GetModularFeatureImplementations<IHeadMountedDisplayModule>(IHeadMountedDisplayModule::GetModularFeatureName());
+			HMDImplementations.Sort(FHMDPluginSorter());
+			for (auto HMDModuleIt = HMDImplementations.CreateIterator(); HMDModuleIt && !HMDDevice.IsValid(); ++HMDModuleIt)
 			{
-				StereoRenderingDevice = HMDDevice;
+				HMDDevice = (*HMDModuleIt)->CreateHeadMountedDisplay();
+				if (HMDDevice.IsValid())
+				{
+					StereoRenderingDevice = HMDDevice;
+				}
 			}
 		}
 	}
@@ -9021,6 +9025,15 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 	// RedrawViewports() may have added a dummy playerstart location. Remove all views to start from fresh the next Tick().
 	IStreamingManager::Get().RemoveStreamingViews( RemoveStreamingViews_All );
 	
+	// See if we need to record network demos
+	const TCHAR* DemoRecName = URL.GetOption( TEXT( "DemoRec=" ), NULL );
+
+	if ( DemoRecName != NULL )
+	{
+		// Play the demo
+		GEngine->Exec( WorldContext.World(), *FString::Printf( TEXT("DEMOREC %s"), DemoRecName ) );
+	}
+
 	MALLOC_PROFILER( FMallocProfiler::SnapshotMemoryLoadMapEnd( URL.Map ); )
 
 	// Successfully started local level.

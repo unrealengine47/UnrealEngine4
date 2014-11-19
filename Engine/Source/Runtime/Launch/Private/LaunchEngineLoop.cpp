@@ -20,6 +20,7 @@
 	#include "AutomationController.h"
 	#include "ProfilerClient.h"
 	#include "RemoteConfigIni.h"
+	#include "EditorCommandLineUtils.h"
 
 	#if PLATFORM_WINDOWS
 		#include "AllowWindowsPlatformTypes.h"
@@ -215,6 +216,13 @@ bool ParseGameProjectFromCommandLine(const TCHAR* InCmdLine, FString& OutProject
 			return true;
 		}
 	}
+
+#if WITH_EDITOR
+	if (FEditorCommandLineUtils::ParseGameProjectPath(InCmdLine, OutProjectFilePath, OutGameName))
+	{
+		return true;
+	}
+#endif
 	return false;
 }
 
@@ -326,9 +334,9 @@ void LaunchFixGameNameCase()
 			else
 			{
 				const FText Message = FText::Format(
-					NSLOCTEXT("Core", "MismatchedGameNames", "The name of the .uproject file ('{0}') must match the GameName key in the [URL] section of Config/DefaultEngine.ini (currently '{1}').  Please either change the ini or rename the .uproject to match each other (case-insensitive match)."),
-					FText::FromString(FApp::GetGameName()),
-					FText::FromString(GameName));
+					NSLOCTEXT("Core", "MismatchedGameNames", "The name of the .uproject file ('{0}') must match the name of the project passed in the command line ('{1}')."),
+					FText::FromString(*GameName),
+					FText::FromString(FApp::GetGameName()));
 				if (!GIsBuildMachine)
 				{
 					UE_LOG(LogInit, Warning, TEXT("%s"), *Message.ToString());
@@ -2120,10 +2128,8 @@ bool FEngineLoop::ShouldUseIdleMode() const
 
 void FEngineLoop::Tick()
 {
-	// If a movie that is blocking the game thread has been playing,
-	// wait for it to finish before we tick again, otherwise we'll get
-	// multiple threads ticking simultaneously, which is bad
-	GetMoviePlayer()->WaitForMovieToFinish();
+	// Ensure we aren't starting a frame while loading or playing a loading movie
+	ensure(GetMoviePlayer()->IsLoadingFinished() && !GetMoviePlayer()->IsMovieCurrentlyPlaying());
 
 	// early in the Tick() to get the callbacks for cvar changes called
 	IConsoleManager::Get().CallAllConsoleVariableSinks();
@@ -2208,7 +2214,12 @@ void FEngineLoop::Tick()
 		}
 
 		GEngine->Tick( FApp::GetDeltaTime(), bIdleMode );
-
+		
+		// If a movie that is blocking the game thread has been playing,
+		// wait for it to finish before we continue to tick or tick again
+		// We do this right after GEngine->Tick() because that is where user code would initiate a load / movie.
+		GetMoviePlayer()->WaitForMovieToFinish();
+		
 		if (GShaderCompilingManager)
 		{
 			// Process any asynchronous shader compile results that are ready, limit execution time

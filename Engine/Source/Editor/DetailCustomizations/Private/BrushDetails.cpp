@@ -11,6 +11,7 @@
 #include "ClassIconFinder.h"
 #include "ScopedTransaction.h"
 #include "Engine/StaticMeshActor.h"
+#include "GameFramework/Volume.h"
 
 #define LOCTEXT_NAMESPACE "BrushDetails"
 
@@ -174,7 +175,7 @@ void FBrushDetails::CustomizeDetails( IDetailLayoutBuilder& DetailLayout )
 	};
 
 	// Hide the brush builder if it is NULL
-	TSharedRef<IPropertyHandle> BrushBuilderPropertyHandle = DetailLayout.GetProperty("BrushBuilder");
+	TSharedRef<IPropertyHandle> BrushBuilderPropertyHandle = DetailLayout.GetProperty(GET_MEMBER_NAME_CHECKED(ABrush, BrushBuilder));
 	UObject* BrushBuilderObject = nullptr;
 	BrushBuilderPropertyHandle->GetValue(BrushBuilderObject);
 	if(BrushBuilderObject == nullptr)
@@ -188,7 +189,7 @@ void FBrushDetails::CustomizeDetails( IDetailLayoutBuilder& DetailLayout )
 
 	IDetailCategoryBuilder& BrushBuilderCategory = DetailLayout.EditCategory( "BrushSettings", TEXT(""), ECategoryPriority::Important );
 
-	BrushBuilderCategory.AddProperty( TEXT("BrushType") );
+	BrushBuilderCategory.AddProperty( GET_MEMBER_NAME_CHECKED(ABrush, BrushType) );
 	BrushBuilderCategory.AddCustomRow( LOCTEXT("BrushShape", "Brush Shape").ToString() )
 	.NameContent()
 	[

@@ -372,6 +372,11 @@ public:
 		Children = Child;
 	}
 
+	virtual FString PropertyNameToDisplayName(FName Name) const 
+	{ 
+		return Name.ToString(); 
+	}
+
 #if WITH_EDITOR
 	/** Try and find boolean metadata with the given key. If not found on this class, work up hierarchy looking for it. */
 	bool GetBoolMetaDataHierarchical(const FName& Key) const;
@@ -1085,15 +1090,13 @@ public:
 	virtual COREUOBJECT_API void RecursivelyPreload();
 };
 
-struct FStructOnScope
+class FStructOnScope
 {
-private:
+protected:
 	TWeakObjectPtr<const UScriptStruct> ScriptStruct;
 	uint8* SampleStructMemory;
 
-	FStructOnScope(const FStructOnScope&);
-	FStructOnScope& operator=(const FStructOnScope&);
-
+	FStructOnScope() : SampleStructMemory(NULL) {}
 public:
 	FStructOnScope(const UScriptStruct* InScriptStruct)
 		: ScriptStruct(InScriptStruct)
@@ -1106,15 +1109,15 @@ public:
 		}
 	}
 
-	uint8* GetStructMemory() { return SampleStructMemory; }
+	virtual uint8* GetStructMemory() { return SampleStructMemory; }
 
-	const uint8* GetStructMemory() const { return SampleStructMemory; }
+	virtual const uint8* GetStructMemory() const { return SampleStructMemory; }
 
-	const UScriptStruct* GetStruct() const { return ScriptStruct.Get(); }
+	virtual const UScriptStruct* GetStruct() const { return ScriptStruct.Get(); }
 
-	bool IsValid() const { return ScriptStruct.IsValid() && SampleStructMemory; }
+	virtual bool IsValid() const { return ScriptStruct.IsValid() && SampleStructMemory; }
 
-	void Destroy()
+	virtual void Destroy()
 	{
 		if (ScriptStruct.IsValid() && SampleStructMemory)
 		{
@@ -1129,10 +1132,14 @@ public:
 		}
 	}
 
-	~FStructOnScope()
+	virtual ~FStructOnScope()
 	{
 		Destroy();
 	}
+
+private:
+	FStructOnScope(const FStructOnScope&);
+	FStructOnScope& operator=(const FStructOnScope&);
 };
 
 /*-----------------------------------------------------------------------------

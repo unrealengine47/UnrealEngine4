@@ -376,10 +376,10 @@ void ULandscapeComponent::PostLoad()
 {
 	Super::PostLoad();
 
-	// Ensure that the component's lighting settings matches the actor's.
 	ALandscapeProxy* LandscapeProxy = GetLandscapeProxy();
 	if (ensure(LandscapeProxy))
 	{
+		// Ensure that the component's lighting settings matches the actor's.
 		bCastStaticShadow = LandscapeProxy->bCastStaticShadow;
 		bCastShadowAsTwoSided = LandscapeProxy->bCastShadowAsTwoSided;
 
@@ -400,6 +400,18 @@ void ULandscapeComponent::PostLoad()
 				}
 				WeightmapLayerAllocations[i].LayerName_DEPRECATED = NAME_None;
 			}
+		}
+
+		// check SectionBaseX/Y are correct
+		int32 CheckSectionBaseX = FMath::RoundToInt(RelativeLocation.X) + LandscapeProxy->LandscapeSectionOffset.X;
+		int32 CheckSectionBaseY = FMath::RoundToInt(RelativeLocation.Y) + LandscapeProxy->LandscapeSectionOffset.Y;
+		if (CheckSectionBaseX != SectionBaseX ||
+			CheckSectionBaseY != SectionBaseY)
+		{
+			UE_LOG(LogLandscape, Warning, TEXT("LandscapeComponent SectionBaseX disagrees with its location, attempted automated fix: '%s', %d,%d vs %d,%d."),
+				*GetFullName(), SectionBaseX, SectionBaseY, CheckSectionBaseX, CheckSectionBaseY);
+			SectionBaseX = CheckSectionBaseX;
+			SectionBaseY = CheckSectionBaseY;
 		}
 	}
 
@@ -1263,7 +1275,7 @@ void ALandscapeProxy::PostLoad()
 	}
 
 #if WITH_EDITOR
-	if (GetLinker() && (GetLinker()->UE4Ver() < VER_UE4_LANDSCAPE_COMPONENT_LAZY_REFERENCES) || LandscapeComponents.Num() != CollisionComponents.Num())
+	if ((GetLinker() && (GetLinker()->UE4Ver() < VER_UE4_LANDSCAPE_COMPONENT_LAZY_REFERENCES)) || LandscapeComponents.Num() != CollisionComponents.Num())
 	{
 		// Need to clean up invalid collision components
 		RecreateCollisionComponents();

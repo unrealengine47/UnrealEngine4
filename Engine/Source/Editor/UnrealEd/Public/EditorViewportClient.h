@@ -918,6 +918,12 @@ public:
 	/** Get the camera speed setting for this viewport */
 	virtual int32 GetCameraSpeedSetting() const;
 
+	/** Editor mode tool manager being used for this viewport client */
+	FEditorModeTools* GetModeTools() const
+	{
+		return ModeTools;
+	}
+
 protected:
 
 	/** Camera speed setting */

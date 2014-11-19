@@ -18,6 +18,7 @@
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/GameSession.h"
 #include "GameFramework/CheatManager.h"
+#include "GameFramework/GameMode.h"
 #include "Engine/ChildConnection.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogGameMode, Log, All);

@@ -6,6 +6,10 @@
 
 #define LOCTEXT_NAMESPACE "SFriendsStatus"
 
+// Style values that shouldn't change
+#define DROPDOWN_MAX_HEIGHT 36
+#define DROPDOWN_MAX_WIDTH 150
+
 /**
  * Declares the Friends Status display widget
 */
@@ -41,32 +45,39 @@ public:
 					.ButtonStyle(&FriendStyle.FriendListActionButtonStyle)
 					.Cursor(EMouseCursor::Hand)
 					[
-						SNew(SHorizontalBox)
-						+SHorizontalBox::Slot()
-						.HAlign(HAlign_Left)
+						SNew(SBox)
+						.WidthOverride(DROPDOWN_MAX_WIDTH)
+						.HeightOverride(DROPDOWN_MAX_HEIGHT)
 						.VAlign(VAlign_Center)
-						.AutoWidth()
 						[
-							SNew(SImage)
-							.Image(this, &SFriendsStatusImpl::GetStatusBrush)
-						]
-						+ SHorizontalBox::Slot()
-						.VAlign(VAlign_Center)
-						.AutoWidth()
-						[
-							SNew(STextBlock)
-							.Text(ViewModelPtr, &FFriendsStatusViewModel::GetStatusText)
-							.Font(FriendStyle.FriendsFontStyleSmall)
-							.ColorAndOpacity(FLinearColor::White)
-						]
-						+ SHorizontalBox::Slot()
-						.AutoWidth()
-						.VAlign(VAlign_Center)
-						.Padding(FMargin(5, 0))
-						[
-							SNew(SImage)
-							.ColorAndOpacity(FLinearColor::White)
-							.Image(&FriendStyle.FriendsComboDropdownImageBrush)
+							SNew(SHorizontalBox)
+							+SHorizontalBox::Slot()
+							.HAlign(HAlign_Left)
+							.VAlign(VAlign_Center)
+							.AutoWidth()
+							[
+								SNew(SImage)
+								.Image(this, &SFriendsStatusImpl::GetStatusBrush)
+							]
+							+ SHorizontalBox::Slot()
+							.VAlign(VAlign_Center)
+							.AutoWidth()
+							.Padding(FMargin(5,2))
+							[
+								SNew(STextBlock)
+								.Text(ViewModelPtr, &FFriendsStatusViewModel::GetStatusText)
+								.Font(FriendStyle.FriendsFontStyleBold)
+								.ColorAndOpacity(FLinearColor::White)
+							]
+							+ SHorizontalBox::Slot()
+							.AutoWidth()
+							.VAlign(VAlign_Center)
+							.Padding(FMargin(5, 0))
+							[
+								SNew(SImage)
+								.ColorAndOpacity(FLinearColor::White)
+								.Image(&FriendStyle.FriendsComboDropdownImageBrush)
+							]
 						]
 					]
 				]
@@ -88,13 +99,14 @@ private:
 	TSharedRef<SWidget> GetMenuContent()
 	{
 		return SNew(SBorder)
+			.BorderImage(&FriendStyle.Background)
 			.Padding(FMargin(1, 5))
 			[
 				SNew(SVerticalBox)
 				+ SVerticalBox::Slot()
 				[
 					SNew(SButton)
-					.OnClicked(this, &SFriendsStatusImpl::HandleStatusChanged, true)
+					.OnClicked(this, &SFriendsStatusImpl::HandleStatusChanged, EOnlinePresenceState::Online)
 					.ButtonStyle(&FriendStyle.FriendListItemButtonStyle)
 					[
 						SNew(STextBlock)
@@ -106,7 +118,7 @@ private:
 				+ SVerticalBox::Slot()
 				[
 					SNew(SButton)
-					.OnClicked(this, &SFriendsStatusImpl::HandleStatusChanged, false)
+					.OnClicked(this, &SFriendsStatusImpl::HandleStatusChanged, EOnlinePresenceState::Away)
 					.ButtonStyle(&FriendStyle.FriendListItemButtonStyle)
 					[
 						SNew(STextBlock)
@@ -115,32 +127,32 @@ private:
 						.Text(FText::FromString("Away"))
 					]
 				]
-				+ SVerticalBox::Slot()
-				[
-					SNew(SButton)
-					.OnClicked(this, &SFriendsStatusImpl::HandleStatusChanged, false)
-					.ButtonStyle(&FriendStyle.FriendListItemButtonStyle)
-					[
-						SNew(STextBlock)
-						.ColorAndOpacity(FLinearColor::White)
-						.Font(FriendStyle.FriendsFontStyle)
-						.Text(FText::FromString("Offline"))
-					 ]
-				 ]
 			];
 	}
 
-	FReply HandleStatusChanged(bool bOnline)
+	FReply HandleStatusChanged(EOnlinePresenceState::Type OnlineState)
 	{
 		ActionMenu->SetIsOpen(false);
-		ViewModel->SetOnlineStatus(bOnline);
+		ViewModel->SetOnlineStatus(OnlineState);
 		return FReply::Handled();
 	}
 
 
 	const FSlateBrush* GetStatusBrush() const
 	{
-		return ViewModel->GetOnlineStatus() == true ? &FriendStyle.OnlineBrush : &FriendStyle.OfflineBrush;
+		switch (ViewModel->GetOnlineStatus())
+		{	
+		case EOnlinePresenceState::Away:
+		case EOnlinePresenceState::ExtendedAway:
+			return &FriendStyle.AwayBrush;
+		case EOnlinePresenceState::Chat:
+		case EOnlinePresenceState::DoNotDisturb:
+		case EOnlinePresenceState::Online:
+			return &FriendStyle.OnlineBrush;
+		case EOnlinePresenceState::Offline:
+		default:
+			return &FriendStyle.OfflineBrush;
+		};
 	}
 
 private:

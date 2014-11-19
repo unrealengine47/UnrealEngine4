@@ -34,6 +34,11 @@
 
 #include "IDocumentation.h"
 #include "STextComboBox.h"
+#include "Engine/UserDefinedStruct.h"
+#include "Engine/SimpleConstructionScript.h"
+#include "Engine/SCS_Node.h"
+#include "Components/TimelineComponent.h"
+#include "Engine/BlueprintGeneratedClass.h"
 
 #define LOCTEXT_NAMESPACE "BlueprintDetailsCustomization"
 
@@ -790,53 +795,12 @@ void FBlueprintVarActionDetails::OnVarNameCommitted(const FText& InNewText, ETex
 
 bool FBlueprintVarActionDetails::GetVariableTypeChangeEnabled() const
 {
-	FEdGraphSchemaAction_K2Var* VarAction = MyBlueprintSelectionAsVar();
-	if (VarAction)
+	UProperty* VariableProperty = SelectionAsProperty();
+	if(VariableProperty)
 	{
-		TArray<UK2Node_Variable*> VariableNodes;
-		FBlueprintEditorUtils::GetAllNodesOfClass<UK2Node_Variable>(GetBlueprintObj(), VariableNodes);
-
-		bool bNodesPendingDeletion = false;
-		for( TArray<UK2Node_Variable*>::TConstIterator NodeIt(VariableNodes); NodeIt; ++NodeIt )
-		{
-			UK2Node_Variable* CurrentNode = *NodeIt;
-			if (VarAction->GetVariableName() == CurrentNode->GetVarName())
-			{
-				bNodesPendingDeletion = true;
-				break;
-			}
-		}
-		
-		bool bIsAVarInThisBlueprint = FBlueprintEditorUtils::FindNewVariableIndex(GetBlueprintObj(), VarAction->GetVariableName()) != INDEX_NONE;
-		return !bNodesPendingDeletion && bIsAVarInThisBlueprint;
+		return GetBlueprintObj()->SkeletonGeneratedClass->GetAuthoritativeClass() == VariableProperty->GetOwnerClass()->GetAuthoritativeClass();
 	}
-
-	FEdGraphSchemaAction_K2LocalVar* LocalVarAction = MyBlueprintSelectionAsLocalVar();
-	if (LocalVarAction)
-	{
-		TArray<UK2Node_Variable*> VariableNodes;
-		FBlueprintEditorUtils::GetAllNodesOfClass<UK2Node_Variable>(GetBlueprintObj(), VariableNodes);
-
-		bool bNodesPendingDeletion = false;
-		for( TArray<UK2Node_Variable*>::TConstIterator NodeIt(VariableNodes); NodeIt; ++NodeIt )
-		{
-			UK2Node_Variable* CurrentNode = *NodeIt;
-			if (LocalVarAction->GetVariableName() == CurrentNode->GetVarName())
-			{
-				bNodesPendingDeletion = true;
-				break;
-			}
-		}
-
-		bool bIsAVarInThisBlueprint = FBlueprintEditorUtils::FindLocalVariable(GetBlueprintObj(), LocalVarAction->GetVariableScope(), LocalVarAction->GetVariableName()) != NULL;
-		return !bNodesPendingDeletion && bIsAVarInThisBlueprint;
-	}
-	FEdGraphSchemaAction_K2LocalVar* VarLocalAction = MyBlueprintSelectionAsLocalVar();
-	if(VarLocalAction)
-	{
-		return true;
-	}
-	return false;
+	return true;
 }
 
 bool FBlueprintVarActionDetails::GetVariableCategoryChangeEnabled() const
@@ -880,20 +844,17 @@ void FBlueprintVarActionDetails::OnVarTypeChanged(const FEdGraphPinType& NewPinT
 
 		if (VarName != NAME_None)
 		{
-			FBlueprintEditorUtils::ChangeMemberVariableType(GetBlueprintObj(), VarName, NewPinType);
 			// Set the MyBP tab's last pin type used as this, for adding lots of variables of the same type
 			MyBlueprint.Pin()->GetLastPinTypeUsed() = NewPinType;
 
-			FEdGraphSchemaAction_K2Var* VarAction = MyBlueprintSelectionAsVar();
-			if(VarAction)
+			UProperty* VariableProperty = SelectionAsProperty();
+			if(IsALocalVariable(VariableProperty))
+			{
+				FBlueprintEditorUtils::ChangeLocalVariableType(GetBlueprintObj(), GetLocalVariableScope(VariableProperty), VarName, NewPinType);
+			}
+			else
 			{
 				FBlueprintEditorUtils::ChangeMemberVariableType(GetBlueprintObj(), VarName, NewPinType);
-			}
-
-			FEdGraphSchemaAction_K2LocalVar* VarLocalAction = MyBlueprintSelectionAsLocalVar();
-			if(VarLocalAction)
-			{
-				FBlueprintEditorUtils::ChangeLocalVariableType(GetBlueprintObj(), VarLocalAction->GetVariableScope(), VarName, NewPinType);
 			}
 		}
 	}
@@ -1642,7 +1603,7 @@ EVisibility FBlueprintVarActionDetails::IsTooltipEditVisible() const
 	UProperty* VariableProperty = SelectionAsProperty();
 	if (VariableProperty)
 	{
-		if (IsABlueprintVariable(VariableProperty) && !IsAComponentVariable(VariableProperty) || IsALocalVariable(VariableProperty))
+		if ((IsABlueprintVariable(VariableProperty) && !IsAComponentVariable(VariableProperty)) || IsALocalVariable(VariableProperty))
 		{
 			return EVisibility::Visible;
 		}
@@ -3936,102 +3897,46 @@ void FBlueprintInterfaceLayout::OnRemoveInterface(FInterfaceName InterfaceName)
 	RegenerateChildrenDelegate.ExecuteIfBound();
 }
 
-/** Helper function for the interface menu */
-bool IsInterfaceImplemented(const UBlueprint* Blueprint, const UClass* TestInterface)
+void FBlueprintInterfaceLayout::OnClassPicked(UClass* PickedClass)
 {
-	const auto InterfaceName = TestInterface->GetFName();
-
-	// First look in the blueprint's ImplementedInterfaces list
-	for(TArray<FBPInterfaceDescription>::TConstIterator it(Blueprint->ImplementedInterfaces); it; ++it)
+	if (AddInterfaceComboButton.IsValid())
 	{
-		const FBPInterfaceDescription& CurrentInterface = *it;
-		if( CurrentInterface.Interface && CurrentInterface.Interface->GetFName() == InterfaceName )
-		{
-			return true;
-		}
+		AddInterfaceComboButton->SetIsOpen(false);
 	}
 
-	// Now go up the inheritance tree and see if the interface in implemented via its' ancestry
-	UClass* BlueprintParent =  Blueprint->ParentClass;
-	while (BlueprintParent)
-	{
-		for (TArray<FImplementedInterface>::TIterator It(BlueprintParent->Interfaces); It; ++It)
-		{
-			const FImplementedInterface& CurrentInterface = *It;
-			if (CurrentInterface.Class && (CurrentInterface.Class->GetFName() == InterfaceName))
-			{
-				return true;
-			}
-		}
-		BlueprintParent = BlueprintParent->GetSuperClass();
-	}
+	UBlueprint* Blueprint = GlobalOptionsDetailsPtr.Pin()->GetBlueprintObj();
+	check(Blueprint);
 
-	return false;
+	FBlueprintEditorUtils::ImplementNewInterface( Blueprint, PickedClass->GetFName() );
+
+	RegenerateChildrenDelegate.ExecuteIfBound();
 }
 
 TSharedRef<SWidget> FBlueprintInterfaceLayout::OnGetAddInterfaceMenuContent()
 {
 	UBlueprint* Blueprint = GlobalOptionsDetailsPtr.Pin()->GetBlueprintObj();
 
-	// Generate a list of interfaces that can still be implemented
-	UnimplementedInterfaces.Empty();
-	for (TObjectIterator<UClass> It; It; ++It)
-	{
-		UClass* CurrentInterface = *It;
-		if (FKismetEditorUtilities::CanBlueprintImplementInterface(Blueprint, CurrentInterface) &&
-			!IsInterfaceImplemented(Blueprint, CurrentInterface) &&
-			!FKismetEditorUtilities::IsClassABlueprintSkeleton(CurrentInterface))
-		{
-			UnimplementedInterfaces.Add(MakeShareable(new FInterfaceName(CurrentInterface->GetFName(), CurrentInterface->GetDisplayNameText())));
-		}
-	}
-
-	if (UnimplementedInterfaces.Num() > 0)
-	{
-		return SNew(SListView<TSharedPtr<FInterfaceName>>)
-			.ListItemsSource(&UnimplementedInterfaces)
-			.OnGenerateRow(this, &FBlueprintInterfaceLayout::GenerateInterfaceListRow)
-			.OnSelectionChanged(this, &FBlueprintInterfaceLayout::OnInterfaceListSelectionChanged);
-	}
-	else
-	{
-		return SNew(STextBlock)
-			.Text(LOCTEXT("BlueprintNoInterfacesAvailable", "No interfaces available to implement."));
-	}
-}
-
-TSharedRef<ITableRow> FBlueprintInterfaceLayout::GenerateInterfaceListRow(TSharedPtr<FInterfaceName> InterfaceName, const TSharedRef<STableViewBase>& OwningList)
-{
-	return SNew(STableRow< TSharedPtr<FInterfaceName> >, OwningList)
+	TArray<UBlueprint*> Blueprints;
+	Blueprints.Add(Blueprint);
+	TSharedRef<SWidget> ClassPicker = FBlueprintEditorUtils::ConstructBlueprintInterfaceClassPicker(Blueprints, FOnClassPicked::CreateSP(this, &FBlueprintInterfaceLayout::OnClassPicked));
+	return
+		SNew(SBorder)
+		.BorderImage(FEditorStyle::GetBrush("Menu.Background"))
 		[
-			SNew(STextBlock)
-			.Text(InterfaceName.IsValid() ? InterfaceName->DisplayText : FText())
+			// Achieving fixed width by nesting items within a fixed width box.
+			SNew(SBox)
+			.WidthOverride(350.0f)
+			[
+				SNew(SVerticalBox)
+				+SVerticalBox::Slot()
+				.MaxHeight(400.0f)
+				.AutoHeight()
+				[
+					ClassPicker
+				]
+			]
 		];
 }
-
-void FBlueprintInterfaceLayout::OnInterfaceListSelectionChanged(TSharedPtr<FInterfaceName> Selection, ESelectInfo::Type SelectInfo)
-{
-	if (Selection.IsValid())
-	{
-		UBlueprint* Blueprint = GlobalOptionsDetailsPtr.Pin()->GetBlueprintObj();
-		check(Blueprint);
-
-		FName SelectedInterface = Selection->Name;
-		if (!FBlueprintEditorUtils::ImplementNewInterface( Blueprint, SelectedInterface ) )
-		{
-			GlobalOptionsDetailsPtr.Pin()->GetBlueprintEditorPtr().Pin()->LogSimpleMessage( LOCTEXT("ImplementInterface_Error", "Unable to implement interface. Check log for details") );
-		}
-		
-		if (AddInterfaceComboButton.IsValid())
-		{
-			AddInterfaceComboButton->SetIsOpen(false);
-		}
-
-		RegenerateChildrenDelegate.ExecuteIfBound();
-	}
-}
-
-
 
 UBlueprint* FBlueprintGlobalOptionsDetails::GetBlueprintObj() const
 {
@@ -4884,7 +4789,7 @@ FChildActorComponentDetails::FChildActorComponentDetails(TWeakPtr<FBlueprintEdit
 
 void FChildActorComponentDetails::CustomizeDetails(IDetailLayoutBuilder& DetailBuilder)
 {
-	TSharedPtr<IPropertyHandle> ActorClassProperty = DetailBuilder.GetProperty("ChildActorClass");
+	TSharedPtr<IPropertyHandle> ActorClassProperty = DetailBuilder.GetProperty(GET_MEMBER_NAME_CHECKED(UChildActorComponent, ChildActorClass));
 	if (ActorClassProperty->IsValidHandle())
 	{
 		if (BlueprintEditorPtr.IsValid())

@@ -403,6 +403,9 @@ public:
 	static void OpenReparentBlueprintMenu( UBlueprint* Blueprint, const TSharedRef<SWidget>& ParentContent, const FOnClassPicked& OnPicked);
 	static void OpenReparentBlueprintMenu( const TArray< UBlueprint* >& Blueprints, const TSharedRef<SWidget>& ParentContent, const FOnClassPicked& OnPicked);
 
+	/** Constructs a class picker widget for adding interfaces for the specified blueprint(s) */
+	static TSharedRef<SWidget> ConstructBlueprintInterfaceClassPicker( const TArray< UBlueprint* >& Blueprints, const FOnClassPicked& OnPicked);
+
 	/** return find first native class in the hierarchy */
 	static UClass* FindFirstNativeClass(UClass* Class);
 
@@ -1082,6 +1085,32 @@ protected:
 	 * @return						Returns TRUE if the node does connect to the selection set
 	 */
 	static bool CheckIfNodeConnectsToSelection(UEdGraphNode* InNode, const TSet<UEdGraphNode*>& InSelectionSet);
+
+	/**
+	 * Returns an array of variables Get/Set nodes of the current variable
+	 *
+	 * @param InVarName		Variable to check for being in use
+	 * @param InBlueprint	Blueprint to check within
+	 * @param InScope		Option scope for local variables
+	 * @return				Array of variable nodes
+	 */
+	static TArray<UK2Node_Variable*> GetNodesForVariable(const FName& InVarName, const UBlueprint* InBlueprint, const UStruct* InScope = nullptr);
+
+	/**
+	 * Helper function to warn user of the results of changing var type by displaying a suppressible dialog
+	 *
+	 * @param InVarName		Variable name to display in the dialog message
+	 * @return				TRUE if the user wants to change the variable type
+	 */
+	static bool VerifyUserWantsVariableTypeChanged(const FName& InVarName);
+
+	/**
+	 * Helper function to get all loaded Blueprints that are children (or using as an interface) the passed Blueprint
+	 *
+	 * @param InBlueprint		Blueprint to find children of
+	 * @param OutBlueprints		Filled out with child Blueprints
+	 */
+	static void GetLoadedChildBlueprints(UBlueprint* InBlueprint, TArray<UBlueprint*>& OutBlueprints);
 
 public:
 	static FName GetFunctionNameFromClassByGuid(const UClass* InClass, const FGuid FunctionGuid);

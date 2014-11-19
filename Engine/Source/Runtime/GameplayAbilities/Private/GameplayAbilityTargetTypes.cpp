@@ -35,9 +35,45 @@ TArray<FActiveGameplayEffectHandle> FGameplayAbilityTargetData::ApplyGameplayEff
 	return AppliedHandles;
 }
 
+TArray<FActiveGameplayEffectHandle> FGameplayAbilityTargetData::ApplyGameplayEffectSpec(FGameplayEffectSpec& Spec, FPredictionKey PredictionKey)
+{
+	TArray<FActiveGameplayEffectHandle>	AppliedHandles;
+
+	if (!ensure(Spec.GetContext().IsValid()))
+	{
+		return AppliedHandles;
+	}
+
+	FGameplayEffectContextHandle EffectContext = Spec.GetContext();
+	AddTargetDataToContext(EffectContext);
+
+	TArray<TWeakObjectPtr<AActor> > Actors = GetActors();
+	
+	AppliedHandles.Reserve(Actors.Num());
+
+	for (TWeakObjectPtr<AActor> TargetActor : Actors)
+	{
+		if (TargetActor.IsValid())
+		{
+			UAbilitySystemComponent* TargetComponent = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(TargetActor.Get());
+			if (TargetComponent && EffectContext.GetInstigatorAbilitySystemComponent())
+			{
+				AppliedHandles.Add(EffectContext.GetInstigatorAbilitySystemComponent()->ApplyGameplayEffectSpecToTarget(Spec, TargetComponent, PredictionKey));
+			}
+		}
+	}
+
+	return AppliedHandles;
+}
+
 void FGameplayAbilityTargetData::AddTargetDataToContext(FGameplayEffectContextHandle& Context)
 {
-	if (HasHitResult())
+	if (GetActors().Num() > 0)
+	{
+		Context.AddActors(GetActors());
+	}
+
+	if (HasHitResult() && !Context.GetHitResult())
 	{
 		Context.AddHitResult(*GetHitResult());
 	}

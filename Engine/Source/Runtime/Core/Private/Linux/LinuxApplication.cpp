@@ -67,6 +67,8 @@ FLinuxApplication::FLinuxApplication() : GenericApplication( MakeShareable( new 
 #if STEAM_CONTROLLER_SUPPORT
 	, SteamInput( SteamControllerInterface::Create(MessageHandler) )
 #endif // STEAM_CONTROLLER_SUPPORT
+	, bIsMouseCursorLocked(false)
+	, bIsMouseCaptureEnabled(false)
 	, bHasLoadedInputPlugins(false)
 {
 	bUsingHighPrecisionMouseInput = false;
@@ -312,7 +314,8 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 
 			if(bUsingHighPrecisionMouseInput)
 			{
-				MessageHandler->OnRawMouseMove( motionEvent.xrel, motionEvent.yrel );
+					LinuxCursor->AddOffset(motionEvent.xrel, motionEvent.yrel);
+ 					MessageHandler->OnRawMouseMove(motionEvent.xrel, motionEvent.yrel);
 			}
 			else
 			{
@@ -355,7 +358,6 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 			}
 			else
 			{
-				TrackActivationChanges(CurrentEventWindow, EWindowActivation::ActivateByMouse);
 				if (buttonEvent.clicks == 2)
 				{
 					MessageHandler->OnMouseDoubleClick(CurrentEventWindow, button);
@@ -715,8 +717,24 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 					}
 					break;
 
-				case SDL_WINDOWEVENT_FOCUS_GAINED:	// seems to be spurious and does not always reflect actual focus changes, ignore for now
-				case SDL_WINDOWEVENT_FOCUS_LOST:	// seems to be spurious and does not always reflect actual focus changes, ignore for now
+				case SDL_WINDOWEVENT_FOCUS_GAINED:
+					{
+						if (CurrentEventWindow.IsValid())
+						{
+							TrackActivationChanges(CurrentEventWindow, EWindowActivation::Activate);                            
+						}
+					}
+					break;
+
+				case SDL_WINDOWEVENT_FOCUS_LOST:
+					{
+						if (CurrentEventWindow.IsValid())
+						{
+							TrackActivationChanges(CurrentEventWindow, EWindowActivation::Deactivate);
+						}
+					}
+					break;
+
 				case SDL_WINDOWEVENT_HIDDEN:		// intended fall-through
 				case SDL_WINDOWEVENT_EXPOSED:		// intended fall-through
 				case SDL_WINDOWEVENT_MINIMIZED:		// intended fall-through
@@ -1008,6 +1026,7 @@ void FLinuxApplication::SetHighPrecisionMouseMode( const bool Enable, const TSha
 {
 	MessageHandler->OnCursorSet();
 	bUsingHighPrecisionMouseInput = Enable;
+	((FLinuxCursor*)Cursor.Get())->ResetOffset();
 }
 
 

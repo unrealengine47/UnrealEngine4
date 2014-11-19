@@ -27,6 +27,14 @@
 #include "ISourceControlModule.h"
 #include "SVolumeControl.h"
 #include "ModuleManager.h"
+#include "GameFramework/GameMode.h"
+#include "GameFramework/GameState.h"
+#include "GameFramework/HUD.h"
+#include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/WorldSettings.h"
+#include "EngineUtils.h"
+#include "GameMapsSettings.h"
 
 
 namespace LevelEditorActionHelpers
@@ -1906,13 +1914,15 @@ TSharedRef< SWidget > FLevelEditorToolBar::GenerateMatineeMenuContent( TSharedRe
 				FOnActorPicked::CreateStatic( &FLevelEditorToolBar::OnMatineeActorPicked ) )
 		];
 
+	static const FName DefaultForegroundName("DefaultForeground");
+
 	// Give the scene outliner a border and background
 	const FSlateBrush* BackgroundBrush = FEditorStyle::GetBrush( "Menu.Background" );
 	TSharedRef< SBorder > RootBorder =
 		SNew( SBorder )
 		.Padding(3)
 		.BorderImage( BackgroundBrush )
-		.ForegroundColor( FEditorStyle::GetSlateColor("DefaultForeground") )
+		.ForegroundColor( FEditorStyle::GetSlateColor(DefaultForegroundName) )
 
 		// Assign the box panel as the child
 		[

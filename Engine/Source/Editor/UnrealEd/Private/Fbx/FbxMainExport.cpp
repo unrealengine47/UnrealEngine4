@@ -57,6 +57,14 @@
 #include "FbxExporter.h"
 #include "RawMesh.h"
 #include "Particles/Emitter.h"
+#include "Engine/Light.h"
+#include "Engine/Polys.h"
+#include "Engine/StaticMeshActor.h"
+#include "Components/BrushComponent.h"
+#include "Components/SpotLightComponent.h"
+#include "Components/PointLightComponent.h"
+#include "Camera/CameraActor.h"
+#include "Components/DirectionalLightComponent.h"
 
 namespace UnFbx
 {
@@ -114,7 +122,12 @@ void FFbxExporter::CreateDocument()
 	FbxDocumentInfo* SceneInfo = FbxDocumentInfo::Create(SdkManager,"SceneInfo");
 	SceneInfo->mTitle = "Unreal FBX Exporter";
 	SceneInfo->mSubject = "Export FBX meshes from Unreal";
-
+	SceneInfo->Original_ApplicationVendor.Set( "Epic Games" );
+	SceneInfo->Original_ApplicationName.Set( "Unreal Engine" );
+	SceneInfo->Original_ApplicationVersion.Set( TCHAR_TO_ANSI(*GEngineVersion.ToString()) );
+	SceneInfo->LastSaved_ApplicationVendor.Set( "Epic Games" );
+	SceneInfo->LastSaved_ApplicationName.Set( "Unreal Engine" );
+	SceneInfo->LastSaved_ApplicationVersion.Set( TCHAR_TO_ANSI(*GEngineVersion.ToString()) );
 
 	Scene->SetSceneInfo(SceneInfo);
 	

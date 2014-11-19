@@ -595,8 +595,8 @@ void FMacApplication::ProcessNSEvent(NSEvent* const Event)
 				NSPoint CursorPos = [Event locationInWindow];
 				if ([Event GetWindow])
 				{
-					CursorPos.x += [Event GetWindow].frame.origin.x;
-					CursorPos.y += [Event GetWindow].frame.origin.y;
+					CursorPos.x += [Event windowPosition].x;
+					CursorPos.y += [Event windowPosition].y;
 				}
 				CursorPos.y--; // The y coordinate in the point returned by locationInWindow starts from a base of 1
 				const FVector2D MousePosition = FVector2D(CursorPos.x, FPlatformMisc::ConvertSlateYPositionToCocoa(CursorPos.y));
@@ -888,8 +888,8 @@ FCocoaWindow* FMacApplication::FindEventWindow( NSEvent* Event )
 			NSPoint CursorPos = [Event locationInWindow];
 			if ([Event GetWindow])
 			{
-				CursorPos.x += [Event GetWindow].frame.origin.x;
-				CursorPos.y += [Event GetWindow].frame.origin.y;
+				CursorPos.x += [Event windowPosition].x;
+				CursorPos.y += [Event windowPosition].y;
 			}
 			CursorPos.y--; // The y coordinate in the point returned by locationInWindow starts from a base of 1
 			TSharedPtr<FMacWindow> WindowUnderCursor = LocateWindowUnderCursor(CursorPos);
@@ -1274,7 +1274,10 @@ void FMacApplication::OnWindowDidClose( FCocoaWindow* Window )
 	if( EventWindow.IsValid() )
 	{
 		SCOPED_AUTORELEASE_POOL;
-		MessageHandler->OnWindowActivationChanged( EventWindow.ToSharedRef(), EWindowActivation::Deactivate );
+		if ([Window isKeyWindow])
+		{
+			MessageHandler->OnWindowActivationChanged( EventWindow.ToSharedRef(), EWindowActivation::Deactivate );
+		}
 		Windows.Remove( EventWindow.ToSharedRef() );
 		KeyWindows.Remove( EventWindow.ToSharedRef() );
 		MessageHandler->OnWindowClose( EventWindow.ToSharedRef() );
@@ -1286,7 +1289,10 @@ bool FMacApplication::OnWindowDestroyed( FCocoaWindow* Window )
 	TSharedPtr< FMacWindow > EventWindow = FindWindowByNSWindow( Windows, &WindowsMutex, Window );
 	if( EventWindow.IsValid() )
 	{
-		MessageHandler->OnWindowActivationChanged( EventWindow.ToSharedRef(), EWindowActivation::Deactivate );
+		if ([Window isKeyWindow])
+		{
+			MessageHandler->OnWindowActivationChanged( EventWindow.ToSharedRef(), EWindowActivation::Deactivate );
+		}
 		Windows.Remove( EventWindow.ToSharedRef() );
 		KeyWindows.Remove( EventWindow.ToSharedRef() );
 		return true;

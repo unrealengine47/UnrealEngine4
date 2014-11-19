@@ -144,8 +144,15 @@ bool UAbilitySystemComponent::HasNetworkAuthorityToApplyGameplayEffect(FPredicti
 	return (IsOwnerActorAuthoritative() || PredictionKey.IsValidForMorePrediction());
 }
 
-void UAbilitySystemComponent::SetNumericAttribute(const FGameplayAttribute &Attribute, float NewFloatValue)
+void UAbilitySystemComponent::SetNumericAttributeBase(const FGameplayAttribute &Attribute, float NewFloatValue)
 {
+	// Go through our active gameplay effects container so that aggregation/mods are handled properly.
+	ActiveGameplayEffects.SetAttributeBaseValue(Attribute, NewFloatValue);
+}
+
+void UAbilitySystemComponent::SetNumericAttribute_Internal(const FGameplayAttribute &Attribute, float NewFloatValue)
+{
+	// Set the attribute directly: update the UProperty on the attribute set.
 	const UAttributeSet* AttributeSet = GetAttributeSubobjectChecked(Attribute.GetAttributeSetClass());
 	Attribute.SetNumericValueChecked(NewFloatValue, const_cast<UAttributeSet*>(AttributeSet));
 }
@@ -159,6 +166,11 @@ float UAbilitySystemComponent::GetNumericAttribute(const FGameplayAttribute &Att
 
 	const UAttributeSet* AttributeSet = GetAttributeSubobjectChecked(Attribute.GetAttributeSetClass());
 	return Attribute.GetNumericValueChecked(AttributeSet);
+}
+
+void UAbilitySystemComponent::ApplyModToAttribute(const FGameplayAttribute &Attribute, TEnumAsByte<EGameplayModOp::Type> ModifierOp, float ModifierMagnitude)
+{
+	ActiveGameplayEffects.ApplyModToAttribute(Attribute, ModifierOp, ModifierMagnitude);
 }
 
 FGameplayEffectSpecHandle UAbilitySystemComponent::MakeOutgoingSpec(TSubclassOf<UGameplayEffect> GameplayEffectClass, float Level, FGameplayEffectContextHandle Context) const
@@ -203,15 +215,22 @@ FGameplayEffectContextHandle UAbilitySystemComponent::GetEffectContext() const
 	return Context;
 }
 
-FActiveGameplayEffectHandle UAbilitySystemComponent::BP_ApplyGameplayEffectToTarget(TSubclassOf<UGameplayEffect> GameplayEffectClass, UAbilitySystemComponent *Target, float Level, FGameplayEffectContextHandle Context)
+FActiveGameplayEffectHandle UAbilitySystemComponent::BP_ApplyGameplayEffectToTarget(TSubclassOf<UGameplayEffect> GameplayEffectClass, UAbilitySystemComponent* Target, float Level, FGameplayEffectContextHandle Context)
 {
-	if (GameplayEffectClass)
+	if (Target == nullptr)
 	{
-		UGameplayEffect* GameplayEffect = GameplayEffectClass->GetDefaultObject<UGameplayEffect>();
-		return ApplyGameplayEffectToTarget(GameplayEffect, Target, Level, Context);
+		ABILITY_LOG(Error, TEXT("UAbilitySystemComponent::BP_ApplyGameplayEffectToTarget called with null Target. Context: %s"), *Context.ToString());
+		return FActiveGameplayEffectHandle();
 	}
 
-	return FActiveGameplayEffectHandle();
+	if (GameplayEffectClass == nullptr)
+	{
+		ABILITY_LOG(Error, TEXT("UAbilitySystemComponent::BP_ApplyGameplayEffectToTarget called with null GameplayEffectClass. Context: %s"), *Context.ToString());
+		return FActiveGameplayEffectHandle();
+	}
+
+	UGameplayEffect* GameplayEffect = GameplayEffectClass->GetDefaultObject<UGameplayEffect>();
+	return ApplyGameplayEffectToTarget(GameplayEffect, Target, Level, Context);	
 }
 
 FActiveGameplayEffectHandle UAbilitySystemComponent::K2_ApplyGameplayEffectToTarget(UGameplayEffect *GameplayEffect, UAbilitySystemComponent *Target, float Level, FGameplayEffectContextHandle Context)
@@ -426,14 +445,7 @@ void UAbilitySystemComponent::UpdateTagMap(const FGameplayTagContainer& Containe
 
 FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToTarget(OUT FGameplayEffectSpec &Spec, UAbilitySystemComponent *Target, FPredictionKey PredictionKey)
 {
-	if (HasNetworkAuthorityToApplyGameplayEffect(PredictionKey))
-	{
-		// Apply outgoing Effects to the Spec.
-		// Outgoing immunity may stop the outgoing effect from being applied to the target
-		return Target->ApplyGameplayEffectSpecToSelf(Spec, PredictionKey);
-	}
-
-	return FActiveGameplayEffectHandle();
+	return Target->ApplyGameplayEffectSpecToSelf(Spec, PredictionKey);
 }
 
 FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSelf(OUT FGameplayEffectSpec &Spec, FPredictionKey PredictionKey)
@@ -449,7 +461,7 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSe
 	{
 		if(IsOwnerActorAuthoritative())
 		{
-			// Server continue with invliad prediction key
+			// Server continue with invalid prediction key
 			PredictionKey = FPredictionKey();
 		}
 		else
@@ -457,6 +469,12 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSe
 			// Client just return now
 			return FActiveGameplayEffectHandle();
 		}
+	}
+
+	// Are we currently immunte to this? (ApplicationImmunity)
+	if (ActiveGameplayEffects.CheckApplicationImmunity(Spec))
+	{
+		return FActiveGameplayEffectHandle();
 	}
 
 	// Check AttributeSet requirements: do we have everything this GameplayEffectSpec expects?
@@ -514,24 +532,22 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSe
 			MyHandle = NewActiveEffect.Handle;
 			OurCopyOfSpec = &NewActiveEffect.Spec;
 		}
-		
+
 		if (!OurCopyOfSpec)
 		{
 			StackSpec = TSharedPtr<FGameplayEffectSpec>(new FGameplayEffectSpec(Spec));
 			OurCopyOfSpec = StackSpec.Get();
+			UAbilitySystemGlobals::Get().GlobalPreGameplayEffectSpecApply(*OurCopyOfSpec, this);
 			OurCopyOfSpec->CapturedRelevantAttributes.CaptureAttributes(this, EGameplayEffectAttributeCaptureSource::Target);
 		}
 
 		// if necessary add a modifier to OurCopyOfSpec to force it to have an infinite duration
 		if (bTreatAsInfiniteDuration)
-		{			
+		{
 			// This should just be a straight set of the duration float now
 			OurCopyOfSpec->SetDuration(UGameplayEffect::INFINITE_DURATION);
 		}
 	}
-
-
-	
 	
 	// We still probably want to apply tags and stuff even if instant?
 	if (bInvokeGameplayCueApplied)
@@ -810,13 +826,15 @@ void UAbilitySystemComponent::TaskStarted(UAbilityTask* NewTask)
 {
 	if (NewTask->bTickingTask)
 	{
+		check(TickingTasks.Contains(NewTask) == false);
+		TickingTasks.Add(NewTask);
+
 		// If this is our first ticking task, set this component as active so it begins ticking
-		if (TickingTasks.Num() == 0)
+		if (TickingTasks.Num() == 1)
 		{
 			UpdateShouldTick();
 		}
-		check(TickingTasks.Contains(NewTask) == false);
-		TickingTasks.Add(NewTask);
+		
 	}
 	if (NewTask->bSimulatedTask)
 	{
@@ -1061,9 +1079,11 @@ void UAbilitySystemComponent::DisplayDebug(class UCanvas* Canvas, const class FD
 				const FModifierSpec& ModSpec = ActiveGE.Spec.Modifiers[ModIdx];
 				const FGameplayModifierInfo& ModInfo = ActiveGE.Spec.Def->Modifiers[ModIdx];
 
+				// Do a quick Qualifies() check to see if this mod is active.
 				FAggregatorMod TempMod;
 				TempMod.SourceTagReqs = &ModInfo.SourceTags;
 				TempMod.TargetTagReqs = &ModInfo.TargetTags;
+				TempMod.IsPredicted = false;
 
 				FAggregatorEvaluateParameters EmptyParams;
 				bool IsActivelyModifyingAttribute = TempMod.Qualifies(EmptyParams);

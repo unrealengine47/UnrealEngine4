@@ -43,7 +43,6 @@ namespace EGameplayModOp
 
 		// Other
 		Override 			UMETA(DisplayName="Override"),	// This should always be the first non numeric ModOp
-		Callback			UMETA(DisplayName="Custom"),
 
 		// This must always be at the end
 		Max					UMETA(DisplayName="Invalid")
@@ -96,7 +95,7 @@ enum class EGameplayEffectAttributeCaptureSource : uint8
  *	through a handle. a pointer or index into the active list is not sufficient.
  */
 USTRUCT(BlueprintType)
-struct FActiveGameplayEffectHandle
+struct GAMEPLAYABILITIES_API FActiveGameplayEffectHandle
 {
 	GENERATED_USTRUCT_BODY()
 
@@ -121,6 +120,8 @@ struct FActiveGameplayEffectHandle
 
 	UAbilitySystemComponent* GetOwningAbilitySystemComponent();
 	const UAbilitySystemComponent* GetOwningAbilitySystemComponent() const;
+
+	void RemoveFromGlobalMap();
 
 	bool operator==(const FActiveGameplayEffectHandle& Other) const
 	{
@@ -270,14 +271,7 @@ struct GAMEPLAYABILITIES_API FGameplayEffectContext
 	}
 
 	/** Returns the list of gameplay tags applicable to this effect, defaults to the owner's tags */
-	virtual void GetOwnedGameplayTags(OUT FGameplayTagContainer &TagContainer) const
-	{
-		IGameplayTagAssetInterface* TagInterface = Cast<IGameplayTagAssetInterface>(Instigator);
-		if (TagInterface)
-		{
-			TagInterface->GetOwnedGameplayTags(TagContainer);
-		}
-	}
+	virtual void GetOwnedGameplayTags(OUT FGameplayTagContainer &TagContainer) const;
 
 	/** Sets the instigator and effect causer. Instigator is who owns the ability that spawned this, EffectCauser is the actor that is the physical source of the effect, such as a weapon. They can be the same. */
 	virtual void AddInstigator(class AActor *InInstigator, class AActor *InEffectCauser);
@@ -312,7 +306,14 @@ struct GAMEPLAYABILITIES_API FGameplayEffectContext
 		return InstigatorAbilitySystemComponent;
 	}
 
+	virtual void AddActors(TArray<TWeakObjectPtr<AActor>> InActor, bool bReset = false);
+
 	virtual void AddHitResult(const FHitResult InHitResult, bool bReset = false);
+
+	virtual const TArray<TWeakObjectPtr<AActor>> GetActors() const
+	{
+		return Actors;
+	}
 
 	virtual const FHitResult* GetHitResult() const
 	{
@@ -350,6 +351,7 @@ struct GAMEPLAYABILITIES_API FGameplayEffectContext
 	{
 		FGameplayEffectContext* NewContext = new FGameplayEffectContext();
 		*NewContext = *this;
+		NewContext->AddActors(Actors);
 		if (GetHitResult())
 		{
 			// Does a deep copy of the hit result
@@ -375,6 +377,9 @@ protected:
 	/** The ability system component that's bound to instigator */
 	UPROPERTY(NotReplicated)
 	UAbilitySystemComponent* InstigatorAbilitySystemComponent;
+
+	UPROPERTY()
+	TArray<TWeakObjectPtr<AActor>> Actors;
 
 	/** Trace information - may be NULL in many cases */
 	TSharedPtr<FHitResult>	HitResult;
@@ -518,12 +523,25 @@ struct FGameplayEffectContextHandle
 		return false;
 	}
 
+	void AddActors(TArray<TWeakObjectPtr<AActor>> InActors, bool bReset = false)
+	{
+		if (IsValid())
+		{
+			Data->AddActors(InActors, bReset);
+		}
+	}
+
 	void AddHitResult(const FHitResult InHitResult, bool bReset = false)
 	{
 		if (IsValid())
 		{
 			Data->AddHitResult(InHitResult, bReset);
 		}
+	}
+
+	const TArray<TWeakObjectPtr<AActor>> GetActors() const
+	{
+		return Data->GetActors();
 	}
 
 	const FHitResult* GetHitResult() const

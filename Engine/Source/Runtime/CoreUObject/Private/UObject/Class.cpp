@@ -195,14 +195,24 @@ struct FDisplayNameHelper
 {
 	static FString Get(const UObject& Object)
 	{
-		FString Name = Object.GetName();
 		const UClass* Class = dynamic_cast<const UClass*>(&Object);
 		if (Class && !Class->HasAnyClassFlags(CLASS_Native))
 		{
+			FString Name = Object.GetName();
 			Name.RemoveFromEnd(TEXT("_C"));
 			Name.RemoveFromStart(TEXT("SKEL_"));
+			return Name;
 		}
-		return Name;
+
+		if (auto Property = dynamic_cast<const UProperty*>(&Object))
+		{
+			if (auto OwnerStruct = Property->GetOwnerStruct())
+			{
+				return OwnerStruct->PropertyNameToDisplayName(Property->GetFName());
+			}
+		}
+
+		return Object.GetName();
 	}
 };
 
@@ -2479,7 +2489,7 @@ UObject* UClass::CreateDefaultObject()
 		if ( (ParentDefaultObject != NULL) || (this == UObject::StaticClass()) )
 		{
 			// If this is a class that can be regenerated, it is potentially not completely loaded.  Preload and Link here to ensure we properly zero memory and read in properties for the CDO
-			if( (ClassGeneratedBy != NULL) && (PropertyLink == NULL) && !GIsDuplicatingClassForReinstancing)
+			if( HasAnyClassFlags(CLASS_CompiledFromBlueprint) && (PropertyLink == NULL) && !GIsDuplicatingClassForReinstancing)
 			{
 				ULinkerLoad* ClassLinker = GetLinker();
 				if( ClassLinker )

@@ -28,6 +28,12 @@
 #include "Runtime/Engine/Classes/PhysicsEngine/BodySetup.h"
 #include "SMeshPaint.h"
 #include "ComponentReregisterContext.h"
+#include "CanvasTypes.h"
+#include "Engine/Selection.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "EngineUtils.h"
+#include "Engine/StaticMeshActor.h"
+#include "Materials/MaterialInstanceConstant.h"
 
 #define LOCTEXT_NAMESPACE "MeshPaint_Mode"
 
@@ -145,9 +151,8 @@ void FEdModeMeshPaint::Enter()
 	
 	if (!Toolkit.IsValid())
 	{
-		auto ToolkitHost = FModuleManager::LoadModuleChecked< FLevelEditorModule >( "LevelEditor" ).GetFirstLevelEditor();
 		Toolkit = MakeShareable(new FMeshPaintToolKit);
-		Toolkit->Init(ToolkitHost);
+		Toolkit->Init(Owner->GetToolkitHost());
 	}
 
 	// Change the engine to draw selected objects without a color boost, but unselected objects will

@@ -9,6 +9,7 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/KismetArrayLibrary.h"
 #include "K2Node_PureAssignmentStatement.h"
+#include "GraphEditorSettings.h"
 
 #define LOCTEXT_NAMESPACE "K2Node"
 
@@ -469,13 +470,13 @@ FText UK2Node_CallFunction::GetNodeTitle(ENodeTitleType::Type TitleType) const
 		ContextString = GetFunctionContextString();
 	}
 	else
-		{
+	{
 		FunctionName = FunctionReference.GetMemberName().ToString();
 		if ((GEditor != NULL) && (GetDefault<UEditorStyleSettings>()->bShowFriendlyNames))
 		{
 			FunctionName = FName::NameToDisplayString(FunctionName, false);
 		}
-		}
+	}
 
 	if(TitleType == ENodeTitleType::FullTitle)
 	{
@@ -1248,7 +1249,19 @@ FString UK2Node_CallFunction::GetDefaultTooltipForFunction(const UFunction* Func
 		Tooltip.Trim();
 		Tooltip.TrimTrailing();
 
-		return Tooltip;
+		UClass* CurrentSelfClass = (Function != NULL) ? Function->GetOwnerClass() : NULL;
+		UClass const* TrueSelfClass = CurrentSelfClass;
+		if (CurrentSelfClass && CurrentSelfClass->ClassGeneratedBy)
+		{
+			TrueSelfClass = CurrentSelfClass->GetAuthoritativeClass();
+		}
+
+		FText TargetDisplayText = (TrueSelfClass != NULL) ? TrueSelfClass->GetDisplayNameText() : LOCTEXT("None", "None");
+
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("TargetName"), TargetDisplayText);
+		Args.Add(TEXT("Tooltip"), FText::FromString(Tooltip));
+		return FText::Format(LOCTEXT("CallFunction_Tooltip", "{Tooltip}\n\nTarget is {TargetName}"), Args).ToString();
 	}
 	else
 	{

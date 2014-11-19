@@ -37,6 +37,7 @@
 #include "Camera/CameraActor.h"
 #include "Engine/DemoNetDriver.h"
 #include "Layers/Layer.h"
+#include "GameFramework/GameMode.h"
 #include "GameFramework/GameState.h"
 #include "GameFramework/PlayerState.h"
 
@@ -4335,33 +4336,34 @@ void FSeamlessTravelHandler::CancelTravel()
 		LoadedWorld = NULL;
 	}
 
-	UPackage* Package = CurrentWorld ? CurrentWorld->GetOutermost() : nullptr;
-	if (Package)
+	if (bTransitionInProgress)
 	{
-		FName CurrentPackageName = Package->GetFName();
-		UNetDriver* const NetDriver = CurrentWorld->GetNetDriver();
-		if (NetDriver)
+		UPackage* Package = CurrentWorld ? CurrentWorld->GetOutermost() : nullptr;
+		if (Package)
 		{
-			for (int32 ClientIdx = 0; ClientIdx < NetDriver->ClientConnections.Num(); ClientIdx++)
+			FName CurrentPackageName = Package->GetFName();
+			UNetDriver* const NetDriver = CurrentWorld->GetNetDriver();
+			if (NetDriver)
 			{
-				UNetConnection* Connection = NetDriver->ClientConnections[ClientIdx];
-				if (Connection)
+				for (int32 ClientIdx = 0; ClientIdx < NetDriver->ClientConnections.Num(); ClientIdx++)
 				{
-					UChildConnection* ChildConnection = Connection->GetUChildConnection();
-					if (ChildConnection)
+					UNetConnection* Connection = NetDriver->ClientConnections[ClientIdx];
+					if (Connection)
 					{
-						Connection = ChildConnection->Parent;
-					}
+						UChildConnection* ChildConnection = Connection->GetUChildConnection();
+						if (ChildConnection)
+						{
+							Connection = ChildConnection->Parent;
+						}
 
-					// Mark all clients as being where they are since this was set to None in StartTravel
-					Connection->ClientWorldPackageName = CurrentPackageName;
+						// Mark all clients as being where they are since this was set to None in StartTravel
+						Connection->ClientWorldPackageName = CurrentPackageName;
+					}
 				}
 			}
 		}
-	}
 	
-	if (bTransitionInProgress)
-	{
+		CurrentWorld = NULL;
 		bTransitionInProgress = false;
 		UE_LOG(LogWorld, Log, TEXT("----SeamlessTravel is cancelled!------"));
 	}
@@ -5009,6 +5011,10 @@ FString UWorld::RemovePIEPrefix(const FString &Source)
 		
 		FixedName += RightS;
 	}
+	else
+	{
+		FixedName = Source;
+	}
 
 	return FixedName;
 }
@@ -5351,7 +5357,6 @@ void UWorld::ChangeFeatureLevel(ERHIFeatureLevel::Type InFeatureLevel)
 			BeginUpdateResourceRHI(*It);
 		}
 
-		// try iterating over all worlds here
 		FeatureLevel = InFeatureLevel;
 
 		if (Scene)

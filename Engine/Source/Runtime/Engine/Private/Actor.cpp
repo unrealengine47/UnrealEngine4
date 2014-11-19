@@ -388,6 +388,18 @@ void AActor::SetTickableWhenPaused(bool bTickableWhenPaused)
 	PrimaryActorTick.bTickEvenWhenPaused = bTickableWhenPaused;
 }
 
+void AActor::SetTickEnabled(bool bEnable)
+{
+	if (CanEverTick())
+	{
+		PrimaryActorTick.SetTickFunctionEnable(bEnable);
+	}
+	else if (bEnable)
+	{
+		UE_LOG(LogActor, Warning, TEXT("Attempting to enable ticking for '%s' when the actor is explicitly prevented from doing so (check CanEverTick)."), *GetName());
+	}
+}
+
 void AActor::AddControllingMatineeActor( AMatineeActor& InMatineeActor )
 {
 	if (RootComponent)
@@ -1576,9 +1588,10 @@ FVector AActor::GetPlacementExtent() const
 			}
 		}
 
-		FVector BoxExtent = ActorBox.GetExtent();
-		float CollisionRadius = FMath::Sqrt( (BoxExtent.X * BoxExtent.X) + (BoxExtent.Y * BoxExtent.Y) );
-		Extent = FVector(CollisionRadius, CollisionRadius, BoxExtent.Z);
+		// Get box extent, adjusting for any difference between the center of the box and the actor pivot
+		FVector AdjustedBoxExtent = ActorBox.GetExtent() - ActorBox.GetCenter();
+		float CollisionRadius = FMath::Sqrt((AdjustedBoxExtent.X * AdjustedBoxExtent.X) + (AdjustedBoxExtent.Y * AdjustedBoxExtent.Y));
+		Extent = FVector(CollisionRadius, CollisionRadius, AdjustedBoxExtent.Z);
 	}
 	return Extent;
 }
@@ -2356,6 +2369,7 @@ void AActor::EnableInput(APlayerController* PlayerController)
 			InputComponent = ConstructObject<UInputComponent>(UInputComponent::StaticClass(), this);
 			InputComponent->RegisterComponent();
 			InputComponent->bBlockInput = bBlockInput;
+			InputComponent->Priority = InputPriority;
 
 			// Only do this if this actor is of a blueprint class
 			UBlueprintGeneratedClass* BGClass = Cast<UBlueprintGeneratedClass>(GetClass());

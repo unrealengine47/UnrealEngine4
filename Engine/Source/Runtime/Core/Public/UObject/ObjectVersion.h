@@ -632,6 +632,7 @@ enum EUnrealEngineObjectUE4Version
 	VER_UE4_SLATE_COMPOSITE_FONTS,
 	// Remove UDEPRECATED_SaveGameSummary, required for UWorld::Serialize
 	VER_UE4_REMOVE_SAVEGAMESUMMARY,
+
 	//Remove bodyseutp serialization from skeletal mesh component
 	VER_UE4_REMOVE_SKELETALMESH_COMPONENT_BODYSETUP_SERIALIZATION,
 	// Made Slate font data use bulk data to store the embedded font data
@@ -644,6 +645,11 @@ enum EUnrealEngineObjectUE4Version
 	VER_UE4_GRAPH_INTERACTIVE_COMMENTBUBBLES,
 	// Landscape serializes physical materials for collision objects 
 	VER_UE4_LANDSCAPE_SERIALIZE_PHYSICS_MATERIALS,
+	// Rename Visiblity on widgets to Visibility
+	VER_UE4_RENAME_WIDGET_VISIBILITY,
+	// add track curves for animation
+	VER_UE4_ANIMATION_ADD_TRACKCURVES,
+
 	// -----<new versions can be added before this line>-------------------------------------------------
 	// - this needs to be the last line (see note below)
 	VER_UE4_AUTOMATIC_VERSION_PLUS_ONE,

@@ -153,9 +153,6 @@ class ENGINE_API USkinnedMeshComponent : public UMeshComponent
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mesh")
 	class USkeletalMesh* SkeletalMesh;
 
-	/** Temporary array of of component-space bone matrices, update each frame and used for rendering the mesh. */
-	TArray<FTransform> SpaceBases;
-
 	//
 	// MasterPoseComponent.
 	//
@@ -166,6 +163,19 @@ class ENGINE_API USkinnedMeshComponent : public UMeshComponent
 	 *	skeleton within the same Actor.
 	 */
 	TWeakObjectPtr< class USkinnedMeshComponent > MasterPoseComponent;
+
+private:
+	/** Temporary array of of component-space bone matrices, update each frame and used for rendering the mesh. */
+	TArray<FTransform> SpaceBasesArray[2];
+
+	/** The index for the space bases buffer we can currently write to */
+	int32 CurrentEditableSpaceBases;
+
+	/** The index for the space bases buffer we can currently read from */
+	int32 CurrentReadSpaceBases;
+
+	/** Are we using double buffered blend spaces */
+	bool bDoubleBufferedBlendSpaces;
 
 protected:
 	/** 
@@ -549,7 +559,21 @@ public:
 	 * Checks/updates material usage on proxy based on current morph target usage
 	 */
 	void UpdateMorphMaterialUsageOnProxy();
+	
+	/** Access Space Bases for reading */
+	const TArray<FTransform>& GetSpaceBases() const { return SpaceBasesArray[CurrentReadSpaceBases]; }
 
+	/** Get Access to the current editable space bases */
+	TArray<FTransform>& GetEditableSpaceBases() { return SpaceBasesArray[CurrentEditableSpaceBases]; }
+	const TArray<FTransform>& GetEditableSpaceBases() const { return SpaceBasesArray[CurrentEditableSpaceBases]; }
+
+	/** Get the number of space bases */
+	int32 GetNumSpaceBases() const { return GetSpaceBases().Num(); }
+
+	/** Flip the editable space base buffer */
+	void FlipEditableSpaceBases();
+
+	void SetSpaceBaseDoubleBuffering(bool bInDoubleBufferedBlendSpaces);
 
 protected:
 	/**

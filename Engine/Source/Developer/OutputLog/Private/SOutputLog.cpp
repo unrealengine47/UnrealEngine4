@@ -4,7 +4,9 @@
 #include "SOutputLog.h"
 #include "SScrollBorder.h"
 #include "BaseTextLayoutMarshaller.h"
-
+#include "GameFramework/GameMode.h"
+#include "Engine/LocalPlayer.h"
+#include "GameFramework/GameState.h"
 /** Custom console editable text box whose only purpose is to prevent some keys from being typed */
 class SConsoleEditableTextBox : public SEditableTextBox
 {
@@ -730,8 +732,8 @@ bool SOutputLog::CreateLogMessages( const TCHAR* V, ELogVerbosity::Type Verbosit
 		}
 
 		// Determine how to format timestamps
-		ELogTimes::Type LogTimestampMode = ELogTimes::None;
-		if (UObjectInitialized())
+		static ELogTimes::Type LogTimestampMode = ELogTimes::None;
+		if (UObjectInitialized() && !GExitPurge)
 		{
 			// Logging can happen very late during shutdown, even after the UObject system has been torn down, hence the init check above
 			LogTimestampMode = GetDefault<UEditorStyleSettings>()->LogTimestampMode;
@@ -770,9 +772,6 @@ void SOutputLog::Serialize( const TCHAR* V, ELogVerbosity::Type Verbosity, const
 		const float DistanceFromBottom = MessagesTextBox->GetVScrollBar()->DistanceFromBottom();
 		if( DistanceFromBottom <= KINDA_SMALL_NUMBER )
 		{
-			// Force a refresh so that the message has been added before we try and jump to it
-			//MessagesTextBox->Refresh();
-
 			MessagesTextBox->ScrollTo(FTextLocation(MessagesTextMarshaller->GetNumMessages() - 1));
 		}
 	}

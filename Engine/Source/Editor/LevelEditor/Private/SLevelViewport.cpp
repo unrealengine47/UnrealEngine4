@@ -34,6 +34,12 @@
 #include "SNotificationList.h"
 #include "NotificationManager.h"
 #include "SLevelViewportControlsPopup.h"
+#include "Camera/CameraActor.h"
+#include "GameFramework/WorldSettings.h"
+#include "Engine/LocalPlayer.h"
+#include "Engine/Selection.h"
+#include "GameFramework/PlayerInput.h"
+#include "GameFramework/PlayerController.h"
 
 static const FName LevelEditorName("LevelEditor");
 
@@ -818,6 +824,8 @@ void SLevelViewport::Tick( const FGeometry& AllottedGeometry, const double InCur
 	// viewport with Slate widgets that are part of the game, don't throttle.
 	if ( bPIEContainsFocus != bContainsFocus )
 	{
+		// We can arrive at this point before creating throttling manager (which registers the cvar), so create it explicitly.
+		static const FSlateThrottleManager & ThrottleManager = FSlateThrottleManager::Get();
 		static IConsoleVariable* AllowThrottling = IConsoleManager::Get().FindConsoleVariable(TEXT("Slate.bAllowThrottling"));
 		check(AllowThrottling);
 
@@ -2764,7 +2772,8 @@ FSlateColor SActorPreview::GetBorderColorAndOpacity() const
 
 	if (HighlightSequence.IsPlaying())
 	{
-		const FLinearColor SelectionColor = FEditorStyle::Get().GetSlateColor("SelectionColor").GetSpecifiedColor().CopyWithNewOpacity(0.5f);
+		static const FName SelectionColorName("SelectionColor");
+		const FLinearColor SelectionColor = FEditorStyle::Get().GetSlateColor(SelectionColorName).GetSpecifiedColor().CopyWithNewOpacity(0.5f);
 		
 		const float Interp = FMath::Sin(HighlightSequence.GetLerp()*6*PI) / 2 + 1;
 		Color = FMath::Lerp(SelectionColor, Color, Interp);
@@ -3287,7 +3296,9 @@ EVisibility SLevelViewport::GetMouseCaptureLabelVisibility() const
 
 FLinearColor SLevelViewport::GetMouseCaptureLabelColorAndOpacity() const
 {
-	FSlateColor SlateColor = FEditorStyle::GetSlateColor("DefaultForeground");
+	static const FName DefaultForegroundName("DefaultForeground");
+
+	FSlateColor SlateColor = FEditorStyle::GetSlateColor(DefaultForegroundName);
 	FLinearColor Col = SlateColor.IsColorSpecified() ? SlateColor.GetSpecifiedColor() : FLinearColor::White; 
 
 	float Alpha = 0.0f;

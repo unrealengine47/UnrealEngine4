@@ -15,14 +15,21 @@ public:
 	 * @param ParentWindow The parent window to add the widget
 	 * @param InStyle The style to use to create the widgets
 	 */
-	virtual void CreateFriendsListWidget( TSharedPtr< const SWidget > ParentWidget, const struct FFriendsAndChatStyle* InStyle ) = 0;
+	virtual void CreateFriendsListWidget(const struct FFriendsAndChatStyle* InStyle ) = 0;
 
 	/**
 	 * Set the FriendsAndChatUserSettings.
 	 *
 	 * @param UserSettings - The Friends and chat user settings
 	 */
-	virtual void SetUserSettings(FFriendsAndChatSettings UserSettings) = 0;
+	virtual void SetUserSettings(const FFriendsAndChatSettings& UserSettings) = 0;
+
+	/**
+	 * Set the analytics provider for capturing friends/chat events
+	 *
+	 * @param AnalyticsProvider the provider to use
+	 */
+	virtual void SetAnalyticsProvider(const TSharedPtr<IAnalyticsProvider>& AnalyticsProvider) = 0;
 
 	/**
 	 * Create the a friends list widget without a container.
@@ -36,13 +43,19 @@ public:
 	 * @param InStyle The style to use to create the widgets.
 	 * @return The chat widget.
 	 */
-	virtual TSharedPtr< SWidget > GenerateChatWidget( const FFriendsAndChatStyle* InStyle ) = 0;
+	virtual TSharedPtr< SWidget > GenerateChatWidget(const FFriendsAndChatStyle* InStyle) = 0;
+
+	/**
+	 * Get the chat system view model for manipulating the chat widget.
+	 * @return The chat view model.
+	 */
+	virtual TSharedPtr<IChatViewModel> GetChatViewModel() = 0;
 
 	/**
 	 * Insert a network chat message.
 	 * @param InMessage The chat message.
 	 */
-	virtual void InsertNetworkChatMessage(const FString InMessage) = 0;
+	virtual void InsertNetworkChatMessage(const FString& InMessage) = 0;
 
 	/**
 	 * Join a global chat room
@@ -63,9 +76,6 @@ public:
 
 	DECLARE_EVENT_OneParam(IFriendsAndChatManager, FOnFriendsUserSettingsUpdatedEvent, /*struct*/ FFriendsAndChatSettings& /* New Options */)
 	virtual FOnFriendsUserSettingsUpdatedEvent& OnFriendsUserSettingsUpdated() = 0;
-
-	DECLARE_EVENT_OneParam(IFriendsAndChatManager, FOnFriendsSendNetworkMessageEvent, /*struct*/ const FString& /* the message */)
-	virtual FOnFriendsSendNetworkMessageEvent& OnFriendsSendNewtworkMessage() = 0;
 
 	DECLARE_EVENT_TwoParams(IFriendsAndChatManager, FOnFriendsJoinGameEvent, const FUniqueNetId& /*FriendId*/, const FString& /*SessionId*/)
 	virtual FOnFriendsJoinGameEvent& OnFriendsJoinGame() = 0;

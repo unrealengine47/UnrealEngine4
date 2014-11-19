@@ -53,6 +53,7 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	/** Used to register callbacks to confirm/cancel input */
 	DECLARE_DYNAMIC_MULTICAST_DELEGATE(FAbilityConfirmOrCancel);
 
+	friend struct FActiveGameplayEffectAction_Add;
 	friend FGameplayEffectSpec;
 	friend class AAbilitySystemDebugHUD;
 
@@ -108,7 +109,21 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	UPROPERTY(Replicated)
 	TArray<UAttributeSet*>	SpawnedAttributes;
 
-	void SetNumericAttribute(const FGameplayAttribute &Attribute, float NewFloatValue);
+	/** Sets the base value of an attribute. Existing active modifiers are NOT cleared and will act upon the new base value. */
+	void SetNumericAttributeBase(const FGameplayAttribute &Attribute, float NewBaseValue);
+
+	/**
+	 *	Applies an inplace mod to the given attribute. This correctly update the attribute's aggregator, updates the attribute set property,
+	 *	and invokes the OnDirty callbacks.
+	 *	
+	 *	This does not invoke Pre/PostGameplayEffectExecute calls on the attribute set. This does no tag checking, application requirements, immunity, etc.
+	 *	No GameplayEffectSpec is created or is applied!
+	 *
+	 *	This should only be used in cases where applying a real GameplayEffectSpec is too slow or not possible.
+	 */
+	void ApplyModToAttribute(const FGameplayAttribute &Attribute, TEnumAsByte<EGameplayModOp::Type> ModifierOp, float ModifierMagnitude);
+
+	/** Returns current (final) value of an attribute */
 	float GetNumericAttribute(const FGameplayAttribute &Attribute);
 
 	virtual void DisplayDebug(class UCanvas* Canvas, const class FDebugDisplayInfo& DebugDisplay, float& YL, float& YPos);
@@ -264,7 +279,7 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	 *
 	 *	Tags added this way are not replicated! 
 	 *	
-	 *	It is up to the calling GameCode to make sure these tags are added on a;; clients/server where necessary
+	 *	It is up to the calling GameCode to make sure these tags are added on clients/server where necessary
 	 */
 
 	void AddLooseGameplayTag(const FGameplayTag& GameplayTag, int32 Count=1);
@@ -716,6 +731,9 @@ public:
 
 private:
 
+	/** Actually pushes the final attribute value to the attribute set's property. Should not be called by outside code since this does not go through the attribute aggregator system. */
+	void SetNumericAttribute_Internal(const FGameplayAttribute &Attribute, float NewFloatValue);
+
 	bool HasNetworkAuthorityToApplyGameplayEffect(FPredictionKey PredictionKey) const;
 
 	void ExecutePeriodicEffect(FActiveGameplayEffectHandle	Handle);
@@ -754,9 +772,6 @@ private:
 	void UpdateTagMap(const FGameplayTag& BaseTag, int32 CountDelta);
 	
 	void UpdateTagMap(const FGameplayTagContainer& Container, int32 CountDelta);
-
-	// Version for delegate callback.
-	FGameplayTagContainer GetOwnedGameplayTagsDel() const;
 	
 	// ---------------------------------------------
 

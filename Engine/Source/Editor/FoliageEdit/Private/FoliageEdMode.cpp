@@ -24,6 +24,11 @@
 #include "LandscapeHeightfieldCollisionComponent.h"
 #include "LandscapeInfo.h"
 #include "Components/SplineMeshComponent.h"
+#include "Engine/StaticMeshActor.h"
+#include "GameFramework/WorldSettings.h"
+#include "Engine/CollisionProfile.h"
+#include "Components/ModelComponent.h"
+#include "EngineUtils.h"
 
 #define FOLIAGE_SNAP_TRACE (10000.f)
 
@@ -110,10 +115,8 @@ void FEdModeFoliage::Enter()
 
 	if (!Toolkit.IsValid())
 	{
-		// @todo: Remove this assumption when we make modes per level editor instead of global
-		auto ToolkitHost = FModuleManager::LoadModuleChecked< FLevelEditorModule >("LevelEditor").GetFirstLevelEditor();
 		Toolkit = MakeShareable(new FFoliageEdModeToolkit);
-		Toolkit->Init(ToolkitHost);
+		Toolkit->Init(Owner->GetToolkitHost());
 	}
 
 	// Fixup any broken clusters

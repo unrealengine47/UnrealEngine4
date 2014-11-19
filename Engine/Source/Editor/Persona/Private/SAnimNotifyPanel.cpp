@@ -12,6 +12,7 @@
 #include "AssetSelection.h"
 #include "STextEntryPopup.h"
 #include "SExpandableArea.h"
+#include "Toolkits/AssetEditorManager.h"
 
 // Track Panel drawing
 const float NotificationTrackHeight = 20.0f;
@@ -334,6 +335,9 @@ protected:
 
 	/** Provides direct access to the notify menu from the context menu */
 	void OnManageNotifies();
+
+	/** Opens the supplied blueprint in an editor */
+	void OnOpenNotifySource(UBlueprint* InSourceBlueprint) const;
 
 	/**
 	 * Update the nodes to match the data that the panel is observing
@@ -1854,16 +1858,7 @@ void SAnimNotifyTrack::CreateNewNotifyAtCursor(FString NewNotifyName, UClass* No
 	FAnimNotifyEvent& NewEvent = Sequence->Notifies[NewNotifyIndex];
 	NewEvent.NotifyName = FName(*NewNotifyName);
 
-	UAnimMontage* SequenceAsMontage = Cast<UAnimMontage>(Sequence);
-	if(SequenceAsMontage)
-	{
-		NewEvent.LinkMontage(SequenceAsMontage, NewTime);
-	}
-	else
-	{
-		NewEvent.LinkSequence(Sequence, NewTime);
-	}
-
+	NewEvent.Link(Sequence, NewTime);
 	NewEvent.TriggerTimeOffset = GetTriggerTimeOffsetForType(Sequence->CalculateOffsetForNotify(NewTime));
 	NewEvent.TrackIndex = TrackIndex;
 
@@ -1878,14 +1873,7 @@ void SAnimNotifyTrack::CreateNewNotifyAtCursor(FString NewNotifyName, UClass* No
 		{
 			NewEvent.NotifyName = FName(*NewEvent.NotifyStateClass->GetNotifyName());
 			NewEvent.SetDuration(1 / 30.f);
-			if(SequenceAsMontage)
-			{
-				NewEvent.EndLink.LinkMontage(SequenceAsMontage, NewEvent.EndLink.GetTime());
-			}
-			else
-			{
-				NewEvent.EndLink.LinkSequence(Sequence, NewEvent.EndLink.GetTime());
-			}
+			NewEvent.EndLink.Link(Sequence, NewEvent.EndLink.GetTime());
 		}
 		else
 		{
@@ -2179,6 +2167,27 @@ TSharedPtr<SWidget> SAnimNotifyTrack::SummonContextMenu(const FGeometry& MyGeome
 	}
 	MenuBuilder.EndSection(); //AnimEdit
 
+	if (NotifyIndex != INDEX_NONE)
+	{
+		FAnimNotifyEvent* Notify = AnimNotifies[NotifyIndex];
+		UObject* NotifyObject = Notify->Notify;
+		NotifyObject = NotifyObject ? NotifyObject : Notify->NotifyStateClass;
+
+		if (NotifyObject && Cast<UBlueprintGeneratedClass>(NotifyObject->GetClass()))
+		{
+			if (UBlueprint* Blueprint = Cast<UBlueprint>(NotifyObject->GetClass()->ClassGeneratedBy))
+			{
+				MenuBuilder.BeginSection("ViewSource", LOCTEXT("NotifyViewHeading", "View"));
+
+				NewAction.ExecuteAction.BindRaw(
+					this, &SAnimNotifyTrack::OnOpenNotifySource, Blueprint);
+				MenuBuilder.AddMenuEntry(LOCTEXT("OpenNotifyBlueprint", "Open Notify Blueprint"), LOCTEXT("OpenNotifyBlueprint", "Opens the source blueprint for this notify"), FSlateIcon(), NewAction);
+
+				MenuBuilder.EndSection(); //ViewSource
+			}
+		}
+	}
+
 	// Display the newly built menu
 	TWeakPtr<SWindow> ContextMenuWindow =
 		FSlateApplication::Get().PushMenu( SharedThis( this ), MenuBuilder.MakeWidget(), CursorPos, FPopupTransitionEffect( FPopupTransitionEffect::ContextMenu ));
@@ -2371,6 +2380,11 @@ void SAnimNotifyTrack::OnManageNotifies()
 	{
 		PersonalPin->GetTabManager()->InvokeTab( FPersonaTabs::SkeletonAnimNotifiesID );
 	}
+}
+
+void SAnimNotifyTrack::OnOpenNotifySource(UBlueprint* InSourceBlueprint) const
+{
+	FAssetEditorManager::Get().OpenEditorForAsset(InSourceBlueprint);
 }
 
 void SAnimNotifyTrack::SetTriggerWeight(const FText& TriggerWeight, ETextCommit::Type CommitInfo, int32 NotifyIndex)
@@ -2650,22 +2664,20 @@ void SAnimNotifyTrack::HandleNodeDrop(TSharedPtr<SAnimNotifyNode> Node, float Of
 	FAnimNotifyEvent* DroppedEvent = Node->NotifyEvent;
 	float EventDuration = DroppedEvent->GetDuration();
 
-	UAnimMontage* MontageObj = Cast<UAnimMontage>(Sequence);
-
 	if(Node->GetLastSnappedTime() != -1.0f)
 	{
-		DroppedEvent->LinkMontage(MontageObj, Node->GetLastSnappedTime(), DroppedEvent->GetSlotIndex());
+		DroppedEvent->Link(Sequence, Node->GetLastSnappedTime(), DroppedEvent->GetSlotIndex());
 	}
 	else
 	{
-		DroppedEvent->LinkMontage(MontageObj, Time, DroppedEvent->GetSlotIndex());
+		DroppedEvent->Link(Sequence, Time, DroppedEvent->GetSlotIndex());
 	}
 	DroppedEvent->RefreshTriggerOffset(Sequence->CalculateOffsetForNotify(DroppedEvent->GetTime()));
 
 	if(EventDuration > 0.0f)
 	{
-		DroppedEvent->EndLink.LinkMontage(MontageObj, DroppedEvent->GetTime() + EventDuration, DroppedEvent->GetSlotIndex());
-		DroppedEvent->RefreshEndTriggerOffset(Sequence->CalculateOffsetForNotify(DroppedEvent->EndLink.GetTime()/*DroppedEvent->GetTime()+ DroppedEvent->GetDuration()*/));
+		DroppedEvent->EndLink.Link(Sequence, DroppedEvent->GetTime() + EventDuration, DroppedEvent->GetSlotIndex());
+		DroppedEvent->RefreshEndTriggerOffset(Sequence->CalculateOffsetForNotify(DroppedEvent->EndLink.GetTime()));
 	}
 	else
 	{
@@ -2729,7 +2741,7 @@ void SAnimNotifyTrack::AppendSelectionToArray(TArray<FAnimNotifyEvent*>& Selecti
 
 void SAnimNotifyTrack::PasteSingleNotify(FString& NotifyString, float PasteTime)
 {
-	int32 NewIdx = Sequence->Notifies.AddZeroed();
+	int32 NewIdx = Sequence->Notifies.Add(FAnimNotifyEvent());
 	UArrayProperty* ArrayProperty = NULL;
 	uint8* PropertyData = Sequence->FindNotifyPropertyData(NewIdx, ArrayProperty);
 
@@ -2765,6 +2777,8 @@ void SAnimNotifyTrack::PasteSingleNotify(FString& NotifyString, float PasteTime)
 			NewNotify.SetDuration(FMath::Clamp(NewNotify.GetDuration(), 1 / 30.0f, Sequence->SequenceLength - NewNotify.GetTime()));
 			NewNotify.EndTriggerTimeOffset = GetTriggerTimeOffsetForType(Sequence->CalculateOffsetForNotify(NewNotify.GetTime() + NewNotify.GetDuration()));
 		}
+
+		NewNotify.ConditionalRelink();
 	}
 	else
 	{
@@ -3403,6 +3417,7 @@ void SAnimNotifyPanel::CopySelectedNotifiesToClipboard() const
 			StrValue += "\n";
 			UArrayProperty* ArrayProperty = NULL;
 			uint8* PropertyData = Sequence->FindNotifyPropertyData(Index, ArrayProperty);
+			StrValue += FString::Printf(TEXT("AbsTime=%f,"), Event->GetTime());
 			if(PropertyData && ArrayProperty)
 			{
 				ArrayProperty->Inner->ExportTextItem(StrValue, PropertyData, PropertyData, Sequence, PPF_Copy);
@@ -3465,8 +3480,11 @@ void SAnimNotifyPanel::OnPasteNotifies(SAnimNotifyTrack* RequestTrack, float Cli
 			int32 OriginalTrack;
 			float OrigTime;
 			float PasteTime = -1.0f;
-			if(FParse::Value(*CurrentLine, TEXT("TrackIndex="), OriginalTrack) && FParse::Value(*CurrentLine, TEXT("DisplayTime="), OrigTime))
+			if(FParse::Value(*CurrentLine, TEXT("TrackIndex="), OriginalTrack) && FParse::Value(*CurrentLine, TEXT("AbsTime="), OrigTime))
 			{
+				FString NotifyExportString;
+				CurrentLine.Split(TEXT(","), NULL, &NotifyExportString);
+
 				// Store the first track so we know where to place notifies
 				if(FirstTrack < 0)
 				{
@@ -3480,7 +3498,7 @@ void SAnimNotifyPanel::OnPasteNotifies(SAnimNotifyTrack* RequestTrack, float Cli
 				// Have to invert the index here as tracks are stored in reverse
 				TSharedPtr<SAnimNotifyTrack> TrackToUse = NotifyAnimTracks[NotifyAnimTracks.Num() - 1 - (PasteIdx + TrackOffset)];
 
-				TrackToUse->PasteSingleNotify(CurrentLine, TimeToPaste);
+				TrackToUse->PasteSingleNotify(NotifyExportString, TimeToPaste);
 			}
 		}
 	}

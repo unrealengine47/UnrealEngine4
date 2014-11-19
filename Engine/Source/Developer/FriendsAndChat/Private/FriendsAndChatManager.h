@@ -22,6 +22,74 @@ namespace EFriendsAndManagerState
 };
 
 /**
+ * Result of find friend attempt
+ */
+namespace EFindFriendResult
+{
+	enum Type
+	{
+		Success,
+		NotFound,
+		AlreadyFriends,
+		FriendsPending,
+		AddingSelfFail
+	};
+
+	static const TCHAR* ToString(const EFindFriendResult::Type& Type)
+	{
+		switch (Type)
+		{
+		case Success:
+			return TEXT("Success");
+		case NotFound:
+			return TEXT("NotFound");
+		case AlreadyFriends:
+			return TEXT("AlreadyFriends");
+		case FriendsPending:
+			return TEXT("FriendsPending");
+		case AddingSelfFail:
+			return TEXT("AddingSelfFail");
+		default:
+			return TEXT("");
+		};
+	}
+};
+
+// Analytics
+
+class FFriendsAndChatAnalytics
+{
+public:
+	FFriendsAndChatAnalytics() {}
+	/**
+	 * Update provider to use for capturing events
+	 */
+	void SetProvider(const TSharedPtr<IAnalyticsProvider>& AnalyticsProvider) {	Provider = AnalyticsProvider; }
+	/**
+	 * Record a game invite event
+ 	 */
+	void RecordGameInvite(const IFriendItem& Friend, const FString& EventStr) const;
+	/**
+	 * Record a friend action event
+	 */
+	void RecordFriendAction(const IFriendItem& Friend, const FString& EventStr) const;
+	/**
+	 * Record a add friend action event
+	 */
+	void RecordAddFriend(const FString& FriendName, const FUniqueNetId& FriendId, EFindFriendResult::Type Result, bool bRecentPlayer, const FString& EventStr) const;
+	/**
+	 * Record chat option toggle
+	 */
+	void RecordToggleChat(const FString& Channel, bool bEnabled, const FString& EventStr) const;
+
+private:
+	void AddPresenceAttributes(const FUniqueNetId& UserId, TArray<FAnalyticsEventAttribute>& Attributes) const;
+
+	// cached analytics provider for pushing events
+	TSharedPtr<IAnalyticsProvider> Provider;
+};
+
+/**
  * Implement the Friend and Chat manager
  */
 class FFriendsAndChatManager
@@ -41,22 +109,39 @@ public:
 	// IFriendsAndChatManager
 	virtual void Logout() override;
 	virtual void Login() override;
-	virtual void CreateFriendsListWidget( TSharedPtr< const SWidget > ParentWidget, const FFriendsAndChatStyle* InStyle ) override;
-	virtual void SetUserSettings(FFriendsAndChatSettings UserSettings) override;
-	virtual TSharedPtr< SWidget > GenerateFriendsListWidget( const FFriendsAndChatStyle* InStyle ) override;
-	virtual TSharedPtr< SWidget > GenerateChatWidget( const FFriendsAndChatStyle* InStyle ) override;
-	virtual void InsertNetworkChatMessage(const FString InMessage) override;
+	virtual void CreateFriendsListWidget(const FFriendsAndChatStyle* InStyle ) override;
+	virtual void SetUserSettings(const FFriendsAndChatSettings& UserSettings) override;
+	virtual void SetAnalyticsProvider(const TSharedPtr<IAnalyticsProvider>& AnalyticsProvider) override;
+	virtual TSharedPtr< SWidget > GenerateFriendsListWidget(const FFriendsAndChatStyle* InStyle) override;
+	virtual TSharedPtr< SWidget > GenerateChatWidget(const FFriendsAndChatStyle* InStyle) override;
+	virtual TSharedPtr<IChatViewModel> GetChatViewModel() override;
+	virtual void InsertNetworkChatMessage(const FString& InMessage) override;
 	virtual void JoinPublicChatRoom(const FString& RoomName) override;
 
 	/**
-	 * Get if the player is in a session.
+	 * Get the analytics for recording friends chat events
+	 */
+	const FFriendsAndChatAnalytics& GetAnalytics() const
+	{
+		return Analytics;
+	}
+
+	/**
+	 * Get session id if the current player is in a session.
+	 *
+	 * @return True id of game session we are in.
+	 */
+	FString GetGameSessionId() const;
+
+	/**
+	 * Get if the current player is in a session.
 	 *
 	 * @return True if we are in a game session.
 	 */
 	bool IsInGameSession() const;
 
 	/**
-	 * Get if the player is in a session and that game is joinable.
+	 * Get if the current player is in a session and that game is joinable.
 	 *
 	 * @return True if we are in a game session.
 	 */
@@ -64,10 +149,15 @@ public:
 
 	/**
 	 * Create the friends list window.
+	 */
+	void GenerateChatWindow();
+
+	/**
+	 * Set the chat friend.
 	 *
 	 * @param FriendItem The friend to start a chat with.
 	 */
-	void GenerateChatWindow( TSharedPtr< IFriendItem > FriendItem );
+	void SetChatFriend( TSharedPtr< IFriendItem > FriendItem );
 
 	/**
 	 * Set the chat widget contents.
@@ -153,6 +243,9 @@ public:
 	 */
 	void SendGameInvite(const TSharedPtr<IFriendItem>& FriendItem);
 
+	/** Send a game invite notification. */
+	void SendGameInviteNotification(const TSharedPtr<IFriendItem>& FriendItem);
+
 	/**
 	 * Find a user ID.
 	 *
@@ -166,29 +259,30 @@ public:
 	 *
 	 * @return true if online
 	 */
-	bool GetUserIsOnline();
+	EOnlinePresenceState::Type GetUserIsOnline();
 
 	/**
 	 * Set the user online status
 	 *
-	 * @param bIsOnline - the online state
+	 * @param OnlineState - the online state
 	 */
-	void SetUserIsOnline(bool bIsOnline);
-
-	/**
-	 * Send network message
-	 *
-	 * @param NetworkMessage - the message to send
-	 */
-	void SendNetworkMessage(const FString& NetworkMessage);
+	void SetUserIsOnline(EOnlinePresenceState::Type OnlineState);
 
 	/**
 	 * Find a user.
 	 *
-	 * @param InUserName The user name to find.
+	 * @param InUserId The user id to find.
 	 * @return The Friend ID.
 	 */
 	TSharedPtr< IFriendItem > FindUser(const FUniqueNetId& InUserID);
+
+	/**
+	 * Find a recent player.
+	 *
+	 * @param InUserId The user id to find.
+	 * @return The recent player ID.
+	 */
+	TSharedPtr< IFriendItem > FindRecentPlayer(const FUniqueNetId& InUserID);
 
 	// External events
 	DECLARE_DERIVED_EVENT(FFriendsAndChatManager, IFriendsAndChatManager::FOnFriendsNotificationEvent, FOnFriendsNotificationEvent)
@@ -207,12 +301,6 @@ public:
 	virtual FOnFriendsUserSettingsUpdatedEvent& OnFriendsUserSettingsUpdated() override
 	{
 		return FriendsUserSettingsUpdatedDelegate;
-	}
-
-	DECLARE_DERIVED_EVENT(IFriendsAndChatManager, IFriendsAndChatManager::FOnFriendsSendNetworkMessageEvent, FOnFriendsSendNetworkMessageEvent)
-	virtual FOnFriendsSendNetworkMessageEvent& OnFriendsSendNewtworkMessage() override
-	{
-		return FriendsSendNetworkMessageEvent;
 	}
 
 	DECLARE_DERIVED_EVENT(IFriendsAndChatManager, IFriendsAndChatManager::FOnFriendsJoinGameEvent, FOnFriendsJoinGameEvent)
@@ -536,8 +624,6 @@ private:
 	FOnFriendsNotificationActionEvent FriendsListActionNotificationDelegate;
 	// Holds the Options Updated event notification delegate
 	FOnFriendsUserSettingsUpdatedEvent FriendsUserSettingsUpdatedDelegate;
-	// Holds the network chat message sent delegate
-	FOnFriendsSendNetworkMessageEvent FriendsSendNetworkMessageEvent;
 	// Holds the join game request delegate
 	FOnFriendsJoinGameEvent FriendsJoinGameEvent;
 
@@ -562,8 +648,9 @@ private:
 
 	// Keeps track of global chat rooms that have been requested to join
 	TArray<FString> ChatRoomstoJoin;
-
+	// Manages private/public chat messages 
 	TSharedPtr<class FFriendsMessageManager> MessageManager;
+	// Info needed to view chat messages
 	TSharedPtr<class FChatViewModel> ChatViewModel;
 
 	/* Manger state
@@ -598,6 +685,8 @@ private:
 	bool bRequiresRecentPlayersRefresh;
 	// Holds the toast notification
 	TSharedPtr<SNotificationList> FriendsNotificationBox;
+	// Holds if we should create a chat window
+	bool bCreateChatWindow;
 
 public:
 
@@ -606,5 +695,6 @@ public:
 
 private:
 
+	FFriendsAndChatAnalytics Analytics;
 	static TSharedPtr< FFriendsAndChatManager > SingletonInstance;
 };

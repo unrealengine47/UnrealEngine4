@@ -9,6 +9,12 @@ class FFreeTypeInterface;
 /** Information for rendering one character */
 struct SLATECORE_API FCharacterEntry
 {
+	/** The character this entry is for */
+	TCHAR Character;
+	/** The raw font data this character was rendered with */
+	const FFontData* FontData;
+	/** Scale that was applied when rendering this character */
+	float FontScale;
 	/** Start X location of the character in the texture */
 	float StartU;
 	/** Start Y location of the character in the texture */
@@ -27,8 +33,10 @@ struct SLATECORE_API FCharacterEntry
 	int16 XAdvance;
 	/** Index to a specific texture in the font cache. */
 	uint8 TextureIndex;
-	/** 1 if this entry is valid, 0 otherwize. */
-	uint8 Valid;
+	/** 1 if this entry has kerning, 0 otherwise. */
+	bool HasKerning;
+	/** 1 if this entry is valid, 0 otherwise. */
+	bool Valid;
 
 	FCharacterEntry()
 	{
@@ -42,7 +50,7 @@ struct SLATECORE_API FCharacterEntry
 	 */
 	FORCEINLINE bool IsValidEntry() const
 	{
-		return Valid == 1;
+		return Valid;
 	}
 };
 
@@ -76,7 +84,7 @@ class FSlateFontCache;
 class SLATECORE_API FKerningTable
 {
 public:
-	FKerningTable( const FSlateFontKey& InFont, const FSlateFontCache& InFontCache );
+	FKerningTable( const FSlateFontCache& InFontCache );
 	~FKerningTable();
 
 	/**
@@ -86,21 +94,20 @@ public:
 	 * @param SecondChar	The second character in the pair
 	 * @return The kerning value
 	 */
-	int8 GetKerning( TCHAR FirstChar, TCHAR SecondChar );
-private:
+	int8 GetKerning( const FFontData& InFontData, const int32 InSize, TCHAR FirstChar, TCHAR SecondChar, float InScale );
+
 	/**
 	 * Allocated memory for the directly indexed kerning table
 	 */
 	void CreateDirectTable();
+
 private:
 	/** Extended kerning Pairs which are mapped to save memory */
 	TMap<FKerningPair,int8> MappedKerningPairs;
-	/** Direct access kerning table for ascii chars.  Note its very important that this stays small.  Kerni */
+	/** Direct access kerning table for ascii chars.  Note its very important that this stays small. */
 	int8* DirectAccessTable;
 	/** Interface to freetype for accessing new kerning values */
 	const class FSlateFontCache& FontCache;
-	/** Font this kerning table is for */
-	FSlateFontKey FontKey;
 };
 
 
@@ -130,38 +137,7 @@ public:
 	 */
 	const FCharacterEntry& operator[]( TCHAR Character )
 	{
-		if( Character < MaxDirectIndexedEntries )
-		{
-			// The character can be indexed directly
-
-			int32 NumToAdd = (Character - DirectIndexEntries.Num()) + 1;
-			if( NumToAdd > 0 )
-			{
-				// The character doesnt exist yet in the index and there is not enough space
-				// Resize the array now
-				DirectIndexEntries.AddZeroed( NumToAdd );
-			}
-			
-			FCharacterEntry& CharacterEntry = DirectIndexEntries[ Character ];
-			if( !CharacterEntry.IsValidEntry() )
-			{
-				// Character has not been cached yet
-				CharacterEntry = CacheCharacter( Character );
-			}
-
-			return CharacterEntry;
-		}
-		else
-		{
-			FCharacterEntry& CharacterEntry = MappedEntries.FindOrAdd( Character );
-			if( !CharacterEntry.IsValidEntry() )
-			{
-				// Character has not been cached yet
-				CharacterEntry = CacheCharacter( Character );
-			}
-
-			return CharacterEntry;
-		}
+		return GetCharacter( Character );
 	}
 
 	/** Check to see if our cached data is potentially stale for our font */
@@ -174,7 +150,16 @@ public:
 	 * @param SecondChar	The second character in the pair
 	 * @return The kerning value
 	 */
-	int8 GetKerning( TCHAR First, TCHAR Second );
+	int8 GetKerning( TCHAR FirstChar, TCHAR SecondChar );
+
+	/**
+	 * Gets a kerning value for a pair of character entries
+	 *
+	 * @param FirstCharacterEntry	The first character entry in the pair
+	 * @param SecondCharacterEntry	The second character entry in the pair
+	 * @return The kerning value
+	 */
+	int8 GetKerning( const FCharacterEntry& FirstCharacterEntry, const FCharacterEntry& SecondCharacterEntry );
 
 	/**
 	 * @return The global max height for any character in this font
@@ -189,6 +174,15 @@ public:
 	int16 GetBaseline() const;
 
 private:
+
+	/**
+	 * Gets data about how to render and measure a character 
+	 * Caching and atlasing it if needed
+	 *
+	 * @param Character	The character to get
+	 * @return Data about the character
+	 */
+	const FCharacterEntry& GetCharacter( TCHAR Character );
 
 	/**
 	 * Caches a new character
@@ -286,19 +280,24 @@ public:
 	class FTextureResource* GetEngineTextureResource( uint32 Index ) { return FontAtlases[Index]->GetEngineTexture(); }
 
 	/**
-	 * Calculates the kerning amount for a pair of characters
+	 * Returns the font to use from the default typeface
 	 *
-	 * @param First			The first character in the pair
-	 * @param Second		The second character in the pair
-	 * @param InFontInfo	Information about the font that used to draw the string with the first and second characters
-	 * @return The kerning amount, 0 if no kerning
+	 * @param InFontInfo	A descriptor of the font to get the default typeface for
+	 * 
+	 * @return The raw font data
 	 */
-	int8 GetKerning( TCHAR First, TCHAR Second, const FSlateFontInfo& InFontInfo, float Scale ) const;
+	const FFontData& GetDefaultFontData( const FSlateFontInfo& InFontInfo ) const;
 
 	/**
-	 * @return Whether or not the font used by the given character has kerning information
+	 * Returns the font to use from the typeface associated with the given character
+	 *
+	 * @param InFontInfo		A descriptor of the font to get the typeface for
+	 * @param InChar			The character to get the typeface associated with
+	 * @param OutScalingFactor	The scaling factor applied to characters rendered with the given font
+	 * 
+	 * @return The raw font data
 	 */
-	bool HasKerning( const FSlateFontInfo& InFontInfo, TCHAR Char ) const;
+	const FFontData& GetFontDataForCharacter( const FSlateFontInfo& InFontInfo, const TCHAR InChar, float& OutScalingFactor ) const;
 
 	/**
 	 * Returns the height of the largest character in the font. 
@@ -319,6 +318,22 @@ public:
 	 * @return The offset from the bottom of the max character height to the baseline.
 	 */
 	int16 GetBaseline( const FSlateFontInfo& InFontInfo, float FontScale ) const;
+
+	/**
+	 * Calculates the kerning amount for a pair of characters
+	 *
+	 * @param InFontData	The font that used to draw the string with the first and second characters
+	 * @param InSize		The size of the font to draw
+	 * @param First			The first character in the pair
+	 * @param Second		The second character in the pair
+	 * @return The kerning amount, 0 if no kerning
+	 */
+	int8 GetKerning( const FFontData& InFontData, const int32 InSize, TCHAR First, TCHAR Second, float Scale ) const;
+
+	/**
+	 * @return Whether or not the font used has kerning information
+	 */
+	bool HasKerning( const FFontData& InFontData ) const;
 
 	/**
 	 * Returns the font attributes for the specified font.

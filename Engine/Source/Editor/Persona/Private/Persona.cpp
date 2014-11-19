@@ -353,7 +353,7 @@ TSharedPtr<SDockTab> FPersona::OpenNewAnimationDocumentTab(UObject* InAnimAsset)
 
 		if(SequenceBrowser.IsValid())
 		{
-			UAnimationAsset * NewAsset = CastChecked<UAnimationAsset>(InAnimAsset);
+			UAnimationAsset* NewAsset = CastChecked<UAnimationAsset>(InAnimAsset);
 			SequenceBrowser.Pin()->SelectAsset(NewAsset);
 		}
 	}
@@ -542,7 +542,7 @@ void FPersona::ExtendMenu()
 	AddMenuExtender(PersonaModule->GetMenuExtensibilityManager()->GetAllExtenders(GetToolkitCommands(), GetEditingObjects()));
 }
 
-void FPersona::InitPersona(const EToolkitMode::Type Mode, const TSharedPtr< class IToolkitHost >& InitToolkitHost, USkeleton* InitSkeleton, UAnimBlueprint* InitAnimBlueprint, UAnimationAsset* InitAnimationAsset, class USkeletalMesh * InitMesh)
+void FPersona::InitPersona(const EToolkitMode::Type Mode, const TSharedPtr< class IToolkitHost >& InitToolkitHost, USkeleton* InitSkeleton, UAnimBlueprint* InitAnimBlueprint, UAnimationAsset* InitAnimationAsset, class USkeletalMesh* InitMesh)
 {
 	FReimportManager::Instance()->OnPostReimport().AddRaw(this, &FPersona::OnPostReimport);
 
@@ -667,7 +667,7 @@ void FPersona::InitPersona(const EToolkitMode::Type Mode, const TSharedPtr< clas
 	}
 	else if (InitAnimationAsset != NULL)
 	{
-		USkeletalMesh * AssetMesh = InitAnimationAsset->GetPreviewMesh();
+		USkeletalMesh* AssetMesh = InitAnimationAsset->GetPreviewMesh();
 		if (AssetMesh)
 		{
 			SetPreviewMesh(AssetMesh);
@@ -678,7 +678,7 @@ void FPersona::InitPersona(const EToolkitMode::Type Mode, const TSharedPtr< clas
 	if (!bSetMesh && TargetSkeleton)
 	{
 		//If no preview mesh set, just find the first mesh that uses this skeleton
-		USkeletalMesh * PreviewMesh = TargetSkeleton->GetPreviewMesh(true);
+		USkeletalMesh* PreviewMesh = TargetSkeleton->GetPreviewMesh(true);
 		if ( PreviewMesh )
 		{
 			SetPreviewMesh( PreviewMesh );
@@ -731,15 +731,117 @@ void FPersona::InitPersona(const EToolkitMode::Type Mode, const TSharedPtr< clas
 	
 }
 	
+void FPersona::CreateAnimation(const TArray<UObject*> NewAssets, int32 Option) 
+{
+	bool bResult = true;
+	if (NewAssets.Num() > 0)
+	{
+		USkeletalMeshComponent* MeshComponent = GetPreviewMeshComponent();
+		UAnimSequence* Sequence = Cast<UAnimSequence> (GetPreviewAnimationAsset());
+
+		for (auto NewAsset : NewAssets)
+		{
+			UAnimSequence* NewAnimSequence = Cast<UAnimSequence>(NewAsset);
+			if (NewAnimSequence)
+			{
+				switch (Option)
+				{
+				case 0:
+					bResult &= NewAnimSequence->CreateAnimation(MeshComponent->SkeletalMesh);
+					break;
+				case 1:
+					bResult &= NewAnimSequence->CreateAnimation(MeshComponent);
+					break;
+				case 2:
+					bResult &= NewAnimSequence->CreateAnimation(Sequence);
+					break;
+				}
+			}
+		}
+
+		// if it contains error, warn them
+		if (bResult)
+		{
+			OnAssetCreated(NewAssets);
+
+			// if it created based on current mesh component, 
+			if (Option == 1)
+			{
+				PreviewComponent->PreviewInstance->ResetModifiedBone();
+			}
+		}
+		else
+		{
+			// give warning
+		}
+	}
+}
+
+void FPersona::FillCreateAnimationMenu(FMenuBuilder& MenuBuilder) const
+{
+	TArray<TWeakObjectPtr<USkeleton>> Skeletons;
+
+	Skeletons.Add(TargetSkeleton);
+
+	// create rig
+	MenuBuilder.BeginSection("CreateAnimationSubMenu", LOCTEXT("CreateAnimationSubMenuHeading", "Create Animation"));
+	{
+		MenuBuilder.AddMenuEntry(
+			LOCTEXT("CreateAnimation_RefPose", "From Reference Pose"),
+			LOCTEXT("CreateAnimation_RefPose_Tooltip", "Create Animation from reference pose."),
+			FSlateIcon(),
+			FUIAction(
+			FExecuteAction::CreateStatic(&AnimationEditorUtils::ExecuteNewAnimAsset<UAnimSequenceFactory, UAnimSequence>, Skeletons, FString("_Sequence"), FAnimAssetCreated::CreateSP(this, &FPersona::CreateAnimation, 0), false),
+			FCanExecuteAction()
+			)
+			);
+
+		MenuBuilder.AddMenuEntry(
+			LOCTEXT("CreateAnimation_CurrentPose", "From Current Pose"),
+			LOCTEXT("CreateAnimation_CurrentPose_Tooltip", "Create Animation from current pose."),
+			FSlateIcon(),
+			FUIAction(
+			FExecuteAction::CreateStatic(&AnimationEditorUtils::ExecuteNewAnimAsset<UAnimSequenceFactory, UAnimSequence>, Skeletons, FString("_Sequence"), FAnimAssetCreated::CreateSP(this, &FPersona::CreateAnimation, 1), false),
+			FCanExecuteAction()
+			)
+			);
+
+		MenuBuilder.AddMenuEntry(
+			LOCTEXT("CreateAnimation_CurrentAnimation", "From Current Animation"),
+			LOCTEXT("CreateAnimation_CurrentAnimation_Tooltip", "Create Animation from current animation."),
+			FSlateIcon(),
+			FUIAction(
+			FExecuteAction::CreateStatic(&AnimationEditorUtils::ExecuteNewAnimAsset<UAnimSequenceFactory, UAnimSequence>, Skeletons, FString("_Sequence"), FAnimAssetCreated::CreateSP(this, &FPersona::CreateAnimation, 2), false),
+			FCanExecuteAction::CreateSP(this, &FPersona::HasValidAnimationSequencePlaying)
+			)
+			);
+	}
+	MenuBuilder.EndSection();
+}
+
 TSharedRef< SWidget > FPersona::GenerateCreateAssetMenu( USkeleton* Skeleton ) const
 {
 	const bool bShouldCloseWindowAfterMenuSelection = true;
 	FMenuBuilder MenuBuilder(bShouldCloseWindowAfterMenuSelection, NULL);
 
+	// Create Animation menu
+	MenuBuilder.BeginSection("CreateAnimation", LOCTEXT("CreateAnimationMenuHeading", "Animation"));
+	{
+		// create menu
+		MenuBuilder.AddSubMenu(
+				LOCTEXT("CreateAnimationSubmenu", "Create Animation"),
+				LOCTEXT("CreateAnimationSubmenu_ToolTip", "Create Animation for this skeleton"),
+				FNewMenuDelegate::CreateSP(this, &FPersona::FillCreateAnimationMenu),
+				false,
+				FSlateIcon(FEditorStyle::GetStyleSetName(), "Persona.AssetActions.CreateAnimAsset")
+				);
+	}
+	MenuBuilder.EndSection();
+
 	TArray<TWeakObjectPtr<USkeleton>> Skeletons;
-	
+
 	Skeletons.Add(Skeleton);
-	
+
 	AnimationEditorUtils::FillCreateAssetMenu(MenuBuilder, Skeletons, FAnimAssetCreated::CreateSP(this, &FPersona::OnAssetCreated), false);
 
 	return MenuBuilder.MakeWidget();
@@ -813,6 +915,13 @@ void FPersona::ExtendDefaultPersonaToolbar()
 				}
 
 				ToolbarBuilder.AddToolBarButton(FPersonaCommands::Get().ApplyCompression, NAME_None, LOCTEXT("Toolbar_ApplyCompression", "Compression"));
+			}
+			ToolbarBuilder.EndSection();
+
+			ToolbarBuilder.BeginSection("Editing");
+			{
+				ToolbarBuilder.AddToolBarButton(FPersonaCommands::Get().SetKey, NAME_None, LOCTEXT("Toolbar_SetKey", "Key"));
+				ToolbarBuilder.AddToolBarButton(FPersonaCommands::Get().ApplyAnimation, NAME_None, LOCTEXT("Toolbar_ApplyAnimation", "Apply"));
 			}
 			ToolbarBuilder.EndSection();
 		}
@@ -1032,6 +1141,20 @@ void FPersona::CreateDefaultCommands()
 		FIsActionButtonVisible::CreateSP(this, &FPersona::IsInPersonaMode, FPersonaModes::AnimationEditMode)
 		);
 
+	ToolkitCommands->MapAction(FPersonaCommands::Get().SetKey,
+		FExecuteAction::CreateSP(this, &FPersona::OnSetKey),
+		FCanExecuteAction::CreateSP(this, &FPersona::CanSetKey),
+		FIsActionChecked(),
+		FIsActionButtonVisible::CreateSP(this, &FPersona::IsInPersonaMode, FPersonaModes::AnimationEditMode)
+		);
+
+	ToolkitCommands->MapAction(FPersonaCommands::Get().ApplyAnimation,
+			FExecuteAction::CreateSP(this, &FPersona::OnBakeAnimation),
+			FCanExecuteAction::CreateSP(this, &FPersona::CanBakeAnimation),
+			FIsActionChecked(),
+			FIsActionButtonVisible::CreateSP(this, &FPersona::IsInPersonaMode, FPersonaModes::AnimationEditMode)
+			);
+
 	ToolkitCommands->MapAction(FPersonaCommands::Get().ExportToFBX,
 		FExecuteAction::CreateSP(this, &FPersona::OnExportToFBX),
 		FCanExecuteAction::CreateSP(this, &FPersona::HasValidAnimationSequencePlaying),
@@ -1235,7 +1358,7 @@ void FPersona::OnConvertToSequenceEvaluator()
 	{
 		for (auto NodeIter = SelectedNodes.CreateIterator(); NodeIter; ++NodeIter)
 		{
-			UAnimGraphNode_SequencePlayer * OldNode = Cast<UAnimGraphNode_SequencePlayer>(*NodeIter);
+			UAnimGraphNode_SequencePlayer* OldNode = Cast<UAnimGraphNode_SequencePlayer>(*NodeIter);
 
 			// see if sequence player
 			if ( OldNode && OldNode->Node.Sequence )
@@ -1286,7 +1409,7 @@ void FPersona::OnConvertToSequencePlayer()
 	{
 		for (auto NodeIter = SelectedNodes.CreateIterator(); NodeIter; ++NodeIter)
 		{
-			UAnimGraphNode_SequenceEvaluator * OldNode = Cast<UAnimGraphNode_SequenceEvaluator>(*NodeIter);
+			UAnimGraphNode_SequenceEvaluator* OldNode = Cast<UAnimGraphNode_SequenceEvaluator>(*NodeIter);
 
 			// see if sequence player
 			if ( OldNode && OldNode->Node.Sequence )
@@ -1337,7 +1460,7 @@ void FPersona::OnConvertToBlendSpaceEvaluator()
 	{
 		for (auto NodeIter = SelectedNodes.CreateIterator(); NodeIter; ++NodeIter)
 		{
-			UAnimGraphNode_BlendSpacePlayer * OldNode = Cast<UAnimGraphNode_BlendSpacePlayer>(*NodeIter);
+			UAnimGraphNode_BlendSpacePlayer* OldNode = Cast<UAnimGraphNode_BlendSpacePlayer>(*NodeIter);
 
 			// see if sequence player
 			if ( OldNode && OldNode->Node.BlendSpace )
@@ -1404,7 +1527,7 @@ void FPersona::OnConvertToBlendSpacePlayer()
 	{
 		for (auto NodeIter = SelectedNodes.CreateIterator(); NodeIter; ++NodeIter)
 		{
-			UAnimGraphNode_BlendSpaceEvaluator * OldNode = Cast<UAnimGraphNode_BlendSpaceEvaluator>(*NodeIter);
+			UAnimGraphNode_BlendSpaceEvaluator* OldNode = Cast<UAnimGraphNode_BlendSpaceEvaluator>(*NodeIter);
 
 			// see if sequence player
 			if ( OldNode && OldNode->Node.BlendSpace )
@@ -1517,6 +1640,12 @@ void FPersona::Compile()
 		{
 			GetBlueprintObj()->SetObjectBeingDebugged(PreviewComponent->AnimScriptInstance);
 		}
+	}
+
+	// calls PostCompile to copy proper values between anim nodes
+	if (Viewport.IsValid())
+	{
+		Viewport.Pin()->GetAnimationViewportClient()->PostCompile();
 	}
 }
 
@@ -1713,6 +1842,15 @@ void FPersona::OnPropertyChanged(UObject* ObjectBeingModified, FPropertyChangedE
 	//@TODO: Should we still do this?
 }
 
+void FPersona::RefreshPreviewInstanceTrackCurves()
+{
+	// need to refresh the preview mesh
+	if(PreviewComponent->PreviewInstance)
+	{
+		PreviewComponent->PreviewInstance->RefreshCurveBoneControllers();
+	}
+}
+
 void FPersona::PostUndo(bool bSuccess)
 {
 	DocumentManager->RefreshAllTabs();
@@ -1721,6 +1859,8 @@ void FPersona::PostUndo(bool bSuccess)
 
 	// PostUndo broadcast
 	OnPostUndo.Broadcast();	
+
+	RefreshPreviewInstanceTrackCurves();
 
 	// clear up preview anim notify states
 	// animnotify states are saved in AnimInstance
@@ -1731,10 +1871,10 @@ void FPersona::PostUndo(bool bSuccess)
 
 void FPersona::ClearupPreviewMeshAnimNotifyStates()
 {
-	USkeletalMeshComponent * PreviewMeshComponent = GetPreviewMeshComponent();
+	USkeletalMeshComponent* PreviewMeshComponent = GetPreviewMeshComponent();
 	if ( PreviewMeshComponent )
 	{
-		UAnimInstance * AnimInstantace = PreviewMeshComponent->GetAnimInstance();
+		UAnimInstance* AnimInstantace = PreviewMeshComponent->GetAnimInstance();
 
 		if (AnimInstantace)
 		{
@@ -1910,7 +2050,18 @@ void FPersona::ClearSelectedSocket()
 
 void FPersona::ClearSelectedWindActor()
 {
-	Viewport.Pin()->GetAnimationViewportClient()->ClearSelectedWindActor();
+	if (Viewport.IsValid())
+	{
+		Viewport.Pin()->GetAnimationViewportClient()->ClearSelectedWindActor();
+	}
+}
+
+void FPersona::ClearSelectedAnimGraphNode()
+{
+	if(Viewport.IsValid())
+	{
+		Viewport.Pin()->GetAnimationViewportClient()->ClearSelectedAnimGraphNode();
+	}
 }
 
 void FPersona::RenameSocket( USkeletalMeshSocket* Socket, const FName& NewSocketName )
@@ -2253,6 +2404,7 @@ void FPersona::DeselectAll()
 	ClearSelectedBones();
 	ClearSelectedSocket();
 	ClearSelectedWindActor();
+	ClearSelectedAnimGraphNode();
 
 	OnAllDeselected.Broadcast();
 }
@@ -2405,9 +2557,47 @@ void FPersona::RecordAnimation()
 	}
 }
 
+void FPersona::OnSetKeyCompleted()
+{
+	OnTrackCurvesChanged.Broadcast();
+}
+
+bool FPersona::CanSetKey() const
+{
+	return ( HasValidAnimationSequencePlaying() && PreviewComponent->BonesOfInterest.Num() > 0);
+}
+
+void FPersona::OnSetKey()
+{
+	UAnimSequence* AnimSequence = Cast<UAnimSequence> (GetAnimationAssetBeingEdited());
+	if (AnimSequence)
+	{
+		UDebugSkelMeshComponent* Component = GetPreviewMeshComponent();
+		Component->PreviewInstance->SetKey(FSimpleDelegate::CreateSP(this, &FPersona::OnSetKeyCompleted));
+	}
+}
+
+bool FPersona::CanBakeAnimation() const
+{
+	UAnimSequence* AnimSequence = Cast<UAnimSequence> (GetAnimationAssetBeingEdited());
+	// ideally would be great if we can only show if something changed
+	return (AnimSequence && AnimSequence->DoesNeedRebake());
+}
+
+void FPersona::OnBakeAnimation()
+{
+	UAnimSequence* AnimSequence = Cast<UAnimSequence>(GetAnimationAssetBeingEdited());
+	if(AnimSequence)
+	{
+		UDebugSkelMeshComponent* Component = GetPreviewMeshComponent();
+		// now bake
+		Component->PreviewInstance->BakeAnimation();
+	}
+}
+
 void FPersona::OnApplyCompression()
 {
-	UAnimSequence * AnimSequence = Cast<UAnimSequence> (GetPreviewAnimationAsset());
+	UAnimSequence* AnimSequence = Cast<UAnimSequence> (GetPreviewAnimationAsset());
 
 	if (AnimSequence)
 	{
@@ -2419,7 +2609,7 @@ void FPersona::OnApplyCompression()
 
 void FPersona::OnExportToFBX()
 {
-	UAnimSequence * AnimSequence = Cast<UAnimSequence>(GetPreviewAnimationAsset());
+	UAnimSequence* AnimSequence = Cast<UAnimSequence>(GetPreviewAnimationAsset());
 
 	if(AnimSequence)
 	{
@@ -2431,7 +2621,7 @@ void FPersona::OnExportToFBX()
 
 void FPersona::OnAddLoopingInterpolation()
 {
-	UAnimSequence * AnimSequence = Cast<UAnimSequence>(GetPreviewAnimationAsset());
+	UAnimSequence* AnimSequence = Cast<UAnimSequence>(GetPreviewAnimationAsset());
 
 	if(AnimSequence)
 	{
@@ -2441,19 +2631,19 @@ void FPersona::OnAddLoopingInterpolation()
 	}
 }
 
-void FPersona::ApplyCompression(TArray<TWeakObjectPtr<UAnimSequence>> & AnimSequences)
+void FPersona::ApplyCompression(TArray<TWeakObjectPtr<UAnimSequence>>& AnimSequences)
 {
 	FDlgAnimCompression AnimCompressionDialog(AnimSequences);
 	AnimCompressionDialog.ShowModal();
 }
 
-void FPersona::ExportToFBX(TArray<TWeakObjectPtr<UAnimSequence>> & AnimSequences)
+void FPersona::ExportToFBX(TArray<TWeakObjectPtr<UAnimSequence>>& AnimSequences)
 {
 	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
 
 	if(DesktopPlatform)
 	{
-		USkeletalMesh * PreviewMesh = GetPreviewMeshComponent()->SkeletalMesh;
+		USkeletalMesh* PreviewMesh = GetPreviewMeshComponent()->SkeletalMesh;
 		if(PreviewMesh == NULL)
 		{
 			FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("ExportToFBXExportMissingPreviewMesh", "ERROR: Missing preview mesh"));
@@ -2581,7 +2771,7 @@ void FPersona::ExportToFBX(TArray<TWeakObjectPtr<UAnimSequence>> & AnimSequences
 	}
 }
 
-void FPersona::AddLoopingInterpolation(TArray<TWeakObjectPtr<UAnimSequence>> & AnimSequences)
+void FPersona::AddLoopingInterpolation(TArray<TWeakObjectPtr<UAnimSequence>>& AnimSequences)
 {
 	FText WarningMessage = LOCTEXT("AddLoopiingInterpolation", "This will add an extra first frame at the end of the animation to create a better looping interpolation. This action cannot be undone. Would you like to proceed?");
 
@@ -2598,7 +2788,7 @@ void FPersona::AddLoopingInterpolation(TArray<TWeakObjectPtr<UAnimSequence>> & A
 
 bool FPersona::HasValidAnimationSequencePlaying() const
 {
-	UAnimSequence * AnimSequence = Cast<UAnimSequence> (GetAnimationAssetBeingEdited());
+	UAnimSequence* AnimSequence = Cast<UAnimSequence> (GetAnimationAssetBeingEdited());
 	
 	return (AnimSequence != NULL);
 }
@@ -2861,7 +3051,7 @@ void FPersona::OnReimportMesh()
 void FPersona::OnReimportAnimation()
 {
 	// Reimport the asset
-	UAnimSequence * AnimSequence = Cast<UAnimSequence> (GetAnimationAssetBeingEdited());
+	UAnimSequence* AnimSequence = Cast<UAnimSequence> (GetAnimationAssetBeingEdited());
 	if (AnimSequence)
 	{
 		FReimportManager::Instance()->Reimport(AnimSequence, true);

@@ -87,9 +87,18 @@ const bool FFriendItem::IsOnline() const
 {
 	if(OnlineFriend.IsValid())
 	{
-		return OnlineFriend->GetPresence().Status.State == EOnlinePresenceState::Online ? true : false;
+		return OnlineFriend->GetPresence().Status.State != EOnlinePresenceState::Offline ? true : false;
 	}
 	return false;
+}
+
+EOnlinePresenceState::Type FFriendItem::GetOnlineStatus() const
+{
+	if (OnlineFriend.IsValid())
+	{
+		return OnlineFriend->GetPresence().Status.State;
+	}
+	return EOnlinePresenceState::Offline;
 }
 
 bool FFriendItem::IsGameJoinable() const
@@ -97,8 +106,11 @@ bool FFriendItem::IsGameJoinable() const
 	if (OnlineFriend.IsValid())
 	{
 		const FOnlineUserPresence& FriendPresence = OnlineFriend->GetPresence();
-		const bool bIsOnline = FriendPresence.Status.State == EOnlinePresenceState::Online;
-		const bool bIsJoinable = FriendPresence.bIsJoinable && !GetGameSessionId().IsEmpty();
+		const bool bIsOnline = FriendPresence.Status.State != EOnlinePresenceState::Offline;
+		const bool bIsJoinable = 
+			FriendPresence.bIsJoinable && 
+			!GetGameSessionId().IsEmpty() && 
+			GetGameSessionId() != FFriendsAndChatManager::Get()->GetGameSessionId();
 		return bIsOnline && bIsJoinable;
 	}
 	return false;

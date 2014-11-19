@@ -8,6 +8,7 @@
 #include "Matinee/MatineeActor.h"
 #include "Matinee/InterpTrackMove.h"
 #include "Matinee/InterpTrackEvent.h"
+#include "Engine/InterpCurveEdSetup.h"
 
 /*-----------------------------------------------------------------------------
  FMatineeViewportClient
@@ -919,7 +920,7 @@ void FMatineeViewportClient::MouseMove(FViewport* Viewport, int32 X, int32 Y)
 		}
 		else if(bPanning)
 		{
-			const bool bInvertPanning = GLevelEditorModeTools().GetInterpPanInvert();
+			const bool bInvertPanning = ModeTools->GetInterpPanInvert();
 
 			float DeltaTime = (bInvertPanning ? -DeltaX : DeltaX) / InterpEd->PixelsPerSec;
 			InterpEd->ViewStartTime -= DeltaTime;

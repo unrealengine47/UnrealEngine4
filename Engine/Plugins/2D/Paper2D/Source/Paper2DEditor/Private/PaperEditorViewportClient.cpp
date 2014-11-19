@@ -3,19 +3,52 @@
 #include "Paper2DEditorPrivatePCH.h"
 #include "TileSetEditor.h"
 #include "PaperEditorViewportClient.h"
+#include "CanvasTypes.h"
+
+//////////////////////////////////////////////////////////////////////////
+// FAssetEditorModeTools
+
+FAssetEditorModeTools::FAssetEditorModeTools()
+{
+	ActorSet = NewObject<USelection>();
+	ActorSet->SetFlags(RF_Transactional);
+	ActorSet->AddToRoot();
+
+	ObjectSet = NewObject<USelection>();
+	ObjectSet->SetFlags(RF_Transactional);
+	ObjectSet->AddToRoot();
+}
+
+FAssetEditorModeTools::~FAssetEditorModeTools()
+{
+	ActorSet->RemoveFromRoot();
+	ActorSet = nullptr;
+	ObjectSet->RemoveFromRoot();
+	ObjectSet = nullptr;
+}
+
+USelection* FAssetEditorModeTools::GetSelectedActors() const
+{
+	return ActorSet;
+}
+
+USelection* FAssetEditorModeTools::GetSelectedObjects() const
+{
+	return ObjectSet;
+}
 
 //////////////////////////////////////////////////////////////////////////
 // FPaperEditorViewportClient
 
 FPaperEditorViewportClient::FPaperEditorViewportClient()
-	: FEditorViewportClient(GLevelEditorModeTools())
+	: FEditorViewportClient(*( new FAssetEditorModeTools() ))
 	, CheckerboardTexture(NULL)
 {
 	ZoomPos = FVector2D::ZeroVector;
 	ZoomAmount = 1.0f;
 
 	//ModifyCheckerboardTextureColors();
-
+	//@TODO: ModeTools->SetToolkitHost
 
 	//@TODO: Pretty lame hardcoding
 	//@TODO: Doesn't handle negatives either (not really)
@@ -48,6 +81,7 @@ FPaperEditorViewportClient::FPaperEditorViewportClient()
 FPaperEditorViewportClient::~FPaperEditorViewportClient()
 {
 	//DestroyCheckerboardTexture();
+	delete ModeTools;
 }
 
 void FPaperEditorViewportClient::Draw(FViewport* Viewport, FCanvas* Canvas)

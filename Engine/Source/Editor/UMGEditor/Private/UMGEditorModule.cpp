@@ -80,11 +80,18 @@ public:
 	{
 		if ( UWidgetBlueprint* WidgetBlueprint = Cast<UWidgetBlueprint>(Blueprint) )
 		{
-			TComponentReregisterContext<UWidgetComponent> ComponentReregisterContext;
+			{
+				TComponentReregisterContext<UWidgetComponent> ComponentReregisterContext;
 
-			FWidgetBlueprintCompiler Compiler(WidgetBlueprint, Results, CompileOptions, ObjLoaded);
-			Compiler.Compile();
-			check(Compiler.NewClass);
+				FWidgetBlueprintCompiler Compiler(WidgetBlueprint, Results, CompileOptions, ObjLoaded);
+				Compiler.Compile();
+				check(Compiler.NewClass);
+			}
+
+			if (GIsEditor)
+			{
+				GEditor->RedrawAllViewports(true);
+			}
 
 			return FReply::Handled();
 		}

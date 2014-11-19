@@ -135,7 +135,15 @@ namespace UnrealBuildTool
             if (!CrossCompiling())
             {
                 // use native linux toolchain
-                ClangPath = Which("clang++");
+                string[] ClangNames = { "clang++", "clang++-3.5", "clang++-3.3" };
+                foreach (var ClangName in ClangNames)
+                {
+					ClangPath = Which(ClangName);
+					if (!String.IsNullOrEmpty(ClangPath))
+					{
+						break;
+					}
+				}
                 GCCPath = Which("g++");
                 ArPath = Which("ar");
                 RanlibPath = Which("ranlib");
@@ -286,14 +294,6 @@ namespace UnrealBuildTool
 			Result += " -fno-math-errno";               // do not assume that math ops have side effects
             Result += " -fno-rtti";                     // no run-time type info
 
-            // these needs to be removed ASAP
-            Result += " -Wno-delete-non-virtual-dtor";
-            Result += " -Wno-reorder";
-            Result += " -Wno-logical-op-parentheses";
-            Result += " -Wno-ignored-attributes";
-            Result += " -Wno-overloaded-virtual";
-            Result += " -Wno-unused-value";
-
             if (String.IsNullOrEmpty(ClangPath))
             {
                 // GCC only option
@@ -319,11 +319,6 @@ namespace UnrealBuildTool
 				{
 					Result += " -Wno-undefined-bool-conversion";	// hides checking if 'this' pointer is null
 				}
-
-                if (!CrossCompiling())
-                {
-                    Result += " -Wno-logical-op-parentheses";   // needed for external headers we can't change
-                }
             }
 
             Result += " -Wno-unused-variable";

@@ -12,10 +12,17 @@
 #include "AnimPreviewInstance.h"
 #include "SExpandableArea.h"
 #include "SNotificationList.h"
+#include "Animation/BlendSpaceBase.h"
+#include "Animation/AimOffsetBlendSpace.h"
+#include "Animation/AimOffsetBlendSpace1D.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogBlendSpaceBase, Log, All);
 
-FSlateFontInfo SmallLayoutFont( FPaths::EngineContentDir() / TEXT("Slate/Fonts/Roboto-Regular.ttf"), 10 );
+static FSlateFontInfo GetSmallLayoutFont()
+{
+	static FSlateFontInfo SmallLayoutFont( FPaths::EngineContentDir() / TEXT("Slate/Fonts/Roboto-Regular.ttf"), 10 );
+	return SmallLayoutFont;
+}
 
 #define LOCTEXT_NAMESPACE "BlendSpaceEditorBase"
 
@@ -302,7 +309,7 @@ void SBlendSpaceParameterWidget::ConstructParameterPanel()
 						[
 							SNew(STextBlock)
 							.Text(AxisNameLabel)
-							.Font(SmallLayoutFont)
+							.Font(GetSmallLayoutFont())
 						]
 					]
 
@@ -331,7 +338,7 @@ void SBlendSpaceParameterWidget::ConstructParameterPanel()
 							[
 								SNew(STextBlock)
 								.Text(AxisRangeLabel)
-								.Font(SmallLayoutFont)
+								.Font(GetSmallLayoutFont())
 							]
 						]
 
@@ -353,7 +360,7 @@ void SBlendSpaceParameterWidget::ConstructParameterPanel()
 									.VAlign(VAlign_Center)
 									[
 										SNew(STextBlock)
-										.Font( SmallLayoutFont )
+										.Font( GetSmallLayoutFont() )
 										.Text(LOCTEXT("MinValue - MaxValue Separator", " - "))
 									]
 
@@ -384,7 +391,7 @@ void SBlendSpaceParameterWidget::ConstructParameterPanel()
 							[
 								SNew(STextBlock)
 								.Text(AxisGridCountLabel)
-								.Font(SmallLayoutFont)
+								.Font(GetSmallLayoutFont())
 							]
 						]
 
@@ -511,13 +518,13 @@ void SBlendSpaceSamplesWidget::ConstructSamplesPanel()
 				+SHorizontalBox::Slot() .HAlign(HAlign_Right)
 				[
 					SNew(STextBlock)
-					.Font( SmallLayoutFont )
+					.Font( GetSmallLayoutFont() )
 					.Text(FString::Printf(TEXT("%3d] "), I+1))
 				]
 				+SHorizontalBox::Slot() .FillWidth(1) .HAlign(HAlign_Left)
 				[
 					SNew(SEditableText)
-					.Font( SmallLayoutFont )
+					.Font( GetSmallLayoutFont() )
 					.Text( FText::FromName(Sample.Animation->GetFName() ) )
 				]
 				+SHorizontalBox::Slot().AutoWidth() .HAlign(HAlign_Center)

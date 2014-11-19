@@ -32,6 +32,10 @@
 #include "LandscapeSplinesComponent.h"
 #include "Foliage/InstancedFoliageActor.h"
 #include "ComponentReregisterContext.h"
+#include "Engine/Selection.h"
+#include "LandscapeGizmoActiveActor.h"
+#include "EngineUtils.h"
+#include "Engine/Light.h"
 
 #define LOCTEXT_NAMESPACE "Landscape"
 
@@ -425,10 +429,8 @@ void FEdModeLandscape::Enter()
 	// Create the landscape editor window
 	if (!Toolkit.IsValid())
 	{
-		// @todo: Remove this assumption when we make modes per level editor instead of global
-		auto ToolkitHost = FModuleManager::LoadModuleChecked< FLevelEditorModule >("LevelEditor").GetFirstLevelEditor();
 		Toolkit = MakeShareable(new FLandscapeToolKit);
-		Toolkit->Init(ToolkitHost);
+		Toolkit->Init(Owner->GetToolkitHost());
 	}
 
 	// Force real-time viewports.  We'll back up the current viewport state so we can restore it when the
@@ -2496,7 +2498,7 @@ ALandscape* FEdModeLandscape::ChangeComponentSetting(int32 NumComponentsX, int32
 
 				// GetHeightData alters its args, so make temp copies to avoid screwing things up
 				int32 TMinX = OldMinX, TMinY = OldMinY, TMaxX = OldMaxX, TMaxY = OldMaxY;
-				LandscapeEdit.GetHeightData(TMinX, TMinY, TMaxX, OldMaxY, HeightData.GetData(), 0);
+				LandscapeEdit.GetHeightData(TMinX, TMinY, TMaxX, TMaxY, HeightData.GetData(), 0);
 
 				HeightData = LandscapeEditorUtils::ResampleData(HeightData,
 					OldVertsX, OldVertsY, NewVertsX, NewVertsY);
@@ -2617,7 +2619,7 @@ ALandscape* FEdModeLandscape::ChangeComponentSetting(int32 NumComponentsX, int32
 				ULandscapeInfo* NewLandscapeInfo = Landscape->GetLandscapeInfo();
 				for (const TPair<FIntPoint, ULandscapeComponent*>& Entry : LandscapeInfo->XYtoComponentMap)
 				{
-					ULandscapeComponent* NewComponent = NewLandscapeInfo->XYtoComponentMap[Entry.Key];
+					ULandscapeComponent* NewComponent = NewLandscapeInfo->XYtoComponentMap.FindRef(Entry.Key);
 					if (NewComponent)
 					{
 						ULandscapeHeightfieldCollisionComponent* OldCollisionComponent = Entry.Value->CollisionComponent.Get();
@@ -2635,6 +2637,10 @@ ALandscape* FEdModeLandscape::ChangeComponentSetting(int32 NumComponentsX, int32
 						}
 					}
 				}
+			}
+			else
+			{
+				// TODO: remap foliage when not resampling (i.e. when there isn't a 1:1 mapping between old and new component)
 			}
 
 			// Delete the old Landscape and all its proxies

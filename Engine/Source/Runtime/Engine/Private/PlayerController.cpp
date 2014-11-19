@@ -34,6 +34,7 @@
 #include "GameFramework/InputSettings.h"
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/GameState.h"
+#include "GameFramework/GameMode.h"
 #include "Engine/ChildConnection.h"
 
 DEFINE_LOG_CATEGORY(LogPlayerController);
@@ -2345,6 +2346,10 @@ void APlayerController::BuildInputStack(TArray<UInputComponent*>& InputStack)
 		{
 			InputStack.Push(IC);
 		}
+		else
+		{
+			CurrentInputStack.RemoveAt(Idx--);
+		}
 	}
 }
 
@@ -4065,7 +4070,26 @@ void APlayerController::PushInputComponent(UInputComponent* InputComponent)
 {
 	if (InputComponent)
 	{
-		CurrentInputStack.Push(InputComponent);
+		bool bPushed = false;
+		CurrentInputStack.RemoveSingle(InputComponent);
+		for (int32 Index = CurrentInputStack.Num() - 1; Index >= 0; --Index)
+		{
+			UInputComponent* IC = CurrentInputStack[Index].Get();
+			if (IC == nullptr)
+			{
+				CurrentInputStack.RemoveAt(Index);
+			}
+			else if (IC->Priority <= InputComponent->Priority)
+			{
+				CurrentInputStack.Insert(InputComponent, Index + 1);
+				bPushed = true;
+				break;
+			}
+		}
+		if (!bPushed)
+		{
+			CurrentInputStack.Insert(InputComponent, 0);
+		}
 	}
 }
 
@@ -4075,19 +4099,7 @@ bool APlayerController::PopInputComponent(UInputComponent* InputComponent)
 	{
 		if (CurrentInputStack.RemoveSingle(InputComponent) > 0)
 		{
-			for (FInputAxisBinding& AxisBinding : InputComponent->AxisBindings)
-			{
-				AxisBinding.AxisValue = 0.f;
-			}
-			for (FInputAxisKeyBinding& AxisKeyBinding : InputComponent->AxisKeyBindings)
-			{
-				AxisKeyBinding.AxisValue = 0.f;
-			}
-			for (FInputVectorAxisBinding& VectorAxisBinding : InputComponent->VectorAxisBindings)
-			{
-				VectorAxisBinding.AxisValue = FVector::ZeroVector;
-			}
-
+			InputComponent->ClearBindingValues();
 			return true;
 		}
 	}

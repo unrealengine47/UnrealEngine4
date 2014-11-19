@@ -4,6 +4,8 @@
 
 #include "GenericApplicationMessageHandler.h"
 #include "MenuStack.h"
+#include "SlateDelegates.h"
+#include "SlateApplicationBase.h"
 
 class SToolTip;
 class SViewport;
@@ -384,7 +386,7 @@ public:
 	TSharedPtr< SWidget > GetJoystickCaptor(uint32 UserIndex) const;
 
 	/** Releases the users focus from whatever it currently is on. */
-	void ClearUserFocus(uint32 UserIndex, EFocusCause ReasonFocusIsChanging = EFocusCause::Cleared);
+	void ClearUserFocus(uint32 UserIndex, EFocusCause ReasonFocusIsChanging = EFocusCause::SetDirectly);
 
 	DEPRECATED(4.6, "FSlateApplication::ReleaseJoystickCapture() is deprecated, use FSlateApplication::ClearUserFocus() instead.")
 	void ReleaseJoystickCapture(uint32 UserIndex);
@@ -399,7 +401,7 @@ public:
 	 *
 	 * @param ReasonFocusIsChanging The reason that keyboard focus is changing
 	 */
-	void ClearKeyboardFocus(const EFocusCause ReasonFocusIsChanging = EFocusCause::Cleared);
+	void ClearKeyboardFocus(const EFocusCause ReasonFocusIsChanging = EFocusCause::SetDirectly);
 
 	/**
 	 * Returns the current modifier keys state
@@ -947,7 +949,7 @@ public:
 	void SetDragTriggerDistnace( float ScreenPixels );
 	
 	/** Set the analog cursor to be enabled or disabled. */
-	void SetAnalogCursorEnable(bool bEnable);
+	void SetAnalogCursorEnable(bool bEnable, TSharedPtr<class FAnalogCursor> OptionalNewAnalogCursor = nullptr);
 
 public:
 

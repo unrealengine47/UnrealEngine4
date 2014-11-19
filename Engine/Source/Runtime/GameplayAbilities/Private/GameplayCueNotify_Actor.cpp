@@ -10,6 +10,7 @@ AGameplayCueNotify_Actor::AGameplayCueNotify_Actor(const FObjectInitializer& Obj
 : Super(ObjectInitializer)
 {
 	IsOverride = true;
+	PrimaryActorTick.bCanEverTick = true;
 }
 
 #if WITH_EDITOR
@@ -30,6 +31,7 @@ void AGameplayCueNotify_Actor::DeriveGameplayCueTagFromAssetName()
 			FString MyName = GetName();
 
 			MyName.RemoveFromStart(TEXT("Default__"));
+			MyName.RemoveFromStart(TEXT("GC_"));		// allow GC_ prefix in asset name
 			MyName.RemoveFromEnd(TEXT("_c"));
 
 			MyName.ReplaceInline(TEXT("_"), TEXT("."));

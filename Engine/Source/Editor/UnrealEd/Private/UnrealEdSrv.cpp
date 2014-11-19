@@ -40,6 +40,15 @@
 #include "Engine/DestructibleMesh.h"
 #include "NotificationManager.h"
 #include "SNotificationList.h"
+#include "Engine/Polys.h"
+#include "Engine/Selection.h"
+#include "Components/BoxComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/PointLightComponent.h"
+#include "PhysicsEngine/RadialForceComponent.h"
+#include "Components/SphereComponent.h"
+#include "Engine/StaticMeshActor.h"
+#include "EngineUtils.h"
 
 
 DEFINE_LOG_CATEGORY_STATIC(LogUnrealEdSrv, Log, All);
@@ -791,13 +800,6 @@ bool UUnrealEdEngine::Exec( UWorld* InWorld, const TCHAR* Stream, FOutputDevice&
 	else if (FParse::Command(&Str,TEXT("ACTOR")))
 	{
 		return Exec_Actor( InWorld, Str, Ar );
-	}
-	//------------------------------------------------------------------------------------
-	// SKELETALMESH: SkeletalMesh-related functions
-	//
-	else if(FParse::Command(&Str, TEXT("SKELETALMESH")))
-	{
-		return Exec_SkeletalMesh(Str, Ar);
 	}
 	//------------------------------------------------------------------------------------
 	// MODE management (Global EDITOR mode):
@@ -1941,49 +1943,6 @@ FPoly* CreateHugeTrianglePolygonOnPlane( const FPlane* InPlane )
 	}
 
 	return Triangle;
-}
-
-bool UUnrealEdEngine::Exec_SkeletalMesh( const TCHAR* Str, FOutputDevice& Ar )
-{
-	//This command sets the offset and orientation for all skeletal meshes within the set of currently selected packages
-	if(FParse::Command(&Str, TEXT("CHARBITS"))) //SKELETALMESH CHARBITS
-	{
-		FVector Offset = FVector::ZeroVector;
-		FRotator Orientation = FRotator::ZeroRotator;
-		bool bHasOffset = GetFVECTOR(Str, TEXT("OFFSET="), Offset);
-		
-		TCHAR TempChars[80];
-		bool bHasOrientation = GetSUBSTRING(Str, TEXT("ORIENTATION="), TempChars, 80);
-		
-		//If orientation is present do custom parsing to allow for a proper conversion from a floating point representation of degress
-		//to its integer representation in FRotator. GetFROTATOR() does not allow us to do this.
-		if(bHasOrientation)
-		{
-			float Value = 0.0f;
-			
-			if(FParse::Value(TempChars, TEXT("YAW="), Value))
-			{
-				Value = FMath::Fmod(Value, 360.0f); //Make sure it's in the range 0-360
-				Orientation.Yaw = Value;
-			}
-
-			if(FParse::Value(TempChars, TEXT("PITCH="), Value))
-			{
-				Value = FMath::Fmod(Value, 360.0f); //Make sure it's in the range 0-360
-				Orientation.Pitch = Value;
-			}
-
-			if(FParse::Value(TempChars, TEXT("ROLL="), Value))
-			{
-				Value = FMath::Fmod(Value, 360.0f); //Make sure it's in the range 0-360
-				Orientation.Roll = Value;
-			}
-		}
-
-		return true;
-	}
-
-	return false;
 }
 
 bool UUnrealEdEngine::Exec_Actor( UWorld* InWorld, const TCHAR* Str, FOutputDevice& Ar )

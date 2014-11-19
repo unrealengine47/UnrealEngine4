@@ -20,6 +20,7 @@
 #include "AssetRegistryModule.h"
 #include "UnrealEdMessages.h"
 #include "GameDelegates.h"
+#include "PhysicsPublic.h"
 
 // cook by the book requirements
 #include "Commandlets/ChunkManifestGenerator.h"
@@ -31,6 +32,8 @@
 
 // shader compiler processAsyncResults
 #include "ShaderCompiler.h"
+#include "Engine/LevelStreaming.h"
+#include "TextureLODSettings.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCookOnTheFly, Log, All);
 
@@ -261,7 +264,7 @@ public:
 	}
 
 	FCachedPackageFilename( FCachedPackageFilename &&In )
-	{
+{
 		PackageFilename = MoveTemp(In.PackageFilename);
 		StandardFilename = MoveTemp(In.StandardFilename);
 		StandardFileFName = In.StandardFileFName;
@@ -287,9 +290,9 @@ static const FCachedPackageFilename &Cache(const FName& PackageName)
 	FString StandardFilename;
 	FName StandardFileFName = NAME_None;
 	if (FPackageName::DoesPackageExist(PackageName.ToString(), NULL, &Filename))
-	{
+{
 		StandardFilename = PackageFilename = FPaths::ConvertRelativePathToFull(Filename);
-		
+
 
 		FPaths::MakeStandardFilename(StandardFilename);
 		StandardFileFName = FName(*StandardFilename);
@@ -378,7 +381,7 @@ struct FRecompileRequest
  * @param Severity of the message
  */
 void LogCookerMessage( const FString& MessageText, EMessageSeverity::Type Severity)
-{
+	{
 	FMessageLog MessageLog("CookResults");
 
 	TSharedRef<FTokenizedMessage> Message = FTokenizedMessage::Create(Severity);
@@ -1653,6 +1656,7 @@ bool UCookOnTheFlyServer::SaveCookedPackage( UPackage* Package, uint32 SaveFlags
 					Package->PackageFlags &= ~PKG_FilterEditorOnly;
 				}
 
+				bool bDidInitializeWorld = false;
 				if (World)
 				{
 					World->PersistentLevel->OwningWorld = World;
@@ -1660,6 +1664,7 @@ bool UCookOnTheFlyServer::SaveCookedPackage( UPackage* Package, uint32 SaveFlags
 					{
 						// we need to initialize the world - at least need physics scene since BP construction script runs during cooking, otherwise trace won't work
 						World->InitWorld(UWorld::InitializationValues().RequiresHitProxies(false).ShouldSimulatePhysics(false).EnableTraceCollision(false).CreateNavigation(false).AllowAudioPlayback(false).CreatePhysicsScene(true));
+						bDidInitializeWorld = true;
 					}
 				}
 
@@ -1674,6 +1679,17 @@ bool UCookOnTheFlyServer::SaveCookedPackage( UPackage* Package, uint32 SaveFlags
 				{
 					SCOPE_TIMER(GEditorSavePackage);
 					bSavedCorrectly &= GEditor->SavePackage( Package, World, Flags, *PlatFilename, GError, NULL, bSwap, false, SaveFlags, Target, FDateTime::MinValue(), false );
+				}
+
+				// if we initialized the world we are responsible for cleaning it up.
+				if (World && World->bIsWorldInitialized && bDidInitializeWorld)
+				{
+					// Make sure we clean up the physics scene here. If we leave too many scenes in memory, undefined behavior occurs when locking a scene for read/write.
+					World->SetPhysicsScene(nullptr);
+					if ( GPhysCommandHandler )
+					{
+						GPhysCommandHandler->Flush();
+					}
 				}
 
 				

@@ -550,6 +550,9 @@ class ENGINE_API UInputComponent
 	/** The collection of gesture bindings. */
 	TArray<struct FInputGestureBinding> GestureBindings;
 
+	/** The priority of this input component when pushed in to the stack. */
+	int32 Priority;
+
 	/** Whether any components lower on the input stack should be allowed to receive input. */
 	uint32 bBlockInput:1;
 
@@ -628,6 +631,9 @@ public:
 	 * @see AddActionBinding, ClearActionBindings, GetActionBinding, GetNumActionBindings
 	 */
 	void RemoveActionBinding( const int32 BindingIndex );
+
+	/** Clears all cached binding values. */
+	void ClearBindingValues();
 
 public:
 

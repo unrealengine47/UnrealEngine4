@@ -42,6 +42,9 @@
 #include "Engine/SCS_Node.h"
 #include "Engine/TimelineTemplate.h"
 
+#include "SNotificationList.h"
+#include "NotificationManager.h"
+
 #define LOCTEXT_NAMESPACE "Blueprint"
 
 DEFINE_LOG_CATEGORY(LogBlueprintDebug);
@@ -821,6 +824,16 @@ struct FRegenerationHelper
 							if (ParentFunction && (Schema->FN_UserConstructionScript != FunctionName))
 							{
 								ProcessHierarchy(ParentFunction, Dependencies);
+							}
+						}
+
+						// load Enums
+						for (auto Pin : Node->Pins)
+						{
+							auto SubCategoryObject = Pin ? Pin->PinType.PinSubCategoryObject.Get() : NULL;
+							if (SubCategoryObject && SubCategoryObject->IsA<UEnum>())
+							{
+								ForcedLoad(SubCategoryObject);
 							}
 						}
 					}
@@ -3534,6 +3547,80 @@ void FBlueprintEditorUtils::RenameMemberVariable(UBlueprint* Blueprint, const FN
 	}
 }
 
+TArray<UK2Node_Variable*> FBlueprintEditorUtils::GetNodesForVariable(const FName& InVarName, const UBlueprint* InBlueprint, const UStruct* InScope/* = nullptr*/)
+{
+	TArray<UK2Node_Variable*> ReturnNodes;
+	TArray<UK2Node_Variable*> VariableNodes;
+	GetAllNodesOfClass<UK2Node_Variable>(InBlueprint, VariableNodes);
+
+	bool bNodesPendingDeletion = false;
+	for( TArray<UK2Node_Variable*>::TConstIterator NodeIt(VariableNodes); NodeIt; ++NodeIt )
+	{
+		UK2Node_Variable* CurrentNode = *NodeIt;
+		if (InVarName == CurrentNode->GetVarName())
+		{
+			if(InScope && CurrentNode->VariableReference.GetMemberScopeName() != InScope->GetName())
+			{
+				// Variables are not in the same scope
+				continue;
+			}
+			ReturnNodes.Add(CurrentNode);
+		}
+	}
+	return ReturnNodes;
+}
+
+bool FBlueprintEditorUtils::VerifyUserWantsVariableTypeChanged(const FName& InVarName)
+{
+	FFormatNamedArguments Args;
+	Args.Add(TEXT("VariableName"), FText::FromName(InVarName));
+
+	FText ConfirmDelete = FText::Format(LOCTEXT( "ConfirmChangeVarType",
+		"This could break connections, do you want to search all Variable '{VariableName}' instances, change its type, and recompile?"), Args );
+
+	// Warn the user that this may result in data loss
+	FSuppressableWarningDialog::FSetupInfo Info( ConfirmDelete, LOCTEXT("ChangeVariableType", "Change Variable Type"), "ChangeVariableType_Warning" );
+	Info.ConfirmText = LOCTEXT( "ChangeVariableType_Yes", "Change Variable Type");
+	Info.CancelText = LOCTEXT( "ChangeVariableType_No", "Do Nothing");	
+
+	FSuppressableWarningDialog ChangeVariableType( Info );
+
+	FSuppressableWarningDialog::EResult RetCode = ChangeVariableType.ShowModal();
+	return RetCode == FSuppressableWarningDialog::Confirm || RetCode == FSuppressableWarningDialog::Suppressed;
+}
+
+void FBlueprintEditorUtils::GetLoadedChildBlueprints(UBlueprint* InBlueprint, TArray<UBlueprint*>& OutBlueprints)
+{
+	// Iterate over currently-loaded Blueprints and potentially adjust their variable names if they conflict with the parent
+	for(TObjectIterator<UBlueprint> BlueprintIt; BlueprintIt; ++BlueprintIt)
+	{
+		UBlueprint* ChildBP = *BlueprintIt;
+		if(ChildBP != NULL && ChildBP->ParentClass != NULL)
+		{
+			TArray<UBlueprint*> ParentBPArray;
+			// Get the parent hierarchy
+			UBlueprint::GetBlueprintHierarchyFromClass(ChildBP->ParentClass, ParentBPArray);
+
+			// Also get any BP interfaces we use
+			TArray<UClass*> ImplementedInterfaces;
+			FindImplementedInterfaces(ChildBP, true, ImplementedInterfaces);
+			for(auto InterfaceIt(ImplementedInterfaces.CreateConstIterator()); InterfaceIt; InterfaceIt++)
+			{
+				UBlueprint* BlueprintInterfaceClass = UBlueprint::GetBlueprintFromClass(*InterfaceIt);
+				if(BlueprintInterfaceClass != NULL)
+				{
+					ParentBPArray.Add(BlueprintInterfaceClass);
+				}
+			}
+
+			if(ParentBPArray.Contains(InBlueprint))
+			{
+				OutBlueprints.Add(ChildBP);
+			}
+		}
+	}
+}
+
 void FBlueprintEditorUtils::ChangeMemberVariableType(UBlueprint* Blueprint, const FName& VariableName, const FEdGraphPinType& NewPinType)
 {
 	if (VariableName != NAME_None)
@@ -3547,37 +3634,113 @@ void FBlueprintEditorUtils::ChangeMemberVariableType(UBlueprint* Blueprint, cons
 			// Update the variable type only if it is different
 			if (Variable.VarType != NewPinType)
 			{
+				TArray<UBlueprint*> ChildBPs;
+				GetLoadedChildBlueprints(Blueprint, ChildBPs);
+
+				TArray<UK2Node_Variable*> AllVariableNodes = GetNodesForVariable(VariableName, Blueprint);
+				for(UBlueprint* ChildBP : ChildBPs)
+				{
+					TArray<UK2Node_Variable*> VariableNodes = GetNodesForVariable(VariableName, ChildBP);
+					AllVariableNodes.Append(VariableNodes);
+				}
+
+				// TRUE if the user might be breaking variable connections
+				bool bBreakingVariableConnections = false;
+
+				// If there are variable nodes in place, warn the user of the consequences using a suppressible dialog
+				if(AllVariableNodes.Num())
+				{
+					if(!VerifyUserWantsVariableTypeChanged(VariableName))
+					{
+						// User has decided to cancel changing the variable member type
+						return;
+					}
+					bBreakingVariableConnections = true;
+				}
+
 				const FScopedTransaction Transaction( LOCTEXT("ChangeVariableType", "Change Variable Type") );
 				Blueprint->Modify();
 
-				Variable.VarType = NewPinType;
-
-				// Destroy all our nodes, because the pin types could be incorrect now (as will the links)
-				RemoveVariableNodes(Blueprint, VariableName);
+				/** Only change the variable type if type selection is valid, some unloaded Blueprints will turn out to be bad */
+				bool bChangeVariableType = true;
 
 				if ((NewPinType.PinCategory == K2Schema->PC_Object) || (NewPinType.PinCategory == K2Schema->PC_Interface))
 				{
 					// if it's a PC_Object, then it should have an associated UClass object
-					check(NewPinType.PinSubCategoryObject.IsValid());
-					const UClass* ClassObject = Cast<UClass>(NewPinType.PinSubCategoryObject.Get());
-					check(ClassObject != NULL);
+					if(NewPinType.PinSubCategoryObject.IsValid())
+					{
+						const UClass* ClassObject = Cast<UClass>(NewPinType.PinSubCategoryObject.Get());
+						check(ClassObject != NULL);
 
-					if (ClassObject->IsChildOf(AActor::StaticClass()))
-					{
-						// prevent Actor variables from having default values (because Blueprint templates are library elements that can 
-						// bridge multiple levels and different levels might not have the actor that the default is referencing).
-						Variable.PropertyFlags |= CPF_DisableEditOnTemplate;
+						if (ClassObject->IsChildOf(AActor::StaticClass()))
+						{
+							// prevent Actor variables from having default values (because Blueprint templates are library elements that can 
+							// bridge multiple levels and different levels might not have the actor that the default is referencing).
+							Variable.PropertyFlags |= CPF_DisableEditOnTemplate;
+						}
+						else 
+						{
+							// clear the disable-default-value flag that might have been present (if this was an AActor variable before)
+							Variable.PropertyFlags &= ~(CPF_DisableEditOnTemplate);
+						}
 					}
-					else 
+					else
 					{
-						// clear the disable-default-value flag that might have been present (if this was an AActor variable before)
-						Variable.PropertyFlags &= ~(CPF_DisableEditOnTemplate);
+						bChangeVariableType = false;
+
+						// Display a notification to inform the user that the variable type was invalid (likely due to corruption), it should no longer appear in the list.
+						FNotificationInfo Info( LOCTEXT("InvalidUnloadedBP", "The selected type was invalid once loaded, it has been removed from the list!") );
+						Info.ExpireDuration = 3.0f;
+						Info.bUseLargeFont = false;
+						TSharedPtr<SNotificationItem> Notification = FSlateNotificationManager::Get().AddNotification(Info);
+						if ( Notification.IsValid() )
+						{
+							Notification->SetCompletionState( SNotificationItem::CS_Fail );
+						}
 					}
 				}
 				else 
 				{
 					// clear the disable-default-value flag that might have been present (if this was an AActor variable before)
 					Variable.PropertyFlags &= ~(CPF_DisableEditOnTemplate);
+				}
+
+				if(bChangeVariableType)
+				{
+					Variable.VarType = NewPinType;
+
+					// Compile the Blueprint even if no loaded BPs are using the variable, this ensures that BPs refresh correctly when they are loaded
+					FKismetEditorUtilities::CompileBlueprint(Blueprint, false, true);
+
+					if(bBreakingVariableConnections)
+					{
+						for(UBlueprint* ChildBP : ChildBPs)
+						{
+							// Mark the Blueprint as structurally modified so we can reconstruct the node successfully
+							FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(ChildBP);
+						}
+
+						// Reconstruct all variable nodes that reference the changing variable
+						for(UK2Node_Variable* VariableNode : AllVariableNodes)
+						{
+							K2Schema->ReconstructNode(*VariableNode, true);
+						}
+
+						TSharedPtr<IToolkit> FoundAssetEditor = FToolkitManager::Get().FindEditorForAsset(Blueprint);
+						if (FoundAssetEditor.IsValid())
+						{
+							TSharedRef<IBlueprintEditor> BlueprintEditor = StaticCastSharedRef<IBlueprintEditor>(FoundAssetEditor.ToSharedRef());
+
+							const bool bSetFindWithinBlueprint = false;
+							const bool bSelectFirstResult = false;
+							BlueprintEditor->SummonSearchUI(bSetFindWithinBlueprint, VariableName.ToString(), bSelectFirstResult);
+						}
+					}
+					else
+					{
+						// And recompile
+						FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+					}
 				}
 
 				// And recompile
@@ -3929,7 +4092,7 @@ void FBlueprintEditorUtils::ChangeLocalVariableType(UBlueprint* InBlueprint, con
 	{
 		FString ActionCategory;
 		const UEdGraphSchema_K2* K2Schema = GetDefault<UEdGraphSchema_K2>();
-		
+
 		UK2Node_FunctionEntry* FunctionEntry = NULL;
 		FBPVariableDescription* VariablePtr = FindLocalVariable(InBlueprint, InScope, InVariableName, &FunctionEntry);
 
@@ -3940,17 +4103,45 @@ void FBlueprintEditorUtils::ChangeLocalVariableType(UBlueprint* InBlueprint, con
 			// Update the variable type only if it is different
 			if (Variable.VarName == InVariableName && Variable.VarType != NewPinType)
 			{
+				TArray<UK2Node_Variable*> VariableNodes = GetNodesForVariable(InVariableName, InBlueprint, InScope);
+
+				// If there are variable nodes in place, warn the user of the consequences using a suppressible dialog
+				if(VariableNodes.Num())
+				{
+					if(!VerifyUserWantsVariableTypeChanged(InVariableName))
+					{
+						// User has decided to cancel changing the variable member type
+						return;
+					}
+				}
+
 				const FScopedTransaction Transaction( LOCTEXT("ChangeLocalVariableType", "Change Local Variable Type") );
 				InBlueprint->Modify();
 				FunctionEntry->Modify();
 
 				Variable.VarType = NewPinType;
 
-				// Destroy all our nodes, because the pin types could be incorrect now (as will the links)
-				RemoveVariableNodes(InBlueprint, InVariableName);
+				// Mark the Blueprint as structurally modified so we can reconstruct the node successfully
+				FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(InBlueprint);
+
+				// Reconstruct all local variables referencing the modified one
+				for(UK2Node_Variable* VariableNode : VariableNodes)
+				{
+					K2Schema->ReconstructNode(*VariableNode, true);
+				}
 
 				// And recompile
 				FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(InBlueprint);
+
+				TSharedPtr<IToolkit> FoundAssetEditor = FToolkitManager::Get().FindEditorForAsset(InBlueprint);
+				if (FoundAssetEditor.IsValid())
+				{
+					TSharedRef<IBlueprintEditor> BlueprintEditor = StaticCastSharedRef<IBlueprintEditor>(FoundAssetEditor.ToSharedRef());
+
+					const bool bSetFindWithinBlueprint = true;
+					const bool bSelectFirstResult = false;
+					BlueprintEditor->SummonSearchUI(bSetFindWithinBlueprint, InVariableName.ToString(), bSelectFirstResult);
+				}
 			}
 		}
 	}
@@ -5819,6 +6010,112 @@ void FBlueprintEditorUtils::OpenReparentBlueprintMenu( const TArray< UBlueprint*
 		false,
 		FVector2D(280, 400)
 		);
+}
+
+/** Filter class for ClassPicker handling allowed interfaces for a Blueprint */
+class FBlueprintInterfaceFilter : public IClassViewerFilter
+{
+public:
+	/** All children of these classes will be included unless filtered out by another setting. */
+	TSet< const UClass* > AllowedChildrenOfClasses;
+
+	/** Classes to not allow any children of into the Class Viewer/Picker. */
+	TSet< const UClass* > DisallowedChildrenOfClasses;
+
+	/** Classes to never show in this class viewer. */
+	TSet< const UClass* > DisallowedClasses;
+
+	virtual bool IsClassAllowed(const FClassViewerInitializationOptions& InInitOptions, const UClass* InClass, TSharedRef< FClassViewerFilterFuncs > InFilterFuncs ) override
+	{
+		// If it appears on the allowed child-of classes list (or there is nothing on that list)
+		//		AND it is NOT on the disallowed child-of classes list
+		//		AND it is NOT on the disallowed classes list
+		return InFilterFuncs->IfInChildOfClassesSet( AllowedChildrenOfClasses, InClass) != EFilterReturn::Failed && 
+			InFilterFuncs->IfInChildOfClassesSet(DisallowedChildrenOfClasses, InClass) != EFilterReturn::Passed && 
+			InFilterFuncs->IfInClassesSet(DisallowedClasses, InClass) != EFilterReturn::Passed &&
+			!InClass->HasAnyClassFlags(CLASS_Deprecated | CLASS_NewerVersionExists) &&
+			InClass->HasAnyClassFlags(CLASS_Interface) &&
+			// Here is some loaded classes only logic, Blueprints will never have this info
+			!InClass->HasMetaData(FBlueprintMetadata::MD_CannotImplementInterfaceInBlueprint);
+	}
+
+	virtual bool IsUnloadedClassAllowed(const FClassViewerInitializationOptions& InInitOptions, const TSharedRef< const IUnloadedBlueprintData > InUnloadedClassData, TSharedRef< FClassViewerFilterFuncs > InFilterFuncs) override
+	{
+		// Unloaded interfaces mean they must be Blueprint Interfaces
+
+
+		// If it appears on the allowed child-of classes list (or there is nothing on that list)
+		//		AND it is NOT on the disallowed child-of classes list
+		//		AND it is NOT on the disallowed classes list
+		return InFilterFuncs->IfInChildOfClassesSet( AllowedChildrenOfClasses, InUnloadedClassData) != EFilterReturn::Failed && 
+			InFilterFuncs->IfInChildOfClassesSet(DisallowedChildrenOfClasses, InUnloadedClassData) != EFilterReturn::Passed && 
+			InFilterFuncs->IfInClassesSet(DisallowedClasses, InUnloadedClassData) != EFilterReturn::Passed &&
+			!InUnloadedClassData->HasAnyClassFlags(CLASS_Deprecated | CLASS_NewerVersionExists) &&
+			InUnloadedClassData->HasAnyClassFlags(CLASS_Interface);
+	}
+};
+
+TSharedRef<SWidget> FBlueprintEditorUtils::ConstructBlueprintInterfaceClassPicker( const TArray< UBlueprint* >& Blueprints, const FOnClassPicked& OnPicked)
+{
+	TArray<UClass*> BlueprintClasses;
+	for( auto BlueprintIter = Blueprints.CreateConstIterator(); BlueprintIter; ++BlueprintIter )
+	{
+		const auto Blueprint = *BlueprintIter;
+		BlueprintClasses.Add(Blueprint->GeneratedClass);
+	}
+
+	// Fill in options
+	FClassViewerInitializationOptions Options;
+	Options.Mode = EClassViewerMode::ClassPicker;
+
+	TSharedPtr<FBlueprintInterfaceFilter> Filter = MakeShareable(new FBlueprintInterfaceFilter);
+	Options.ClassFilter = Filter;
+	Options.ViewerTitleString = LOCTEXT("ImplementInterfaceBlueprint", "Implement Interface").ToString();
+
+	for( auto BlueprintIter = Blueprints.CreateConstIterator(); BlueprintIter; ++BlueprintIter )
+	{
+		const auto Blueprint = *BlueprintIter;
+
+		// don't allow making me my own parent!
+		Filter->DisallowedClasses.Add(Blueprint->GeneratedClass);
+
+		UClass const* const ParentClass = Blueprint->ParentClass;
+		// see if the parent class has any prohibited interfaces
+		if ((ParentClass != NULL) && ParentClass->HasMetaData(FBlueprintMetadata::MD_ProhibitedInterfaces))
+		{
+			FString const& ProhibitedList = Blueprint->ParentClass->GetMetaData(FBlueprintMetadata::MD_ProhibitedInterfaces);
+
+			TArray<FString> ProhibitedInterfaceNames;
+			ProhibitedList.ParseIntoArray(&ProhibitedInterfaceNames, TEXT(","), true);
+
+			// loop over all the prohibited interfaces
+			for (int32 ExclusionIndex = 0; ExclusionIndex < ProhibitedInterfaceNames.Num(); ++ExclusionIndex)
+			{
+				FString const& ProhibitedInterfaceName = ProhibitedInterfaceNames[ExclusionIndex].Trim().RightChop(1);
+				UClass* ProhibitedInterface = (UClass*)StaticFindObject(UClass::StaticClass(), ANY_PACKAGE, *ProhibitedInterfaceName);
+				if(ProhibitedInterface)
+				{
+					Filter->DisallowedClasses.Add(ProhibitedInterface);
+					Filter->DisallowedChildrenOfClasses.Add(ProhibitedInterface);
+				}
+			}
+		}
+
+		// Do not allow adding interfaces that are already added to the Blueprint
+		for(TArray<FBPInterfaceDescription>::TConstIterator it(Blueprint->ImplementedInterfaces); it; ++it)
+		{
+			const FBPInterfaceDescription& CurrentInterface = *it;
+			Filter->DisallowedClasses.Add(CurrentInterface.Interface);
+		}
+	}
+
+	// never allow parenting to children of itself
+	for( auto ClassIt = BlueprintClasses.CreateIterator(); ClassIt; ++ClassIt )
+	{
+		Filter->DisallowedChildrenOfClasses.Add(*ClassIt);
+	}
+
+	return FModuleManager::LoadModuleChecked<FClassViewerModule>("ClassViewer").CreateClassViewer(Options, OnPicked);
 }
 
 void FBlueprintEditorUtils::UpdateOldPureFunctions( UBlueprint* Blueprint )

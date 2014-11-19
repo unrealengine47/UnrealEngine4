@@ -10,6 +10,7 @@
 #include "Components/InstancedStaticMeshComponent.h"
 #include "IDocumentation.h"
 #include "EditorCategoryUtils.h"
+#include "PhysicsEngine/PhysicsSettings.h"
 
 
 #define LOCTEXT_NAMESPACE "PrimitiveComponentDetails"
@@ -96,6 +97,22 @@ EVisibility FPrimitiveComponentDetails::IsCustomLockedAxisSelected() const
 	return bVisible ? EVisibility::Visible : EVisibility::Collapsed;
 }
 
+EVisibility FPrimitiveComponentDetails::IsLockAxisEnabled() const
+{
+	bool bVisible = false;
+	if (LockedAxisProperty.IsValid())
+	{
+		uint8 LockedAxis;
+		if (LockedAxisProperty->GetValue(LockedAxis) == FPropertyAccess::Success)
+		{
+			bVisible = static_cast<ELockedAxis::Type>(LockedAxis) != ELockedAxis::Default;
+		}
+	}
+
+	return bVisible ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+
 bool FPrimitiveComponentDetails::IsAutoWeldEditable() const
 {
 	for (int32 i = 0; i < ObjectsCustomized.Num(); ++i)
@@ -143,12 +160,12 @@ EVisibility FPrimitiveComponentDetails::IsMassVisible(bool bOverrideMass) const
 
 void FPrimitiveComponentDetails::CustomizeDetails( IDetailLayoutBuilder& DetailBuilder )
 {
-	TSharedRef<IPropertyHandle> MobilityHandle = DetailBuilder.GetProperty("Mobility", USceneComponent::StaticClass());
+	TSharedRef<IPropertyHandle> MobilityHandle = DetailBuilder.GetProperty(GET_MEMBER_NAME_CHECKED(UPrimitiveComponent, Mobility), USceneComponent::StaticClass());
 	MobilityHandle->SetToolTipText(LOCTEXT("PrimitiveMobilityTooltip", "Mobility for primitive components controls how they can be modified in game and therefore how they interact with lighting and physics.\n● A movable primitive component can be changed in game, but requires dynamic lighting and shadowing from lights which have a large performance cost.\n● A static primitive component can't be changed in game, but can have its lighting baked, which allows rendering to be very efficient.").ToString());
 
-	if ( DetailBuilder.GetProperty("BodyInstance")->IsValidHandle() )
+	if ( DetailBuilder.GetProperty(GET_MEMBER_NAME_CHECKED(UPrimitiveComponent, BodyInstance))->IsValidHandle() )
 	{
-		TSharedPtr<IPropertyHandle> BodyInstanceHandler = DetailBuilder.GetProperty("BodyInstance");
+		TSharedPtr<IPropertyHandle> BodyInstanceHandler = DetailBuilder.GetProperty(GET_MEMBER_NAME_CHECKED(UPrimitiveComponent, BodyInstance));
 		uint32 NumChildren = 0;
 		BodyInstanceHandler->GetNumChildren(NumChildren);
 
@@ -184,42 +201,47 @@ void FPrimitiveComponentDetails::CustomizeDetails( IDetailLayoutBuilder& DetailB
 			{
 				TSharedPtr<IPropertyHandle> ChildProperty = BodyInstanceHandler->GetChildHandle(ChildIndex);
 				FString Category = FObjectEditorUtils::GetCategory(ChildProperty->GetProperty());
-				FString PropName = ChildProperty->GetProperty()->GetName();
+				FName PropName = ChildProperty->GetProperty()->GetFName();
 				if (Category == TEXT("Physics"))
 				{
 					// Only permit modifying bSimulatePhysics when the body has some geometry.
-					if (PropName == TEXT("bSimulatePhysics"))
+					if (PropName == GET_MEMBER_NAME_CHECKED(FBodyInstance, bSimulatePhysics))
 					{
 						PhysicsCategory.AddProperty(ChildProperty).EditCondition(TAttribute<bool>(this, &FPrimitiveComponentDetails::IsSimulatePhysicsEditable), NULL);
 					}
-					else if (PropName == TEXT("bUseAsyncScene"))
+					else if (PropName == FName("bUseAsyncScene")) // Can't use GET_MEMBER_NAME_CHECKED because protected
 					{
 						//we only enable bUseAsyncScene if the project uses an AsyncScene
 						PhysicsCategory.AddProperty(ChildProperty).EditCondition(TAttribute<bool>(this, &FPrimitiveComponentDetails::IsUseAsyncEditable), NULL);
 					}
-					else if (PropName == TEXT("LockedAxisMode"))
+					else if (PropName == GET_MEMBER_NAME_CHECKED(FBodyInstance, LockedAxisMode))
 					{
 						LockedAxisProperty = ChildProperty;
 						PhysicsCategory.AddProperty(ChildProperty);
 					}
-					else if (PropName == TEXT("CustomLockedAxis"))
+					else if (PropName == GET_MEMBER_NAME_CHECKED(FBodyInstance, CustomLockedAxis))
 					{
 						//we only enable bUseAsyncScene if the project uses an AsyncScene
 						PhysicsCategory.AddProperty(ChildProperty).Visibility(TAttribute<EVisibility>(this, &FPrimitiveComponentDetails::IsCustomLockedAxisSelected));
 					}
-					else if (PropName == TEXT("bAutoWeld"))
+					else if (PropName == GET_MEMBER_NAME_CHECKED(FBodyInstance, bLockTranslation) || PropName == GET_MEMBER_NAME_CHECKED(FBodyInstance, bLockRotation))
+					{
+						// Only show the lock translation/rotation options if some lock axis is selected
+						PhysicsCategory.AddProperty(ChildProperty).Visibility(TAttribute<EVisibility>(this, &FPrimitiveComponentDetails::IsLockAxisEnabled));
+					}
+					else if (PropName == GET_MEMBER_NAME_CHECKED(FBodyInstance, bAutoWeld))
 					{
 						PhysicsCategory.AddProperty(ChildProperty).Visibility(TAttribute<EVisibility>(this, &FPrimitiveComponentDetails::IsAutoWeldVisible))
 																  .EditCondition(TAttribute<bool>(this, &FPrimitiveComponentDetails::IsAutoWeldEditable), NULL);
 					}
-					else if (PropName == TEXT("bOverrideMass"))
+					else if (PropName == GET_MEMBER_NAME_CHECKED(FBodyInstance, bOverrideMass))
 					{
 						if (bDisplayMassOverride)
 						{
 							PhysicsCategory.AddProperty(ChildProperty);
 						}
 					}
-					else if (PropName == TEXT("MassInKg"))
+					else if (PropName == GET_MEMBER_NAME_CHECKED(FBodyInstance, MassInKg))
 					{
 						
 						if (bDisplayMass)

@@ -58,6 +58,7 @@
 #include "ShaderCompiler.h"
 #include "SNotificationList.h"
 #include "NotificationManager.h"
+#include "EditorUndoClient.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogEditorServer, Log, All);
 
@@ -4461,10 +4462,17 @@ bool UEditorEngine::SnapActorTo( AActor* InActor, const bool InAlign, const bool
 		Direction.Normalize();
 	}
 
+	// In the case that we're about to do a line trace from a brush, move the start position so it's guaranteed to be very slightly
+	// outside of the brush bounds. The BSP geometry is double-sided which will give rise to an unwanted hit.
+	if (Brush)
+	{
+		const float fTinyOffset = 0.01f;
+		StartLocation.Z = InActor->GetRootComponent()->Bounds.Origin.Z - InActor->GetRootComponent()->Bounds.BoxExtent.Z - fTinyOffset;
+	}
 
 	// Do the actual actor->world check.  We try to collide against the world, straight down from our current position.
 	// If we hit anything, we will move the actor to a position that lets it rest on the floor.
-	FHitResult Hit(1.0f) ;
+	FHitResult Hit(1.0f);
 	FCollisionQueryParams Params(FName(TEXT("MoveActorToTrace")), false, InActor);
 	if ( InActor->GetWorld()->SweepSingle(Hit, StartLocation, StartLocation + Direction*WORLD_MAX, FQuat::Identity, FCollisionShape::MakeBox(Extent), Params, FCollisionObjectQueryParams(ECC_WorldStatic)))
 	{
@@ -4478,14 +4486,7 @@ bool UEditorEngine::SnapActorTo( AActor* InActor, const bool InAlign, const bool
 			//@todo: This doesn't take into account that rotating the actor changes LocationOffset.
 			FRotator NewRotation( Hit.Normal.Rotation() );
 			NewRotation.Pitch -= 90.f;
-			if( Brush )
-			{
-				FBSPOps::RotateBrushVerts( Brush, NewRotation, false );
-			}
-			else
-			{
-				InActor->SetActorRotation(NewRotation);
-			}
+			InActor->SetActorRotation(NewRotation);
 		}
 
 		// Switch to the pie world if we have one
@@ -4713,94 +4714,6 @@ bool UEditorEngine::Exec_Particle(const TCHAR* Str, FOutputDevice& Ar)
 		}
 	}
 	return bHandled;
-}
-
-
-bool UEditorEngine::GatherBakeAndPruneStatus(ULevel* InLevel, TMap<FString,bool>* OutAnimSetSkipBakeAndPruneMap)
-{
-	if (OutAnimSetSkipBakeAndPruneMap != NULL)
-	{
-		for (TObjectIterator<UInterpData> IterpDataIt; IterpDataIt; ++IterpDataIt)
-		{
-			UInterpData* InterpData = *IterpDataIt;
-			if (InterpData->IsIn(InLevel))
-			{
-				// Gather the animsets from this InterpData
-				if (InterpData->bShouldBakeAndPrune == false)
-				{
-					// None of the anim sets in this data should be bake and pruned.
-					for (int32 AnimSetIdx = 0; AnimSetIdx < InterpData->BakeAndPruneStatus.Num(); AnimSetIdx++)
-					{
-						// If the anim set is referenced in *any* interp data that should not bake & prune,
-						// then it should not be bake and pruned in any of them...
-						FAnimSetBakeAndPruneStatus& Status = InterpData->BakeAndPruneStatus[AnimSetIdx];
-						OutAnimSetSkipBakeAndPruneMap->Add(Status.AnimSetName, true);
-					}
-				}
-				else
-				{
-					for (int32 AnimSetIdx = 0; AnimSetIdx < InterpData->BakeAndPruneStatus.Num(); AnimSetIdx++)
-					{
-						// If the anim set is referenced in *any* interp data that should not bake & prune,
-						// then it should not be bake and pruned in any of them...
-						FAnimSetBakeAndPruneStatus& Status = InterpData->BakeAndPruneStatus[AnimSetIdx];
-						bool* pShouldBakeAndPrune = OutAnimSetSkipBakeAndPruneMap->Find(Status.AnimSetName);
-						if (pShouldBakeAndPrune == NULL)
-						{
-							// First instance of the AnimSet
-							OutAnimSetSkipBakeAndPruneMap->Add(Status.AnimSetName, Status.bSkipBakeAndPrune);
-						}
-						else
-						{
-							// If found, SkipBakeAndPrune == true trumps any previous setting
-							if (*pShouldBakeAndPrune == false)
-							{
-								OutAnimSetSkipBakeAndPruneMap->Add(Status.AnimSetName, Status.bSkipBakeAndPrune);
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return true;
-}
-
-
-bool UEditorEngine::ClearBakeAndPruneStatus(ULevel* InLevel)
-{
-	for (TObjectIterator<UInterpData> IterpDataIt; IterpDataIt; ++IterpDataIt)
-	{
-		UInterpData* InterpData = *IterpDataIt;
-		if (InterpData->IsIn(InLevel))
-		{
-			InterpData->BakeAndPruneStatus.Empty();
-		}
-	}
-
-	return true;
-}
-
-
-bool UEditorEngine::BakeAnimSetsInLevel(ULevel* InLevel, TMap<FString,bool>* InAnimSetSkipBakeAndPruneMap)
-{
-	// @TODO: ANIM: we'll need a feature to cut the animation to the size
-	return false;
-}
-
-
-bool UEditorEngine::PruneAnimSetsInLevel(ULevel* InLevel, TMap<FString,bool>* InAnimSetSkipBakeAndPruneMap)
-{
-	//@TODO: ANIM
-	return false;
-}
-
-
-bool UEditorEngine::ClearUnreferenceAnimSetsFromGroups(ULevel* InLevel)
-{
-	//@TODO: ANIM
-	return true;
 }
 
 
@@ -5378,18 +5291,6 @@ bool UEditorEngine::Exec( UWorld* InWorld, const TCHAR* Stream, FOutputDevice& A
 	else if ( FParse::Command(&Str,TEXT("CHECKSOUNDS")) )
 	{
 		return HandlecheckSoundsCommand( Str, Ar );
-	}
-	else if( FParse::Command(&Str,TEXT("PRUNEANIMSETS")) )
-	{
-		return HandlePruneAnimSetsCommand( Str, Ar, InWorld );
-	}
-	else if( FParse::Command(&Str,TEXT("BAKEANIMSETS")) )
-	{
-		return HandleBakeAnimSetsCommand( Str, Ar, InWorld );
-	}
-	else if( FParse::Command(&Str,TEXT("CLEANMATINEEANIMSETS")) )
-	{
-		return HandleCleanMatineeAnimSetsCommand( Str, Ar, InWorld );
 	}
 	else if( FParse::Command(&Str,TEXT("FIXUPBADANIMNOTIFIERS")) )
 	{
@@ -6007,29 +5908,6 @@ bool UEditorEngine::HandlecheckSoundsCommand( const TCHAR* Str, FOutputDevice& A
 		UE_LOG(LogEditorServer, Log,  TEXT("=================================================================================") );
 		UE_LOG(LogEditorServer, Log,  TEXT("Total Clusterd: %10.2fMB"), ((float)TotalClusteredSize)/(1024.f*1024.f) );
 		return true;
-}
-
-bool UEditorEngine::HandlePruneAnimSetsCommand( const TCHAR* Str, FOutputDevice& Ar, UWorld* InWorld )
-{
-	TMap<FString,bool> AnimSetSkipBakeAndPruneMap;
-	GatherBakeAndPruneStatus(InWorld->GetCurrentLevel(), &AnimSetSkipBakeAndPruneMap);
-	PruneAnimSetsInLevel(InWorld->GetCurrentLevel(), &AnimSetSkipBakeAndPruneMap);
-	return true;
-}
-
-bool UEditorEngine::HandleBakeAnimSetsCommand( const TCHAR* Str, FOutputDevice& Ar, UWorld* InWorld )
-{
-	TMap<FString,bool> AnimSetSkipBakeAndPruneMap;
-	GatherBakeAndPruneStatus(InWorld->GetCurrentLevel(), &AnimSetSkipBakeAndPruneMap);
-	BakeAnimSetsInLevel(InWorld->GetCurrentLevel(), &AnimSetSkipBakeAndPruneMap);
-	return true;
-}
-
-bool UEditorEngine::HandleCleanMatineeAnimSetsCommand( const TCHAR* Str, FOutputDevice& Ar, UWorld* InWorld )
-{
-	// Clear out unreferenced animsets from groups...
-	ClearUnreferenceAnimSetsFromGroups(InWorld->GetCurrentLevel());
-	return true;
 }
 
 bool UEditorEngine::HandleFixupBadAnimNotifiersCommand( const TCHAR* Str, FOutputDevice& Ar )

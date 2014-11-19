@@ -1011,6 +1011,19 @@ void FSlateApplication::DrawPrepass( TSharedPtr<SWindow> DrawOnlyThisWindow )
 	}
 }
 
+
+TArray<TSharedRef<SWindow>> GatherAllDescendants(const TArray< TSharedRef<SWindow> >& InWindowList)
+{
+	TArray<TSharedRef<SWindow>> GatheredDescendants(InWindowList);
+
+	for (const TSharedRef<SWindow>& SomeWindow : InWindowList)
+	{
+		GatheredDescendants.Append( GatherAllDescendants( SomeWindow->GetChildWindows() ) );
+	}
+	
+	return GatheredDescendants;
+}
+
 void FSlateApplication::PrivateDrawWindows( TSharedPtr<SWindow> DrawOnlyThisWindow )
 {
 	check(Renderer.IsValid());
@@ -1072,6 +1085,16 @@ void FSlateApplication::PrivateDrawWindows( TSharedPtr<SWindow> DrawOnlyThisWind
 		}
 	}
 
+
+	// Some windows may have been destroyed/removed.
+	// Do not attempt to draw any windows that have been removed.
+	TArray<TSharedRef<SWindow>> AllWindows = GatherAllDescendants(SlateWindows);
+	DrawWindowArgs.OutDrawBuffer.GetWindowElementLists().RemoveAll([&]( FSlateWindowElementList& Candidate )
+	{
+		TSharedPtr<SWindow> CandidateWindow = Candidate.GetWindow();
+		return !CandidateWindow.IsValid() || !AllWindows.Contains(CandidateWindow.ToSharedRef());
+	});
+	
 	Renderer->DrawWindows( DrawWindowArgs.OutDrawBuffer );
 }
 
@@ -1842,7 +1865,7 @@ TSharedPtr<SWidget> FSlateApplication::GetJoystickCaptor(uint32 UserIndex) const
 	return GetUserFocusedWidget(UserIndex);
 }
 
-void FSlateApplication::ClearUserFocus(uint32 UserIndex, EFocusCause ReasonFocusIsChanging /* = EFocusCause::Cleared*/)
+void FSlateApplication::ClearUserFocus(uint32 UserIndex, EFocusCause ReasonFocusIsChanging /* = EFocusCause::SetDirectly*/)
 {
 	SetUserFocus(UserIndex, FWidgetPath(), ReasonFocusIsChanging);
 }
@@ -2179,18 +2202,18 @@ void FSlateApplication::ProcessReply( const FWidgetPath& CurrentEventPath, const
 		{
 			for (int32 SlateUserIndex = 0; SlateUserIndex < SlateApplicationDefs::MaxUsers; ++SlateUserIndex)
 			{
-				SetUserFocus(SlateUserIndex, FWidgetPath(), EFocusCause::Cleared);
+				SetUserFocus(SlateUserIndex, FWidgetPath(), TheReply.GetFocusCause());
 			}
 		}
 		else
 		{
-			SetUserFocus(UserIndex, FWidgetPath(), EFocusCause::Cleared);
+			SetUserFocus(UserIndex, FWidgetPath(), TheReply.GetFocusCause());
 		}
 	}
 
 	if (TheReply.ShouldEndDragDrop())
 	{
-		DragDropContent.Reset();
+		EndDragDrop();
 	}
 
 	if ( bStartingDragDrop )
@@ -2833,6 +2856,15 @@ TSharedPtr<FDragDropOperation> FSlateApplication::GetDragDroppingContent() const
 
 void FSlateApplication::EndDragDrop()
 {
+	FWidgetPath WidgetsToDragLeave = WidgetsUnderCursorLastEvent.ToWidgetPath(FWeakWidgetPath::EInterruptedPathHandling::Truncate);
+	if (WidgetsToDragLeave.IsValid())
+	{
+		const FDragDropEvent DragDropEvent(FPointerEvent(), DragDropContent);
+		for (int32 WidgetIndex = WidgetsToDragLeave.Widgets.Num() - 1; WidgetIndex >= 0; --WidgetIndex)
+		{
+			WidgetsToDragLeave.Widgets[WidgetIndex].Widget->OnDragLeave(DragDropEvent);
+		}
+	}
 	DragDropContent.Reset();
 }
 
@@ -2981,11 +3013,11 @@ void FSlateApplication::SetDragTriggerDistnace( float ScreenPixels )
 	DragTriggerDistnace = ScreenPixels;
 }
 
-void FSlateApplication::SetAnalogCursorEnable(bool bEnable)
+void FSlateApplication::SetAnalogCursorEnable(bool bEnable, TSharedPtr<class FAnalogCursor> OptionalNewAnalogCursor)
 {
 	if (bEnable && !AnalogCursor.IsValid())
 	{
-		AnalogCursor = MakeShareable(new FAnalogCursor);
+		AnalogCursor = OptionalNewAnalogCursor.IsValid() ? OptionalNewAnalogCursor : MakeShareable(new FAnalogCursor);
 	}
 	else
 	{
@@ -3464,7 +3496,7 @@ bool FSlateApplication::ProcessKeyDownEvent( FKeyEvent& InKeyEvent )
 	if (IsDragDropping() && InKeyEvent.GetKey() == EKeys::Escape)
 	{
 		// Pressing ESC while drag and dropping terminates the drag drop.
-		DragDropContent.Reset();
+		EndDragDrop();
 		Reply = FReply::Handled();
 	}
 	else

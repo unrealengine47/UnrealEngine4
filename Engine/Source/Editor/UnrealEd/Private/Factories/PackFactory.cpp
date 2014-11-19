@@ -13,6 +13,7 @@
 #include "ModuleManager.h"
 #include "GameProjectGenerationModule.h"
 #include "Factories/PackFactory.h"
+#include "GameFramework/InputSettings.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogPackFactory, Log, All);
 
@@ -138,8 +139,8 @@ namespace PackFactoryHelper
 		PackConfig.ProcessInputFileContents(ConfigString);
 
 		// Input Settings
-		static UArrayProperty* ActionMappingsProp = FindFieldChecked<UArrayProperty>(UInputSettings::StaticClass(), "ActionMappings");
-		static UArrayProperty* AxisMappingsProp = FindFieldChecked<UArrayProperty>(UInputSettings::StaticClass(), "AxisMappings");
+		static UArrayProperty* ActionMappingsProp = FindFieldChecked<UArrayProperty>(UInputSettings::StaticClass(), GET_MEMBER_NAME_CHECKED(UInputSettings, ActionMappings));
+		static UArrayProperty* AxisMappingsProp = FindFieldChecked<UArrayProperty>(UInputSettings::StaticClass(), GET_MEMBER_NAME_CHECKED(UInputSettings, AxisMappings));
 
 		UInputSettings* InputSettingsCDO = GetMutableDefault<UInputSettings>();
 		bool bCheckedOut = false;
@@ -376,6 +377,12 @@ UObject* UPackFactory::FactoryCreateBinary
 		{
 			// config files already handled
 			if (It.Filename().StartsWith(TEXT("Config/")) || It.Filename().Contains(TEXT("/Config/")))
+			{
+				continue;
+			}
+
+			// Media and manifest files don't get written out as part of the install
+			if (It.Filename().Contains(TEXT("manifest.json")) || It.Filename().StartsWith(TEXT("Media/")) || It.Filename().Contains(TEXT("/Media/")))
 			{
 				continue;
 			}

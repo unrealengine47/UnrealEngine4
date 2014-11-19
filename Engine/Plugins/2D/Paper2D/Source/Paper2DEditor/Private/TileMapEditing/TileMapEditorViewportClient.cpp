@@ -3,10 +3,12 @@
 #include "Paper2DEditorPrivatePCH.h"
 #include "TileMapEditorViewportClient.h"
 #include "SceneViewport.h"
+#include "EdModeTileMap.h"
 
 #include "PreviewScene.h"
 #include "ScopedTransaction.h"
 #include "Runtime/Engine/Public/ComponentReregisterContext.h"
+#include "CanvasTypes.h"
 
 #define LOCTEXT_NAMESPACE "TileMapEditor"
 
@@ -17,6 +19,9 @@ FTileMapEditorViewportClient::FTileMapEditorViewportClient(TWeakPtr<FTileMapEdit
 	: TileMapEditorPtr(InTileMapEditor)
 	, TileMapEditorViewportPtr(InTileMapEditorViewportPtr)
 {
+	// The tile map editor fully supports mode tools and isn't doing any incompatible stuff with the Widget
+	Widget->SetUsesEditorModeTools(ModeTools);
+
 	check(TileMapEditorPtr.IsValid() && TileMapEditorViewportPtr.IsValid());
 
 	PreviewScene = &OwnedPreviewScene;
@@ -43,6 +48,19 @@ FTileMapEditorViewportClient::FTileMapEditorViewportClient(TWeakPtr<FTileMapEdit
 
 		PreviewScene->AddComponent(RenderTileMapComponent, FTransform::Identity);
 	}
+
+	// Select the render component
+	ModeTools->GetSelectedObjects()->Select(RenderTileMapComponent);
+}
+
+void FTileMapEditorViewportClient::ActivateEditMode()
+{
+	// Activate the tile map edit mode
+	ModeTools->SetToolkitHost(TileMapEditorPtr.Pin()->GetToolkitHost());
+	ModeTools->SetDefaultMode(FEdModeTileMap::EM_TileMap);
+	ModeTools->ActivateDefaultMode();
+	
+	//@TODO: Need to be able to register the widget in the toolbox panel with ToolkitHost, so it can instance the ed mode widgets into it
 }
 
 void FTileMapEditorViewportClient::DrawBoundsAsText(FViewport& InViewport, FSceneView& View, FCanvas& Canvas, int32& YPos)
@@ -135,87 +153,6 @@ void FTileMapEditorViewportClient::ToggleShowMeshEdges()
 bool FTileMapEditorViewportClient::IsShowMeshEdgesChecked() const
 {
 	return EngineShowFlags.MeshEdges;
-}
-
-void FTileMapEditorViewportClient::UpdateMouseDelta()
-{
-	FPaperEditorViewportClient::UpdateMouseDelta();
-}
-
-void FTileMapEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* HitProxy, FKey Key, EInputEvent Event, uint32 HitX, uint32 HitY)
-{
-	FPaperEditorViewportClient::ProcessClick(View, HitProxy, Key, Event, HitX, HitY);
-}
-
-bool FTileMapEditorViewportClient::InputKey(FViewport* Viewport, int32 ControllerId, FKey Key, EInputEvent Event, float AmountDepressed, bool bGamepad)
-{
-	bool bHandled = false;
-
-	// Start the drag
-	//@TODO: EKeys::LeftMouseButton
-	//@TODO: Event.IE_Pressed
-	// Implement InputAxis
-	// StartTracking
-
-	// Pass keys to standard controls, if we didn't consume input
-	return (bHandled) ? true : FEditorViewportClient::InputKey(Viewport,  ControllerId, Key, Event, AmountDepressed, bGamepad);
-}
-
-bool FTileMapEditorViewportClient::InputWidgetDelta(FViewport* Viewport, EAxisList::Type CurrentAxis, FVector& Drag, FRotator& Rot, FVector& Scale)
-{
-	bool bHandled = false;
-	return bHandled;
-}
-
-void FTileMapEditorViewportClient::TrackingStarted(const struct FInputEventState& InInputState, bool bIsDragging, bool bNudge)
-{
-	if (!bManipulating && bIsDragging)
-	{
-		BeginTransaction(LOCTEXT("ModificationInViewport", "Modification in Viewport"));
-		bManipulating = true;
-		bManipulationDirtiedSomething = false;
-	}
-}
-
-void FTileMapEditorViewportClient::TrackingStopped()
-{
-	if (bManipulating)
-	{
-		EndTransaction();
-		bManipulating = false;
-	}
-}
-
-FWidget::EWidgetMode FTileMapEditorViewportClient::GetWidgetMode() const
-{
-	return FWidget::WM_None;
-}
-
-FVector FTileMapEditorViewportClient::GetWidgetLocation() const
-{
-
-	return FVector::ZeroVector;
-}
-
-FMatrix FTileMapEditorViewportClient::GetWidgetCoordSystem() const
-{
-	return FMatrix::Identity;
-}
-
-ECoordSystem FTileMapEditorViewportClient::GetWidgetCoordSystemSpace() const
-{
-	return COORD_World;
-}
-
-void FTileMapEditorViewportClient::BeginTransaction(const FText& SessionName)
-{
-	if (ScopedTransaction == NULL)
-	{
-		ScopedTransaction = new FScopedTransaction(SessionName);
-
-		UPaperTileMap* TileMap = GetTileMapBeingEdited();
-		TileMap->Modify();
-	}
 }
 
 void FTileMapEditorViewportClient::EndTransaction()

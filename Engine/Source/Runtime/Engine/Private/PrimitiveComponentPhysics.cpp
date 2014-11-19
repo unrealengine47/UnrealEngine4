@@ -397,6 +397,20 @@ float UPrimitiveComponent::GetAngularDamping() const
 	return 0.f;
 }
 
+void UPrimitiveComponent::SetMassScale(FName BoneName, float InMassScale)
+{
+	FBodyInstance* BI = GetBodyInstance(BoneName);
+	if (BI)
+	{
+		BI->SetMassScale(InMassScale);
+	}
+}
+
+void UPrimitiveComponent::SetAllMassScale(float InMassScale)
+{
+	SetMassScale(NAME_None, InMassScale);
+}
+
 float UPrimitiveComponent::GetMass() const
 {
 	FBodyInstance* BI = GetBodyInstance();
@@ -652,6 +666,8 @@ void UPrimitiveComponent::WeldTo(USceneComponent* InParent, FName InSocketName /
 
 void UPrimitiveComponent::UnWeldFromParent()
 {
+
+
 	FBodyInstance* NewRootBI = GetBodyInstance(NAME_None, false);
 	UWorld* CurrentWorld = GetWorld();
 	if (NewRootBI == NULL || NewRootBI->bWelded == false || CurrentWorld == nullptr || IsPendingKill())
@@ -666,8 +682,13 @@ void UPrimitiveComponent::UnWeldFromParent()
 	{
 		if (FBodyInstance* RootBI = RootComponent->GetBodyInstance(SocketName, false))
 		{
-			//create new root
-			RootBI->UnWeld(NewRootBI);
+			bool bRootIsBeingDeleted = RootComponent->HasAnyFlags(RF_PendingKill) || RootComponent->HasAnyFlags(RF_Unreachable);
+			if (!bRootIsBeingDeleted)
+			{
+				//create new root
+				RootBI->UnWeld(NewRootBI);	//don't bother fixing up shapes if RootComponent is about to be deleted
+			}
+			
 			NewRootBI->bWelded = false;
 			NewRootBI->WeldParent = NULL;
 
@@ -692,7 +713,11 @@ void UPrimitiveComponent::UnWeldFromParent()
 				FBodyInstance* ChildBI = ChildrenBodies[ChildIdx];
 				if (ChildBI != NewRootBI)
 				{
-					RootBI->UnWeld(NewRootBI);
+					if (!bRootIsBeingDeleted)
+					{
+						RootBI->UnWeld(ChildBI);
+					}
+					
 					if (bHasBodySetup)
 					{
 						NewRootBI->Weld(ChildBI, ChildBI->OwnerComponent->GetSocketTransform(ChildrenLabels[ChildIdx]));

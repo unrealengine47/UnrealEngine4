@@ -73,6 +73,16 @@ public:
 	ENGINE_API void Transform(const FVector &PreSubtract,const FVector &PostAdd);
 
 	/**
+	 * Rotate an editor polygon with a pre-transformation addition.
+	 */
+	ENGINE_API void Rotate(const FVector &PreSubtract, const FRotator &Rotation);
+
+	/**
+	 * Scale an editor polygon with a pre-transformation addition.
+	 */
+	ENGINE_API void Scale(const FVector &PreSubtract, const FVector &Scale);
+
+	/**
 	 * Fix up an editor poly by deleting vertices that are identical.  Sets
 	 * vertex count to zero if it collapses.  Returns number of vertices, 0 or >=3.
 	 */
