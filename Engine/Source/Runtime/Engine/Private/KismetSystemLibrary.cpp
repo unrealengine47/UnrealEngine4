@@ -1,6 +1,7 @@
 // Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
+#include "Engine/GameEngine.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Engine/Console.h"
 #include "LatentActions.h"
@@ -218,6 +219,19 @@ void UKismetSystemLibrary::PrintWarning(const FString& InString)
 	PrintString(NULL, InString, true, true);
 }
 
+void UKismetSystemLibrary::SetWindowTitle(const FText& Title)
+{
+	UGameEngine* GameEngine = Cast<UGameEngine>(GEngine);
+	if (GameEngine != nullptr)
+	{
+		TSharedPtr<SWindow> GameViewportWindow = GameEngine->GameViewportWindow.Pin();
+		if (GameViewportWindow.IsValid())
+		{
+			GameViewportWindow->SetTitle(Title);
+		}
+	}
+}
+
 void UKismetSystemLibrary::ExecuteConsoleCommand(UObject* WorldContextObject, const FString& Command, APlayerController* Player)
 {
 	// First, try routing through the primary player
@@ -262,26 +276,21 @@ void UKismetSystemLibrary::K2_SetTimer(UObject* Object, FString FunctionName, fl
 		}
 	}
 
-	FBlueprintTimerDynamicDelegate Delegate;
+	FTimerDynamicDelegate Delegate;
 	Delegate.BindUFunction(Object, FunctionFName);
 	K2_SetTimerDelegate(Delegate, Time, bLooping);
 }
 
-void UKismetSystemLibrary::K2_SetTimerDelegate(FBlueprintTimerDynamicDelegate Delegate, float Time, bool bLooping)
+void UKismetSystemLibrary::K2_SetTimerDelegate(FTimerDynamicDelegate Delegate, float Time, bool bLooping)
 {
-	UObject* const Object = Delegate.GetUObject();
-	FName const FunctionName = Delegate.GetFunctionName();
-
-	FTimerDynamicDelegate InnerDelegate;
-	InnerDelegate.BindUFunction(Object, FunctionName);
-	if (InnerDelegate.IsBound())
+	if (Delegate.IsBound())
 	{
-		const UWorld* const World = GEngine->GetWorldFromContextObject(Object);
-		World->GetTimerManager().SetTimer(InnerDelegate, Time, bLooping);
+		const UWorld* const World = GEngine->GetWorldFromContextObject(Delegate.GetUObject());
+		World->GetTimerManager().SetTimer(Delegate, Time, bLooping);
 	}
 	else
 	{
-		UE_LOG(LogBlueprintUserMessages, Warning, TEXT("SetTimer passed a bad function (%s) or object (%s)"), *FunctionName.ToString(), *GetNameSafe(Object));
+		UE_LOG(LogBlueprintUserMessages, Warning, TEXT("SetTimer passed a bad function (%s) or object (%s)"), *Delegate.GetFunctionName().ToString(), *GetNameSafe(Delegate.GetUObject()));
 	}
 }
 
@@ -587,6 +596,12 @@ void UKismetSystemLibrary::SetTransformPropertyByName(UObject* Object, FName Pro
 			*TransformProp->ContainerPtrToValuePtr<FTransform>(Object) = Value;
 		}		
 	}
+}
+
+void UKismetSystemLibrary::SetCollisionProfileNameProperty(UObject* Object, FName PropertyName, const FCollisionProfileName& Value)
+{
+	// We should never hit these!  They're stubs to avoid NoExport on the class.
+	check(0);
 }
 
 void UKismetSystemLibrary::Generic_SetStructurePropertyByName(UObject* OwnerObject, FName StructPropertyName, const void* SrcStructAddr)
@@ -2683,7 +2698,7 @@ void UKismetSystemLibrary::ShowPlatformSpecificAchievementsScreen(class APlayerC
 			ULocalPlayer* LocalPlayer = Cast<ULocalPlayer>(SpecificPlayer->Player);
 			if(LocalPlayer)
 			{
-				LocalUserNum = LocalPlayer->ControllerId;
+				LocalUserNum = LocalPlayer->GetControllerId();
 			}
 		}
 		ExternalUI->ShowAchievementsUI(LocalUserNum);

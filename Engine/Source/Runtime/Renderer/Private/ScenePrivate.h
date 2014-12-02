@@ -40,8 +40,6 @@ bool IsMobileHDR();
 /** True if the mobile renderer is emulating HDR in a 32bpp render target. */
 bool IsMobileHDR32bpp();
 
-extern bool ShouldUseGetDynamicMeshElements();
-
 // Dependencies.
 #include "StaticBoundShaderState.h"
 #include "BatchedElements.h"
@@ -536,6 +534,7 @@ public:
 	// Temporal AA result for light shafts of last frame
 	TMap<const ULightComponent*, TRefCountPtr<IPooledRenderTarget> > LightShaftBloomHistoryRTs;
 	TRefCountPtr<IPooledRenderTarget> DistanceFieldAOHistoryRT;
+	TRefCountPtr<IPooledRenderTarget> DistanceFieldIrradianceHistoryRT;
 	// Mobile temporal AA surfaces.
 	TRefCountPtr<IPooledRenderTarget> MobileAaBloomSunVignette0;
 	TRefCountPtr<IPooledRenderTarget> MobileAaBloomSunVignette1;
@@ -696,6 +695,7 @@ public:
 		LightShaftOcclusionHistoryRT.SafeRelease();
 		LightShaftBloomHistoryRTs.Empty();
 		DistanceFieldAOHistoryRT.SafeRelease();
+		DistanceFieldIrradianceHistoryRT.SafeRelease();
 		MobileAaBloomSunVignette0.SafeRelease();
 		MobileAaBloomSunVignette1.SafeRelease();
 		MobileAaColor0.SafeRelease();
@@ -875,6 +875,51 @@ public:
 		CubemapArray(InFeatureLevel),
 		MaxAllocatedReflectionCubemapsGameThread(0)
 	{}
+};
+
+class FPrimitiveAndInstance
+{
+public:
+
+	FPrimitiveAndInstance(FPrimitiveSceneInfo* InPrimitive, int32 InInstanceIndex) :
+		Primitive(InPrimitive),
+		InstanceIndex(InInstanceIndex)
+	{}
+
+	FPrimitiveSceneInfo* Primitive;
+	int32 InstanceIndex;
+};
+
+/** Scene data used to manage distance field object buffers on the GPU. */
+class FDistanceFieldSceneData
+{
+public:
+
+	FDistanceFieldSceneData();
+	~FDistanceFieldSceneData();
+
+	void AddPrimitive(FPrimitiveSceneInfo* InPrimitive);
+	void UpdatePrimitive(FPrimitiveSceneInfo* InPrimitive);
+	void RemovePrimitive(FPrimitiveSceneInfo* InPrimitive);
+	void Release();
+	void VerifyIntegrity();
+
+	bool HasPendingOperations() const
+	{
+		return PendingAddOperations.Num() > 0 || PendingUpdateOperations.Num() > 0 || PendingRemoveOperations.Num() > 0;
+	}
+
+	int32 NumObjectsInBuffer;
+	class FDistanceFieldObjectBuffers* ObjectBuffers;
+
+	/** Stores the primitive and instance index of every entry in the object buffer. */
+	TArray<FPrimitiveAndInstance> PrimitiveInstanceMapping;
+	TArray<const FPrimitiveSceneInfo*> HeightfieldPrimitives;
+
+	/** Pending operations on the object buffers to be processed next frame. */
+	TArray<FPrimitiveSceneInfo*> PendingAddOperations;
+	TArray<FPrimitiveSceneInfo*> PendingUpdateOperations;
+	TArray<int32> PendingRemoveOperations;
 };
 
 /** Stores data for an allocation in the FIndirectLightingCache. */
@@ -1198,8 +1243,12 @@ public:
 	TStaticMeshDrawList< TBasePassForForwardShadingDrawingPolicy< TLightMapPolicy<LQ_LIGHTMAP> > >							BasePassForForwardShadingLowQualityLightMapDrawList[EBasePass_MAX];
 	TStaticMeshDrawList< TBasePassForForwardShadingDrawingPolicy< TDistanceFieldShadowsAndLightMapPolicy<LQ_LIGHTMAP> > >	BasePassForForwardShadingDistanceFieldShadowMapLightMapDrawList[EBasePass_MAX];
 	TStaticMeshDrawList<TBasePassForForwardShadingDrawingPolicy< FSimpleDirectionalLightAndSHIndirectPolicy > >				BasePassForForwardShadingDirectionalLightAndSHIndirectDrawList[EBasePass_MAX];
+	TStaticMeshDrawList<TBasePassForForwardShadingDrawingPolicy< FSimpleDirectionalLightAndSHDirectionalIndirectPolicy > >		BasePassForForwardShadingDirectionalLightAndSHDirectionalIndirectDrawList[EBasePass_MAX];
+	TStaticMeshDrawList<TBasePassForForwardShadingDrawingPolicy< FSimpleDirectionalLightAndSHDirectionalCSMIndirectPolicy > >	BasePassForForwardShadingDirectionalLightAndSHDirectionalCSMIndirectDrawList[EBasePass_MAX];
 	TStaticMeshDrawList<TBasePassForForwardShadingDrawingPolicy< FMovableDirectionalLightLightingPolicy > >					BasePassForForwardShadingMovableDirectionalLightDrawList[EBasePass_MAX];
 	TStaticMeshDrawList<TBasePassForForwardShadingDrawingPolicy< FMovableDirectionalLightCSMLightingPolicy > >				BasePassForForwardShadingMovableDirectionalLightCSMDrawList[EBasePass_MAX];
+	TStaticMeshDrawList<TBasePassForForwardShadingDrawingPolicy< FMovableDirectionalLightWithLightmapLightingPolicy> >		BasePassForForwardShadingMovableDirectionalLightLightmapDrawList[EBasePass_MAX];
+	TStaticMeshDrawList<TBasePassForForwardShadingDrawingPolicy< FMovableDirectionalLightCSMWithLightmapLightingPolicy> >	BasePassForForwardShadingMovableDirectionalLightCSMLightmapDrawList[EBasePass_MAX];
 
 	/** Maps a light-map type to the appropriate base pass draw list. */
 	template<typename LightMapPolicyType>
@@ -1269,6 +1318,9 @@ public:
 
 	/** Scene state of distance field AO.  NULL if the scene doesn't use the feature. */
 	class FSurfaceCacheResources* SurfaceCacheResources;
+
+	/** Distance field object scene data. */
+	FDistanceFieldSceneData DistanceFieldSceneData;
 
 	/** Preshadows that are currently cached in the PreshadowCache render target. */
 	TArray<TRefCountPtr<FProjectedShadowInfo> > CachedPreshadows;

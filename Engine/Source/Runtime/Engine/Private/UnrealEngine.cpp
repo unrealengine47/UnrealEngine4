@@ -1792,41 +1792,40 @@ bool UEngine::IsStereoscopic3D()
 	return !GIsEditor && StereoRenderingDevice.IsValid() && StereoRenderingDevice->IsStereoEnabled();
 }
 
-ULocalPlayer* GetLocalPlayerFromControllerId_local(const TArray<class ULocalPlayer*>& GamePlayers, int32 ControllerId)
+ULocalPlayer* GetLocalPlayerFromControllerId_local(const TArray<class ULocalPlayer*>& GamePlayers, const int32 ControllerId)
 {
-	for ( int32 PlayerIndex = 0; PlayerIndex < GamePlayers.Num(); PlayerIndex++ )
+	for ( ULocalPlayer* const Player : GamePlayers )
 	{
-		ULocalPlayer* const Player = GamePlayers[PlayerIndex];
-		if ( Player && Player->ControllerId == ControllerId )
+		if ( Player && Player->GetControllerId() == ControllerId )
 		{
 			return Player;
 		}
 	}
 
-	return NULL;
+	return nullptr;
 }
 
-ULocalPlayer* UEngine::GetLocalPlayerFromControllerId( const UGameViewportClient* InViewport, int32 ControllerId )
+ULocalPlayer* UEngine::GetLocalPlayerFromControllerId( const UGameViewportClient* InViewport, const int32 ControllerId ) const
 {
-	if (GetWorldContextFromGameViewport(InViewport) != NULL)
+	if (GetWorldContextFromGameViewport(InViewport) != nullptr)
 	{
 		const TArray<class ULocalPlayer*>& GamePlayers = GetGamePlayers(InViewport);
 		return GetLocalPlayerFromControllerId_local(GamePlayers, ControllerId);
 	}
-	return NULL;
+	return nullptr;
 }
 
-ULocalPlayer* UEngine::GetLocalPlayerFromControllerId( UWorld * InWorld, int32 ControllerId )
+ULocalPlayer* UEngine::GetLocalPlayerFromControllerId( UWorld * InWorld, const int32 ControllerId ) const
 {
 	const TArray<class ULocalPlayer*>& GamePlayers = GetGamePlayers(InWorld);
 	return GetLocalPlayerFromControllerId_local(GamePlayers, ControllerId);
 }
 
-void UEngine::SwapControllerId(ULocalPlayer *NewPlayer, int32 CurrentControllerId, int32 NewControllerID)
+void UEngine::SwapControllerId(ULocalPlayer *NewPlayer, const int32 CurrentControllerId, const int32 NewControllerID) const
 {
-	for (auto It = WorldList.CreateIterator(); It; ++It)
+	for (auto It = WorldList.CreateConstIterator(); It; ++It)
 	{
-		if (It->OwningGameInstance == NULL)
+		if (It->OwningGameInstance == nullptr)
 		{
 			continue;
 		}
@@ -1836,11 +1835,11 @@ void UEngine::SwapControllerId(ULocalPlayer *NewPlayer, int32 CurrentControllerI
 		if (LocalPlayers.Contains(NewPlayer))
 		{
 			// This is the world context that NewPlayer belongs to, see if anyone is using his CurrentControllerId
-			for (int32 i=0; i < LocalPlayers.Num(); ++i)
+			for (ULocalPlayer* LocalPlayer : LocalPlayers)
 			{
-				if(LocalPlayers[i] && LocalPlayers[i]->ControllerId == NewControllerID)
+				if(LocalPlayer && LocalPlayer->GetControllerId() == NewControllerID)
 				{
-					LocalPlayers[i]->ControllerId = CurrentControllerId;
+					LocalPlayer->SetControllerId( CurrentControllerId);
 					return;
 				}
 			}
@@ -2420,14 +2419,6 @@ bool UEngine::Exec( UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar )
 	else if( FParse::Command(&Cmd,TEXT("TRACKPARTICLERENDERINGSTATS")) )
 	{
 		return HandleTrackParticleRenderingStatsCommand( Cmd, Ar );
-	}
-	else if( FParse::Command(&Cmd,TEXT("DUMPPARTICLERENDERINGSTATS")) )
-	{
-		return HandleDumpParticleRenderingStatsCommand( Cmd, Ar );
-	}
-	else if( FParse::Command(&Cmd,TEXT("DUMPPARTICLEFRAMERENDERINGSTATS")) )
-	{
-		return HandleDumpParticleFrameRenderingStatsCommand( Cmd, Ar );
 	}
 	else if ( FParse::Command(&Cmd,TEXT("DUMPALLOCS")) )
 	{
@@ -5222,21 +5213,6 @@ bool UEngine::HandleTrackParticleRenderingStatsCommand( const TCHAR* Cmd, FOutpu
 	return 1;
 }
 
-bool UEngine::HandleDumpParticleRenderingStatsCommand( const TCHAR* Cmd, FOutputDevice& Ar )
-{
-	extern void DumpParticleRenderingStats(FOutputDevice& Ar);
-	DumpParticleRenderingStats(Ar);
-	return 1;
-}
-
-bool UEngine::HandleDumpParticleFrameRenderingStatsCommand( const TCHAR* Cmd, FOutputDevice& Ar )
-{
-	extern bool GWantsParticleStatsNextFrame;
-	GWantsParticleStatsNextFrame = true;
-	UE_LOG(LogEngine, Warning, TEXT("DUMPPARTICLEFRAMERENDERINGSTATS triggered"));
-	return 1;
-}
-
 bool UEngine::HandleDumpAllocatorStats( const TCHAR* Cmd, FOutputDevice& Ar )
 {
 	GMalloc->DumpAllocatorStats(Ar);
@@ -6268,7 +6244,7 @@ static void DrawVolumeOnCanvas(const AVolume* Volume, FCanvas* Canvas, const FVe
 				// We only want to draw faces pointing up
 				const FVector Edge0 = V1 - V0;
 				const FVector Edge1 = V2 - V1;
-				const FVector Normal = (Edge1 ^ Edge0).SafeNormal();
+				const FVector Normal = (Edge1 ^ Edge0).GetSafeNormal();
 				if(Normal.Z > 0.01)
 				{
 					// Transform as 2d points in 'map space'
@@ -7286,7 +7262,7 @@ const TArray<class ULocalPlayer*>& HandleFakeLocalPlayersList()
 	return FakeEmptyLocalPlayers;
 }
 
-const TArray<class ULocalPlayer*>& UEngine::GetGamePlayers(UWorld *World)
+const TArray<class ULocalPlayer*>& UEngine::GetGamePlayers(UWorld *World) const
 {
 	const FWorldContext &Context = GetWorldContextFromWorldChecked(World);
 	if ( Context.OwningGameInstance == NULL )
@@ -7296,7 +7272,7 @@ const TArray<class ULocalPlayer*>& UEngine::GetGamePlayers(UWorld *World)
 	return Context.OwningGameInstance->GetLocalPlayers();
 }
 	
-const TArray<class ULocalPlayer*>& UEngine::GetGamePlayers(const UGameViewportClient *Viewport)
+const TArray<class ULocalPlayer*>& UEngine::GetGamePlayers(const UGameViewportClient *Viewport) const
 {
 	const FWorldContext &Context = GetWorldContextFromGameViewportChecked(Viewport);
 	if ( Context.OwningGameInstance == NULL )
@@ -7316,17 +7292,17 @@ ULocalPlayer* UEngine::FindFirstLocalPlayerFromControllerId(int32 ControllerId) 
 			const TArray<class ULocalPlayer*> & LocalPlayers = Context.OwningGameInstance->GetLocalPlayers();
 
 			// Use this world context, look for the ULocalPlayer with this ControllerId
-			for (int32 i=0; i < LocalPlayers.Num(); ++i)
+			for (ULocalPlayer* LocalPlayer : LocalPlayers)
 			{
-				if (LocalPlayers[i] && LocalPlayers[i]->ControllerId == ControllerId)
+				if (LocalPlayer && LocalPlayer->GetControllerId() == ControllerId)
 				{
-					return LocalPlayers[i];
+					return LocalPlayer;
 				}
 			}
 		}
 	}
 
-	return NULL;
+	return nullptr;
 }
 
 int32 UEngine::GetNumGamePlayers(UWorld *InWorld)
@@ -7797,10 +7773,15 @@ void UEngine::HandleTravelFailure_NotifyGameInstance(UWorld *World, ETravelFailu
 
 void UEngine::SpawnServerActors(UWorld *World)
 {
-	for( int32 i=0; i < ServerActors.Num(); i++ )
+	TArray<FString> FullServerActors;
+
+	FullServerActors.Append(ServerActors);
+	FullServerActors.Append(RuntimeServerActors);
+
+	for( int32 i=0; i < FullServerActors.Num(); i++ )
 	{
-		TCHAR Str[240];
-		const TCHAR* Ptr = * ServerActors[i];
+		TCHAR Str[2048];
+		const TCHAR* Ptr = * FullServerActors[i];
 		if( FParse::Token( Ptr, Str, ARRAY_COUNT(Str), 1 ) )
 		{
 			UE_LOG(LogNet, Log, TEXT("Spawning: %s"), Str );
@@ -9260,7 +9241,7 @@ FWorldContext& HandleInvalidWorldContext()
 	return GEngine->CreateNewWorldContext(EWorldType::None);
 }
 
-FWorldContext* UEngine::GetWorldContextFromHandle(FName WorldContextHandle)
+FWorldContext* UEngine::GetWorldContextFromHandle(const FName WorldContextHandle)
 {
 	for (FWorldContext& WorldContext : WorldList)
 	{
@@ -9269,12 +9250,35 @@ FWorldContext* UEngine::GetWorldContextFromHandle(FName WorldContextHandle)
 			return &WorldContext;
 		}
 	}
-	return NULL;
+	return nullptr;
 }
 
-FWorldContext& UEngine::GetWorldContextFromHandleChecked(FName WorldContextHandle)
+const FWorldContext* UEngine::GetWorldContextFromHandle(const FName WorldContextHandle) const
+{
+	for (const FWorldContext& WorldContext : WorldList)
+	{
+		if (WorldContext.ContextHandle == WorldContextHandle)
+		{
+			return &WorldContext;
+		}
+	}
+	return nullptr;
+}
+
+FWorldContext& UEngine::GetWorldContextFromHandleChecked(const FName WorldContextHandle)
 {
 	if (FWorldContext* WorldContext = GetWorldContextFromHandle(WorldContextHandle))
+	{
+		return *WorldContext;
+	}
+
+	UE_LOG(LogLoad, Warning, TEXT("WorldContext requested with invalid context handle %s"), *WorldContextHandle.ToString());
+	return HandleInvalidWorldContext();
+}
+
+const FWorldContext& UEngine::GetWorldContextFromHandleChecked(const FName WorldContextHandle) const
+{
+	if (const FWorldContext* WorldContext = GetWorldContextFromHandle(WorldContextHandle))
 	{
 		return *WorldContext;
 	}
@@ -9292,10 +9296,22 @@ FWorldContext* UEngine::GetWorldContextFromWorld(const UWorld* InWorld)
 			return &WorldContext;
 		}
 	}
-	return NULL;
+	return nullptr;
 }
 
-FWorldContext& UEngine::GetWorldContextFromWorldChecked(UWorld *InWorld)
+const FWorldContext* UEngine::GetWorldContextFromWorld(const UWorld* InWorld) const
+{
+	for (const FWorldContext& WorldContext : WorldList)
+	{
+		if (WorldContext.World() == InWorld)
+		{
+			return &WorldContext;
+		}
+	}
+	return nullptr;
+}
+
+FWorldContext& UEngine::GetWorldContextFromWorldChecked(const UWorld *InWorld)
 {
 	if (FWorldContext* WorldContext = GetWorldContextFromWorld(InWorld))
 	{
@@ -9304,9 +9320,18 @@ FWorldContext& UEngine::GetWorldContextFromWorldChecked(UWorld *InWorld)
 	return HandleInvalidWorldContext();
 }
 
-UGameViewportClient* UEngine::GameViewportForWorld(UWorld *InWorld)
+const FWorldContext& UEngine::GetWorldContextFromWorldChecked(const UWorld *InWorld) const
 {
-	FWorldContext* Context = GetWorldContextFromWorld(InWorld);
+	if (const FWorldContext* WorldContext = GetWorldContextFromWorld(InWorld))
+	{
+		return *WorldContext;
+	}
+	return HandleInvalidWorldContext();
+}
+
+UGameViewportClient* UEngine::GameViewportForWorld(const UWorld *InWorld) const
+{
+	const FWorldContext* Context = GetWorldContextFromWorld(InWorld);
 	return (Context ? Context->GameViewport : NULL);
 }
 
@@ -9319,12 +9344,33 @@ FWorldContext* UEngine::GetWorldContextFromGameViewport(const UGameViewportClien
 			return &WorldContext;
 		}
 	}
-	return NULL;
+	return nullptr;
+}
+
+const FWorldContext* UEngine::GetWorldContextFromGameViewport(const UGameViewportClient *InViewport) const
+{
+	for (const FWorldContext& WorldContext : WorldList)
+	{
+		if (WorldContext.GameViewport == InViewport)
+		{
+			return &WorldContext;
+		}
+	}
+	return nullptr;
 }
 
 FWorldContext& UEngine::GetWorldContextFromGameViewportChecked(const UGameViewportClient *InViewport)
 {
 	if (FWorldContext* WorldContext = GetWorldContextFromGameViewport(InViewport))
+	{
+		return *WorldContext;
+	}
+	return HandleInvalidWorldContext();
+}
+
+const FWorldContext& UEngine::GetWorldContextFromGameViewportChecked(const UGameViewportClient *InViewport) const
+{
+	if (const FWorldContext* WorldContext = GetWorldContextFromGameViewport(InViewport))
 	{
 		return *WorldContext;
 	}
@@ -9340,12 +9386,33 @@ FWorldContext* UEngine::GetWorldContextFromPendingNetGame(const UPendingNetGame 
 			return &WorldContext;
 		}
 	}
-	return NULL;
+	return nullptr;
+}
+
+const FWorldContext* UEngine::GetWorldContextFromPendingNetGame(const UPendingNetGame *InPendingNetGame) const
+{
+	for (const FWorldContext& WorldContext : WorldList)
+	{
+		if (WorldContext.PendingNetGame == InPendingNetGame)
+		{
+			return &WorldContext;
+		}
+	}
+	return nullptr;
 }
 
 FWorldContext& UEngine::GetWorldContextFromPendingNetGameChecked(const UPendingNetGame *InPendingNetGame)
 {
 	if (FWorldContext* WorldContext = GetWorldContextFromPendingNetGame(InPendingNetGame))
+	{
+		return *WorldContext;
+	}
+	return HandleInvalidWorldContext();
+}
+
+const FWorldContext& UEngine::GetWorldContextFromPendingNetGameChecked(const UPendingNetGame *InPendingNetGame) const
+{
+	if (const FWorldContext* WorldContext = GetWorldContextFromPendingNetGame(InPendingNetGame))
 	{
 		return *WorldContext;
 	}
@@ -9361,11 +9428,33 @@ FWorldContext* UEngine::GetWorldContextFromPendingNetGameNetDriver(const UNetDri
 			return &WorldContext;
 		}
 	}
-	return NULL;
+	return nullptr;
 }
+
+const FWorldContext* UEngine::GetWorldContextFromPendingNetGameNetDriver(const UNetDriver *InPendingNetDriver) const
+{
+	for (const FWorldContext& WorldContext : WorldList)
+	{
+		if (WorldContext.PendingNetGame && WorldContext.PendingNetGame->NetDriver == InPendingNetDriver)
+		{
+			return &WorldContext;
+		}
+	}
+	return nullptr;
+}
+
 FWorldContext& UEngine::GetWorldContextFromPendingNetGameNetDriverChecked(const UNetDriver *InPendingNetDriver)
 {
 	if (FWorldContext* WorldContext = GetWorldContextFromPendingNetGameNetDriver(InPendingNetDriver))
+	{
+		return *WorldContext;
+	}
+	return HandleInvalidWorldContext();
+}
+
+const FWorldContext& UEngine::GetWorldContextFromPendingNetGameNetDriverChecked(const UNetDriver *InPendingNetDriver) const
+{
+	if (const FWorldContext* WorldContext = GetWorldContextFromPendingNetGameNetDriver(InPendingNetDriver))
 	{
 		return *WorldContext;
 	}
@@ -9381,12 +9470,33 @@ FWorldContext* UEngine::GetWorldContextFromPIEInstance(const int32 PIEInstance)
 			return &WorldContext;
 		}
 	}
-	return NULL;
+	return nullptr;
+}
+
+const FWorldContext* UEngine::GetWorldContextFromPIEInstance(const int32 PIEInstance) const
+{
+	for (const FWorldContext& WorldContext : WorldList)
+	{
+		if (WorldContext.WorldType == EWorldType::PIE && WorldContext.PIEInstance == PIEInstance)
+		{
+			return &WorldContext;
+		}
+	}
+	return nullptr;
 }
 
 FWorldContext& UEngine::GetWorldContextFromPIEInstanceChecked(const int32 PIEInstance)
 {
 	if (FWorldContext* WorldContext = GetWorldContextFromPIEInstance(PIEInstance))
+	{
+		return *WorldContext;
+	}
+	return HandleInvalidWorldContext();
+}
+
+const FWorldContext& UEngine::GetWorldContextFromPIEInstanceChecked(const int32 PIEInstance) const
+{
+	if (const FWorldContext* WorldContext = GetWorldContextFromPIEInstance(PIEInstance))
 	{
 		return *WorldContext;
 	}

@@ -15,8 +15,6 @@ namespace EChatMessageType
 		Party,
 		// Global Chat Item
 		Global,
-		// Network chat item
-		Network,
 	};
 
 	/** @return the FTextified version of the enum passed in */
@@ -27,20 +25,21 @@ namespace EChatMessageType
 			case Global: return NSLOCTEXT("FriendsList","Global", "Global");
 			case Whisper: return NSLOCTEXT("FriendsList","Whisper", "Whisper");
 			case Party: return NSLOCTEXT("FriendsList","Party", "Party");
-			case Network: return NSLOCTEXT("FriendsList","Network", "Network");
 
 			default: return FText::GetEmpty();
 		}
 	}
 };
 
-// Stuct for holding chat message information. Will probably be replaced by OSS version
+// Struct for holding chat message information. Will probably be replaced by OSS version
 struct FFriendChatMessage
 {
 	EChatMessageType::Type MessageType;
 	FText FromName;
 	FText Message;
 	FText MessageTimeText;
+	FDateTime ExpireTime;
+	TSharedPtr<class FChatMessage> MessageRef;
 	TSharedPtr<FUniqueNetId> SenderId;
 	bool bIsFromSelf;
 };
@@ -58,9 +57,10 @@ public:
 
 	virtual void LogIn() = 0;
 	virtual void LogOut() = 0;
+	virtual const TArray<TSharedPtr<FFriendChatMessage> >& GetMessageList() const = 0;
 	virtual void JoinPublicRoom(const FString& RoomName) = 0;
 	virtual bool SendRoomMessage(const FString& RoomName, const FString& MsgBody) = 0;
-	virtual bool SendPrivateMessage(const FUniqueNetId& RecipientId, const FString& MsgBody) = 0;
+	virtual bool SendPrivateMessage(const FUniqueNetId& RecipientId, TSharedPtr< FFriendChatMessage > ChatMessage) = 0;
 	virtual void InsertNetworkMessage(const FString& MsgBody) = 0;
 
 	DECLARE_EVENT_OneParam(FFriendsMessageManager, FOnChatMessageReceivedEvent, const TSharedRef<FFriendChatMessage> /*The chat message*/)

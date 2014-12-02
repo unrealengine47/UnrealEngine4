@@ -72,6 +72,7 @@ namespace APIDocTool
 		static string[] ExcludeSourceFiles = 
 		{
 			"*/CoreUObject/Classes/Object.h",
+			"DelegateInstanceInterfaceImpl.inl",
 		};
 
 		static string[] DoxygenExpandedMacros = 
@@ -94,6 +95,7 @@ namespace APIDocTool
 			"VARARGS=",
 			"VARARG_DECL(FuncRet,StaticFuncRet,Return,FuncName,Pure,FmtType,ExtraDecl,ExtraCall)=FuncRet FuncName(ExtraDecl FmtType Fmt, ...)",
 			"VARARG_BODY(FuncRet,FuncName,FmtType,ExtraDecl)=FuncRet FuncName(ExtraDecl FmtType Fmt, ...)",
+			"VARARG_EXTRA(Arg)=Arg,",
 			"PRAGMA_DISABLE_OPTIMIZATION=",
 			"PRAGMA_ENABLE_OPTIMIZATION=",
 			"NO_API= ",
@@ -117,6 +119,7 @@ namespace APIDocTool
 			"WITH_EDITORONLY_DATA=1",
 			"WITH_PHYSX=1",
 			"WITH_SUBSTEPPING=1",
+			"WITH_HOT_RELOAD=1",
 			"NAVOCTREE_CONTAINS_COLLISION_DATA=1",
 			"SOURCE_CONTROL_WITH_SLATE=1",
 			"MATCHMAKING_HACK_FOR_EGP_IE_HOSTING=1",
@@ -134,6 +137,8 @@ namespace APIDocTool
 
 			// Slate declarative syntax
 			"SLATE_BEGIN_ARGS(WidgetType)=public: struct FArguments : public TSlateBaseNamedArgs<WidgetType> { typedef FArguments WidgetArgsType; FArguments()",
+			"SLATE_USER_ARGS(WidgetType)=public: static TSharedRef<WidgetType> New(); struct FArguments; struct FArguments : public TSlateBaseNamedArgs<WidgetType>{ typedef FArguments WidgetArgsType; FArguments()",
+			"HACK_SLATE_SLOT_ARGS(WidgetType)=public: struct FArguments : public TSlateBaseNamedArgs<WidgetType>{ typedef FArguments WidgetArgsType; FArguments()",
 			"SLATE_ATTRIBUTE(AttrType, AttrName)=WidgetArgsType &AttrName( const TAttribute<AttrType>& InAttribute );",
 			"SLATE_TEXT_ATTRIBUTE(AttrName)=WidgetArgsType &AttrName( const TAttribute<FText>& InAttribute ); WidgetArgsType &AttrName( const TAttribute<FString>& InAttribute );",
 			"SLATE_ARGUMENT(ArgType, ArgName)=WidgetArgsType &ArgName(ArgType InArg);",
@@ -144,6 +149,7 @@ namespace APIDocTool
 			"SLATE_NAMED_SLOT(DeclarationType, SlotName)=NamedSlotProperty<DeclarationType> SlotName();",
 			"SLATE_EVENT(DelegateName,EventName)=WidgetArgsType& EventName( const DelegateName& InDelegate );",
 			"SLATE_END_ARGS()=};",
+			"DRAG_DROP_OPERATOR_TYPE(TYPE, BASE)=static const FString& GetTypeId(); virtual bool IsOfTypeImpl(const FString& Type) const;",
 
 			// Rendering macros
 			"IMPLEMENT_SHADER_TYPE(TemplatePrefix,ShaderClass,SourceFilename,FunctionName,Frequency)= ",
@@ -166,6 +172,10 @@ namespace APIDocTool
 
 			// Log categories
 			"DECLARE_LOG_CATEGORY_EXTERN(CategoryName, DefaultVerbosity, CompileTimeVerbosity)= ",
+
+			// Delegates
+			"FUNC_PARAM_MEMBERS=",
+			"DECLARE_DERIVED_EVENT(X,Y,Z)="
 		};
 
 		static Program()
@@ -256,20 +266,23 @@ namespace APIDocTool
 				Console.WriteLine();
 				Console.WriteLine("Options:");
 				Console.WriteLine("    -rebuild:                        Clean and build everything");
-				Console.WriteLine("    -rebuild<step>:					Clean and build specific steps");
+				Console.WriteLine("    -rebuild<step>:                  Clean and build specific steps");
 				Console.WriteLine("    -clean:                          Clean all files");
-				Console.WriteLine("    -clean<step>:					Clean specific steps");
-				Console.WriteLine("    -build:						    Build everything");
-				Console.WriteLine("    -build<step>:					Build specific output steps");
-				Console.WriteLine("    -archive:						Archive everything");
-				Console.WriteLine("    -archive<step>:					Archive specific output steps");
-				Console.WriteLine("    -enginedir=<...>:				Specifies the root engine directory");
-				Console.WriteLine("    -intermediatedir=<...>:			Specifies the intermediate directory");
-				Console.WriteLine("    -documentationdir=<...>:			Specifies the documentation directory");
-				Console.WriteLine("    -indexonly:						Just build index pages");
-				Console.WriteLine("    -filter=<...>,<...>:             Filter conversion, eg.");
-				Console.WriteLine("                                       Folders:  -filter=Core/Containers/...");
-				Console.WriteLine("                                       Entities: -filter=Core/TArray");
+				Console.WriteLine("    -clean<step>:                    Clean specific steps");
+				Console.WriteLine("    -build:                          Build everything");
+				Console.WriteLine("    -build<step>:                    Build specific output steps");
+				Console.WriteLine("    -archive:                        Archive everything");
+				Console.WriteLine("    -archive<step>:                  Archive specific output steps");
+				Console.WriteLine("    -enginedir=<...>:                Specifies the root engine directory");
+				Console.WriteLine("    -intermediatedir=<...>:          Specifies the intermediate directory");
+				Console.WriteLine("    -documentationdir=<...>:         Specifies the documentation directory");
+				Console.WriteLine("    -indexonly:                      Just build index pages");
+				Console.WriteLine("    -filter=<...>,<...>:             Filter which things to convert, eg.");
+				Console.WriteLine("                                     Folders:  -filter=Core/Containers/...");
+				Console.WriteLine("                                     Entities: -filter=Core/TArray");
+				Console.WriteLine("Valid steps are:");
+				Console.WriteLine("   code, codetarget, codemeta, codexml, codeudn, codehtml, codechm");
+				Console.WriteLine("   blueprint, blueprintjson, blueprintudn, blueprinthtml, blueprintchm");
 				return 1;
 			}
 
@@ -796,6 +809,10 @@ namespace APIDocTool
 				// Build a list of pages to output
 				List<APIPage> OutputPages = new List<APIPage>(Index.GatherPages().OrderBy(x => x.LinkPath));
 
+				// Remove any pages that don't want to be written
+				int NumRemoved = OutputPages.RemoveAll(x => !x.ShouldOutputPage());
+				Console.WriteLine("Removed {0} pages", NumRemoved);
+
 				// Dump the output stats
 				string StatsPath = Path.Combine(SitemapDir, "Stats.txt");
 				Console.WriteLine("Writing stats to '" + StatsPath + "'");
@@ -1193,6 +1210,10 @@ namespace APIDocTool
 				Writer.WriteLine("Full-text search=Yes");
 				Writer.WriteLine("Display compile progress=Yes");
 				Writer.WriteLine("Language=0x409 English (United States)");
+				Writer.WriteLine("Default Window=MainWindow");
+				Writer.WriteLine();
+				Writer.WriteLine("[WINDOWS]");
+				Writer.WriteLine("MainWindow=\"{0}\",\"{1}.hhc\",\"{1}.hhk\",\"{2}\",\"{2}\",,,,,0x23520,230,0x304e,[10,10,1260,750],,,,,,,0", Title, ProjectName, DefaultTopicPath);
 				Writer.WriteLine();
 				Writer.WriteLine("[FILES]");
 				foreach (string FileName in FileNames)
@@ -1211,8 +1232,8 @@ namespace APIDocTool
 				CompilerProcess.StartInfo.UseShellExecute = false;
 				CompilerProcess.StartInfo.RedirectStandardOutput = true;
 				CompilerProcess.StartInfo.RedirectStandardError = true;
-				CompilerProcess.OutputDataReceived += ProcessOutputReceived;
-				CompilerProcess.ErrorDataReceived += ProcessOutputReceived;
+				CompilerProcess.OutputDataReceived += ChmOutputReceived;
+				CompilerProcess.ErrorDataReceived += ChmOutputReceived;
 				CompilerProcess.Start();
 				CompilerProcess.BeginOutputReadLine();
 				CompilerProcess.BeginErrorReadLine();
@@ -1221,6 +1242,21 @@ namespace APIDocTool
 
 			// Copy it to the final output
 			Utility.SafeCopyFile(Path.Combine(IntermediateDir, ProjectName + ".chm"), ChmFileName);
+		}
+
+		static private void ChmOutputReceived(Object Sender, DataReceivedEventArgs Line)
+		{
+			if(Line.Data != null && Line.Data.Length > 0)
+			{
+				// Building the API docs seems to always give a few of these warnings in random files, but they don't seem to be duplicated.
+				// It looks like HHC hashes the filenames it's seen, and we get a couple of collisions with ~130,000 pages.
+				string OutputLine = Line.Data.TrimEnd();
+				if(OutputLine.EndsWith("is already listed in the [FILES] section of the project file."))
+				{
+					OutputLine = OutputLine.Replace("Warning:", "Note:");
+				}
+				Console.WriteLine(OutputLine);
+			}
 		}
 
 		static private void ProcessOutputReceived(Object Sender, DataReceivedEventArgs Line)

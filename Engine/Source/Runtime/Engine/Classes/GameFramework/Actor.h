@@ -8,6 +8,7 @@
 #include "Engine/EngineTypes.h"
 #include "InputCoreTypes.h"
 #include "RenderCommandFence.h"
+#include "TimerManager.h"
 
 struct FHitResult;
 class AActor;
@@ -80,7 +81,7 @@ public:
 	 * @see https://docs.unrealengine.com/latest/INT/API/Runtime/Engine/Engine/FTickFunction/
 	 * @see AddTickPrerequisiteActor(), AddTickPrerequisiteComponent()
 	 */
-	UPROPERTY()
+	UPROPERTY(EditDefaultsOnly, Category="Tick")
 	struct FActorTickFunction PrimaryActorTick;
 
 	/** Allow each actor to run at a different time speed. The DeltaTime for a frame is multiplied by the global TimeDilation (in WorldSettings) and this CustomTimeDilation for this actor's tick.  */
@@ -154,10 +155,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category=Input)
 	uint32 bBlockInput:1;
 
-private:
 	/** True if this actor is currently running user construction script (used to defer component registration) */
 	uint32 bRunningUserConstructionScript:1;
 
+private:
 	/** Whether FinishSpawning has been called for this Actor.  If it has not, the Actor is in a mal-formed state */
 	uint32 bHasFinishedSpawning:1;
 
@@ -367,6 +368,13 @@ protected:
 	/** How long this Actor lives before dying, 0=forever. Note this is the INITIAL value and should not be modified once play has begun. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Actor)
 	float InitialLifeSpan; 
+
+private:
+
+	/** Handle for efficient management of LifeSpanExpired timer */
+	FTimerHandle TimerHandle_LifeSpanExpired;
+
+protected:
 
 	/**
 	 * If false, the Blueprint ReceiveTick() event will be disabled on dedicated servers.
@@ -938,10 +946,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Utilities")
 	void SetTickableWhenPaused(bool bTickableWhenPaused);
 
-	/** Disables/Enables ticking for this actor (CanEverTick() has to be true, for tick enabling to work). */
-	UFUNCTION(BlueprintCallable, Category = "Utilities")
-	void SetTickEnabled(bool bEnable = true);
-
 	/** Allocate a MID for a given parent material. */
 	UFUNCTION(BlueprintCallable, meta=(DeprecatedFunction, DeprecationMessage="Use PrimitiveComponent.CreateAndSetMaterialInstanceDynamic instead.", BlueprintProtected = "true"), Category="Rendering|Material")
 	class UMaterialInstanceDynamic* MakeMIDForMaterial(class UMaterialInterface* Parent);
@@ -1161,6 +1165,9 @@ public:
 
 	virtual TSharedPtr<ITransactionObjectAnnotation> GetTransactionAnnotation() const override;
 	virtual void PostEditUndo(TSharedPtr<ITransactionObjectAnnotation> TransactionAnnotation) override;
+
+	/** @return true if the component is allowed to re-register its components when modified.  False for CDOs or PIE instances. */
+	bool ReregisterComponentsWhenModified() const;
 #endif // WITH_EDITOR
 	// End UObject Interface
 
@@ -1481,9 +1488,11 @@ public:
 	 * This only modifies the tick function on actor itself
 	 * @param	bEnabled - Rather it should be enabled or not
 	 */
-	virtual void SetActorTickEnabled(bool bEnabled);
+	UFUNCTION(BlueprintCallable, Category="Utilities")
+	void SetActorTickEnabled(bool bEnabled);
 
 	/**  Returns whether this actor has tick enabled or not	 */
+	UFUNCTION(BlueprintCallable, Category="Utilities")
 	bool IsActorTickEnabled() const;
 
 	/**
@@ -1501,7 +1510,7 @@ public:
 	 */
 	virtual void PostActorCreated();
 
-	/** Called when the lifespawn of an actor expires (if he has one). */
+	/** Called when the lifespan of an actor expires (if he has one). */
 	virtual void LifeSpanExpired();
 
 	// Always called immediately before properties are received from the remote.
@@ -1621,7 +1630,7 @@ public:
 	/** Called after the actor is spawned in the world.  Responsible for setting up actor for play. */
 	void PostSpawnInitialize(FVector const& SpawnLocation, FRotator const& SpawnRotation, AActor* InOwner, APawn* InInstigator, bool bRemoteOwned, bool bNoFail, bool bDeferConstruction);
 
-    /** Called to finish the spawning process, generally in the case of deferred spawning */
+	/** Called to finish the spawning process, generally in the case of deferred spawning */
 	void FinishSpawning(const FTransform& Transform, bool bIsDefaultTransform = false);
 
 private:

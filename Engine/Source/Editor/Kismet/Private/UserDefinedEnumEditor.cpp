@@ -150,9 +150,9 @@ void FEnumDetails::CustomizeDetails( IDetailLayoutBuilder& DetailLayout )
 		TargetEnum = CastChecked<UUserDefinedEnum>(Objects[0].Get());
 		TSharedRef<IPropertyHandle> PropertyHandle = DetailLayout.GetProperty(FName("Names"), UEnum::StaticClass());
 
-		IDetailCategoryBuilder& InputsCategory = DetailLayout.EditCategory("Enumerators", LOCTEXT("EnumDetailsEnumerators", "Enumerators").ToString());
+		IDetailCategoryBuilder& InputsCategory = DetailLayout.EditCategory("Enumerators", LOCTEXT("EnumDetailsEnumerators", "Enumerators"));
 
-		InputsCategory.AddCustomRow( LOCTEXT("FunctionNewInputArg", "New").ToString() )
+		InputsCategory.AddCustomRow( LOCTEXT("FunctionNewInputArg", "New") )
 			[
 				SNew(SBox)
 				.HAlign(HAlign_Right)
@@ -166,13 +166,10 @@ void FEnumDetails::CustomizeDetails( IDetailLayoutBuilder& DetailLayout )
 		Layout = MakeShareable( new FUserDefinedEnumLayout(TargetEnum.Get()) );
 		InputsCategory.AddCustomBuilder( Layout.ToSharedRef() );
 	}
-
-	FEnumEditorUtils::FEnumEditorManager::Get().AddListener(this);
 }
 
 FEnumDetails::~FEnumDetails()
 {
-	FEnumEditorUtils::FEnumEditorManager::Get().RemoveListener(this);
 }
 
 void FEnumDetails::OnForceRefresh()
@@ -183,11 +180,11 @@ void FEnumDetails::OnForceRefresh()
 	}
 }
 
-void FEnumDetails::PreChange(const class UUserDefinedEnum* Enum)
+void FEnumDetails::PreChange(const class UUserDefinedEnum* Enum, FEnumEditorUtils::EEnumEditorChangeInfo Info)
 {
 }
 
-void FEnumDetails::PostChange(const class UUserDefinedEnum* Enum)
+void FEnumDetails::PostChange(const class UUserDefinedEnum* Enum, FEnumEditorUtils::EEnumEditorChangeInfo Info)
 {
 	if (Enum && (TargetEnum.Get() == Enum))
 	{

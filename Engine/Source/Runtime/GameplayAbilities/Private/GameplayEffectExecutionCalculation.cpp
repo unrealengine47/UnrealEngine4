@@ -10,7 +10,7 @@ FGameplayEffectCustomExecutionParameters::FGameplayEffectCustomExecutionParamete
 {
 }
 
-FGameplayEffectCustomExecutionParameters::FGameplayEffectCustomExecutionParameters(const FGameplayEffectSpec& InOwningSpec, const TArray<FGameplayEffectExecutionScopedModifierInfo>& InScopedMods, UAbilitySystemComponent* InTargetAbilityComponent)
+FGameplayEffectCustomExecutionParameters::FGameplayEffectCustomExecutionParameters(FGameplayEffectSpec& InOwningSpec, const TArray<FGameplayEffectExecutionScopedModifierInfo>& InScopedMods, UAbilitySystemComponent* InTargetAbilityComponent)
 	: OwningSpec(&InOwningSpec)
 	, TargetAbilitySystemComponent(InTargetAbilityComponent)
 {
@@ -50,6 +50,13 @@ const FGameplayEffectSpec& FGameplayEffectCustomExecutionParameters::GetOwningSp
 	return *OwningSpec;
 }
 
+FGameplayEffectSpec& FGameplayEffectCustomExecutionParameters::GetOwningSpec()
+{
+	check(OwningSpec);
+	return *OwningSpec;
+}
+
+
 UAbilitySystemComponent* FGameplayEffectCustomExecutionParameters::GetTargetAbilitySystemComponent() const
 {
 	return TargetAbilitySystemComponent.Get();
@@ -64,8 +71,6 @@ UAbilitySystemComponent* FGameplayEffectCustomExecutionParameters::GetSourcebili
 bool FGameplayEffectCustomExecutionParameters::AttemptCalculateCapturedAttributeMagnitude(const FGameplayEffectAttributeCaptureDefinition& InCaptureDef, const FAggregatorEvaluateParameters& InEvalParams, OUT float& OutMagnitude) const
 {
 	check(OwningSpec);
-
-	OutMagnitude = 0.f;
 
 	const FAggregator* CalcAgg = ScopedModifierAggregators.Find(InCaptureDef);
 	if (CalcAgg)
@@ -85,11 +90,31 @@ bool FGameplayEffectCustomExecutionParameters::AttemptCalculateCapturedAttribute
 	return false;
 }
 
-bool FGameplayEffectCustomExecutionParameters::AttemptCalculateCapturedAttributeBaseValue(const FGameplayEffectAttributeCaptureDefinition& InCaptureDef, OUT float& OutBaseValue) const
+bool FGameplayEffectCustomExecutionParameters::AttemptCalculateCapturedAttributeMagnitudeWithBase(const FGameplayEffectAttributeCaptureDefinition& InCaptureDef, const FAggregatorEvaluateParameters& InEvalParams, float InBaseValue, OUT float& OutMagnitude) const
 {
 	check(OwningSpec);
 
-	OutBaseValue = 0.f;
+	const FAggregator* CalcAgg = ScopedModifierAggregators.Find(InCaptureDef);
+	if (CalcAgg)
+	{
+		OutMagnitude = CalcAgg->EvaluateWithBase(InBaseValue, InEvalParams);
+		return true;
+	}
+	else
+	{
+		const FGameplayEffectAttributeCaptureSpec* CaptureSpec = OwningSpec->CapturedRelevantAttributes.FindCaptureSpecByDefinition(InCaptureDef, true);
+		if (CaptureSpec)
+		{
+			return CaptureSpec->AttemptCalculateAttributeMagnitudeWithBase(InEvalParams, InBaseValue, OutMagnitude);
+		}
+	}
+
+	return false;
+}
+
+bool FGameplayEffectCustomExecutionParameters::AttemptCalculateCapturedAttributeBaseValue(const FGameplayEffectAttributeCaptureDefinition& InCaptureDef, OUT float& OutBaseValue) const
+{
+	check(OwningSpec);
 
 	const FAggregator* CalcAgg = ScopedModifierAggregators.Find(InCaptureDef);
 	if (CalcAgg)
@@ -112,8 +137,6 @@ bool FGameplayEffectCustomExecutionParameters::AttemptCalculateCapturedAttribute
 bool FGameplayEffectCustomExecutionParameters::AttemptCalculateCapturedAttributeBonusMagnitude(const FGameplayEffectAttributeCaptureDefinition& InCaptureDef, const FAggregatorEvaluateParameters& InEvalParams, OUT float& OutBonusMagnitude) const
 {
 	check(OwningSpec);
-
-	OutBonusMagnitude = 0.f;
 
 	const FAggregator* CalcAgg = ScopedModifierAggregators.Find(InCaptureDef);
 	if (CalcAgg)
@@ -176,6 +199,6 @@ void UGameplayEffectExecutionCalculation::GetValidScopedModifierAttributeCapture
 }
 #endif // #if WITH_EDITORONLY_DATA
 
-void UGameplayEffectExecutionCalculation::Execute_Implementation(const FGameplayEffectCustomExecutionParameters& ExecutionParams, OUT TArray<FGameplayModifierEvaluatedData>& OutAdditionalModifiers) const
+void UGameplayEffectExecutionCalculation::Execute_Implementation(FGameplayEffectCustomExecutionParameters& ExecutionParams, OUT TArray<FGameplayModifierEvaluatedData>& OutAdditionalModifiers) const
 {
 }

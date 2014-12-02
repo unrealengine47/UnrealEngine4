@@ -48,8 +48,7 @@ void FGameplayEffectContext::AddActors(TArray<TWeakObjectPtr<AActor>> InActors, 
 		Actors.Reset();
 	}
 
-	check(!Actors.Num());
-	Actors = InActors;
+	Actors.Append(InActors);
 }
 
 void FGameplayEffectContext::AddHitResult(const FHitResult InHitResult, bool bReset)
@@ -297,7 +296,7 @@ void FGameplayTagCountContainer::UpdateTagMap(const struct FGameplayTag& Tag, in
 	}
 }
 
-void FGameplayTagCountContainer::UpdateTagMap(const FGameplayTagContainer& Container, int32 CountDelta)
+void FGameplayTagCountContainer::UpdateTagMap(const struct FGameplayTagContainer& Container, int32 CountDelta)
 {
 	for (auto TagIt = Container.CreateConstIterator(); TagIt; ++TagIt)
 	{

@@ -4,13 +4,21 @@
 #include "BlueprintGraphPrivatePCH.h"
 #include "DynamicCastHandler.h"
 #include "EditorCategoryUtils.h"
+#include "BlueprintEditorSettings.h"
 
 #define LOCTEXT_NAMESPACE "K2Node_DynamicCast"
+
+namespace UK2Node_DynamicCastImpl
+{
+	static const FString CastSuccessPinName("bSuccess");
+}
 
 UK2Node_DynamicCast::UK2Node_DynamicCast(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 	, bIsPureCast(false)
 {
+	const UBlueprintEditorSettings* BlueprintSettings = GetDefault<UBlueprintEditorSettings>();
+	bIsPureCast = BlueprintSettings->bFavorPureCastNodes;
 }
 
 void UK2Node_DynamicCast::AllocateDefaultPins()
@@ -52,6 +60,9 @@ void UK2Node_DynamicCast::AllocateDefaultPins()
 			CreatePin(EGPD_Output, K2Schema->PC_Object, TEXT(""), *TargetType, false, false, CastResultPinName);
 		}
 	}
+
+	UEdGraphPin* BoolSuccessPin = CreatePin(EGPD_Output, K2Schema->PC_Boolean, TEXT(""), nullptr, /*bIsArray =*/false, /*bIsReference =*/false, UK2Node_DynamicCastImpl::CastSuccessPinName);
+	BoolSuccessPin->bHidden = !bIsPureCast;
 
 	Super::AllocateDefaultPins();
 }
@@ -175,6 +186,14 @@ UEdGraphPin* UK2Node_DynamicCast::GetCastSourcePin() const
 	UEdGraphPin* Pin = FindPin(K2Schema->PN_ObjectToCast);
 	check(Pin != NULL);
 	check(Pin->Direction == EGPD_Input);
+	return Pin;
+}
+
+UEdGraphPin* UK2Node_DynamicCast::GetBoolSuccessPin() const
+{
+	UEdGraphPin* Pin = FindPin(UK2Node_DynamicCastImpl::CastSuccessPinName);
+	check(Pin != nullptr);
+	check(Pin->Direction == EGPD_Output);
 	return Pin;
 }
 

@@ -21,7 +21,6 @@ public:
 	FStructureDefaultValueView(UUserDefinedStruct* EditedStruct) 
 		: UserDefinedStruct(EditedStruct)
 	{
-		FStructureEditorUtils::FStructEditorManager::Get().AddListener(this);
 	}
 
 	void Initialize()
@@ -35,13 +34,12 @@ public:
 		ViewArgs.bHideSelectionTip = false;
 		ViewArgs.bShowActorLabel = false;
 
-		StructureDetailsView = PropertyModule.CreateStructureDetailView(ViewArgs, StructData, false, LOCTEXT("DefaultValues", "Default Values").ToString());
+		StructureDetailsView = PropertyModule.CreateStructureDetailView(ViewArgs, StructData, false, LOCTEXT("DefaultValues", "Default Values"));
 		StructureDetailsView->GetOnFinishedChangingPropertiesDelegate().AddSP(this, &FStructureDefaultValueView::OnFinishedChangingProperties);
 	}
 
 	virtual ~FStructureDefaultValueView()
 	{
-		FStructureEditorUtils::FStructEditorManager::Get().RemoveListener(this);
 	}
 
 	void OnFinishedChangingProperties(const FPropertyChangedEvent& PropertyChangedEvent)
@@ -83,7 +81,7 @@ public:
 		return StructureDetailsView.IsValid() ? StructureDetailsView->GetWidget() : NULL;
 	}
 
-	virtual void PreChange(const class UUserDefinedStruct* Struct) override
+	virtual void PreChange(const class UUserDefinedStruct* Struct, FStructureEditorUtils::EStructureEditorChangeInfo Info) override
 	{
 		if (Struct && (GetUserDefinedStruct() == Struct))
 		{
@@ -99,7 +97,7 @@ public:
 		}
 	}
 
-	virtual void PostChange(const class UUserDefinedStruct* Struct) override
+	virtual void PostChange(const class UUserDefinedStruct* Struct, FStructureEditorUtils::EStructureEditorChangeInfo Info) override
 	{
 		if (Struct && (GetUserDefinedStruct() == Struct))
 		{
@@ -132,7 +130,6 @@ public:
 
 	~FUserDefinedStructureDetails()
 	{
-		FStructureEditorUtils::FStructEditorManager::Get().RemoveListener(this);
 	}
 
 	UUserDefinedStruct* GetUserDefinedStruct()
@@ -153,8 +150,8 @@ public:
 	virtual void CustomizeDetails(class IDetailLayoutBuilder& DetailLayout) override;
 
 	/** FStructureEditorUtils::INotifyOnStructChanged */
-	virtual void PreChange(const class UUserDefinedStruct* Struct) override {}
-	virtual void PostChange(const class UUserDefinedStruct* Struct) override;
+	virtual void PreChange(const class UUserDefinedStruct* Struct, FStructureEditorUtils::EStructureEditorChangeInfo Info) override {}
+	virtual void PostChange(const class UUserDefinedStruct* Struct, FStructureEditorUtils::EStructureEditorChangeInfo Info) override;
 
 private:
 	TWeakObjectPtr<UUserDefinedStruct> UserDefinedStruct;
@@ -773,7 +770,7 @@ public:
 
 	virtual void GenerateChildContent( IDetailChildrenBuilder& ChildrenBuilder ) override 
 	{
-		ChildrenBuilder.AddChildContent(*LOCTEXT("Tooltip", "Tooltip").ToString())
+		ChildrenBuilder.AddChildContent(LOCTEXT("Tooltip", "Tooltip"))
 		.NameContent()
 		[
 			SNew(STextBlock)
@@ -788,7 +785,7 @@ public:
 			.Font(IDetailLayoutBuilder::GetDetailFont())
 		];
 
-		ChildrenBuilder.AddChildContent(*LOCTEXT("EditableOnInstance", "EditableOnInstance").ToString())
+		ChildrenBuilder.AddChildContent(LOCTEXT("EditableOnInstance", "EditableOnInstance"))
 		.NameContent()
 		[
 			SNew(STextBlock)
@@ -803,7 +800,7 @@ public:
 			.IsChecked(this, &FUserDefinedStructureFieldLayout::OnGetEditableOnBPInstanceState)
 		];
 
-		ChildrenBuilder.AddChildContent(*LOCTEXT("3dWidget", "3d Widget").ToString())
+		ChildrenBuilder.AddChildContent(LOCTEXT("3dWidget", "3d Widget"))
 		.NameContent()
 		[
 			SNew(STextBlock)
@@ -846,7 +843,7 @@ void FUserDefinedStructureLayout::GenerateChildContent( IDetailChildrenBuilder& 
 	const float NameWidth = 80.0f;
 	const float ContentWidth = 130.0f;
 
-	ChildrenBuilder.AddChildContent(FString())
+	ChildrenBuilder.AddChildContent(FText::GetEmpty())
 	[
 		SNew(SHorizontalBox)
 		+ SHorizontalBox::Slot()
@@ -867,13 +864,13 @@ void FUserDefinedStructureLayout::GenerateChildContent( IDetailChildrenBuilder& 
 			[
 				SNew(SButton)
 				.HAlign(HAlign_Center)
-				.Text(LOCTEXT("NewStructureField", "New Variable").ToString())
+				.Text(LOCTEXT("NewStructureField", "New Variable"))
 				.OnClicked(this, &FUserDefinedStructureLayout::OnAddNewField)
 			]
 		]
 	];
 
-	ChildrenBuilder.AddChildContent(FString())
+	ChildrenBuilder.AddChildContent(FText::GetEmpty())
 	[
 		SNew(SHorizontalBox)
 		+ SHorizontalBox::Slot()
@@ -931,16 +928,14 @@ void FUserDefinedStructureDetails::CustomizeDetails(class IDetailLayoutBuilder& 
 	{
 		UserDefinedStruct = CastChecked<UUserDefinedStruct>(Objects[0].Get());
 
-		IDetailCategoryBuilder& StructureCategory = DetailLayout.EditCategory("Structure", LOCTEXT("Structure", "Structure").ToString());
+		IDetailCategoryBuilder& StructureCategory = DetailLayout.EditCategory("Structure", LOCTEXT("Structure", "Structure"));
 		Layout = MakeShareable(new FUserDefinedStructureLayout(SharedThis(this)));
 		StructureCategory.AddCustomBuilder(Layout.ToSharedRef());
 	}
-
-	FStructureEditorUtils::FStructEditorManager::Get().AddListener(this);
 }
 
 /** FStructureEditorUtils::INotifyOnStructChanged */
-void FUserDefinedStructureDetails::PostChange(const class UUserDefinedStruct* Struct)
+void FUserDefinedStructureDetails::PostChange(const class UUserDefinedStruct* Struct, FStructureEditorUtils::EStructureEditorChangeInfo Info)
 {
 	if (Struct && (GetUserDefinedStruct() == Struct))
 	{

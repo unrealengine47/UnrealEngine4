@@ -131,6 +131,7 @@ void FSlateEditorStyle::FStyle::Initialize()
 	SetCoreContentRoot(FPaths::EngineContentDir() / TEXT("Slate"));
 
 	SetupGeneralStyles();
+	SetupGeneralIcons();
 	SetupWindowStyles();
 	SetupDockingStyles();
 	SetupTutorialStyles();
@@ -1919,7 +1920,10 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 	{
 		const FLinearColor LayoutSelectionColor_Hovered = FLinearColor(0.5f, 0.5f, 0.5f);
 
-		Set( "ViewportLayoutToolbar.Background",	new FSlateNoResource() );
+		Set( "ViewportLayoutToolbar.Background", new FSlateNoResource() );
+		Set( "ViewportLayoutToolbar.Label", FTextBlockStyle() );
+		Set( "ViewportLayoutToolbar.Button", FButtonStyle(NoBorder) );
+		Set( "ViewportLayoutToolbar.Expand", new IMAGE_BRUSH("Icons/toolbar_expand_16x", Icon16x16) );
 
 		/* Create style for "ViewportLayoutToolbar.ToggleButton" ... */
 		const FCheckBoxStyle ViewportLayoutToolbarToggleButtonStyle = FCheckBoxStyle()
@@ -2232,6 +2236,12 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 			);
 	}
 #endif
+}
+
+void FSlateEditorStyle::FStyle::SetupGeneralIcons()
+{
+	Set("Plus", new IMAGE_BRUSH("Icons/PlusSymbol_12x", Icon12x12));
+	Set("Cross", new IMAGE_BRUSH("Icons/Cross_12x", Icon12x12));
 }
 
 void FSlateEditorStyle::FStyle::SetupWindowStyles()
@@ -2750,7 +2760,7 @@ void FSlateEditorStyle::FStyle::SetupTutorialStyles()
 				);
 
 			Set("TutorialEditableText.Toolbar.ItalicText", FTextBlockStyle(NormalText)
-				.SetFont(TTF_CORE_FONT("Fonts/Roboto-Italic", 10))
+				.SetFont(TTF_FONT("Fonts/Roboto-Italic", 10))
 				.SetColorAndOpacity(TextColor)
 				);
 
@@ -2850,6 +2860,8 @@ void FSlateEditorStyle::FStyle::SetupPropertyEditorStyles()
 			.SetShadowOffset( FVector2D(1,1) )
 			.SetShadowColorAndOpacity( FLinearColor::Black )
 		);
+
+		Set( "PropertyEditor.AssetName.ColorAndOpacity", FLinearColor::White );
 
 		Set( "PropertyEditor.AssetThumbnailLight", new BOX_BRUSH( "ContentBrowser/ThumbnailLight", FMargin( 5.0f / 64.0f ), SelectionColor ) );
 		Set( "PropertyEditor.AssetThumbnailShadow", new BOX_BRUSH( "ContentBrowser/ThumbnailShadow", FMargin( 4.0f / 64.0f ) ) );
@@ -4482,6 +4494,13 @@ void FSlateEditorStyle::FStyle::SetupPersonaStyle()
 		Set("AnimSlotManager.AddGroup", new IMAGE_BRUSH("Persona/AnimSlotManager/icon_AddGroup_40x", Icon40x40));
 		Set("AnimSlotManager.AddSlot", new IMAGE_BRUSH("Persona/AnimSlotManager/icon_AddSlot_40x", Icon40x40));
 		Set("AnimSlotManager.Warning", new IMAGE_BRUSH("Persona/AnimSlotManager/icon_Warning_14x", Icon16x16));
+
+		// Anim Notify Editor
+		Set("AnimNotifyEditor.BranchingPoint", new IMAGE_BRUSH("Persona/NotifyEditor/BranchingPoints_24x", Icon24x24));
+
+		// AnimBlueprint Preview Warning Background
+		FSlateColor PreviewPropertiesWarningColour(FLinearColor(0.1f, 0.2f, 0.5f));
+		Set("Persona.PreviewPropertiesWarning", new BOX_BRUSH("Common/RoundedSelection_16x", 4.0f / 16.0f, PreviewPropertiesWarningColour));
 	}
 
 	// Kismet 2
@@ -5073,6 +5092,10 @@ void FSlateEditorStyle::FStyle::SetupContentBrowserStyle()
 		// Asset Context Menu
 		Set( "ContentBrowser.AssetActions.Edit", new IMAGE_BRUSH( "Icons/icon_Editor_Modes_16x", Icon16x16 ) );
 		Set( "ContentBrowser.AssetActions.Delete", new IMAGE_BRUSH( "Icons/icon_delete_16px", Icon16x16, FLinearColor( 0.4f, 0.5f, 0.7f, 1.0f ) ) );
+		Set( "ContentBrowser.AssetActions.Rename", new FSlateNoResource(Icon16x16) ); //@TODO: Placeholder to preserve indentation in multibox
+		Set( "ContentBrowser.AssetActions.Duplicate", new FSlateNoResource(Icon16x16) ); //@TODO: Placeholder to preserve indentation in multibox
+		Set( "ContentBrowser.AssetActions.OpenSourceLocation", new FSlateNoResource(Icon16x16) ); //@TODO: Placeholder to preserve indentation in multibox
+		Set( "ContentBrowser.AssetActions.OpenInExternalEditor", new FSlateNoResource(Icon16x16) ); //@TODO: Placeholder to preserve indentation in multibox
 		Set( "ContentBrowser.AssetActions.ReimportAsset", new IMAGE_BRUSH( "Icons/icon_TextureEd_Reimport_40x", Icon16x16 ) );
 		Set( "ContentBrowser.AssetActions", new IMAGE_BRUSH( "Icons/icon_tab_Tools_16x", Icon16x16 ) );
 		Set( "ContentBrowser.AssetActions.GoToCodeForAsset", new IMAGE_BRUSH( "GameProjectDialog/feature_code_32x", Icon16x16 ) );

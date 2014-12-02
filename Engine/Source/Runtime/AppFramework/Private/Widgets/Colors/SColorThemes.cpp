@@ -668,7 +668,7 @@ void SThemeColorBlocksBar::Construct(const FArguments& InArgs)
 
 	DestroyPlaceholders();
 
-	if (InArgs._EmptyText.Len() > 0)
+	if (!InArgs._EmptyText.IsEmpty())
 	{
 		EmptyHintTextBlock = SNew(SBorder)
 			.Padding(1.0f)
@@ -718,7 +718,7 @@ void SColorThemeBar::Construct(const FArguments& InArgs)
 							.ColorTheme(InArgs._ColorTheme)
 							.ShowTrashCallback(ShowTrashCallback)
 							.HideTrashCallback(HideTrashCallback)
-							.EmptyText(NSLOCTEXT("ColorThemesViewer", "NoColorsText", "No Colors Added Yet").ToString())
+							.EmptyText(NSLOCTEXT("ColorThemesViewer", "NoColorsText", "No Colors Added Yet"))
 							.UseSRGB(bUseSRGB)
 							.UseAlpha(bUseAlpha)
 					]

@@ -1127,7 +1127,7 @@ void APlayerController::UnFreeze() {}
 
 bool APlayerController::IsFrozen()
 {
-	return GetWorldTimerManager().IsTimerActive(this, &APlayerController::UnFreeze);
+	return GetWorldTimerManager().IsTimerActive(TimerHandle_UnFreeze);
 }
 
 void APlayerController::ServerAcknowledgePossession_Implementation(APawn* P)
@@ -1340,7 +1340,7 @@ void APlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		IForceFeedbackSystem* ForceFeedbackSystem = FSlateApplication::Get().GetForceFeedbackSystem();
 		if (ForceFeedbackSystem)
 		{
-			ForceFeedbackSystem->SetChannelValues(LocalPlayer->ControllerId, FForceFeedbackValues());
+			ForceFeedbackSystem->SetChannelValues(LocalPlayer->GetControllerId(), FForceFeedbackValues());
 		}
 	}
 
@@ -2754,11 +2754,6 @@ void APlayerController::ClientIgnoreLookInput_Implementation(bool bIgnore)
 	SetIgnoreLookInput(bIgnore);
 }
 
-void APlayerController::ClientNotifyRejectedAbilityConfirmation_Implementation(int32 InputID)
-{
-	//TODO: Hook UI notification here. Might be good to include a cooldown on this.
-}
-
 
 void APlayerController::DisplayDebug(class UCanvas* Canvas, const FDebugDisplayInfo& DebugDisplay, float& YL, float& YPos)
 {
@@ -2895,7 +2890,7 @@ void APlayerController::ClientPrepareMapChange_Implementation(FName LevelName, b
 	if (bFirst)
 	{
 		PendingMapChangeLevelNames.Empty();
-		GetWorldTimerManager().ClearTimer( this, &APlayerController::DelayedPrepareMapChange );
+		GetWorldTimerManager().ClearTimer(TimerHandle_DelayedPrepareMapChange);
 	}
 	PendingMapChangeLevelNames.Add(LevelName);
 	if (bLast)
@@ -2909,7 +2904,7 @@ void APlayerController::DelayedPrepareMapChange()
 	if (GetWorld()->IsPreparingMapChange())
 	{
 		// we must wait for the previous one to complete
-		GetWorldTimerManager().SetTimer( this, &APlayerController::DelayedPrepareMapChange, 0.01f );
+		GetWorldTimerManager().SetTimer(TimerHandle_DelayedPrepareMapChange, this, &APlayerController::DelayedPrepareMapChange, 0.01f );
 	}
 	else
 	{
@@ -2920,9 +2915,9 @@ void APlayerController::DelayedPrepareMapChange()
 
 void APlayerController::ClientCommitMapChange_Implementation()
 {
-	if (GetWorldTimerManager().IsTimerActive(this, &APlayerController::DelayedPrepareMapChange))
+	if (GetWorldTimerManager().IsTimerActive(TimerHandle_DelayedPrepareMapChange))
 	{
-		GetWorldTimerManager().SetTimer(this, &APlayerController::ClientCommitMapChange, 0.01f);
+		GetWorldTimerManager().SetTimer(TimerHandle_ClientCommitMapChange, this, &APlayerController::ClientCommitMapChange, 0.01f);
 	}
 	else
 	{
@@ -3014,11 +3009,11 @@ void APlayerController::ToggleSpeaking(bool bSpeaking)
 		{
 			if (bSpeaking)
 			{
-				VoiceInt->StartNetworkedVoice(LP->ControllerId);
+				VoiceInt->StartNetworkedVoice(LP->GetControllerId());
 			}
 			else
 			{
-				VoiceInt->StopNetworkedVoice(LP->ControllerId);
+				VoiceInt->StopNetworkedVoice(LP->GetControllerId());
 			}
 		}
 	}
@@ -3510,7 +3505,7 @@ void APlayerController::ProcessForceFeedback(const float DeltaTime, const bool b
 	IForceFeedbackSystem* ForceFeedbackSystem = FSlateApplication::Get().GetForceFeedbackSystem();
 	if (ForceFeedbackSystem)
 	{
-		ForceFeedbackSystem->SetChannelValues(CastChecked<ULocalPlayer>(Player)->ControllerId, (bForceFeedbackEnabled ? ForceFeedbackValues : FForceFeedbackValues()));
+		ForceFeedbackSystem->SetChannelValues(CastChecked<ULocalPlayer>(Player)->GetControllerId(), (bForceFeedbackEnabled ? ForceFeedbackValues : FForceFeedbackValues()));
 	}
 }
 
@@ -4050,7 +4045,7 @@ void APlayerController::BeginInactiveState()
 	AGameState const* const GameState = GetWorld()->GameState;
 
 	float const MinRespawnDelay = ((GameState != NULL) && (GameState->GameModeClass != NULL)) ? GetDefault<AGameMode>(GameState->GameModeClass)->MinRespawnDelay : 1.0f;
-	GetWorldTimerManager().SetTimer(this, &APlayerController::UnFreeze, MinRespawnDelay);
+	GetWorldTimerManager().SetTimer(TimerHandle_UnFreeze, this, &APlayerController::UnFreeze, MinRespawnDelay);
 }
 
 void APlayerController::EndInactiveState()

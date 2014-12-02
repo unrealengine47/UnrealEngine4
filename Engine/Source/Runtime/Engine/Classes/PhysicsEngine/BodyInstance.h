@@ -13,6 +13,13 @@ struct FCollisionShape;
 struct FConstraintInstance;
 class UPhysicsConstraintComponent;
 
+/** Delegate for applying custom physics forces upon the body. Can be passed to "AddCustomPhysics" so 
+  * custom forces and torques can be calculated induvidually for every physics substep.
+  * The function provides delta time for a physics step and pointer to body instance upon which forces must be added.
+  * 
+  * Do not expect this callback to be called from the main game thread! It may get called from a physics simulation thread. */
+DECLARE_DELEGATE_TwoParams(FCalculateCustomPhysics, float, FBodyInstance*);
+
 #if WITH_PHYSX
 namespace physx
 {
@@ -62,6 +69,9 @@ struct ENGINE_API FCollisionResponse
 
 	/** Set all channels to the specified response */
 	void SetAllChannels(ECollisionResponse NewResponse);
+
+	/** Replace the channels matching the old response with the new response */
+	void ReplaceChannels(ECollisionResponse OldResponse, ECollisionResponse NewResponse);
 
 	/** Returns the response set on the specified channel */
 	ECollisionResponse GetResponse(ECollisionChannel Channel) const;
@@ -449,6 +459,8 @@ public:
 	void WakeInstance();
 	/** Force this body to sleep */
 	void PutInstanceToSleep();
+	/** Add custom forces and torques on the body. The callback will be called more than once, if substepping enabled, for every substep.  */
+	void AddCustomPhysics(FCalculateCustomPhysics& CalculateCustomPhysics);
 	/** Add a force to this body */
 	void AddForce(const FVector& Force, bool bAllowSubstepping = true);
 	/** Add a force at a particular world position to this body */
@@ -507,6 +519,9 @@ public:
 
 	/** Set the response of this body to all channels */
 	void SetResponseToAllChannels(ECollisionResponse NewResponse);
+
+	/** Replace the channels on this body matching the old response with the new response */
+	void ReplaceResponseToChannels(ECollisionResponse OldResponse, ECollisionResponse NewResponse);
 
 	/** Set the response of this body to the supplied settings */
 	void SetResponseToChannels(const FCollisionResponseContainer& NewReponses);

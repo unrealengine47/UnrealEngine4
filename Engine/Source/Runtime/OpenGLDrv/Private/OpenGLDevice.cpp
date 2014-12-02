@@ -127,6 +127,9 @@ FOpenGLContextState& FOpenGLDynamicRHI::GetContextStateForCurrentContext()
 	}
 }
 
+// Ignore functions from RHIMethods.h when parsing documentation; Doxygen's preprocessor can't parse the declaration, so spews warnings for the definitions.
+#if !UE_BUILD_DOCS
+
 void FOpenGLDynamicRHI::RHIBeginFrame()
 {
 	RHIPrivateBeginFrame();
@@ -170,10 +173,17 @@ void FOpenGLDynamicRHI::RHIEndScene()
 	ResourceTableFrameCounter = INDEX_NONE;
 }
 
+#endif
+
 bool GDisableOpenGLDebugOutput = false;
 
-#if defined(GL_ARB_debug_output) || defined(GL_KHR_debug)
+// workaround for HTML5. 
+#if PLATFORM_HTML5
+#undef GL_ARB_debug_output
+#undef GL_KHR_debug
+#endif 
 
+#if defined(GL_ARB_debug_output) || defined(GL_KHR_debug)
 /**
  * Map GL_DEBUG_SOURCE_*_ARB to a human-readable string.
  */
@@ -720,6 +730,7 @@ static void InitRHICapabilitiesForGL()
 		SetupTextureFormat( PF_V8U8,			FOpenGLTextureFormat( GL_RG8_SNORM,				GL_NONE,				GL_RG,			GL_BYTE,							false,	false));
 		SetupTextureFormat( PF_R8G8,			FOpenGLTextureFormat( GL_RG8,					GL_NONE,				GL_RG,			GL_UNSIGNED_BYTE,					false,	false));
 		SetupTextureFormat( PF_BC5,				FOpenGLTextureFormat( GL_COMPRESSED_RG_RGTC2,	GL_COMPRESSED_RG_RGTC2,	GL_RG,			GL_UNSIGNED_BYTE,					true,	false));
+		SetupTextureFormat( PF_BC4,				FOpenGLTextureFormat( GL_COMPRESSED_RED_RGTC1,	GL_COMPRESSED_RED_RGTC1,	GL_RED,			GL_UNSIGNED_BYTE,					true,	false));
 		SetupTextureFormat( PF_A8,				FOpenGLTextureFormat( GL_R8,					GL_NONE,				GL_RED,			GL_UNSIGNED_BYTE,					false,	false));
 		SetupTextureFormat( PF_R32_UINT,		FOpenGLTextureFormat( GL_R32UI,					GL_NONE,				GL_RED_INTEGER,	GL_UNSIGNED_INT,					false,	false));
 		SetupTextureFormat( PF_R32_SINT,		FOpenGLTextureFormat( GL_R32I,					GL_NONE,				GL_RED_INTEGER,	GL_INT,								false,	false));
@@ -1172,6 +1183,9 @@ void FOpenGLDynamicRHI::UnregisterQuery( FOpenGLRenderQuery* Query )
 	Queries.RemoveSingleSwap(Query);
 }
 
+// Ignore functions from RHIMethods.h when parsing documentation; Doxygen's preprocessor can't parse the declaration, so spews warnings for the definitions.
+#if !UE_BUILD_DOCS
+
 void FOpenGLDynamicRHI::RHIAutomaticCacheFlushAfterComputeShader(bool bEnable)
 {
 	// Nothing to do here...
@@ -1181,6 +1195,8 @@ void FOpenGLDynamicRHI::RHIFlushComputeShaderCache()
 {
 	// Nothing to do here...
 }
+
+#endif
 
 void* FOpenGLDynamicRHI::RHIGetNativeDevice()
 {

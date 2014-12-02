@@ -9,12 +9,13 @@ UBlueprintEditorSettings::UBlueprintEditorSettings(const FObjectInitializer& Obj
 	: Super(ObjectInitializer)
 	// Style Settings
 	, bDrawMidpointArrowsInBlueprints(false)
-	// UX Settings
 	, bShowGraphInstructionText(true)
+	// Workflow Settings
 	, bUseTargetContextForNodeMenu(true)
 	, bExposeAllMemberComponentFunctions(true)
 	, bShowContextualFavorites(false)
 	, bFlattenFavoritesMenus(true)
+	, bFavorPureCastNodes(false)
 	, bUseLegacyMenuingSystem(false)
 	// Compiler Settings
 	, SaveOnCompile(SoC_Never)

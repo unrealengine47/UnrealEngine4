@@ -10,6 +10,7 @@
 #include "GraphEditor.h"
 #include "EditorUndoClient.h"
 #include "Engine/UserDefinedEnum.h"
+#include "Developer/Merge/Public/Merge.h" // for FOnMergeResolved
 
 class USCS_Node;
 
@@ -468,6 +469,7 @@ public:
 
 	/** Forces the merge tool to be shown */
 	void CreateMergeToolTab();
+	void CreateMergeToolTab(const UBlueprint* BaseBlueprint, const UBlueprint* RemoteBlueprint, const FOnMergeResolved& ResolutionCallback);
 	
 	/** Closes the merge tool, rather than simply hiding it */
 	void CloseMergeTool();
@@ -573,6 +575,9 @@ protected:
 
 	/** Called when the Blueprint we are editing has changed */
 	virtual void OnBlueprintChanged(UBlueprint* InBlueprint);
+
+	/** Handles the unloading of Blueprints (by closing the editor, if it operating on the Blueprint being unloaded)*/
+	void OnBlueprintUnloaded(UBlueprint* InBlueprint);
 
 	/** Get title for Inspector 2 tab*/
 	virtual FString GetDefaultEditorTitle();
@@ -908,13 +913,11 @@ protected:
 	// Should intermediate build products be saved when recompiling?
 	bool bSaveIntermediateBuildProducts;
 
+	/** Flags if this blueprint editor should close on its next tick. */
+	bool bPendingDeferredClose;
+
 	/** Currently focused graph editor */
 	TWeakPtr<class SGraphEditor> FocusedGraphEdPtr;
-
-
-
-
-
 	
 	// Factory that spawns graph editors; used to look up all tabs spawned by it.
 	TWeakPtr<FDocumentTabFactory> GraphEditorTabFactoryPtr;
@@ -958,6 +961,8 @@ protected:
 
 	/** Merge tool - WeakPtr because it's owned by the GlobalTabManager */
 	TWeakPtr<class SDockTab> MergeTool;
+	/** Merge tool - Delegate to call when the merge tool is closed. */
+	FOnMergeResolved OnMergeResolved;
 
 	/** Reference to owner of the current popup */
 	TWeakPtr<class SWindow> NameEntryPopupWindow;

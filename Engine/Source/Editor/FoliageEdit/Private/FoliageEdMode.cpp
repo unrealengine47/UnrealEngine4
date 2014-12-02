@@ -56,8 +56,9 @@ FEdModeFoliage::FEdModeFoliage()
 	SphereBrushComponent->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
 	SphereBrushComponent->SetCollisionObjectType(ECC_WorldDynamic);
 	SphereBrushComponent->StaticMesh = StaticMesh;
-	SphereBrushComponent->Materials.Add(BrushMaterial);
+	SphereBrushComponent->OverrideMaterials.Add(BrushMaterial);
 	SphereBrushComponent->SetAbsolute(true, true, true);
+	SphereBrushComponent->CastShadow = false;
 
 	bBrushTraceValid = false;
 	BrushLocation = FVector::ZeroVector;

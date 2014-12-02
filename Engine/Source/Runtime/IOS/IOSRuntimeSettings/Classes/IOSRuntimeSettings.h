@@ -48,34 +48,38 @@ public:
 	uint32 bEnableGameCenterSupport : 1;
 	
 	// Whether or not to add support for Metal API (requires IOS8 and A7 processors)
-	UPROPERTY(GlobalConfig, EditAnywhere, Category = Rendering)
+	UPROPERTY(GlobalConfig, EditAnywhere, Category = Rendering, meta = (DisplayName = "Supports Forward Rendering with Metal (A7 and up devices)"))
 	bool bSupportsMetal;
 
+	// Whether or not to add support for deferred rendering Metal API (requires IOS8 and A7 processors)
+	UPROPERTY(GlobalConfig, EditAnywhere, Category = Rendering, meta = (DisplayName = "Supports Deferred Rendering with Metal (A8 and up devices)"))
+	bool bSupportsMetalMRT;
+	
 	// Whether or not to add support for OpenGL ES2 (if this is false, then your game should specify minimum IOS8 version and use "metal" instead of "opengles-2" in UIRequiredDeviceCapabilities)
 	UPROPERTY(GlobalConfig, EditAnywhere, Category = Rendering)
 	bool bSupportsOpenGLES2;
 
-	// Enable ArmV7 support? (this will be used if all type are unchecked)
+	// Enable ArmV7 support? (this will be used if all type are unchecked) [CURRENTLY AVAILABLE ON MAC ONLY OR FULL SOURCE BUILD]
 	UPROPERTY(GlobalConfig, EditAnywhere, Category = Build, meta = (DisplayName = "Support armv7 in Development"))
 	bool bDevForArmV7;
 
-	// Enable Arm64 support?
+	// Enable Arm64 support? [CURRENTLY AVAILABLE ON MAC ONLY OR FULL SOURCE BUILD]
 	UPROPERTY(GlobalConfig, EditAnywhere, Category = Build, meta = (DisplayName = "Support arm64 in Development"))
 	bool bDevForArm64;
 
-	// Enable x86 support? [CURRENTLY FOR FULL SOURCE GAMES ONLY]
+	// Enable ArmV7s support? [CURRENTLY AVAILABLE ON MAC ONLY OR FULL SOURCE BUILD]
 	UPROPERTY(GlobalConfig, EditAnywhere, Category = Build, meta = (DisplayName = "Support armv7s in Development"))
 	bool bDevForArmV7S;
 
-	// Enable ArmV7 support? (this will be used if all type are unchecked)
+	// Enable ArmV7 support for shipping build? (this will be used if all type are unchecked) [CURRENTLY AVAILABLE ON MAC ONLY OR FULL SOURCE BUILD]
 	UPROPERTY(GlobalConfig, EditAnywhere, Category = Build, meta = (DisplayName = "Support armv7 in Shipping"))
 	bool bShipForArmV7;
 
-	// Enable Arm64 support?
+	// Enable Arm64 support for shipping build? [CURRENTLY AVAILABLE ON MAC ONLY OR FULL SOURCE BUILD]
 	UPROPERTY(GlobalConfig, EditAnywhere, Category = Build, meta = (DisplayName = "Support arm64 in Shipping"))
 	bool bShipForArm64;
 
-	// Enable x86 support? [CURRENTLY FOR FULL SOURCE GAMES ONLY]
+	// Enable ArmV7s support for shipping build? [CURRENTLY AVAILABLE ON MAC ONLY OR FULL SOURCE BUILD]
 	UPROPERTY(GlobalConfig, EditAnywhere, Category = Build, meta = (DisplayName = "Support armv7s in Shipping"))
 	bool bShipForArmV7S;
 

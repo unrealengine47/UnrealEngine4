@@ -103,7 +103,7 @@ FNavLinkRenderingProxy::FNavLinkRenderingProxy(const UPrimitiveComponent* InComp
 	if (LinkOwnerActor != NULL && LinkOwnerHost != NULL)
 	{
 		const FTransform LocalToWorld = LinkOwnerActor->ActorToWorld();
-		TArray<TSubclassOf<class UNavLinkDefinition> > NavLinkClasses;
+		TArray<TSubclassOf<UNavLinkDefinition> > NavLinkClasses;
 		LinkOwnerHost->GetNavigationLinksClasses(NavLinkClasses);
 
 		for (int32 NavLinkClassIdx = 0; NavLinkClassIdx < NavLinkClasses.Num(); ++NavLinkClassIdx)
@@ -190,35 +190,6 @@ void FNavLinkRenderingProxy::GetDynamicMeshElements(const TArray<const FSceneVie
 				FNavLinkRenderingProxy::GetLinkMeshes(OffMeshPointLinks, OffMeshSegmentLinks, StepHeights, MeshColorInstance, ViewIndex, Collector, AgentMask);
 			}
 		}
-	}
-}
-
-void FNavLinkRenderingProxy::DrawDynamicElements(FPrimitiveDrawInterface* PDI,const FSceneView* View)
-{
-	QUICK_SCOPE_CYCLE_COUNTER( STAT_NavLinkRenderingProxy_DrawDynamicElements );
-
-	if (LinkOwnerActor && LinkOwnerActor->GetWorld())
-	{
-		const UNavigationSystem* NavSys = LinkOwnerActor->GetWorld()->GetNavigationSystem();
-		TArray<float> StepHeights;
-		uint32 AgentMask = 0;
-		if (NavSys != NULL)
-		{
-			StepHeights.Reserve(NavSys->NavDataSet.Num());
-			for(int32 DataIndex = 0; DataIndex < NavSys->NavDataSet.Num(); ++DataIndex)
-			{
-				const ARecastNavMesh* NavMesh = Cast<const ARecastNavMesh>(NavSys->NavDataSet[DataIndex]);
-				AgentMask = NavMesh->bEnableDrawing ? AgentMask | (1 << DataIndex) : AgentMask;
-				if (NavMesh != NULL && NavMesh->AgentMaxStepHeight > 0 && NavMesh->bEnableDrawing)
-				{
-					StepHeights.Add(NavMesh->AgentMaxStepHeight);
-				}
-			}
-		}
-
-		static const FColor RadiusColor(150, 160, 150, 48);
-		FMaterialRenderProxy* const MeshColorInstance = new(FMemStack::Get()) FColoredMaterialRenderProxy(GEngine->DebugMeshMaterial->GetRenderProxy(false), RadiusColor);
-		FNavLinkRenderingProxy::DrawLinks(PDI, OffMeshPointLinks, OffMeshSegmentLinks, StepHeights, MeshColorInstance, AgentMask);
 	}
 }
 
@@ -318,7 +289,7 @@ void FNavLinkRenderingProxy::DrawLinks(FPrimitiveDrawInterface* PDI, TArray<FNav
 	static const FColor LinkColor(0,0,166);
 	static const float LinkArcThickness = 3.f;
 	static const float LinkArcHeight = 0.4f;
-	
+
 	if (StepHeights.Num() == 0)
 	{
 		StepHeights.Add(FNavigationSystem::FallbackAgentHeight / 2);

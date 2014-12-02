@@ -417,6 +417,14 @@ public:
 	// End EdGraphSchema Interface
 
 	/**
+	 *
+	 *	Determine if this graph supports event dispatcher
+	 * 
+	 *	@return True if this schema supports Event Dispatcher 
+	 */
+	virtual bool DoesSupportEventDispatcher() const { return true; }
+
+	/**
 	* Configure the supplied variable node based on the supplied info
 	*
 	* @param	InVarNode			The variable node to be configured
@@ -482,6 +490,23 @@ public:
 	 * @return	true if this is a composite graph
 	 */
 	bool IsCompositeGraph(const UEdGraph* TestEdGraph) const;
+
+	/**
+	 * Checks to see if the specified graph is a const function graph
+	 *
+	 * @param	TestEdGraph		Graph to test
+	 * @param	bOutIsEnforcingConstCorrectness (Optional) Whether or not this graph is enforcing const correctness during compilation
+	 * @return	true if this is a const function graph
+	 */
+	bool IsConstFunctionGraph(const UEdGraph* TestEdGraph, bool* bOutIsEnforcingConstCorrectness = nullptr) const;
+
+	/**
+	 * Checks to see if the specified graph is a static function graph
+	 *
+	 * @param	TestEdGraph		Graph to test
+	 * @return	true if this is a const function graph
+	 */
+	bool IsStaticFunctionGraph(const UEdGraph* TestEdGraph) const;
 
 	/**
 	 * Checks to see if a pin is an execution pin.
@@ -681,13 +706,13 @@ public:
 	 * Determine if a function has a parameter of a specific type.
 	 *
 	 * @param	InFunction	  	The function to search.
-	 * @param	CallingContext  The blueprint that you're looking to call the function from (some functions hide different pins depending on the blueprint they're in)
+	 * @param	InGraph			The graph that you're looking to call the function from (some functions hide different pins depending on the graph they're in)
 	 * @param	DesiredPinType	The type that at least one function parameter needs to be.
 	 * @param	bWantOutput   	The direction that the parameter needs to be.
 	 *
 	 * @return	true if at least one parameter is of the correct type and direction.
 	 */
-	bool FunctionHasParamOfType(const UFunction* InFunction, UBlueprint const* CallingContext, const FEdGraphPinType& DesiredPinType, bool bWantOutput) const;
+	bool FunctionHasParamOfType(const UFunction* InFunction, UEdGraph const* InGraph, const FEdGraphPinType& DesiredPinType, bool bWantOutput) const;
 
 	/**
 	 * Add the specified flags to the function entry node of the graph, to make sure they get compiled in to the generated function
@@ -899,18 +924,17 @@ public:
 	bool DoesGraphSupportImpureFunctions(const UEdGraph* InGraph) const;
 
 	/**
-	 * Checks to see if the passed in function is valid in the class
+	 * Checks to see if the passed in function is valid in the graph for the current class
 	 *
 	 * @param	InClass  			Class being checked to see if the function is valid for
 	 * @param	InFunction			Function being checked
 	 * @param	InDestGraph			Graph we will be using action for (may be NULL)
 	 * @param	InFunctionTypes		Combination of EFunctionType to indicate types of functions accepted
-	 * @param	bInShowInherited	Allows for inherited functions
 	 * @param	bInCalledForEach	Call for each element in an array (a node accepts array)
 	 * @param	InTargetInfo		Allows spawning nodes which also create a target variable as well
 	 * @param	OutReason			Allows callers to receive a localized string containing more detail when the function is determined to be invalid (optional)
 	 */
-	bool CanFunctionBeUsedInClass(const UClass* InClass, UFunction* InFunction, const UEdGraph* InDestGraph, uint32 InFunctionTypes, bool bInShowInherited, bool bInCalledForEach, const FFunctionTargetInfo& InTargetInfo, FText* OutReason = nullptr) const;
+	bool CanFunctionBeUsedInGraph(const UClass* InClass, UFunction* InFunction, const UEdGraph* InDestGraph, uint32 InFunctionTypes, bool bInCalledForEach, const FFunctionTargetInfo& InTargetInfo, FText* OutReason = nullptr) const;
 
 	/**
 	 * Makes connections into/or out of the gateway node, connect directly to the associated networks on the opposite side of the tunnel

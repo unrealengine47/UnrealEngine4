@@ -174,10 +174,10 @@ private:
 	/** The index for the space bases buffer we can currently read from */
 	int32 CurrentReadSpaceBases;
 
+protected:
 	/** Are we using double buffered blend spaces */
 	bool bDoubleBufferedBlendSpaces;
 
-protected:
 	/** 
 	 * If set, this component has slave pose components that are associated with this 
 	 * Note this is weak object ptr, so it will go away unless you have other strong reference
@@ -465,6 +465,10 @@ public:
 	virtual int32 GetNumMaterials() const override;
 	// End UPrimitiveComponent interface
 
+	// Begin MeshComponent interface
+	virtual TArray<class UMaterialInterface*> GetMaterials() const override;
+	// End MeshComponent interface
+
 	/**
 	 *	Sets the value of the bForceWireframe flag and reattaches the component as necessary.
 	 *
@@ -699,6 +703,15 @@ public:
 	 * @return the matrix of the bone at the specified index 
 	 */
 	FMatrix GetBoneMatrix( int32 BoneIndex ) const;
+
+	/** 
+	 * Get world space bone transform from bone index, also specifying the component transform to use
+	 * 
+	 * @param BoneIndex Index of the bone
+	 *
+	 * @return the transform of the bone at the specified index 
+	 */
+	FTransform GetBoneTransform( int32 BoneIndex, const FTransform& LocalToWorld ) const;
 
 	/** 
 	 * Get Bone Transform from index

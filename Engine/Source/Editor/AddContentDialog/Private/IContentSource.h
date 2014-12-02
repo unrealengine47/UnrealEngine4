@@ -23,7 +23,7 @@ public:
 		Data = InData;
 	}
 
-	/** Gets the name which identifies the image represented by this obejct. */
+	/** Gets the name which identifies the image represented by this object. */
 	const FString GetName() const
 	{
 		return Name;
@@ -93,8 +93,16 @@ public:
 	/** Gets an array or image data for screenshots for the content source. */
 	virtual TArray<TSharedPtr<FImageData>> GetScreenshotData() = 0;
 
-	/** Installs the content in the content source to the specific path. */
-	virtual void InstallToProject(FString InstallPath) = 0;
+	/*
+	 * Installs the content in the content source to the specific path. 
+	 * @returns true if install suceeded
+	 */
+	virtual bool InstallToProject(FString InstallPath) = 0;
+
+	/** Is the data in this content valid. */
+	virtual bool IsDataValid() const = 0;
 
 	virtual ~IContentSource() { };
+
+
 };

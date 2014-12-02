@@ -1682,11 +1682,11 @@ void AMatineeActor::UpdateReplicatedData( bool bIsBeginningPlay )
 	
 	if (bIsPlaying || bIsBeginningPlay)
 	{
-		GetWorldTimerManager().SetTimer(this, &AMatineeActor::CheckPriorityRefresh, 1.0f, true);
+		GetWorldTimerManager().SetTimer(TimerHandle_CheckPriorityRefresh, this, &AMatineeActor::CheckPriorityRefresh, 1.0f, true);
 	}
 	else
 	{
-		GetWorldTimerManager().ClearTimer(this, &AMatineeActor::CheckPriorityRefresh);
+		GetWorldTimerManager().ClearTimer(TimerHandle_CheckPriorityRefresh);
 	}
 }
 
@@ -4620,7 +4620,7 @@ FRotator UInterpTrackMove::GetLookAtRotation(UInterpTrackInst* TrInst)
 			}
 
 			// Find Rotator that points at LookAtActor
-			FVector LookDir = (LookAtActor->GetActorLocation() - Actor->GetActorLocation()).SafeNormal();
+			FVector LookDir = (LookAtActor->GetActorLocation() - Actor->GetActorLocation()).GetSafeNormal();
 			LookAtRot = LookDir.Rotation();
 		}
 	}

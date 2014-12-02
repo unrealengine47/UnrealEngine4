@@ -456,7 +456,7 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSe
 		return FActiveGameplayEffectHandle();
 	}
 
-	// Don't allow prediciton of periodic effects
+	// Don't allow prediction of periodic effects
 	if(PredictionKey.IsValidKey() && Spec.GetPeriod() > 0.f)
 	{
 		if(IsOwnerActorAuthoritative())
@@ -471,7 +471,7 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSe
 		}
 	}
 
-	// Are we currently immunte to this? (ApplicationImmunity)
+	// Are we currently immune to this? (ApplicationImmunity)
 	if (ActiveGameplayEffects.CheckApplicationImmunity(Spec))
 	{
 		return FActiveGameplayEffectHandle();
@@ -482,6 +482,12 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSe
 	// We also need to handle things in the execution list
 	for (const FGameplayModifierInfo& Mod : Spec.Def->Modifiers)
 	{
+		if (!Mod.Attribute.IsValid())
+		{
+			ABILITY_LOG(Warning, TEXT("%s has a null modifier attribute."), *Spec.Def->GetPathName());
+			return FActiveGameplayEffectHandle();
+		}
+
 		if (HasAttributeSetForAttribute(Mod.Attribute) == false)
 		{
 			return FActiveGameplayEffectHandle();
@@ -496,7 +502,7 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSe
 	}
 
 	// Get MyTags.
-	//	We may want to cache off a GameplayTagContainer instead of rebuilding it everytime.
+	//	We may want to cache off a GameplayTagContainer instead of rebuilding it every time.
 	//	But this will also be where we need to merge in context tags? (Headshot, executing ability, etc?)
 	//	Or do we push these tags into (our copy of the spec)?
 
@@ -580,10 +586,23 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSe
 	{
 		ABILITY_LOG(Warning, TEXT("%s is periodic but also applies GameplayEffects to its target. GameplayEffects will only be applied once, not every period."), *Spec.Def->GetPathName());
 	}
-	// todo: this is ignoring the returned handles, should we put them into a TArray and return all of the handles?
-	for (const TSharedRef<FGameplayEffectSpec> TargetSpec : Spec.TargetEffectSpecs)
+
+	// ------------------------------------------------------
+	//	Remove gameplay effects with tags
+	//		Remove any active gameplay effects that match the RemoveGameplayEffectsWithTags in the definition for this spec
+	// ------------------------------------------------------
+	if (IsOwnerActorAuthoritative())
 	{
-		ApplyGameplayEffectSpecToSelf(TargetSpec.Get(), PredictionKey);
+		ActiveGameplayEffects.RemoveActiveEffects(FActiveGameplayEffectQuery(&Spec.Def->RemoveGameplayEffectsWithTags.CombinedTags));
+	}
+
+	// todo: this is ignoring the returned handles, should we put them into a TArray and return all of the handles?
+	for (const FGameplayEffectSpecHandle TargetSpec: Spec.TargetEffectSpecs)
+	{
+		if (TargetSpec.IsValid())
+		{
+			ApplyGameplayEffectSpecToSelf(*TargetSpec.Data.Get(), PredictionKey);
+		}
 	}
 
 	return MyHandle;
@@ -699,20 +718,20 @@ void UAbilitySystemComponent::InvokeGameplayCueEvent(const FGameplayTag Gameplay
 	UAbilitySystemGlobals::Get().GetGameplayCueManager()->HandleGameplayCues(ActorAvatar, GameplayCueTag, EventType, CueParameters);
 }
 
-void UAbilitySystemComponent::ExecuteGameplayCue(const FGameplayTag GameplayCueTag, FPredictionKey PredictionKey, FGameplayEffectContextHandle EffectContext)
+void UAbilitySystemComponent::ExecuteGameplayCue(const FGameplayTag GameplayCueTag, FGameplayEffectContextHandle EffectContext)
 {
 	if (IsOwnerActorAuthoritative())
 	{
 		ForceReplication();
-		NetMulticast_InvokeGameplayCueExecuted(GameplayCueTag, PredictionKey, EffectContext);
+		NetMulticast_InvokeGameplayCueExecuted(GameplayCueTag, ScopedPredictionKey, EffectContext);
 	}
-	else if (PredictionKey.IsValidKey())
+	else if (ScopedPredictionKey.IsValidKey())
 	{
 		InvokeGameplayCueEvent(GameplayCueTag, EGameplayCueEvent::Executed, EffectContext);
 	}
 }
 
-void UAbilitySystemComponent::AddGameplayCue(const FGameplayTag GameplayCueTag, FPredictionKey PredictionKey, FGameplayEffectContextHandle EffectContext)
+void UAbilitySystemComponent::AddGameplayCue(const FGameplayTag GameplayCueTag, FGameplayEffectContextHandle EffectContext)
 {
 	if (IsOwnerActorAuthoritative())
 	{
@@ -720,7 +739,7 @@ void UAbilitySystemComponent::AddGameplayCue(const FGameplayTag GameplayCueTag, 
 
 		ForceReplication();
 		ActiveGameplayCues.AddCue(GameplayCueTag);
-		NetMulticast_InvokeGameplayCueAdded(GameplayCueTag, PredictionKey, EffectContext);
+		NetMulticast_InvokeGameplayCueAdded(GameplayCueTag, ScopedPredictionKey, EffectContext);
 
 		if (!bWasInList)
 		{
@@ -728,7 +747,7 @@ void UAbilitySystemComponent::AddGameplayCue(const FGameplayTag GameplayCueTag, 
 			InvokeGameplayCueEvent(GameplayCueTag, EGameplayCueEvent::WhileActive);
 		}
 	}
-	else if (PredictionKey.IsValidKey())
+	else if (ScopedPredictionKey.IsValidKey())
 	{
 		// Allow for predictive gameplaycue events? Needs more thought
 		InvokeGameplayCueEvent(GameplayCueTag, EGameplayCueEvent::OnActive, EffectContext);
@@ -736,16 +755,16 @@ void UAbilitySystemComponent::AddGameplayCue(const FGameplayTag GameplayCueTag, 
 	}
 }
 
-void UAbilitySystemComponent::RemoveGameplayCue(const FGameplayTag GameplayCueTag, FPredictionKey PredictionKey)
+void UAbilitySystemComponent::RemoveGameplayCue(const FGameplayTag GameplayCueTag)
 {
 	if (IsOwnerActorAuthoritative())
 	{
 		bool bWasInList = HasMatchingGameplayTag(GameplayCueTag);
 
 		ActiveGameplayCues.RemoveCue(GameplayCueTag);
-		NetMulticast_InvokeGameplayCueRemoved(GameplayCueTag, PredictionKey);
+		NetMulticast_InvokeGameplayCueRemoved(GameplayCueTag, ScopedPredictionKey);
 	}
-	else if (PredictionKey.IsValidKey())
+	else if (ScopedPredictionKey.IsValidKey())
 	{
 		InvokeGameplayCueEvent(GameplayCueTag, EGameplayCueEvent::Removed);
 	}
@@ -808,6 +827,11 @@ TArray<float> UAbilitySystemComponent::GetActiveEffectsTimeRemaining(const FActi
 TArray<float> UAbilitySystemComponent::GetActiveEffectsDuration(const FActiveGameplayEffectQuery Query) const
 {
 	return ActiveGameplayEffects.GetActiveEffectsDuration(Query);
+}
+
+void UAbilitySystemComponent::RemoveActiveEffectsWithTags(const FGameplayTagContainer Tags)
+{
+	RemoveActiveEffects(FActiveGameplayEffectQuery(&Tags));
 }
 
 void UAbilitySystemComponent::RemoveActiveEffects(const FActiveGameplayEffectQuery Query)
@@ -947,6 +971,11 @@ void UAbilitySystemComponent::OnRep_PredictionKey()
 {
 	// Every predictive action we've done up to and including the current value of ReplicatedPredictionKey needs to be wiped
 	FPredictionKeyDelegates::CatchUpTo(ReplicatedPredictionKey.Current);
+}
+
+bool UAbilitySystemComponent::HasAuthorityOrPredictionKey(const FGameplayAbilityActivationInfo* ActivationInfo) const
+{
+	return ((ActivationInfo->ActivationMode == EGameplayAbilityActivationMode::Authority) || CanPredict());
 }
 
 // ---------------------------------------------------------------------------------------

@@ -42,12 +42,20 @@ void FStaticMeshActorDetails::CustomizeDetails( IDetailLayoutBuilder& DetailBuil
 	// The blocking volume menu is advanced
 	const bool bForAdvanced = true;
 
-	const FString CreateBlockingVolumeString = LOCTEXT("BlockingVolumeMenu", "Create Blocking Volume").ToString();
+	const FText CreateBlockingVolumeString = LOCTEXT("BlockingVolumeMenu", "Create Blocking Volume");
 
 	StaticMeshCategory.AddCustomRow( CreateBlockingVolumeString, bForAdvanced )
+	.NameContent()
 	[
-		SNew( SComboButton )
-		.ToolTipText( LOCTEXT("CreateBlockingVolumeTooltip", "Creates a blocking volume from the static mesh"))
+		SNullWidget::NullWidget
+	]
+	.ValueContent()
+	.VAlign(VAlign_Center)
+	.MaxDesiredWidth(250)
+	[
+		SNew(SComboButton)
+		.VAlign(VAlign_Center)
+		.ToolTipText(LOCTEXT("CreateBlockingVolumeTooltip", "Creates a blocking volume from the static mesh"))
 		.ButtonContent()
 		[
 			SNew( STextBlock )

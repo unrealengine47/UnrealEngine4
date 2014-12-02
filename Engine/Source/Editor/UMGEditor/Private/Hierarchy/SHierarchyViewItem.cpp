@@ -692,13 +692,19 @@ bool FHierarchyWidget::OnVerifyNameTextChanged(const FText& InText, FText& OutEr
 {
 	FString NewName = InText.ToString();
 
+	if (NewName.IsEmpty())
+	{
+		OutErrorMessage = LOCTEXT("EmptyWidgetName", "Empty Widget Name");
+		return false;
+	}
+
 	UWidgetBlueprint* Blueprint = BlueprintEditor.Pin()->GetWidgetBlueprintObj();
 	UWidget* ExistingTemplate = Blueprint->WidgetTree->FindWidget( FName(*NewName) );
 
 	bool bIsSameWidget = false;
 	if ( ExistingTemplate != NULL )
 	{
-		if ( Item.GetTemplate() == ExistingTemplate )
+		if ( Item.GetTemplate() != ExistingTemplate )
 		{
 			OutErrorMessage = LOCTEXT("ExistingWidgetName", "Existing Widget Name");
 			return false;
@@ -870,7 +876,14 @@ bool SHierarchyViewItem::OnVerifyNameTextChanged(const FText& InText, FText& Out
 
 void SHierarchyViewItem::OnNameTextCommited(const FText& InText, ETextCommit::Type CommitInfo)
 {
-	return Model->OnNameTextCommited(InText, CommitInfo);
+	// The model can return nice names "Border_53" becomes [Border] in some cases
+	// This check makes sure we don't rename the object internally to that nice name.
+	// Most common case would be the user enters edit mode by accident then just moves focus away.
+	if (Model->GetText().EqualToCaseIgnored(InText))
+	{
+		return;
+	}
+	Model->OnNameTextCommited(InText, CommitInfo);
 }
 
 FSlateFontInfo SHierarchyViewItem::GetItemFont() const

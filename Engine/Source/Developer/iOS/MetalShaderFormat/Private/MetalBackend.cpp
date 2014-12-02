@@ -20,7 +20,12 @@
 #define _strdup strdup
 #endif
 
-#define GROUP_MEMORY_BARRIER_WITH_GROUP_SYNC "GroupMemoryBarrierWithGroupSync"
+#define GROUP_MEMORY_BARRIER					"GroupMemoryBarrier"
+#define GROUP_MEMORY_BARRIER_WITH_GROUP_SYNC	"GroupMemoryBarrierWithGroupSync"
+#define DEVICE_MEMORY_BARRIER					"DeviceMemoryBarrier"
+#define DEVICE_MEMORY_BARRIER_WITH_GROUP_SYNC	"DeviceMemoryBarrierWithGroupSync"
+#define ALL_MEMORY_BARRIER						"AllMemoryBarrier"
+#define ALL_MEMORY_BARRIER_WITH_GROUP_SYNC		"AllMemoryBarrierWithGroupSync"
 
 /**
  * This table must match the ir_expression_operation enum.
@@ -404,6 +409,9 @@ protected:
 	// Use packed_ prefix when printing out structs
 	bool bUsePacked;
 
+	// Do we need to add #include <compute_shaders>
+	bool bNeedsComputeInclude;
+
 	/**
 	 * Return true if the type is a multi-dimensional array. Also, track the
 	 * array.
@@ -491,7 +499,13 @@ protected:
 	{
 		if (t->base_type == GLSL_TYPE_ARRAY)
 		{
+			bool bPrevPacked = bUsePacked;
+			if (t->element_type()->is_vector() && t->element_type()->vector_elements == 3)
+			{
+				bUsePacked = false;
+			}
 			print_base_type(t->fields.array);
+			bUsePacked = bPrevPacked;
 		}
 		else if (t->base_type == GLSL_TYPE_INPUTPATCH)
 		{
@@ -525,7 +539,7 @@ protected:
 		else
 		{
 			check(t->HlslName);
-			if (/*!bIsFunctionSig &&*/ bUsePacked && t->is_vector() && t->vector_elements < 4)
+			if (bUsePacked && t->is_vector() && t->vector_elements < 4)
 			{
 				ralloc_asprintf_append(buffer, "packed_%s", t->HlslName);
 			}
@@ -983,6 +997,15 @@ protected:
 		{
 			ralloc_asprintf_append(buffer, "ERRROR_MulMatrix()");
 			check(0);
+		}
+		else if (op == ir_ternop_clamp && expr->type->base_type == GLSL_TYPE_FLOAT)
+		{
+			ralloc_asprintf_append(buffer, "precise::%s", MetalExpressionTable[op][0]);
+			for (int i = 0; i < numOps; ++i)
+			{
+				expr->operands[i]->accept(this);
+				ralloc_asprintf_append(buffer, MetalExpressionTable[op][i+1]);
+			}
 		}
 		else if (numOps < 4)
 		{
@@ -1467,9 +1490,22 @@ protected:
 		else
 		{
 			//@todo-rco: Fix this properly
-			if (!strcmp(call->callee_name(), GROUP_MEMORY_BARRIER_WITH_GROUP_SYNC))
+			if (!strcmp(call->callee_name(), GROUP_MEMORY_BARRIER) || !strcmp(call->callee_name(), GROUP_MEMORY_BARRIER_WITH_GROUP_SYNC))
 			{
+				bNeedsComputeInclude = true;
 				ralloc_asprintf_append(buffer, "threadgroup_barrier(mem_flags::mem_threadgroup)");
+				return;
+			}
+			else if (!strcmp(call->callee_name(), DEVICE_MEMORY_BARRIER) || !strcmp(call->callee_name(), DEVICE_MEMORY_BARRIER_WITH_GROUP_SYNC))
+			{
+				bNeedsComputeInclude = true;
+				ralloc_asprintf_append(buffer, "threadgroup_barrier(mem_flags::mem_device)");
+				return;
+			}
+			else if (!strcmp(call->callee_name(), ALL_MEMORY_BARRIER) || !strcmp(call->callee_name(), ALL_MEMORY_BARRIER_WITH_GROUP_SYNC))
+			{
+				bNeedsComputeInclude = true;
+				ralloc_asprintf_append(buffer, "threadgroup_barrier(mem_flags::mem_device_and_threadgroup)");
 				return;
 			}
 		}
@@ -2329,7 +2365,7 @@ protected:
 				if (Buffers.Buffers[i])
 				{
 					auto* Var = Buffers.Buffers[i]->as_variable();
-					if (!Var->semantic && !Var->type->is_sampler())
+					if (!Var->semantic && !Var->type->is_sampler() && !Var->type->is_image())
 					{
 						ralloc_asprintf_append(buffer, "%s%s(%d)",
 							bFirst ? "// @UniformBlocks: " : ",",
@@ -2417,6 +2453,7 @@ public:
 		, loop_count(0)
 		, bStageInEmitted(false)
 		, bUsePacked(false)
+		, bNeedsComputeInclude(false)
 	{
 		printable_names = hash_table_ctor(32, hash_table_pointer_hash, hash_table_pointer_compare);
 		used_structures = hash_table_ctor(128, hash_table_pointer_hash, hash_table_pointer_compare);
@@ -2461,8 +2498,9 @@ public:
 
 		char* full_buffer = ralloc_asprintf(
 			ParseState,
-			"// Compiled by HLSLCC\n%s\n#include <metal_stdlib>\nusing namespace metal;\n\n%s%s",
+			"// Compiled by HLSLCC\n%s\n#include <metal_stdlib>\n%s\nusing namespace metal;\n\n%s%s",
 			signature,
+			bNeedsComputeInclude ? "#include <metal_compute>" : "",
 			decl_buffer,
 			code_buffer
 			);
@@ -2711,7 +2749,11 @@ void FMetalLanguageSpec::SetupLanguageIntrinsics(_mesa_glsl_parse_state* State, 
 
 	// Memory sync/barriers
 	{
-		// GroupMemoryBarrierWithGroupSync
+		make_intrinsic_genType(ir, State, GROUP_MEMORY_BARRIER, ir_invalid_opcode, 0, 0, 0, 0);
 		make_intrinsic_genType(ir, State, GROUP_MEMORY_BARRIER_WITH_GROUP_SYNC, ir_invalid_opcode, 0, 0, 0, 0);
+		make_intrinsic_genType(ir, State, DEVICE_MEMORY_BARRIER, ir_invalid_opcode, 0, 0, 0, 0);
+		make_intrinsic_genType(ir, State, DEVICE_MEMORY_BARRIER_WITH_GROUP_SYNC, ir_invalid_opcode, 0, 0, 0, 0);
+		make_intrinsic_genType(ir, State, ALL_MEMORY_BARRIER, ir_invalid_opcode, 0, 0, 0, 0);
+		make_intrinsic_genType(ir, State, ALL_MEMORY_BARRIER_WITH_GROUP_SYNC, ir_invalid_opcode, 0, 0, 0, 0);
 	}
 }

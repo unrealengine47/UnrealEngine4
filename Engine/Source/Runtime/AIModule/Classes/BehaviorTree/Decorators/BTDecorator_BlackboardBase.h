@@ -3,6 +3,8 @@
 #include "BehaviorTree/BTDecorator.h"
 #include "BTDecorator_BlackboardBase.generated.h"
 
+class UBlackboardComponent;
+
 UCLASS(Abstract)
 class AIMODULE_API UBTDecorator_BlackboardBase : public UBTDecorator
 {
@@ -12,7 +14,7 @@ class AIMODULE_API UBTDecorator_BlackboardBase : public UBTDecorator
 	virtual void InitializeFromAsset(UBehaviorTree& Asset) override;
 
 	/** notify about change in blackboard keys */
-	virtual void OnBlackboardChange(const class UBlackboardComponent* Blackboard, FBlackboard::FKey ChangedKeyID);
+	virtual void OnBlackboardChange(const UBlackboardComponent& Blackboard, FBlackboard::FKey ChangedKeyID);
 
 #if WITH_EDITOR
 	virtual FName GetNodeIconName() const override;
@@ -25,17 +27,17 @@ protected:
 
 	/** blackboard key selector */
 	UPROPERTY(EditAnywhere, Category=Blackboard)
-	struct FBlackboardKeySelector BlackboardKey;
+	FBlackboardKeySelector BlackboardKey;
 
 	FOnBlackboardChange BBKeyObserver;
 
 	virtual void PostInitProperties() override;
 
 	/** called when execution flow controller becomes active */
-	virtual void OnBecomeRelevant(UBehaviorTreeComponent* OwnerComp, uint8* NodeMemory) override;
+	virtual void OnBecomeRelevant(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory) override;
 
 	/** called when execution flow controller becomes inactive */
-	virtual void OnCeaseRelevant(UBehaviorTreeComponent* OwnerComp, uint8* NodeMemory) override;
+	virtual void OnCeaseRelevant(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory) override;
 };
 
 //////////////////////////////////////////////////////////////////////////

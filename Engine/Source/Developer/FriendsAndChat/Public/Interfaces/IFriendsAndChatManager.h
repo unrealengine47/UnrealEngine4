@@ -10,12 +10,10 @@ class IFriendsAndChatManager
 public:
 
 	/**
-	 * Create the friends list widget.
-	 *
-	 * @param ParentWindow The parent window to add the widget
+	 * Create a friends list window.
 	 * @param InStyle The style to use to create the widgets
 	 */
-	virtual void CreateFriendsListWidget(const struct FFriendsAndChatStyle* InStyle ) = 0;
+	virtual void CreateFriendsListWindow(const struct FFriendsAndChatStyle* InStyle ) = 0;
 
 	/**
 	 * Set the FriendsAndChatUserSettings.
@@ -41,9 +39,10 @@ public:
 	/**
 	 * Generate a chat widget.
 	 * @param InStyle The style to use to create the widgets.
+	 * @param The chat view model.
 	 * @return The chat widget.
 	 */
-	virtual TSharedPtr< SWidget > GenerateChatWidget(const FFriendsAndChatStyle* InStyle) = 0;
+	virtual TSharedPtr< SWidget > GenerateChatWidget(const FFriendsAndChatStyle* InStyle, TSharedRef<IChatViewModel> ViewModel) = 0;
 
 	/**
 	 * Get the chat system view model for manipulating the chat widget.
@@ -68,6 +67,15 @@ public:
 	/** Log in and start checking for Friends. */
 	virtual void Login() = 0;
 
+	/** Is the chat manager logged in. */
+	virtual bool IsLoggedIn() = 0;
+
+	/** 
+	 * Set the application view model to query and perform actions on.
+	 * @param ApplicationViewModel The view model.
+	 */
+	virtual void SetApplicationViewModel(TSharedPtr<IFriendsApplicationViewModel> ApplicationViewModel) = 0;
+
 	DECLARE_EVENT_OneParam(IFriendsAndChatManager, FOnFriendsNotificationEvent, const bool /*Show or Clear */)
 	virtual FOnFriendsNotificationEvent& OnFriendsNotification() = 0;
 
@@ -79,6 +87,9 @@ public:
 
 	DECLARE_EVENT_TwoParams(IFriendsAndChatManager, FOnFriendsJoinGameEvent, const FUniqueNetId& /*FriendId*/, const FString& /*SessionId*/)
 	virtual FOnFriendsJoinGameEvent& OnFriendsJoinGame() = 0;
+
+	DECLARE_DELEGATE_RetVal(bool, FAllowFriendsJoinGame);
+	virtual FAllowFriendsJoinGame& AllowFriendsJoinGame() = 0;
 
 public:
 

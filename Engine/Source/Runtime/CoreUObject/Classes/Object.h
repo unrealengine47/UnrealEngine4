@@ -152,6 +152,8 @@ enum EPixelFormat
 	PF_ASTC_8x8,	// 2.00 bpp
 	PF_ASTC_10x10,	// 1.28 bpp
 	PF_ASTC_12x12,	// 0.89 bpp
+	PF_BC6H,
+	PF_BC7,
 	PF_MAX,
 };
 
@@ -720,13 +722,14 @@ struct FTransform
  * Thread-safe RNG.
  * The full C++ class is located here: Engine\Source\Runtime\Core\Public\Math\RandomStream.h
  */
-USTRUCT(noexport, BlueprintType)
+USTRUCT(noexport, BlueprintType, meta = (HasNativeMake = "Engine.KismetMathLibrary.MakeRandomStream", HasNativeBreak = "Engine.KismetMathLibrary.BreakRandomStream"))
 struct FRandomStream
 {
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=RandomStream, SaveGame)
 	int32 InitialSeed;
-
+	
+	UPROPERTY()
 	int32 Seed;
 };
 

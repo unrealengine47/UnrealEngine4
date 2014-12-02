@@ -18,9 +18,6 @@
 
 //////////////////////////////////////////////////////////////////////////
 // FStructEditorManager
-FStructureEditorUtils::FStructEditorManager::FStructEditorManager() : FListenerManager<UUserDefinedStruct>()
-{}
-
 FStructureEditorUtils::FStructEditorManager& FStructureEditorUtils::FStructEditorManager::Get()
 {
 	static TSharedRef< FStructEditorManager > EditorManager( new FStructEditorManager() );
@@ -308,8 +305,10 @@ bool FStructureEditorUtils::RenameVariable(UUserDefinedStruct* Struct, FGuid Var
 	if (Struct)
 	{
 		auto VarDesc = GetVarDescByGuid(Struct, VarGuid);
-		if (VarDesc && FName(*NewDisplayNameStr).IsValidXName(INVALID_OBJECTNAME_CHARACTERS) &&
-			IsUniqueVariableDisplayName(Struct, NewDisplayNameStr))
+		if (VarDesc 
+			&& !NewDisplayNameStr.IsEmpty()
+			&& FName(*NewDisplayNameStr).IsValidXName(INVALID_OBJECTNAME_CHARACTERS) 
+			&& IsUniqueVariableDisplayName(Struct, NewDisplayNameStr))
 		{
 			const FScopedTransaction Transaction(LOCTEXT("RenameVariable", "Rename Variable"));
 			ModifyStructData(Struct);
@@ -740,7 +739,7 @@ struct FReinstanceDataTableHelper
 
 void FStructureEditorUtils::BroadcastPreChange(UUserDefinedStruct* Struct)
 {
-	FStructureEditorUtils::FStructEditorManager::Get().PreChange(Struct);
+	FStructureEditorUtils::FStructEditorManager::Get().PreChange(Struct, EStructureEditorChangeInfo::Changed);
 	auto DataTables = FReinstanceDataTableHelper::GetTablesDependentOnStruct(Struct);
 	for (auto DataTable : DataTables)
 	{
@@ -750,17 +749,12 @@ void FStructureEditorUtils::BroadcastPreChange(UUserDefinedStruct* Struct)
 
 void FStructureEditorUtils::BroadcastPostChange(UUserDefinedStruct* Struct)
 {
-	FStructureEditorUtils::FStructEditorManager::Get().PostChange(Struct);
 	auto DataTables = FReinstanceDataTableHelper::GetTablesDependentOnStruct(Struct);
 	for (auto DataTable : DataTables)
 	{
 		DataTable->RestoreAfterStructChange();
-		auto DataTableEditor = static_cast<IDataTableEditor*>(FAssetEditorManager::Get().FindEditorForAsset(DataTable, false));
-		if (DataTableEditor)
-		{
-			DataTableEditor->OnDataTableReloaded();
-		}
 	}
+	FStructureEditorUtils::FStructEditorManager::Get().PostChange(Struct, EStructureEditorChangeInfo::Changed);
 }
 
 #undef LOCTEXT_NAMESPACE

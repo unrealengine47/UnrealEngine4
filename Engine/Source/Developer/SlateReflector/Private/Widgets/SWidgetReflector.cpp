@@ -1,6 +1,7 @@
 // Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
 
 #include "SlateReflectorPrivatePCH.h"
+#include "ISlateReflectorModule.h"
 
 #if STATS
 #include "StatsData.h"
@@ -73,20 +74,26 @@ void SWidgetReflector::Construct( const FArguments& InArgs )
 					
 						+ SHorizontalBox::Slot()
 							.AutoWidth()
+							.VAlign(VAlign_Center)
 							[
 								SNew(STextBlock)
 									.Text(LOCTEXT("AppScale", "Application Scale: ").ToString())
 							]
 
 						+ SHorizontalBox::Slot()
-							.MaxWidth(250)
+							.AutoWidth()
 							[
-								SNew(SSpinBox<float>)
-									.Value(this, &SWidgetReflector::HandleAppScaleSliderValue)
-									.MinValue(0.1f)
-									.MaxValue(3.0f)
-									.Delta(0.01f)
-									.OnValueChanged(this, &SWidgetReflector::HandleAppScaleSliderChanged)
+								SNew(SBox)
+								.MinDesiredWidth(100)
+								.MaxDesiredWidth(250)
+								[
+									SNew(SSpinBox<float>)
+										.Value(this, &SWidgetReflector::HandleAppScaleSliderValue)
+										.MinValue(0.1f)
+										.MaxValue(3.0f)
+										.Delta(0.01f)
+										.OnValueChanged(this, &SWidgetReflector::HandleAppScaleSliderChanged)
+								]
 							]
 						+ SHorizontalBox::Slot()
 						.FillWidth(1.0f)
@@ -94,11 +101,20 @@ void SWidgetReflector::Construct( const FArguments& InArgs )
 							SNew(SSpacer)
 						]
 						+SHorizontalBox::Slot()
-						.HAlign(HAlign_Right)
+						.AutoWidth()
+						.Padding(FMargin(5.0f, 0.0f))
 						[
 							SNew(SButton)
-							.Text(LOCTEXT("DisplayTextureAtlases", "Display Atlases"))
+							.Text(LOCTEXT("DisplayTextureAtlases", "Display Texture Atlases"))
 							.OnClicked(this, &SWidgetReflector::HandleDisplayTextureAtlases)
+						]
+						+SHorizontalBox::Slot()
+						.AutoWidth()
+						.Padding(FMargin(5.0f, 0.0f))
+						[
+							SNew(SButton)
+							.Text(LOCTEXT("DisplayFontAtlases", "Display Font Atlases"))
+							.OnClicked(this, &SWidgetReflector::HandleDisplayFontAtlases)
 						]
 					]
 
@@ -206,7 +222,7 @@ void SWidgetReflector::Construct( const FArguments& InArgs )
 							SNew(SHeaderRow)
 
 							+ SHeaderRow::Column("WidgetName")
-							.DefaultLabel(LOCTEXT("WidgetName", "Widget Name").ToString())
+							.DefaultLabel(LOCTEXT("WidgetName", "Widget Name"))
 							.FillWidth(0.65f)
 
 							+ SHeaderRow::Column("ForegroundColor")
@@ -215,16 +231,16 @@ void SWidgetReflector::Construct( const FArguments& InArgs )
 							.HeaderContent()
 							[
 								SNew(STextBlock)
-								.Text(LOCTEXT("ForegroundColor", "FG").ToString())
-								.ToolTipText(LOCTEXT("ForegroundColorToolTip", "Foreground Color").ToString())
+								.Text(LOCTEXT("ForegroundColor", "FG"))
+								.ToolTipText(LOCTEXT("ForegroundColorToolTip", "Foreground Color"))
 							]
 
 							+ SHeaderRow::Column("Visibility")
-							.DefaultLabel(LOCTEXT("Visibility", "Visibility" ).ToString())
+							.DefaultLabel(LOCTEXT("Visibility", "Visibility" ))
 							.FixedWidth(125.0f)
 
 							+ SHeaderRow::Column("WidgetInfo")
-							.DefaultLabel(LOCTEXT("WidgetInfo", "Widget Info" ).ToString())
+							.DefaultLabel(LOCTEXT("WidgetInfo", "Widget Info" ))
 							.FillWidth(0.25f)
 
 							+ SHeaderRow::Column("Address")
@@ -427,6 +443,20 @@ int32 SWidgetReflector::VisualizeSelectedNodesAsRectangles( const TArray<TShared
 
 /* SWidgetReflector callbacks
  *****************************************************************************/
+
+FReply SWidgetReflector::HandleDisplayTextureAtlases()
+{
+	static const FName SlateReflectorModuleName("SlateReflector");
+	FModuleManager::LoadModuleChecked<ISlateReflectorModule>(SlateReflectorModuleName).DisplayTextureAtlasVisualizer();
+	return FReply::Handled();
+}
+
+FReply SWidgetReflector::HandleDisplayFontAtlases()
+{
+	static const FName SlateReflectorModuleName("SlateReflector");
+	FModuleManager::LoadModuleChecked<ISlateReflectorModule>(SlateReflectorModuleName).DisplayFontAtlasVisualizer();
+	return FReply::Handled();
+}
 
 void SWidgetReflector::HandleFocusCheckBoxCheckedStateChanged( ESlateCheckBoxState::Type NewValue )
 {

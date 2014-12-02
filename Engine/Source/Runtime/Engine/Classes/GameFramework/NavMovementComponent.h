@@ -62,11 +62,11 @@ public:
 	/** @returns location of controlled actor - meaning center of collision bounding box */
 	FORCEINLINE FVector GetActorLocation() const { return UpdatedComponent ? UpdatedComponent->GetComponentLocation() : FVector(FLT_MAX); }
 	/** @returns location of controlled actor's "feet" meaning center of bottom of collision bounding box */
-	FORCEINLINE FVector GetActorFeetLocation() const { return UpdatedComponent ? (UpdatedComponent->GetComponentLocation() - FVector(0,0,UpdatedComponent->Bounds.BoxExtent.Z)) : FVector::ZeroVector; }
+	FORCEINLINE FVector GetActorFeetLocation() const { return UpdatedComponent ? (UpdatedComponent->GetComponentLocation() - FVector(0,0,UpdatedComponent->Bounds.BoxExtent.Z)) : FNavigationSystem::InvalidLocation; }
 	/** @returns based location of controlled actor */
 	virtual FBasedPosition GetActorFeetLocationBased() const;
 	/** @returns navigation location of controlled actor */
-	FORCEINLINE FVector GetActorNavLocation() const { INavAgentInterface* MyOwner = Cast<INavAgentInterface>(GetOwner()); return MyOwner ? MyOwner->GetNavAgentLocation() : FVector::ZeroVector; }
+	FORCEINLINE FVector GetActorNavLocation() const { INavAgentInterface* MyOwner = Cast<INavAgentInterface>(GetOwner()); return MyOwner ? MyOwner->GetNavAgentLocation() : FNavigationSystem::InvalidLocation; }
 
 	/** request direct movement */
 	virtual void RequestDirectMove(const FVector& MoveVelocity, bool bForceMaxSpeed);
@@ -76,13 +76,15 @@ public:
 	virtual bool CanStopPathFollowing() const;
 
 	/** @returns the NavAgentProps(const) */
-	FORCEINLINE const FNavAgentProperties* GetNavAgentProperties() const { return &NavAgentProps; }
+	FORCEINLINE const FNavAgentProperties& GetNavAgentProperties() const { return NavAgentProps; }
 	/** @returns the NavAgentProps */
-	FORCEINLINE FNavAgentProperties* GetNavAgentProperties() { return &NavAgentProps; }
+	FORCEINLINE FNavAgentProperties& GetNavAgentProperties() { return NavAgentProps; }
 
 	/** Resets runtime movement state to character's movement capabilities */
 	void ResetMoveState() { MovementState = NavAgentProps; }
 
+	/** @return true if path following can start */
+	virtual bool CanStartPathFollowing() const { return true; }
 
 	/** @return true if component can crouch */
 	FORCEINLINE bool CanEverCrouch() const { return NavAgentProps.bCanCrouch; }

@@ -123,6 +123,7 @@ void FNavigationPath::Invalidate()
 	ObserverDelegate.Broadcast(this, ENavPathEvent::Invalidated);
 	if (bDoAutoUpdateOnInvalidation && NavigationDataUsed.IsValid())
 	{
+		bWaitingForRepath = true;
 		NavigationDataUsed->RequestRePath(AsShared(), ENavPathUpdateType::NavigationChanged);
 	}
 }
@@ -130,6 +131,7 @@ void FNavigationPath::Invalidate()
 void FNavigationPath::RePathFailed()
 {
 	ObserverDelegate.Broadcast(this, ENavPathEvent::RePathFailed);
+	bWaitingForRepath = false;
 }
 
 void FNavigationPath::DebugDraw(const ANavigationData* NavData, FColor PathColor, UCanvas* Canvas, bool bPersistent, const uint32 NextPathPointIndex) const
@@ -296,18 +298,18 @@ FVector FNavigationPath::GetSegmentDirection(uint32 SegmentEndIndex) const
 		{
 			if (SegmentEndIndex > 0)
 			{
-				Result = (PathPoints[SegmentEndIndex].Location - PathPoints[SegmentEndIndex - 1].Location).SafeNormal();
+				Result = (PathPoints[SegmentEndIndex].Location - PathPoints[SegmentEndIndex - 1].Location).GetSafeNormal();
 			}
 			else
 			{
 				// for '0'-th segment returns same as for 1st segment 
-				Result = (PathPoints[1].Location - PathPoints[0].Location).SafeNormal();
+				Result = (PathPoints[1].Location - PathPoints[0].Location).GetSafeNormal();
 			}
 		}
 		else if (SegmentEndIndex >= uint32(GetPathPoints().Num()))
 		{
 			// in this special case return direction of last segment
-			Result = (PathPoints[PathPoints.Num() - 1].Location - PathPoints[PathPoints.Num() - 2].Location).SafeNormal();
+			Result = (PathPoints[PathPoints.Num() - 1].Location - PathPoints[PathPoints.Num() - 2].Location).GetSafeNormal();
 		}
 	}
 
@@ -540,7 +542,7 @@ namespace
 			return true;
 		}
 
-		const FVector RayNormal = (StartTrace-EndTrace) .SafeNormal() * OffsetDistannce;
+		const FVector RayNormal = (StartTrace-EndTrace) .GetSafeNormal() * OffsetDistannce;
 		StartTrace = StartTrace + RayNormal;
 		EndTrace = EndTrace - RayNormal;
 
@@ -562,8 +564,8 @@ namespace
 			{
 				const float EdgeHalfLength = (CurrentEdge->Left - CurrentEdge->Right).Size() * 0.5;
 				const float Distance = FMath::Min(OffsetDistannce, EdgeHalfLength) *  0.1;
-				Left = CurrentEdge->Left + Distance * (CurrentEdge->Right - CurrentEdge->Left).SafeNormal();
-				Right = CurrentEdge->Right + Distance * (CurrentEdge->Left - CurrentEdge->Right).SafeNormal();
+				Left = CurrentEdge->Left + Distance * (CurrentEdge->Right - CurrentEdge->Left).GetSafeNormal();
+				Right = CurrentEdge->Right + Distance * (CurrentEdge->Left - CurrentEdge->Right).GetSafeNormal();
 				FVector ClosestPointOnRay, ClosestPointOnEdge;
 				FMath::SegmentDistToSegment(StartTrace, EndTrace, Right, Left, ClosestPointOnRay, ClosestPointOnEdge);
 #if DEBUG_DRAW_OFFSET
@@ -687,7 +689,7 @@ void FNavMeshPath::OffsetFromCorners(float Distance)
 			const FVector EdgePt0 = Edge->GetPoint(CloserPoint);
 			const FVector EdgePt1 = Edge->GetPoint((CloserPoint+1)%2);
 			const FVector EdgeDir = EdgePt1 - EdgePt0;
-			const FVector EdgeOffset = EdgeDir.SafeNormal() * ActualOffset;
+			const FVector EdgeOffset = EdgeDir.GetSafeNormal() * ActualOffset;
 			NewPathPoint.Location = EdgePt0 + EdgeOffset;
 			// update NodeRef (could be different if this is n-th pass on the same PathPoint
 			NewPathPoint.NodeRef = Edge->ToRef;
@@ -1003,17 +1005,17 @@ FVector FNavMeshPath::GetSegmentDirection(uint32 SegmentEndIndex) const
 		{
 			if (SegmentEndIndex > 0)
 			{
-				Result = (Corridor[SegmentEndIndex].GetMiddlePoint() - Corridor[SegmentEndIndex - 1].GetMiddlePoint()).SafeNormal();
+				Result = (Corridor[SegmentEndIndex].GetMiddlePoint() - Corridor[SegmentEndIndex - 1].GetMiddlePoint()).GetSafeNormal();
 			}
 			else
 			{
-				Result = (Corridor[0].GetMiddlePoint() - GetPathPoints()[0].Location).SafeNormal();
+				Result = (Corridor[0].GetMiddlePoint() - GetPathPoints()[0].Location).GetSafeNormal();
 			}
 		}
 		else if (SegmentEndIndex >= uint32(Corridor.Num()))
 		{
 			// in this special case return direction of last segment
-			Result = (Corridor[Corridor.Num() - 1].GetMiddlePoint() - GetPathPoints()[0].Location).SafeNormal();
+			Result = (Corridor[Corridor.Num() - 1].GetMiddlePoint() - GetPathPoints()[0].Location).GetSafeNormal();
 		}
 	}
 
@@ -1032,11 +1034,10 @@ void FNavMeshPath::DescribeSelfToVisLog(FVisualLogEntry* Snapshot) const
 
 	// draw corridor
 #if WITH_RECAST
-	FVisualLogShapeElement CorridorElem(EVisualLoggerShapeElement::Segment);
-	CorridorElem.SetColor(FColorList::Cyan);
-	CorridorElem.Category = LogNavigation.GetCategoryName();
-	CorridorElem.Points.Reserve(PathCorridor.Num() * 6);
-	CorridorElem.Thicknes = 2;
+	FVisualLogShapeElement CorridorPoly(EVisualLoggerShapeElement::Polygon);
+	CorridorPoly.SetColor(FColorList::Cyan);
+	CorridorPoly.Category = LogNavigation.GetCategoryName();
+	CorridorPoly.Points.Reserve(PathCorridor.Num() * 6);
 
 	const FVector CorridorOffset = NavigationDebugDrawing::PathOffset * 1.25f;
 	int32 NumAreaMark = 1;
@@ -1049,27 +1050,27 @@ void FNavMeshPath::DescribeSelfToVisLog(FVisualLogEntry* Snapshot) const
 	{
 		Verts.Reset();
 		NavMesh->GetPolyVerts(PathCorridor[Idx], Verts);
-		
-		FVector CenterPt = FVector::ZeroVector;
-		for (int32 VIdx = 0; VIdx < Verts.Num(); VIdx++)
-		{
-			CenterPt += Verts[VIdx];
-
-			CorridorElem.Points.Add(Verts[VIdx] + CorridorOffset);
-			CorridorElem.Points.Add(Verts[(VIdx + 1) % Verts.Num()] + CorridorOffset);
-		}
+		CorridorPoly.Points.Reset();
+		CorridorPoly.Points.Append(Verts);
+		Snapshot->ElementsToDraw.Add(CorridorPoly);
 
 		const uint8 AreaID = NavMesh->GetPolyAreaID(PathCorridor[Idx]);
 		const UClass* AreaClass = NavMesh->GetAreaClass(AreaID);
 		if (AreaClass && AreaClass != UNavigationSystem::GetDefaultWalkableArea())
 		{
+			FVector CenterPt = FVector::ZeroVector;
+			for (int32 VIdx = 0; VIdx < Verts.Num(); VIdx++)
+			{
+				CenterPt += Verts[VIdx];
+			}
+			CenterPt /= Verts.Num();
+
 			FVisualLogShapeElement AreaMarkElem(EVisualLoggerShapeElement::Segment);
 			AreaMarkElem.SetColor(FColorList::Orange);
 			AreaMarkElem.Category = LogNavigation.GetCategoryName();
 			AreaMarkElem.Thicknes = 2;
 			AreaMarkElem.Description = AreaClass->GetName();
 
-			CenterPt /= Verts.Num();
 			AreaMarkElem.Points.Add(CenterPt + CorridorOffset);
 			AreaMarkElem.Points.Add(CenterPt + CorridorOffset + FVector(0,0,100.0f + NumAreaMark * 50.0f));
 			Snapshot->ElementsToDraw.Add(AreaMarkElem);
@@ -1079,7 +1080,7 @@ void FNavMeshPath::DescribeSelfToVisLog(FVisualLogEntry* Snapshot) const
 	}
 
 	NavMesh->FinishBatchQuery();
-	Snapshot->ElementsToDraw.Add(CorridorElem);
+	//Snapshot->ElementsToDraw.Add(CorridorElem);
 #endif
 }
 

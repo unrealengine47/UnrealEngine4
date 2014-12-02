@@ -1345,7 +1345,7 @@ void FCollisionProfileDetails::CustomizeDetails( IDetailLayoutBuilder& DetailBui
 	TSharedPtr<SToolTip> ProfileTooltip = IDocumentation::Get()->CreateToolTip(LOCTEXT("EditCollisionPreset", "Edit collision presets."), NULL, PresetsDocLink, TEXT("Preset"));
 
 	// Customize collision section
-	ObjectChannelCategory.AddCustomRow(LOCTEXT("CustomCollisionObjectChannels", "ObjectChannels").ToString())
+	ObjectChannelCategory.AddCustomRow(LOCTEXT("CustomCollisionObjectChannels", "ObjectChannels"))
 	[
 		SNew(SVerticalBox)
 
@@ -1439,7 +1439,7 @@ void FCollisionProfileDetails::CustomizeDetails( IDetailLayoutBuilder& DetailBui
 		]
 	];
 	
-	TraceChannelCategory.AddCustomRow(LOCTEXT("CustomCollisionTraceChannels", "TraceChannels").ToString())
+	TraceChannelCategory.AddCustomRow(LOCTEXT("CustomCollisionTraceChannels", "TraceChannels"))
 	[
 		SNew(SVerticalBox)
 
@@ -1533,7 +1533,7 @@ void FCollisionProfileDetails::CustomizeDetails( IDetailLayoutBuilder& DetailBui
 		]
 	];
 
-	PresetCategory.AddCustomRow(LOCTEXT("CustomCollisionProfiles", "Presets").ToString())
+	PresetCategory.AddCustomRow(LOCTEXT("CustomCollisionProfiles", "Presets"))
 	[
 		SNew(SVerticalBox)
 
@@ -1792,7 +1792,8 @@ void FCollisionProfileDetails::RefreshChannelList(bool bTraceType)
 
 		for(auto Iter = CollisionProfile->DefaultChannelResponses.CreateIterator(); Iter; ++Iter)
 		{
-			if(Iter->bTraceType)
+			// only display game channels
+			if(Iter->Channel >= ECC_GameTraceChannel1 && Iter->bTraceType)
 			{
 				TraceChannelList.Add(MakeShareable(new FChannelListItem(MakeShareable(new FCustomChannelSetup(*Iter)))));
 			}
@@ -1804,7 +1805,8 @@ void FCollisionProfileDetails::RefreshChannelList(bool bTraceType)
 
 		for(auto Iter = CollisionProfile->DefaultChannelResponses.CreateIterator(); Iter; ++Iter)
 		{
-			if(!Iter->bTraceType)
+			// only display game channels
+			if(Iter->Channel >= ECC_GameTraceChannel1 && !Iter->bTraceType)
 			{
 				ObjectChannelList.Add(MakeShareable(new FChannelListItem(MakeShareable(new FCustomChannelSetup(*Iter)))));
 			}

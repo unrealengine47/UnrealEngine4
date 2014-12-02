@@ -487,12 +487,18 @@ static bool BlueprintActionFilterImpl::IsFieldInaccessible(FBlueprintActionFilte
 		{
 			// CPF_DisableEditOnInstance corresponds to the eyeball/editable 
 			// checkbox available in the blueprint editor. It is poorly named. 
+			bIsPublic = !Property->HasAnyPropertyFlags(CPF_DisableEditOnInstance);
+
+			// If we've disabled editing on the instance, it's entirely possible that the variable has
+			// the flags, EditDefaultsOnly, BlueprintReadOnly, which should still be public, but only
+			// for getting the value.  This is for Native properties.
+			bIsPublic = bIsPublic || Property->HasAnyPropertyFlags(CPF_BlueprintReadOnly);
+
 			// When CPF_DisableEditOnInstance is *not* set, the user has tagged 
 			// the variable as 'editable' and it is treated as public (delegate 
 			// properties don't have the visibility check box, so they default
 			// to public):
-			bIsPublic = !Property->HasAnyPropertyFlags(CPF_DisableEditOnInstance) || 
-				(Cast<UMulticastDelegateProperty>(Property) != nullptr);
+			bIsPublic = bIsPublic || (Cast<UMulticastDelegateProperty>(Property) != nullptr);
 
 			// If the variable is not public, and is not tagged as private, it should be protected
 			// by default. This branch handles variables declared in blueprints:
@@ -1043,7 +1049,7 @@ static bool BlueprintActionFilterImpl::IsFunctionMissingPinParam(FBlueprintActio
 				// want to flip the connotation here
 				bool const bWantsOutputConnection = (PinDir == EGPD_Input) ^ bIsEventSpawner;
 
-				if (K2Schema->FunctionHasParamOfType(AssociatedFunc, K2Node->GetBlueprint(), PinType, bWantsOutputConnection))
+				if (K2Schema->FunctionHasParamOfType(AssociatedFunc, K2Node->GetGraph(), PinType, bWantsOutputConnection))
 				{
 					bIsFilteredOut = false;
 				}

@@ -293,13 +293,24 @@ void FAggregatorRef::TakeSnapshotOf(const FAggregatorRef& RefToSnapshot)
 
 int32 FScopedAggregatorOnDirtyBatch::GlobalBatchCount = 0;
 TSet<FAggregator*> FScopedAggregatorOnDirtyBatch::DirtyAggregators;
+bool FScopedAggregatorOnDirtyBatch::GlobalFromNetworkUpdate = false;
+int32 FScopedAggregatorOnDirtyBatch::NetUpdateID = 1;
 
 FScopedAggregatorOnDirtyBatch::FScopedAggregatorOnDirtyBatch()
 {
-	GlobalBatchCount++;
+	BeginLock();
 }
 
 FScopedAggregatorOnDirtyBatch::~FScopedAggregatorOnDirtyBatch()
+{
+	EndLock();
+}
+
+void FScopedAggregatorOnDirtyBatch::BeginLock()
+{
+	GlobalBatchCount++;
+}
+void FScopedAggregatorOnDirtyBatch::EndLock()
 {
 	GlobalBatchCount--;
 	if (GlobalBatchCount == 0)
@@ -307,8 +318,26 @@ FScopedAggregatorOnDirtyBatch::~FScopedAggregatorOnDirtyBatch()
 		for (FAggregator* Agg : DirtyAggregators)
 		{
 			Agg->BroadcastOnDirty();
-
 		}
 		DirtyAggregators.Empty();
+	}
+}
+
+
+void FScopedAggregatorOnDirtyBatch::BeginNetReceiveLock()
+{
+	BeginLock();
+}
+void FScopedAggregatorOnDirtyBatch::EndNetReceiveLock()
+{
+	// The network lock must end the first time it is called.
+	// Subsequent calls to EndNetReceiveLock() should not trigger a full EndLock, only the first one.
+	if (GlobalBatchCount > 0)
+	{
+		GlobalBatchCount = 1;
+		NetUpdateID++;
+		GlobalFromNetworkUpdate = true;
+		EndLock();
+		GlobalFromNetworkUpdate = false;
 	}
 }

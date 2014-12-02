@@ -876,22 +876,20 @@ void UCheatManager::TestCollisionDistance()
 
 void UCheatManager::WidgetReflector()
 {
-	static TWeakPtr<SWindow> WidgetReflectorWindow;
-	
-	// Only allow one instance open at a time
-	if( !WidgetReflectorWindow.IsValid() )
-	{
-		const TSharedRef<SWindow> ReflectorWindow = SNew(SWindow)
-			.AutoCenter(EAutoCenter::PrimaryWorkArea)
-			.ClientSize(FVector2D(600,400))
-			[
-				FModuleManager::LoadModuleChecked<ISlateReflectorModule>("SlateReflector").GetWidgetReflector()
-			];
-		
-		WidgetReflectorWindow = ReflectorWindow;
-		
-		FSlateApplication::Get().AddWindow( ReflectorWindow );
-	}
+	static const FName SlateReflectorModuleName("SlateReflector");
+	FModuleManager::LoadModuleChecked<ISlateReflectorModule>(SlateReflectorModuleName).DisplayWidgetReflector();
+}
+
+void UCheatManager::TextureAtlasVisualizer()
+{
+	static const FName SlateReflectorModuleName("SlateReflector");
+	FModuleManager::LoadModuleChecked<ISlateReflectorModule>(SlateReflectorModuleName).DisplayTextureAtlasVisualizer();
+}
+
+void UCheatManager::FontAtlasVisualizer()
+{
+	static const FName SlateReflectorModuleName("SlateReflector");
+	FModuleManager::LoadModuleChecked<ISlateReflectorModule>(SlateReflectorModuleName).DisplayFontAtlasVisualizer();
 }
 
 void UCheatManager::RebuildNavigation()
@@ -1119,5 +1117,24 @@ void UCheatManager::LogOutBugItGoToLogFile( const FString& InScreenShotDesc, con
 	SendDataToPCViaUnrealConsole( TEXT("UE_PROFILER!BUGIT:"), *(FullFileName) );
 #endif // ALLOW_DEBUG_FILES
 }
+
+#if WITH_EDITOR
+#include "Developer/LogVisualizer/Public/LogVisualizerModule.h"
+static class FOldLogVisualizerExec : private FSelfRegisteringExec
+{
+public:
+	/** Console commands, see embeded usage statement **/
+	virtual bool Exec(UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar) override
+	{
+		if (FParse::Command(&Cmd, TEXT("OLDVISLOG")))
+		{
+			FLogVisualizerModule::Get()->SummonUI(InWorld);
+			return true;
+		}
+		return false;
+	}
+} OldLogVisualizerExec;
+#endif
+
 
 #undef LOCTEXT_NAMESPACE

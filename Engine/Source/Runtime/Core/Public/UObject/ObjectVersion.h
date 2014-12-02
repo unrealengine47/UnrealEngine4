@@ -649,7 +649,12 @@ enum EUnrealEngineObjectUE4Version
 	VER_UE4_RENAME_WIDGET_VISIBILITY,
 	// add track curves for animation
 	VER_UE4_ANIMATION_ADD_TRACKCURVES,
-
+	// Removed BranchingPoints from AnimMontages and converted them to regular AnimNotifies.
+	VER_UE4_MONTAGE_BRANCHING_POINT_REMOVAL,
+	// Enforce const-correctness in Blueprint implementations of native C++ const class methods
+	VER_UE4_BLUEPRINT_ENFORCE_CONST_IN_FUNCTION_OVERRIDES,
+	// Added pivot to widget components, need to load old versions as a 0,0 pivot, new default is 0.5,0.5
+	VER_UE4_ADD_PIVOT_TO_WIDGET_COMPONENT,
 	// -----<new versions can be added before this line>-------------------------------------------------
 	// - this needs to be the last line (see note below)
 	VER_UE4_AUTOMATIC_VERSION_PLUS_ONE,

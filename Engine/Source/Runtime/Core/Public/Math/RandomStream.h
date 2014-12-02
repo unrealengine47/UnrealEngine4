@@ -64,6 +64,11 @@ public:
 		Seed = InitialSeed;
 	}
 
+	int32 GetInitialSeed() const
+	{
+		return InitialSeed;
+	}
+
 	/**
 	 * Generates a new random seed.
 	 */
@@ -121,7 +126,7 @@ public:
 		}
 		while(L > 1.f || L < KINDA_SMALL_NUMBER);
 
-		return Result.UnsafeNormal();
+		return Result.GetUnsafeNormal();
 	}
 
 	/**
@@ -221,13 +226,13 @@ public:
 			Result = Result.RotateAngleAxis(Theta * 180.f / PI, DirZ);
 
 			// ensure it's a unit vector (might not have been passed in that way)
-			Result = Result.SafeNormal();
+			Result = Result.GetSafeNormal();
 		
 			return Result;
 		}
 		else
 		{
-			return Dir.SafeNormal();
+			return Dir.GetSafeNormal();
 		}
 	}
 
@@ -271,13 +276,13 @@ public:
 			Result = Result.RotateAngleAxis(Theta * 180.f / PI, DirZ);
 
 			// ensure it's a unit vector (might not have been passed in that way)
-			Result = Result.SafeNormal();
+			Result = Result.GetSafeNormal();
 
 			return Result;
 		}
 		else
 		{
-			return Dir.SafeNormal();
+			return Dir.GetSafeNormal();
 		}
 	}
 

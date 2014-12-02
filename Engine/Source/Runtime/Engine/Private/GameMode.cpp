@@ -391,11 +391,16 @@ AActor* AGameMode::FindPlayerStart( AController* Player, const FString& Incoming
 	return BestStart;
 }
 
+AActor* AGameMode::K2_FindPlayerStart( AController* Player )
+{
+	return FindPlayerStart(Player);
+}
+
 void AGameMode::PreInitializeComponents()
 {
 	Super::PreInitializeComponents();
 
-	GetWorldTimerManager().SetTimer(this, &AGameMode::DefaultTimer, GetWorldSettings()->GetEffectiveTimeDilation(), true);
+	GetWorldTimerManager().SetTimer(TimerHandle_DefaultTimer, this, &AGameMode::DefaultTimer, GetWorldSettings()->GetEffectiveTimeDilation(), true);
 	FActorSpawnParameters SpawnInfo;
 	SpawnInfo.Instigator = Instigator;
 
@@ -908,7 +913,7 @@ void AGameMode::ProcessServerTravel(const FString& URL, bool bAbsolute)
 	FString NextMap;
 	if (URL.ToUpper().Contains(TEXT("?RESTART")))
 	{
-		NextMap = GetOutermost()->GetName();
+		NextMap = UWorld::RemovePIEPrefix(GetOutermost()->GetName());
 	}
 	else
 	{

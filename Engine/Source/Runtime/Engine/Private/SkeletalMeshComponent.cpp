@@ -26,7 +26,7 @@
 #include "PhysicsEngine/PhysicsSettings.h"
 #include "PhysicsEngine/PhysicsAsset.h"
 
-TAutoConsoleVariable<int32> CVarUseParallelAnimationEvaluation(TEXT("a.ParallelAnimEvaluation"), 0, TEXT("If 1, animation evaluation will be run across the task graph system. If 0, evaluation will run purely on the game thread"));
+TAutoConsoleVariable<int32> CVarUseParallelAnimationEvaluation(TEXT("a.ParallelAnimEvaluation"), 1, TEXT("If 1, animation evaluation will be run across the task graph system. If 0, evaluation will run purely on the game thread"));
 
 class FParallelAnimationEvaluationTask
 {
@@ -98,7 +98,6 @@ USkeletalMeshComponent::USkeletalMeshComponent(const FObjectInitializer& ObjectI
 	bAutoActivate = true;
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.TickGroup = TG_PrePhysics;
-	PostPhysicsComponentTick.bCanEverTick = true;
 	bWantsInitializeComponent = true;
 	GlobalAnimRateScale = 1.0f;
 	bNoSkeletonUpdate = false;
@@ -1020,6 +1019,12 @@ void USkeletalMeshComponent::PostAnimEvaluation(FAnimationEvaluationContext& Eva
 
 		const float Alpha = 0.25f + (1.f / float(FMath::Max(AnimUpdateRateParams.GetEvaluationRate(), 2) * 2));
 		FAnimationRuntime::LerpBoneTransforms(LocalAtoms, CachedLocalAtoms, Alpha, RequiredBones);
+		if (bDoubleBufferedBlendSpaces)
+		{
+			// We need to prep our space bases for interp (TODO: Would a new Lerp function that took
+			// separate input and output be quicker than current copy + lerp in place?)
+			GetEditableSpaceBases() = GetSpaceBases();
+		}
 		FAnimationRuntime::LerpBoneTransforms(GetEditableSpaceBases(), CachedSpaceBases, Alpha, RequiredBones);
 	}
 
@@ -1035,7 +1040,7 @@ void USkeletalMeshComponent::PostAnimEvaluation(FAnimationEvaluationContext& Eva
 	// this causes issue where a half of frame, physics position is fixed with anim pose, and the other half is real simulated position
 	// if you enable physics in tick, since that's before physics update, you'll get animation pose dominating physics pose, which isn't what you want. (Or what you'll see)
 	// so do not update transform if physics is on. This problem will be solved by double buffer, when we keep one buffer for intermediate, and the other buffer for result query
-	if( !IsSimulatingPhysics() )
+	if (!bBlendPhysics && !ShouldBlendPhysicsBones())
 	{
 		SCOPE_CYCLE_COUNTER(STAT_UpdateLocalToWorldAndOverlaps);
 
@@ -1911,14 +1916,36 @@ void USkeletalMeshComponent::SetRootBodyIndex(int32 InBodyIndex)
 {
 	RootBodyData.BodyIndex = InBodyIndex;
 
-	if(Bodies.IsValidIndex(RootBodyData.BodyIndex) && 
+	if(Bodies.IsValidIndex(RootBodyData.BodyIndex) && SkeletalMesh && 
 		Bodies[RootBodyData.BodyIndex]->BodySetup.IsValid() && Bodies[RootBodyData.BodyIndex]->BodySetup.Get()->BoneName != NAME_None)
 	{
-		RootBodyData.BoneIndex = GetBoneIndex(Bodies[RootBodyData.BodyIndex]->BodySetup->BoneName);
+		int32 BoneIndex = GetBoneIndex(Bodies[RootBodyData.BodyIndex]->BodySetup->BoneName);
+		// if bone index is valid and not 0, it SHOULD have parnet index
+		if (ensure (BoneIndex != INDEX_NONE))
+		{
+			int32 ParentIndex = SkeletalMesh->RefSkeleton.GetParentIndex(BoneIndex);
+			if (BoneIndex != 0 && ensure (ParentIndex != INDEX_NONE))
+			{
+				const TArray<FTransform>& RefPose = SkeletalMesh->RefSkeleton.GetRefBonePose();
+
+				FTransform RelativeTransform = FTransform(SkeletalMesh->RefBasesInvMatrix[BoneIndex]) * RefPose[ParentIndex];
+				// now get offset 
+				RootBodyData.TransformToRoot = RelativeTransform;
+			}
+			else
+			{
+				RootBodyData.TransformToRoot = FTransform::Identity;
+			}
+		}
+		else
+		{
+			RootBodyData.TransformToRoot = FTransform::Identity;
+		}
 	}
 	else
 	{
-		// error
-		RootBodyData.BoneIndex = INDEX_NONE;
+		// error - this should not happen
+		ensure(false);
+		RootBodyData.TransformToRoot = FTransform::Identity;
 	}
 }

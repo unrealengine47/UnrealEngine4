@@ -52,7 +52,7 @@ FPhATEdPreviewViewportClient::FPhATEdPreviewViewportClient(TWeakPtr<FPhAT> InPhA
 	EngineShowFlags.CompositeEditorPrimitives = true;
 
 	// Get actors asset collision bounding box, and move actor so its not intersection the floor plane at Z = 0.
-	FBox CollBox = SharedData->PhysicsAsset->CalcAABB(SharedData->EditorSkelComp);	
+	FBox CollBox = SharedData->PhysicsAsset->CalcAABB(SharedData->EditorSkelComp, SharedData->EditorSkelComp->ComponentToWorld);	
 	FVector SkelCompLocation = FVector(0, 0, -CollBox.Min.Z + SharedData->EditorSimOptions->FloorGap);
 
 	SharedData->EditorSkelComp->SetAbsolute(true, true, true);
@@ -60,7 +60,7 @@ FPhATEdPreviewViewportClient::FPhATEdPreviewViewportClient(TWeakPtr<FPhAT> InPhA
 	SharedData->ResetTM = SharedData->EditorSkelComp->GetComponentToWorld();
 
 	// Get new bounding box and set view based on that.
-	CollBox = SharedData->PhysicsAsset->CalcAABB(SharedData->EditorSkelComp);	
+	CollBox = SharedData->PhysicsAsset->CalcAABB(SharedData->EditorSkelComp, SharedData->EditorSkelComp->ComponentToWorld);	
 	FVector CollBoxExtent = CollBox.GetExtent();
 
 	// Take into account internal mesh translation/rotation/scaling etc.
@@ -479,7 +479,7 @@ bool FPhATEdPreviewViewportClient::InputWidgetDelta( FViewport* Viewport, EAxisL
 
 			if ( SharedData->WidgetMode == FWidget::WM_Translate )
 			{
-				FVector Dir = SelectedObject.WidgetTM.InverseTransformVector( Drag.SafeNormal() );
+				FVector Dir = SelectedObject.WidgetTM.InverseTransformVector( Drag.GetSafeNormal() );
 				FVector DragVec = Dir * Drag.Size();
 				SelectedObject.ManipulateTM.AddToTranslation( DragVec );
 			}

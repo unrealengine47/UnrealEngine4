@@ -1519,7 +1519,8 @@ void FNativeClassHeaderGenerator::ExportInterfaceCallFunctions( const TArray<UFu
 			GeneratedPackageCPP.Logf(TEXT("%sParms.%s=%s;%s"), FCString::Spc(12), *Param->GetName(), *Param->GetName(), LINE_TERMINATOR);
 		}
 
-		GeneratedPackageCPP.Logf(TEXT("%sO->ProcessEvent(Func, %s);%s"), FCString::Spc(12), bHasParms ? TEXT("&Parms") : TEXT("NULL"), LINE_TERMINATOR);
+		const FString ObjectRef = FunctionData.FunctionReference->HasAllFunctionFlags(FUNC_Const) ? FString::Printf(TEXT("const_cast<UObject*>(O)"), *ClassName) : TEXT("O");
+		GeneratedPackageCPP.Logf(TEXT("%s%s->ProcessEvent(Func, %s);%s"), FCString::Spc(12), *ObjectRef, bHasParms ? TEXT("&Parms") : TEXT("NULL"), LINE_TERMINATOR);
 
 		for (auto It = Parameters.Parms.CreateConstIterator(); It; ++It)
 		{
@@ -2041,7 +2042,7 @@ void ExportStandardConstructorsMacro(FStringOutputDevice& Out, FClass* Class, co
 	if (!Class->HasAnyClassFlags(CLASS_CustomConstructor))
 	{
 		Out.Logf(TEXT("%s/** Standard constructor, called after all reflected properties have been initialized */\r\n"), FCString::Spc(4));
-		Out.Logf(TEXT("%s%s_API %s(const class FObjectInitializer& ObjectInitializer);\r\n"), FCString::Spc(4), *API, NameLookupCPP.GetNameCPP(Class));
+		Out.Logf(TEXT("%s%s_API %s(const FObjectInitializer& ObjectInitializer);\r\n"), FCString::Spc(4), *API, NameLookupCPP.GetNameCPP(Class));
 	}
 	Out.Logf(TEXT("%sDEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(%s)\r\n"), FCString::Spc(4), NameLookupCPP.GetNameCPP(Class));
 	ExportCopyConstructorDefinition(Out, Class, API);

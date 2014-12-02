@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include "DragAndDrop.h"
+
 // Base class for drag-drop actions that pass into the graph editor and perform an action when dropped
 class GRAPHEDITOR_API FGraphEditorDragDropAction : public FDragDropOperation
 {
@@ -25,6 +27,8 @@ public:
 	virtual void OnDragBegin(const TSharedRef<class SGraphPin>& InPin) {}
 	// End of interface to override
 	
+	virtual bool IsSupportedBySchema(const class UEdGraphSchema* Schema) const { return true; }
+
 protected:
 	void SetFeedbackMessage(const TSharedPtr<SWidget>& Message);
 	void SetSimpleFeedbackMessage(const FSlateBrush* Icon, const FSlateColor& IconColor, const FText& Message);

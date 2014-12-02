@@ -75,19 +75,11 @@ bool UGameplayAbility::CallRemoteFunction(UFunction* Function, void* Parameters,
 // TODO: polymorphic payload
 void UGameplayAbility::SendGameplayEvent(FGameplayTag EventTag, FGameplayEventData Payload)
 {
-	if (NetExecutionPolicy == EGameplayAbilityNetExecutionPolicy::Predictive)
+	UAbilitySystemComponent* AbilitySystemComponent = CurrentActorInfo->AbilitySystemComponent.Get();
+	if (ensure(AbilitySystemComponent))
 	{
-		Payload.PredictionKey = CurrentActivationInfo.GetPredictionKeyForNewAction();
-	}
-
-	AActor *OwnerActor = Cast<AActor>(GetOuter());
-	if (OwnerActor)
-	{
-		UAbilitySystemComponent* AbilitySystemComponent = OwnerActor->FindComponentByClass<UAbilitySystemComponent>();
-		if (ensure(AbilitySystemComponent))
-		{
-			AbilitySystemComponent->HandleGameplayEvent(EventTag, &Payload);
-		}
+		FScopedPredictionWindow NewScopedWindow(AbilitySystemComponent, true);
+		AbilitySystemComponent->HandleGameplayEvent(EventTag, &Payload);
 	}
 }
 
@@ -488,7 +480,7 @@ void UGameplayAbility::GetCooldownTimeRemainingAndDuration(FGameplayAbilitySpecH
 const FGameplayTagContainer* UGameplayAbility::GetCooldownTags() const
 {
 	UGameplayEffect* CDGE =GetCooldownGameplayEffect();
-	return CDGE ? &CDGE->InheritableClearTagsContainer.CombinedTags : nullptr;
+	return CDGE ? &CDGE->InheritableOwnedTagsContainer.CombinedTags : nullptr;
 }
 
 FGameplayAbilityActorInfo UGameplayAbility::GetActorInfo() const
@@ -542,14 +534,28 @@ FGameplayEffectSpecHandle UGameplayAbility::MakeOutgoingGameplayEffectSpec(const
 	FGameplayEffectSpecHandle NewHandle = ActorInfo->AbilitySystemComponent->MakeOutgoingSpec(GameplayEffectClass, Level, GetEffectContext(ActorInfo));
 	if (NewHandle.IsValid())
 	{
-		ApplyAbilityTagsToGameplayEffectSpec(*NewHandle.Data.Get());
+		FGameplayAbilitySpec* AbilitySpec =  ActorInfo->AbilitySystemComponent->FindAbilitySpecFromHandle(Handle);
+		ApplyAbilityTagsToGameplayEffectSpec(*NewHandle.Data.Get(), AbilitySpec);
 	}
 	return NewHandle;
 }
 
-void UGameplayAbility::ApplyAbilityTagsToGameplayEffectSpec(FGameplayEffectSpec& Spec) const
+void UGameplayAbility::ApplyAbilityTagsToGameplayEffectSpec(FGameplayEffectSpec& Spec, FGameplayAbilitySpec* AbilitySpec) const
 {
 	Spec.CapturedSourceTags.GetSpecTags().AppendTags(AbilityTags);
+
+	// Allow the source object of the ability to propagate tags along as well
+	if (AbilitySpec)
+	{
+		const IGameplayTagAssetInterface* SourceObjAsTagInterface = Cast<IGameplayTagAssetInterface>(AbilitySpec->SourceObject);
+		if (SourceObjAsTagInterface)
+		{
+			FGameplayTagContainer SourceObjTags;
+			SourceObjAsTagInterface->GetOwnedGameplayTags(SourceObjTags);
+
+			Spec.CapturedSourceTags.GetSpecTags().AppendTags(SourceObjTags);
+		}
+	}
 }
 
 /** Fixme: Naming is confusing here */
@@ -726,19 +732,19 @@ void UGameplayAbility::TaskEnded(UAbilityTask* Task)
 void UGameplayAbility::K2_ExecuteGameplayCue(FGameplayTag GameplayCueTag, FGameplayEffectContextHandle Context)
 {
 	check(CurrentActorInfo);
-	CurrentActorInfo->AbilitySystemComponent->ExecuteGameplayCue(GameplayCueTag, CurrentActivationInfo.GetPredictionKeyForNewAction(), Context);
+	CurrentActorInfo->AbilitySystemComponent->ExecuteGameplayCue(GameplayCueTag, Context);
 }
 
 void UGameplayAbility::K2_AddGameplayCue(FGameplayTag GameplayCueTag, FGameplayEffectContextHandle Context)
 {
 	check(CurrentActorInfo);
-	CurrentActorInfo->AbilitySystemComponent->AddGameplayCue(GameplayCueTag, CurrentActivationInfo.GetPredictionKeyForNewAction(), Context);
+	CurrentActorInfo->AbilitySystemComponent->AddGameplayCue(GameplayCueTag, Context);
 }
 
 void UGameplayAbility::K2_RemoveGameplayCue(FGameplayTag GameplayCueTag)
 {
 	check(CurrentActorInfo);
-	CurrentActorInfo->AbilitySystemComponent->RemoveGameplayCue(GameplayCueTag, CurrentActivationInfo.GetPredictionKeyForNewAction());
+	CurrentActorInfo->AbilitySystemComponent->RemoveGameplayCue(GameplayCueTag);
 }
 
 FGameplayEffectContextHandle UGameplayAbility::GetContextFromOwner(FGameplayAbilityTargetDataHandle OptionalTargetData) const
@@ -750,7 +756,7 @@ FGameplayEffectContextHandle UGameplayAbility::GetContextFromOwner(FGameplayAbil
 	{
 		if (Data.IsValid())
 		{
-			Data->AddTargetDataToContext(Context);
+			Data->AddTargetDataToContext(Context, true);
 		}
 	}
 
@@ -816,6 +822,11 @@ bool UGameplayAbility::IsTriggered() const
 	return AbilityTriggers.Num() > 0;
 }
 
+bool UGameplayAbility::HasAuthorityOrPredictionKey(const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo* ActivationInfo) const
+{
+	return ActorInfo->AbilitySystemComponent->HasAuthorityOrPredictionKey(ActivationInfo);
+}
+
 // -------------------------------------------------------
 
 FActiveGameplayEffectHandle UGameplayAbility::BP_ApplyGameplayEffectToOwner(TSubclassOf<UGameplayEffect> GameplayEffectClass, int32 GameplayEffectLevel)
@@ -846,18 +857,35 @@ FActiveGameplayEffectHandle UGameplayAbility::K2_ApplyGameplayEffectToOwner(cons
 
 FActiveGameplayEffectHandle UGameplayAbility::ApplyGameplayEffectToOwner(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const UGameplayEffect* GameplayEffect, float GameplayEffectLevel)
 {
-	if (GameplayEffect && (ActivationInfo.ActivationMode == EGameplayAbilityActivationMode::Authority || ActivationInfo.ActivationMode == EGameplayAbilityActivationMode::Predicting))
+	if (GameplayEffect && (HasAuthorityOrPredictionKey(ActorInfo, &ActivationInfo)))
 	{
 		FGameplayEffectSpecHandle SpecHandle = MakeOutgoingGameplayEffectSpec(Handle, ActorInfo, ActivationInfo, GameplayEffect->GetClass(), GameplayEffectLevel);
 		if (SpecHandle.IsValid())
 		{
-			return ActorInfo->AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get(), ActivationInfo.GetPredictionKeyForNewAction());
+			return ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, SpecHandle);
 		}
 	}
 
 	// We cannot apply GameplayEffects in this context. Return an empty handle.
 	return FActiveGameplayEffectHandle();
 }
+
+FActiveGameplayEffectHandle UGameplayAbility::K2_ApplyGameplayEffectSpecToOwner(const FGameplayEffectSpecHandle EffectSpecHandle)
+{
+	return ApplyGameplayEffectSpecToOwner(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, EffectSpecHandle);
+}
+
+FActiveGameplayEffectHandle UGameplayAbility::ApplyGameplayEffectSpecToOwner(const FGameplayAbilitySpecHandle AbilityHandle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEffectSpecHandle SpecHandle)
+{
+	if (SpecHandle.IsValid() && (HasAuthorityOrPredictionKey(ActorInfo, &ActivationInfo)))
+	{
+		return ActorInfo->AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get(), ActorInfo->AbilitySystemComponent->GetPredictionKeyForNewAction());
+
+	}
+	return FActiveGameplayEffectHandle();
+}
+
+// -------------------------------
 
 FActiveGameplayEffectHandle UGameplayAbility::BP_ApplyGameplayEffectToTarget(FGameplayAbilityTargetDataHandle Target, TSubclassOf<UGameplayEffect> GameplayEffectClass, int32 GameplayEffectLevel)
 {
@@ -890,19 +918,36 @@ FActiveGameplayEffectHandle UGameplayAbility::ApplyGameplayEffectToTarget(const 
 	}
 
 	FActiveGameplayEffectHandle EffectHandle;
-	if (ActivationInfo.ActivationMode == EGameplayAbilityActivationMode::Authority || ActivationInfo.ActivationMode == EGameplayAbilityActivationMode::Predicting)
+
+	if (HasAuthorityOrPredictionKey(ActorInfo, &ActivationInfo))
 	{
 		FGameplayEffectSpecHandle SpecHandle = MakeOutgoingGameplayEffectSpec(Handle, ActorInfo, ActivationInfo, GameplayEffectClass, GameplayEffectLevel);
+		EffectHandle = ApplyGameplayEffectSpecToTarget(Handle, ActorInfo, ActivationInfo, SpecHandle, Target);
+	}
 
-		for (auto Data : Target.Data)
+	return EffectHandle;
+}
+
+FActiveGameplayEffectHandle UGameplayAbility::K2_ApplyGameplayEffectSpecToTarget(const FGameplayEffectSpecHandle SpecHandle, FGameplayAbilityTargetDataHandle TargetData)
+{
+	return ApplyGameplayEffectSpecToTarget(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, SpecHandle, TargetData);
+}
+
+FActiveGameplayEffectHandle UGameplayAbility::ApplyGameplayEffectSpecToTarget(const FGameplayAbilitySpecHandle AbilityHandle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEffectSpecHandle SpecHandle, FGameplayAbilityTargetDataHandle TargetData)
+{
+	FActiveGameplayEffectHandle EffectHandle;
+	
+	if (SpecHandle.IsValid() && HasAuthorityOrPredictionKey(ActorInfo, &ActivationInfo))
+	{
+		for (auto Data : TargetData.Data)
 		{
-			TArray<FActiveGameplayEffectHandle> EffectHandles = Data->ApplyGameplayEffectSpec(*SpecHandle.Data.Get(), ActivationInfo.GetPredictionKeyForNewAction());
+			TArray<FActiveGameplayEffectHandle> EffectHandles = Data->ApplyGameplayEffectSpec(*SpecHandle.Data.Get(), ActorInfo->AbilitySystemComponent->GetPredictionKeyForNewAction());
 			if (EffectHandles.Num() > 0)
 			{
 				EffectHandle = EffectHandles[0];
 				if (EffectHandles.Num() > 1)
 				{
-					ABILITY_LOG(Warning, TEXT("ApplyGameplayEffectToTargetData_Single called on TargetData with multiple actor targets. %s"), *GetName());
+					ABILITY_LOG(Warning, TEXT("ApplyGameplayEffectSpecToTarget called on TargetData with multiple actor targets. Only returning 1 handle though we applied many. %s"), *GetName());
 				}
 			}
 		}

@@ -7,7 +7,9 @@
 #include "UniquePtr.h"
 #include "NavigationData.generated.h"
 
+class UNavigationQueryFilter;
 class FNavDataGenerator; 
+class INavLinkCustomInterface;
 
 USTRUCT()
 struct FSupportedAreaData
@@ -83,9 +85,9 @@ struct ENGINE_API FNavigationPath : public TSharedFromThis<FNavigationPath, ESPM
 	{
 		return bReachedSearchLimit;
 	}
-	FORCEINLINE bool IsDirect() const
+	FORCEINLINE bool IsWaitingForRepath() const
 	{
-		return NavigationDataUsed.Get() == NULL;
+		return bWaitingForRepath;
 	}
 	FORCEINLINE FVector GetDestinationLocation() const
 	{
@@ -157,8 +159,11 @@ struct ENGINE_API FNavigationPath : public TSharedFromThis<FNavigationPath, ESPM
 
 	FORCEINLINE void DoneUpdating(ENavPathUpdateType::Type UpdateType)
 	{
-		bUpToDate = true; ObserverDelegate.Broadcast(this, UpdateType == ENavPathUpdateType::GoalMoved ? ENavPathEvent::UpdatedDueToGoalMoved : ENavPathEvent::UpdatedDueToNavigationChanged);
+		bUpToDate = true;
+		bWaitingForRepath = false;
+		ObserverDelegate.Broadcast(this, UpdateType == ENavPathUpdateType::GoalMoved ? ENavPathEvent::UpdatedDueToGoalMoved : ENavPathEvent::UpdatedDueToNavigationChanged);
 	}
+
 	void Invalidate();
 	void RePathFailed();
 
@@ -349,6 +354,9 @@ protected:
 	/** if true path will request re-pathing if it gets invalidated due to underlying navigation changed */
 	uint32 bDoAutoUpdateOnInvalidation : 1;
 
+	/** set when path is waiting for recalc from navigation data */
+	uint32 bWaitingForRepath : 1;
+
 	/** navigation data used to generate this path */
 	TWeakObjectPtr<ANavigationData> NavigationDataUsed;
 
@@ -435,10 +443,10 @@ public:
 	const FNavDataConfig& GetConfig() const { return NavDataConfig; }
 	virtual void SetConfig(const FNavDataConfig& Src) { NavDataConfig = Src; }
 
-	void SetSupportsDefaultAgent(bool bIsDefault) { bSupportsDefaultAgent = bIsDefault; bEnableDrawing = bIsDefault; } 
+	void SetSupportsDefaultAgent(bool bIsDefault) { bSupportsDefaultAgent = bIsDefault; SetNavRenderingEnabled(bIsDefault); }
 	bool IsSupportingDefaultAgent() const { return bSupportsDefaultAgent; }
 
-	virtual bool DoesSupportAgent(const FNavAgentProperties& AgentProps) const { return false; }
+	virtual bool DoesSupportAgent(const FNavAgentProperties& AgentProps) const;
 
 protected:
 	virtual void FillConfig(FNavDataConfig& Dest) { Dest = NavDataConfig; }
@@ -689,25 +697,28 @@ public:
 	// Custom navigation links
 	//----------------------------------------------------------------------//
 
-	virtual void UpdateCustomLink(const class INavLinkCustomInterface* CustomLink);
+	virtual void UpdateCustomLink(const INavLinkCustomInterface* CustomLink);
 
 	//----------------------------------------------------------------------//
 	// Filters
 	//----------------------------------------------------------------------//
 
 	/** get cached query filter */
-	TSharedPtr<const FNavigationQueryFilter> GetQueryFilter(TSubclassOf<class UNavigationQueryFilter> FilterClass) const;
+	TSharedPtr<const FNavigationQueryFilter> GetQueryFilter(TSubclassOf<UNavigationQueryFilter> FilterClass) const;
 
 	/** store cached query filter */
-	void StoreQueryFilter(TSubclassOf<class UNavigationQueryFilter> FilterClass, TSharedPtr<const FNavigationQueryFilter> NavFilter);
+	void StoreQueryFilter(TSubclassOf<UNavigationQueryFilter> FilterClass, TSharedPtr<const FNavigationQueryFilter> NavFilter);
 
 	/** removes cached query filter */
-	void RemoveQueryFilter(TSubclassOf<class UNavigationQueryFilter> FilterClass);
+	void RemoveQueryFilter(TSubclassOf<UNavigationQueryFilter> FilterClass);
 
 	//----------------------------------------------------------------------//
 	// all the rest                                                                
 	//----------------------------------------------------------------------//
 	virtual UPrimitiveComponent* ConstructRenderingComponent() { return NULL; }
+
+	/** updates state of rendering component */
+	void SetNavRenderingEnabled(bool bEnable);
 
 protected:
 	void InstantiateAndRegisterRenderingComponent();

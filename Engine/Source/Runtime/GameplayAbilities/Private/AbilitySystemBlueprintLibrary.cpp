@@ -220,7 +220,7 @@ FTransform UAbilitySystemBlueprintLibrary::GetTargetDataOrigin(FGameplayAbilityT
 			const FHitResult* HitResultPtr = Data->GetHitResult();
 			FTransform ReturnTransform;
 			ReturnTransform.SetLocation(HitResultPtr->TraceStart);
-			ReturnTransform.SetRotation((HitResultPtr->Location - HitResultPtr->TraceStart).SafeNormal().Rotation().Quaternion());
+			ReturnTransform.SetRotation((HitResultPtr->Location - HitResultPtr->TraceStart).GetSafeNormal().Rotation().Quaternion());
 			return ReturnTransform;
 		}
 	}
@@ -271,10 +271,18 @@ bool UAbilitySystemBlueprintLibrary::IsInstigatorLocallyControlled(FGameplayCueP
 	return Parameters.EffectContext.IsLocallyControlled();
 }
 
-
-TArray<TWeakObjectPtr<AActor>> UAbilitySystemBlueprintLibrary::GetActors(FGameplayCueParameters Parameters)
+int32 UAbilitySystemBlueprintLibrary::GetActorCount(FGameplayCueParameters Parameters)
 {
-	return Parameters.EffectContext.GetActors();
+	return Parameters.EffectContext.GetActors().Num();
+}
+
+AActor* UAbilitySystemBlueprintLibrary::GetActorByIndex(FGameplayCueParameters Parameters, int32 Index)
+{
+	if (Parameters.EffectContext.GetActors().IsValidIndex(Index))
+	{
+		return Parameters.EffectContext.GetActors()[Index].Get();
+	}
+	return NULL;
 }
 
 FHitResult UAbilitySystemBlueprintLibrary::GetHitResult(FGameplayCueParameters Parameters)
@@ -326,4 +334,81 @@ FVector UAbilitySystemBlueprintLibrary::GetOrigin(FGameplayCueParameters Paramet
 	}
 
 	return FVector::ZeroVector;
+}
+
+// ---------------------------------------------------------------------------------------
+
+FGameplayEffectSpecHandle UAbilitySystemBlueprintLibrary::AssignSetByCallerMagnitude(FGameplayEffectSpecHandle SpecHandle, FName DataName, float Magnitude)
+{
+	FGameplayEffectSpec* Spec = SpecHandle.Data.Get();
+	if (Spec)
+	{
+		Spec->SetMagnitude(DataName, Magnitude);
+	}
+	else
+	{
+		ABILITY_LOG(Warning, TEXT("UAbilitySystemBlueprintLibrary::AssignSetByCallerMagnitude called with invalid SpecHandle"));
+	}
+
+	return SpecHandle;
+}
+
+FGameplayEffectSpecHandle UAbilitySystemBlueprintLibrary::SetDuration(FGameplayEffectSpecHandle SpecHandle, float Duration)
+{
+	FGameplayEffectSpec* Spec = SpecHandle.Data.Get();
+	if (Spec)
+	{
+		Spec->SetDuration(Duration);
+	}
+	else
+	{
+		ABILITY_LOG(Warning, TEXT("UAbilitySystemBlueprintLibrary::SetDuration called with invalid SpecHandle"));
+	}
+
+	return SpecHandle;
+}
+
+FGameplayEffectSpecHandle UAbilitySystemBlueprintLibrary::AddGrantedTag(FGameplayEffectSpecHandle SpecHandle, FGameplayTag NewGameplayTag)
+{
+	FGameplayEffectSpec* Spec = SpecHandle.Data.Get();
+	if (Spec)
+	{
+		Spec->DynamicGrantedTags.AddTag(NewGameplayTag);
+	}
+	else
+	{
+		ABILITY_LOG(Warning, TEXT("UAbilitySystemBlueprintLibrary::AddGrantedTag called with invalid SpecHandle"));
+	}
+
+	return SpecHandle;
+}
+
+FGameplayEffectSpecHandle UAbilitySystemBlueprintLibrary::AddGrantedTags(FGameplayEffectSpecHandle SpecHandle, FGameplayTagContainer NewGameplayTags)
+{
+	FGameplayEffectSpec* Spec = SpecHandle.Data.Get();
+	if (Spec)
+	{
+		Spec->DynamicGrantedTags.AppendTags(NewGameplayTags);
+	}
+	else
+	{
+		ABILITY_LOG(Warning, TEXT("UAbilitySystemBlueprintLibrary::AddGrantedTags called with invalid SpecHandle"));
+	}
+
+	return SpecHandle;
+}
+	
+FGameplayEffectSpecHandle UAbilitySystemBlueprintLibrary::AddLinkedGameplayEffectSpec(FGameplayEffectSpecHandle SpecHandle, FGameplayEffectSpecHandle LinkedGameplayEffectSpec)
+{
+	FGameplayEffectSpec* Spec = SpecHandle.Data.Get();
+	if (Spec)
+	{
+		Spec->TargetEffectSpecs.Add(LinkedGameplayEffectSpec);
+	}
+	else
+	{
+		ABILITY_LOG(Warning, TEXT("UAbilitySystemBlueprintLibrary::AddLinkedGameplayEffectSpec called with invalid SpecHandle"));
+	}
+
+	return SpecHandle;
 }

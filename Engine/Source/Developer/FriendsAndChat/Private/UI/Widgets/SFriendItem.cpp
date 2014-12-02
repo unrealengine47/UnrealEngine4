@@ -25,21 +25,21 @@ public:
 				SAssignNew(RemoveConfirmationAnchor, SMenuAnchor)
 				.Method(InArgs._Method)
 				.OnGetMenuContent(this, &SFriendItemImpl::GetRemoveConfirmationContent)
-				.Placement(MenuMethod == SMenuAnchor::UseCurrentWindow ? MenuPlacement_MenuLeft : MenuPlacement_MenuRight)
+				.Placement(MenuMethod == EPopupMethod::UseCurrentWindow ? MenuPlacement_MenuLeft : MenuPlacement_MenuRight)
 			]
 			+ SOverlay::Slot()
 			[
 				SAssignNew(JoinGameConfirmationAnchor, SMenuAnchor)
 				.Method(InArgs._Method)
 				.OnGetMenuContent(this, &SFriendItemImpl::GetJoinGameConfirmationContent)
-				.Placement(MenuMethod == SMenuAnchor::UseCurrentWindow ? MenuPlacement_MenuLeft : MenuPlacement_MenuRight)
+				.Placement(MenuMethod == EPopupMethod::UseCurrentWindow ? MenuPlacement_MenuLeft : MenuPlacement_MenuRight)
 			]
 			+SOverlay::Slot()
 			[
 				SAssignNew(Anchor, SMenuAnchor)
 				.Method(InArgs._Method)
 				.OnGetMenuContent(this, &SFriendItemImpl::GetMenuContent)
-				.Placement(MenuMethod == SMenuAnchor::UseCurrentWindow ? MenuPlacement_MenuLeft : MenuPlacement_MenuRight)
+				.Placement(MenuMethod == EPopupMethod::UseCurrentWindow ? MenuPlacement_MenuLeft : MenuPlacement_MenuRight)
 				.Content()
 				[
 					SNew(SButton)
@@ -153,8 +153,10 @@ private:
 			.Padding(5)
 			[
 				SNew(SButton)
+				.IsEnabled(this, &SFriendItemImpl::IsActionEnabled, FriendAction)
 				.OnClicked(this, &SFriendItemImpl::HandleActionClicked, FriendAction)
 				.ButtonStyle(&FriendStyle.FriendListActionButtonStyle)
+				.IsEnabled(this, &SFriendItemImpl::IsActionEnabled, FriendAction)
 				.VAlign(VAlign_Center)
 				.HAlign(HAlign_Center)
 				[
@@ -280,6 +282,11 @@ private:
 		return Contents;
 	}
 
+	bool IsActionEnabled(const EFriendActionType::Type FriendAction) const
+	{
+		return ViewModel->CanPerformAction(FriendAction);
+	}
+
 	FReply HandleActionClicked(const EFriendActionType::Type FriendAction)
 	{
 		if( FriendAction == EFriendActionType::RemoveFriend)
@@ -338,7 +345,7 @@ private:
 			else
 			{
 				OpenTime -= InDeltaTime;
-				if (OpenTime < 0 || MenuMethod != SMenuAnchor::CreateNewWindow)
+				if (OpenTime < 0 || MenuMethod != EPopupMethod::CreateNewWindow)
 				{
 					Anchor->SetIsOpen(false);
 				}
@@ -359,7 +366,7 @@ private:
 
 	TSharedPtr<SWidget> MenuContent;
 
-	SMenuAnchor::EMethod MenuMethod;
+	EPopupMethod MenuMethod;
 
 	float OpenTime;
 };

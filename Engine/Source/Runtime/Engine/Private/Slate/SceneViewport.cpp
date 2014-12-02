@@ -335,8 +335,6 @@ FCursorReply FSceneViewport::OnCursorQuery( const FGeometry& MyGeometry, const F
 	return FCursorReply::Cursor(MouseCursorToUse);
 }
 
-
-
 FReply FSceneViewport::OnMouseButtonDown( const FGeometry& InGeometry, const FPointerEvent& InMouseEvent )
 {
 	// Start a new reply state
@@ -766,7 +764,11 @@ FReply FSceneViewport::OnFocusReceived(const FFocusEvent& InFocusEvent)
 		{
 			if (IsForegroundWindow())
 			{
-				const bool bIsCursorForcedVisible = ViewportClient->GetCursor(this, GetMouseX(), GetMouseY()) != EMouseCursor::None;
+				bool bIsCursorForcedVisible = false;
+				if (ViewportClient->GetWorld() && ViewportClient->GetWorld()->GetFirstPlayerController())
+				{
+					bIsCursorForcedVisible = ViewportClient->GetWorld()->GetFirstPlayerController()->GetMouseCursor() != EMouseCursor::None;
+				}
 
 				const bool bPlayInEditorCapture = !bIsPlayInEditorViewport || InFocusEvent.GetCause() != EFocusCause::SetDirectly || bPlayInEditorGetsMouseControl;
 

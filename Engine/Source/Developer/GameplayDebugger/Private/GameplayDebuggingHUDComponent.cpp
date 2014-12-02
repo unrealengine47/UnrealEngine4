@@ -4,6 +4,7 @@
 	HUD.cpp: Heads up Display related functionality
 =============================================================================*/
 #include "GameplayDebuggerPrivate.h"
+#include "GameplayDebuggerSettings.h"
 #include "Net/UnrealNetwork.h"
 #include "GameplayDebuggingComponent.h"
 #include "GameplayDebuggingHUDComponent.h"
@@ -73,11 +74,11 @@ AGameplayDebuggingReplicator* AGameplayDebuggingHUDComponent::GetDebuggingReplic
 
 void AGameplayDebuggingHUDComponent::GetKeyboardDesc(TArray<FDebugCategoryView>& Categories)
 {
-	Categories.Add(FDebugCategoryView(EAIDebugDrawDataView::NavMesh, "NavMesh"));			// Num0
-	Categories.Add(FDebugCategoryView(EAIDebugDrawDataView::Basic, "Basic"));
-	Categories.Add(FDebugCategoryView(EAIDebugDrawDataView::BehaviorTree, "Behavior"));
-	Categories.Add(FDebugCategoryView(EAIDebugDrawDataView::EQS, "EQS"));
-	Categories.Add(FDebugCategoryView(EAIDebugDrawDataView::Perception, "Perception"));
+	Categories.Add(FDebugCategoryView(EAIDebugDrawDataView::NavMesh, TEXT("NavMesh")));
+	Categories.Add(FDebugCategoryView(EAIDebugDrawDataView::Basic, TEXT("Basic")));
+	Categories.Add(FDebugCategoryView(EAIDebugDrawDataView::BehaviorTree, TEXT("BehaviorTree")));
+	Categories.Add(FDebugCategoryView(EAIDebugDrawDataView::EQS, TEXT("EQS")));
+	Categories.Add(FDebugCategoryView(EAIDebugDrawDataView::Perception, TEXT("Perception")));
 }
 
 void AGameplayDebuggingHUDComponent::PrintAllData()
@@ -634,19 +635,14 @@ void AGameplayDebuggingHUDComponent::DrawNavMeshSnapshot(APlayerController* PC, 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	if (DebugComponent && DebugComponent->NavmeshRepData.Num())
 	{
-		float TimeLeft = 0.0f;
 		UGameplayDebuggingControllerComponent*  GDC = PC ? PC->FindComponentByClass<UGameplayDebuggingControllerComponent>() : NULL;
+		FString NextUpdateDesc;
 		if (GDC)
 		{
-			TimeLeft = GetWorldTimerManager().GetTimerRemaining(GDC, &UGameplayDebuggingControllerComponent::UpdateNavMeshTimer);
-		}
-
-		FString NextUpdateDesc;
-		if (TimeLeft > 0.0f)
-		{
+			const float TimeLeft = GDC->GetUpdateNavMeshTimeRemaining();
 			NextUpdateDesc = FString::Printf(TEXT(", next update: {yellow}%.1fs"), TimeLeft);
 		}
-	
+
 		PrintString(DefaultContext, FString::Printf(TEXT("\n\n{green}Showing NavMesh (%.1fkB)%s\n"),
 			DebugComponent->NavmeshRepData.Num() / 1024.0f, *NextUpdateDesc));
 	}

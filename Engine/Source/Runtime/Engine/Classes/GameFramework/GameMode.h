@@ -1,6 +1,7 @@
 // Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
+#include "TimerManager.h"
 #include "GameFramework/Info.h"
 #include "GameMode.generated.h"
 
@@ -142,23 +143,23 @@ public:
 	 * perform map travels using SeamlessTravel() which loads in the background and doesn't disconnect clients
 	 * @see World::SeamlessTravel()
 	 */
-	UPROPERTY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GameMode")
 	uint32 bUseSeamlessTravel : 1;
 
 	/** Whether the game is pauseable. */
-	UPROPERTY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GameMode")
 	uint32 bPauseable:1;
 
 	/** Whether players should immediately spawn when logging in, or stay as spectators until they manually spawn */
-	UPROPERTY()
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="GameMode")
 	uint32 bStartPlayersAsSpectators : 1;
 
 	/** Whether the game should immediately start when the first player logs in. Affects the default behavior of ReadyToStartMatch */
-	UPROPERTY()
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="GameMode")
 	uint32 bDelayedStart : 1;
 
 	/** Save options string and parse it when needed */
-	UPROPERTY()
+	UPROPERTY(BlueprintReadOnly, Category="GameMode")
 	FString OptionsString;
 
 	/** The default pawn class used by players. */
@@ -501,6 +502,9 @@ public:
 	 */
 	virtual class AActor* FindPlayerStart( AController* Player, const FString& IncomingName = TEXT("") );
 
+	UFUNCTION(BlueprintPure, Category=Game, meta=(FriendlyName="FindPlayerStart"))
+	AActor* K2_FindPlayerStart(AController* Player);
+
 	/** 
 	* Return the 'best' player start for this player to start from.  
 	* Default implementation just returns the first PlayerStart found.
@@ -593,6 +597,10 @@ public:
 	virtual void DefaultTimer();	
 
 protected:
+
+	/** Handle for efficient management of DefaultTimer timer */
+	FTimerHandle TimerHandle_DefaultTimer;
+
 	/**
 	 * Customize incoming player based on URL options
 	 *

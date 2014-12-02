@@ -65,6 +65,14 @@ void FCollisionResponse::SetAllChannels(ECollisionResponse NewResponse)
 #endif
 }
 
+void FCollisionResponse::ReplaceChannels(ECollisionResponse OldResponse, ECollisionResponse NewResponse)
+{
+	ResponseToChannels.ReplaceChannels(OldResponse, NewResponse);
+#if 1// @hack until PostLoad is disabled for CDO of BP WITH_EDITOR
+	UpdateArrayFromResponseContainer();
+#endif
+}
+
 /** Returns the response set on the specified channel */
 ECollisionResponse FCollisionResponse::GetResponse(ECollisionChannel Channel) const
 {
@@ -474,6 +482,14 @@ void FBodyInstance::SetResponseToAllChannels(ECollisionResponse NewResponse)
 	UpdatePhysicsFilterData();
 }
 	
+void FBodyInstance::ReplaceResponseToChannels(ECollisionResponse OldResponse, ECollisionResponse NewResponse)
+{
+	InvalidateCollisionProfileName();
+	ResponseToChannels_DEPRECATED.ReplaceChannels(OldResponse, NewResponse);
+	CollisionResponses.ReplaceChannels(OldResponse, NewResponse);
+	UpdatePhysicsFilterData();
+}
+
 void FBodyInstance::SetResponseToChannels(const FCollisionResponseContainer& NewReponses)
 {
 	InvalidateCollisionProfileName();
@@ -597,7 +613,7 @@ void FBodyInstance::CreateDOFLock()
 		DOFConstraint->LinearYMotion = ELinearConstraintMotion::LCM_Free;
 		DOFConstraint->LinearZMotion = ELinearConstraintMotion::LCM_Free;
 
-		FVector Normal = LockedAxis.SafeNormal();
+		FVector Normal = LockedAxis.GetSafeNormal();
 		FVector Sec;
 		FVector Garbage;
 		Normal.FindBestAxisVectors(Garbage, Sec);
@@ -3056,6 +3072,28 @@ void FBodyInstance::SetMaxDepenetrationVelocity(float MaxVelocity)
 
 }
 
+
+void FBodyInstance::AddCustomPhysics(FCalculateCustomPhysics& CalculateCustomPhysics)
+{
+	
+#if WITH_PHYSX
+	PxRigidBody* PRigidBody = GetPxRigidBody();
+	if (IsRigidBodyNonKinematic(PRigidBody))
+	{
+		const PxScene* PScene = PRigidBody->getScene();
+		FPhysScene* PhysScene = FPhysxUserData::Get<FPhysScene>(PScene->userData);
+		PhysScene->AddCustomPhysics(this, CalculateCustomPhysics);
+	}
+#endif // WITH_PHYSX
+
+#if WITH_BOX2D
+	if (BodyInstancePtr)
+	{
+		// Since Box2D does not have any substepping, might as well apply custom forces now
+		CalculateCustomPhysics.ExecuteIfBound(0.0f, this);
+	}
+#endif
+}
 
 void FBodyInstance::AddForce(const FVector& Force, bool bAllowSubstepping)
 {

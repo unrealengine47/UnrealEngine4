@@ -4,10 +4,8 @@
 
 #include "Engine/LatentActionManager.h"
 #include "BlueprintFunctionLibrary.h"
+#include "Engine/CollisionProfile.h"
 #include "KismetSystemLibrary.generated.h"
-
-/** It's just a proxy for FTimerDynamicDelegate */
-DECLARE_DYNAMIC_DELEGATE(FBlueprintTimerDynamicDelegate);
 
 UENUM(BlueprintType)
 namespace EDrawDebugTrace
@@ -206,7 +204,11 @@ class UKismetSystemLibrary : public UBlueprintFunctionLibrary
 	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly = "TRUE"))
 	static void PrintWarning(const FString& InString);
 
-	/** 
+	/** Sets the game window title */
+	UFUNCTION(BlueprintCallable, Category = "Utilities")
+	static void SetWindowTitle(const FText& Title);
+
+	/**
 	 * Executes a console command, optionally on a specific controller
 	 * 
 	 * @param	Command			Command to send to the console
@@ -262,7 +264,7 @@ class UKismetSystemLibrary : public UBlueprintFunctionLibrary
 	 * @param bLooping		true to keep executing the delegate every Time seconds, false to execute delegate only once.
 	 */
 	UFUNCTION(BlueprintCallable, meta=(FriendlyName = "SetTimerDelegate"), Category="Utilities|Time")
-	static void K2_SetTimerDelegate(FBlueprintTimerDynamicDelegate Delegate, float Time, bool bLooping);
+	static void K2_SetTimerDelegate(FTimerDynamicDelegate Delegate, float Time, bool bLooping);
 
 	/**
 	 * Clears a set timer.
@@ -383,6 +385,23 @@ class UKismetSystemLibrary : public UBlueprintFunctionLibrary
 	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly = "true", AutoCreateRefTerm = "Value" ))
 	static void SetTransformPropertyByName(UObject* Object, FName PropertyName, const FTransform& Value);
 
+	/** Set a CollisionProfileName property by name */
+	UFUNCTION(BlueprintCallable, CustomThunk, meta = (BlueprintInternalUseOnly = "true", AutoCreateRefTerm = "Value"))
+	static void SetCollisionProfileNameProperty(UObject* Object, FName PropertyName, const FCollisionProfileName& Value);
+
+	DECLARE_FUNCTION(execSetCollisionProfileNameProperty)
+	{
+		P_GET_OBJECT(UObject, OwnerObject);
+		P_GET_PROPERTY(UNameProperty, StructPropertyName);
+
+		Stack.StepCompiledIn<UStructProperty>(NULL);
+		void* SrcStructAddr = Stack.MostRecentPropertyAddress;
+
+		P_FINISH;
+
+		Generic_SetStructurePropertyByName(OwnerObject, StructPropertyName, SrcStructAddr);
+	}
+
 	/** Set a custom structure property by name */
 	UFUNCTION(BlueprintCallable, CustomThunk, meta = (BlueprintInternalUseOnly = "true", CustomStructureParam = "Value"))
 	static void SetStructurePropertyByName(UObject* Object, FName PropertyName, const FGenericStruct& Value);
@@ -421,7 +440,7 @@ class UKismetSystemLibrary : public UBlueprintFunctionLibrary
 	UFUNCTION(BlueprintCallable, Category="Collision", meta=(WorldContext="WorldContextObject", AutoCreateRefTerm="ActorsToIgnore", FriendlyName = "SphereOverlapActors"))
 	static ENGINE_API bool SphereOverlapActors_NEW(UObject* WorldContextObject, const FVector SpherePos, float SphereRadius, const TArray<TEnumAsByte<EObjectTypeQuery> > & ObjectTypes, UClass* ActorClassFilter, const TArray<AActor*>& ActorsToIgnore, TArray<class AActor*>& OutActors);
 
-	UFUNCTION(BlueprintCallable, Category="Collision", meta=(DeprecatedFunction, DeprecationMessage = "Use new SphereOverlaActors", WorldContext="WorldContextObject", AutoCreateRefTerm="ActorsToIgnore"))
+	UFUNCTION(BlueprintCallable, Category="Collision", meta=(DeprecatedFunction, DeprecationMessage = "Use new SphereOverlapActors", WorldContext="WorldContextObject", AutoCreateRefTerm="ActorsToIgnore"))
 	static ENGINE_API bool SphereOverlapActors_DEPRECATED(UObject* WorldContextObject, const FVector SpherePos, float SphereRadius, EOverlapFilterOption Filter, UClass* ActorClassFilter, const TArray<AActor*>& ActorsToIgnore, TArray<class AActor*>& OutActors);
 
 	/**

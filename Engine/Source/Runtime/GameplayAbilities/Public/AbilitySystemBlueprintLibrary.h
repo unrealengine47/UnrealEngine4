@@ -86,7 +86,10 @@ class GAMEPLAYABILITIES_API UAbilitySystemBlueprintLibrary : public UBlueprintFu
 	static bool IsInstigatorLocallyControlled(FGameplayCueParameters Parameters);
 
 	UFUNCTION(BlueprintPure, Category = "Ability|GameplayCue")
-	static TArray<TWeakObjectPtr<AActor>> GetActors(FGameplayCueParameters Parameters);
+	static int32 GetActorCount(FGameplayCueParameters Parameters);
+
+	UFUNCTION(BlueprintPure, Category = "Ability|GameplayCue")
+	static AActor* GetActorByIndex(FGameplayCueParameters Parameters, int32 Index);
 
 	UFUNCTION(BlueprintPure, Category = "Ability|GameplayCue")
 	static FHitResult GetHitResult(FGameplayCueParameters Parameters);
@@ -112,5 +115,22 @@ class GAMEPLAYABILITIES_API UAbilitySystemBlueprintLibrary : public UBlueprintFu
 
 
 	// -------------------------------------------------------------------------------
+	//		GameplayEffectSpec
+	// -------------------------------------------------------------------------------
+	
+	UFUNCTION(BlueprintCallable, Category = "Ability|GameplayEffect")
+	static FGameplayEffectSpecHandle AssignSetByCallerMagnitude(FGameplayEffectSpecHandle SpecHandle, FName DataName, float Magnitude);
+
+	UFUNCTION(BlueprintCallable, Category = "Ability|GameplayEffect")
+	static FGameplayEffectSpecHandle SetDuration(FGameplayEffectSpecHandle SpecHandle, float Duration);
+
+	UFUNCTION(BlueprintCallable, Category = "Ability|GameplayEffect")
+	static FGameplayEffectSpecHandle AddGrantedTag(FGameplayEffectSpecHandle SpecHandle, FGameplayTag NewGameplayTag);
+
+	UFUNCTION(BlueprintCallable, Category = "Ability|GameplayEffect")
+	static FGameplayEffectSpecHandle AddGrantedTags(FGameplayEffectSpecHandle SpecHandle, FGameplayTagContainer NewGameplayTags);
+
+	UFUNCTION(BlueprintCallable, Category = "Ability|GameplayEffect")
+	static FGameplayEffectSpecHandle AddLinkedGameplayEffectSpec(FGameplayEffectSpecHandle SpecHandle, FGameplayEffectSpecHandle LinkedGameplayEffectSpec);
 
 };

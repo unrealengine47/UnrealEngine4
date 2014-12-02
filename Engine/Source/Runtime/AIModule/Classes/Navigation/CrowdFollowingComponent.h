@@ -6,6 +6,10 @@
 #include "Navigation/PathFollowingComponent.h"
 #include "CrowdFollowingComponent.generated.h"
 
+class INavLinkCustomInterface;
+class UCharacterMovementComponent; 
+class UCrowdManager;
+
 namespace ECrowdAvoidanceQuality
 {
 	enum Type
@@ -40,9 +44,10 @@ class AIMODULE_API UCrowdFollowingComponent : public UPathFollowingComponent, pu
 	virtual void ResumeMove(FAIRequestID RequestID = FAIRequestID::CurrentRequest) override;
 	virtual FVector GetMoveFocus(bool bAllowStrafe) const override;
 	virtual void OnLanded() override;
-	virtual void FinishUsingCustomLink(class INavLinkCustomInterface* CustomNavLink) override;
+	virtual void FinishUsingCustomLink(INavLinkCustomInterface* CustomNavLink) override;
 	virtual void OnPathFinished(EPathFollowingResult::Type Result) override;
 	virtual void OnPathUpdated() override;
+	virtual void OnPathfindingQuery(FPathFindingQuery& Query) override;
 	virtual int32 GetCurrentPathElement() const override { return LastPathPolyIndex; }
 	// PathFollowingComponent END
 
@@ -108,7 +113,7 @@ class AIMODULE_API UCrowdFollowingComponent : public UPathFollowingComponent, pu
 protected:
 
 	UPROPERTY(transient)
-	class UCharacterMovementComponent* CharacterMovement;
+	UCharacterMovementComponent* CharacterMovement;
 
 	/** Group mask for this agent */
 	UPROPERTY(Category = "Avoidance", EditAnywhere, BlueprintReadOnly, AdvancedDisplay)
@@ -179,5 +184,5 @@ protected:
 	bool HasMovedDuringPause() const;
 	void UpdateCachedDirections(const FVector& NewVelocity, const FVector& NextPathCorner, bool bTraversingLink);
 
-	friend class UCrowdManager;
+	friend UCrowdManager;
 };

@@ -12,6 +12,7 @@
 #include "Engine/DataTable.h"
 #include "Engine/CurveTable.h"
 #include "Engine/UserDefinedStruct.h"
+#include "DataTableEditorUtils.h"
 DEFINE_LOG_CATEGORY(LogCSVImportFactory);
 
 #define LOCTEXT_NAMESPACE "CSVImportFactory"
@@ -102,23 +103,7 @@ public:
 		ImportTypes.Add( MakeShareable(new ECSVImportType(ECSV_CurveVector)) );
 
 		// Find table row struct info
-		UScriptStruct* TableRowStruct = FindObjectChecked<UScriptStruct>(ANY_PACKAGE, TEXT("TableRowBase"));
-		if(TableRowStruct != NULL)
-		{
-			// Make combo of table rowstruct options
-			for (TObjectIterator<UScriptStruct> It; It; ++It)
-			{
-				UScriptStruct* Struct = *It;
-				// If a child of the table row struct base, but not itself
-				const bool bBasedOnTableRowBase = Struct->IsChildOf(TableRowStruct) && (Struct != TableRowStruct);
-				const bool bUDStruct = Struct->IsA<UUserDefinedStruct>();
-				const bool bValidStruct = (Struct->GetOutermost() != GetTransientPackage());
-				if ((bBasedOnTableRowBase || bUDStruct) && bValidStruct)
-				{
-					RowStructs.Add(Struct);
-				}
-			}
-		}
+		RowStructs = FDataTableEditorUtils::GetPossibleStructs();
 
 		// Create widget
 		this->ChildSlot
@@ -642,11 +627,14 @@ void UReimportDataTableFactory::SetReimportPaths( UObject* Obj, const TArray<FSt
 
 EReimportResult::Type UReimportDataTableFactory::Reimport( UObject* Obj )
 {	
-	if(Cast<UDataTable>(Obj))
+	auto Result = EReimportResult::Failed;
+	if(auto DataTable = Cast<UDataTable>(Obj))
 	{
-		return UCSVImportFactory::ReimportCSV(Obj) ? EReimportResult::Succeeded : EReimportResult::Failed;
+		FDataTableEditorUtils::BroadcastPreChange(DataTable, FDataTableEditorUtils::EDataTableChangeInfo::RowList);
+		Result = UCSVImportFactory::ReimportCSV(DataTable) ? EReimportResult::Succeeded : EReimportResult::Failed;
+		FDataTableEditorUtils::BroadcastPostChange(DataTable, FDataTableEditorUtils::EDataTableChangeInfo::RowList);
 	}
-	return EReimportResult::Failed;
+	return Result;
 }
 
 ////////////////////////////////////////////////////////////////////////////

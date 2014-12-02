@@ -42,6 +42,7 @@ namespace ECookMode
 	enum Type
 	{
 		CookOnTheFly,				// default mode, handles requests from network
+		CookOnTheFlyFromTheEditor,	// cook on the side
 		CookByTheBookFromTheEditor,	// precook all resources while in the editor
 		CookByTheBook,				// cooking by the book (not in the editor)
 	};
@@ -155,62 +156,6 @@ public:
 		 * Add functions / functionality to the FUnsynchronizedQueue
 		 */
 	};
-
-	// pending delete: don't think I need this anymore
-	/*template<typename Type>
-	struct FLookupQueue
-	{
-	private:
-		TSet<Type> Set;
-		FQueue<Type> Queue;
-
-	public:
-		void Enqueue(const Type& Item)
-		{
-			Set.Add(Item);
-			Queue.Enqueue(Item);
-		}
-		void EnqueueUnique( const Type& Item )
-		{
-			if ( Set.Find(Item) == NULL )
-			{
-				Enqueue( Item );
-			}
-		}
-
-		bool Dequeue(Type* Result)
-		{
-			if (Queue.Num())
-			{
-				Queue.Dequeue(Result);
-				Set.Remove(*Result);
-				return true;
-			}
-			return false;
-		}
-		void DequeueAll(TArray<Type>& Results)
-		{
-			Queue.DequeueAll(Results);
-			Set.Empty();
-		}
-
-		bool HasItems() const
-		{
-			return Queue.Num() > 0;
-		}
-
-		void Remove( const Type& Item ) 
-		{
-			Queue.Remove( Item );
-			Set.Remove(Item);
-		}
-
-		int Num() const 
-		{
-			return Queue.Num();
-		}
-
-	};*/
 
 public:
 	/** cooked file requests which includes platform which file is requested for */
@@ -381,7 +326,7 @@ private:
 			// return FilesProcessed.Contains(Filename);
 		}
 		// two versions of this function so I don't have to create temporary FFIleplatformRequest in some cases to call the exists function
-		bool Exists( const FName& Filename, const TArray<FName>& PlatformNames )
+		bool Exists( const FName& Filename, const TArray<FName>& PlatformNames ) const
 		{
 			FScopeLock ScopeLock(&SynchronizationObject);
 
@@ -404,7 +349,17 @@ private:
 			return true;
 		}
 
-		bool GetCookedPlatforms( const FName& Filename, TArray<FName>& PlatformList )
+		void RemoveAllCookedFilesForPlatform( const FName& PlatformName )
+		{
+			FScopeLock ScopeLock(&SynchronizationObject);
+
+			for ( auto& Request : FilesProcessed )
+			{	
+				Request.Value.RemovePlatform( PlatformName );
+			}
+		}
+
+		bool GetCookedPlatforms( const FName& Filename, TArray<FName>& PlatformList ) const
 		{
 			FScopeLock ScopeLock( &SynchronizationObject );
 			const FFilePlatformRequest* Request = FilesProcessed.Find(Filename);
@@ -566,6 +521,36 @@ private:
 			CookedPackages.Empty();
 		}
 	};
+
+
+	struct FCachedPackageFilename
+	{
+	public:
+		FCachedPackageFilename(FString &&InPackageFilename, FString &&InStandardFilename, FName InStandardFileFName ) :
+			PackageFilename( MoveTemp( InPackageFilename )),
+			StandardFilename(MoveTemp(InStandardFilename)),
+			StandardFileFName( InStandardFileFName )
+		{
+		}
+
+		FCachedPackageFilename( const FCachedPackageFilename &In )
+		{
+			PackageFilename = In.PackageFilename;
+			StandardFilename = In.StandardFilename;
+			StandardFileFName = In.StandardFileFName;
+		}
+
+		FCachedPackageFilename( FCachedPackageFilename &&In )
+		{
+			PackageFilename = MoveTemp(In.PackageFilename);
+			StandardFilename = MoveTemp(In.StandardFilename);
+			StandardFileFName = In.StandardFileFName;
+		}
+
+		FString PackageFilename; // this is also full path
+		FString StandardFilename;
+		FName StandardFileFName;
+	};
 private:
 	/** Current cook mode the cook on the fly server is running in */
 	ECookMode::Type CurrentCookMode;
@@ -589,6 +574,8 @@ private:
 		bool bRunning;
 		/** Cancel has been queued will be processed next tick */
 		bool bCancel;
+		/** DlcName setup if we are cooking dlc will be used as the directory to save cooked files to */
+		FString DlcName;
 		/** Leak test: last gc items (only valid when running from commandlet requires gc between each cooked package) */
 		TSet<FWeakObjectPtr> LastGCItems;
 		/** Map of platform name to manifest generator, manifest is only used in cook by the book however it needs to be maintained across multiple cook by the books. */
@@ -617,6 +604,21 @@ private:
 	FFilenameQueue CookRequests; // list of requested files
 	FThreadSafeUnsolicitedPackagesList UnsolicitedCookedPackages;
 	FThreadSafeFilenameSet CookedPackages; // set of files which have been cooked when needing to recook a file the entry will need to be removed from here
+
+	TMap<FName, FCachedPackageFilename> PackageFilenameCache; // filename cache (only process the string operations once)
+
+	FString GetCachedPackageFilename( const FName& PackageName );
+	FString GetCachedStandardPackageFilename( const FName& PackageName );
+	FName GetCachedStandardPackageFileFName( const FName& PackageName );
+	FString GetCachedPackageFilename( UPackage* Package );
+	FString GetCachedStandardPackageFilename( UPackage* Package );
+	FName GetCachedStandardPackageFileFName( UPackage* Package );
+	const FString& GetCachedSandboxFilename( UPackage* Package, TAutoPtr<class FSandboxPlatformFile>& SandboxFile );
+	const FCachedPackageFilename& Cache(const FName& PackageName);
+	void ClearPackageFilenameCache();
+
+	// declared mutable as it's used purely as a cache and don't want to have to declare all the functions as non const just because of this cache
+	mutable TMap<FName, TArray<FString>> CachedIniVersionStringsMap;
 
 public:
 
@@ -674,7 +676,7 @@ public:
 	void StartCookByTheBook(const TArray<ITargetPlatform*>& TargetPlatforms, 
 		const TArray<FString>& CookMaps, const TArray<FString>& CookDirectories, 
 		const TArray<FString>& CookCultures, const TArray<FString>& IniMapSections, 
-		ECookByTheBookOptions CookOptions = ECookByTheBookOptions::None );
+		ECookByTheBookOptions CookOptions = ECookByTheBookOptions::None, const FString &DLCName = FString() );
 
 	/**
 	 * Queue a cook by the book cancel (you might want to do this instead of calling cancel directly so that you don't have to be in the game thread when canceling
@@ -697,6 +699,20 @@ public:
 	 */
 	uint32 TickCookOnTheSide( const float TimeSlice, uint32 &CookedPackagesCount );
 	
+
+	/**
+	 * Clear all the previously cooked data all cook requests from now on will be considered recook requests
+	 */
+	void ClearAllCookedData();
+
+	/**
+	 * Clear all the previously cooked data for the platform passed in 
+	 * 
+	 * @param name of the platform to clear the cooked packages for
+	 */
+	void ClearPlatformCookedData( const FName& PlatformName );
+
+
 	/**
 	 * Force stop whatever pending cook requests are going on and clear all the cooked data
 	 * Note cook on the side / cook on the fly clients may not be able to recover from this if they are waiting on a cook request to complete
@@ -721,7 +737,21 @@ public:
 	 * 
 	 * @return returns true if this cooker is running in realtime mode like in the editor
 	 */
-	bool IsRealtimeMode();
+	bool IsRealtimeMode() const;
+
+	/**
+	 * Helper function returns if we are in any cook by the book mode
+	 *
+	 * @return if the cook mode is a cook by the book mode
+	 */
+	bool IsCookByTheBookMode() const;
+
+	/**
+	 * Helper function returns if we are in any cook on the fly mode
+	 *
+	 * @return if the cook mode is a cook on the fly mode
+	 */
+	bool IsCookOnTheFlyMode() const;
 	
 
 	virtual void BeginDestroy() override;
@@ -765,16 +795,6 @@ private:
 	 * Call back from the TickCookOnTheSide when a cook by the book finishes (when started form StartCookByTheBook)
 	 */
 	void CookByTheBookFinished();
-
-	/**
-	 * Helper function returns if we are in any cook by the book mode
-	 *
-	 * @return if the cook mode is a cook by the book mode
-	 */
-	inline bool IsCookByTheBookMode() const 
-	{ 
-		return CurrentCookMode == ECookMode::CookByTheBookFromTheEditor || CurrentCookMode == ECookMode::CookByTheBook; 
-	}
 
 
 	//////////////////////////////////////////////////////////////////////////
@@ -840,21 +860,31 @@ private:
 	 */
 	bool GetCookedIniVersionStrings( const ITargetPlatform* TargetPlatform, TArray<FString>& IniVersionStrings ) const;
 
+
+	/**
+	 * Convert a path to a full sandbox path
+	 * This function should be used instead of calling the 
+	 */
+	FString ConvertToFullSandboxPath( const FString &FileName, bool bForWrite = false ) const;
+
+	inline bool IsCookingDLC() const
+	{
+		// can only cook dlc in cook by the book
+		// we are cooking dlc when the dlc name is setup
+		if ( CookByTheBookOptions )
+		{
+			return  !CookByTheBookOptions->DlcName.IsEmpty();
+		}
+		return false;
+	}
+
 	/**
 	 * Checks if important ini settings have changed since last cook for each target platform 
 	 * 
 	 * @param TargetPlatforms to check if out of date
 	 * @param OutOfDateTargetPlatforms return list of out of date target platforms which should be cleaned
 	 */
-	bool IniSettingsOutOfDate( const TArray<ITargetPlatform*>& TargetPlatforms, TArray<ITargetPlatform*>& OutOfDateTargetPlatforms ) const;
-
-	/**
-	 * SaveIniVersionStrings save out the ini version strings for all platforms so next cook can use them
-	 * -iterate uses this to figure out if content needs to be recooked
-	 * 
-	 * @param TargetPlatforms the target platforms to generate ini version info for
-	 */
-	void SaveIniVersionStrings( const TArray<ITargetPlatform*>& TargetPlatforms ) const;
+	bool IniSettingsOutOfDate( const TArray<ITargetPlatform*>& TargetPlatforms, TArray<ITargetPlatform*>& OutOfDateTargetPlatforms, bool bShouldSaveCookedVersions = true ) const;
 
 	/**
 	 * IsCookFlagSet
@@ -874,6 +904,12 @@ private:
 	 * @return Cooker output directory for the specified platform.
 	 */
 	FString GetOutputDirectory( const FString& PlatformName ) const;
+
+
+	/**
+	 * Gets the asset registry path and name
+	 */
+	FString GetAssetRegistryPath() const;
 
 	/**
 	 *	Get the given packages 'cooked' timestamp (i.e. account for dependencies)

@@ -154,25 +154,6 @@ public:
 	 */
 	virtual void DrawStaticElements(FStaticPrimitiveDrawInterface* PDI) {}
 
-	/**
-	 * Draws the primitive's dynamic elements.  This is called from the rendering thread for each frame of each view.
-	 * The dynamic elements will only be rendered if GetViewRelevance declares dynamic relevance.
-	 * Called in the rendering thread.
-	 * @param PDI - The interface which receives the primitive elements.
-	 * @param View - The view which is being rendered.
-	 */
-	virtual void DrawDynamicElements(FPrimitiveDrawInterface* PDI, const FSceneView* View) {}
-
-	/**
-	 * Draws the primitive's dynamic elements.  This is called from the rendering thread for each frame of each view.
-	 * The dynamic elements will only be rendered if GetViewRelevance declares dynamic relevance.
-	 * Called in the rendering thread.
-	 * @param PDI - The interface which receives the primitive elements.
-	 * @param View - The view which is being rendered.
-	 * @param Flags - Optional flags
-	 */
-	virtual void DrawDynamicElements(FPrimitiveDrawInterface* PDI, const FSceneView* View, uint32 DrawDynamicFlags ) { DrawDynamicElements( PDI, View ); }
-
 	/** 
 	 * Gathers the primitive's dynamic mesh elements.  This will only be called if GetViewRelevance declares dynamic relevance.
 	 * This is called from the rendering thread for each set of views that might be rendered.  
@@ -195,16 +176,6 @@ public:
 	 */
 	ENGINE_API virtual FPrimitiveViewRelevance GetViewRelevance(const FSceneView* View);
 
-	/**
-	 *	Called during InitViews for view processing on scene proxies before rendering them
-	 *  Only called for primitives that are visible and have bDynamicRelevance
-	 *
-	 *	@param	ViewFamily		The ViewFamily to pre-render for
-	 *	@param	VisibilityMap	A BitArray that indicates whether the primitive was visible in that view (index)
-	 *	@param	FrameNumber		The frame number of this pre-render
-	 */
-	virtual void PreRenderView(const FSceneViewFamily* ViewFamily, const uint32 VisibilityMap, int32 FrameNumber) {}
-
 	/** Callback from the renderer to gather simple lights that this proxy wants renderered. */
 	virtual void GatherSimpleLights(const FSceneViewFamily& ViewFamily, FSimpleLightArray& OutParticleLights) const {}
 
@@ -224,13 +195,20 @@ public:
 		bShadowMapped = false;
 	}
 
-	virtual void GetDistancefieldAtlasData(FBox& LocalVolumeBounds, FIntVector& OutBlockMin, FIntVector& OutBlockSize, bool& bOutBuiltAsIfTwoSided, bool& bMeshWasPlane) const 
+	virtual void GetDistancefieldAtlasData(FBox& LocalVolumeBounds, FIntVector& OutBlockMin, FIntVector& OutBlockSize, bool& bOutBuiltAsIfTwoSided, bool& bMeshWasPlane, TArray<FMatrix>& ObjectLocalToWorldTransforms) const 
 	{
 		LocalVolumeBounds = FBox(0);
 		OutBlockMin = FIntVector(-1, -1, -1);
 		OutBlockSize = FIntVector(0, 0, 0);
 		bOutBuiltAsIfTwoSided = false;
 		bMeshWasPlane = false;
+	}
+
+	virtual void GetHeightfieldRepresentation(UTexture2D*& OutHeightmapTexture, FVector4& OutHeightfieldScaleBias, FVector4& OutMinMaxUV)
+	{
+		OutHeightmapTexture = NULL;
+		OutHeightfieldScaleBias = FVector4(0, 0, 0, 0);
+		OutMinMaxUV = FVector4(0, 0, 0, 0);
 	}
 
 	/**
@@ -353,6 +331,7 @@ public:
 	inline bool CastsStaticShadow() const { return bCastStaticShadow; }
 	inline bool CastsDynamicShadow() const { return bCastDynamicShadow; }
 	inline bool AffectsDynamicIndirectLighting() const { return bAffectDynamicIndirectLighting; }
+	inline bool AffectsDistanceFieldLighting() const { return bAffectDistanceFieldLighting; }
 	inline float GetLpvBiasMultiplier() const { return LpvBiasMultiplier; }
 	inline EIndirectLightingCacheQuality GetIndirectLightingCacheQuality() const { return IndirectLightingCacheQuality; }
 	inline bool CastsVolumetricTranslucentShadow() const { return bCastVolumetricTranslucentShadow; }
@@ -373,6 +352,8 @@ public:
 	inline bool HasValidSettingsForStaticLighting() const { return bHasValidSettingsForStaticLighting; }
 	inline bool AlwaysHasVelocity() const { return bAlwaysHasVelocity; }
 	inline bool UseEditorDepthTest() const { return bUseEditorDepthTest; }
+	inline bool SupportsDistanceFieldRepresentation() const { return bSupportsDistanceFieldRepresentation; }
+	inline bool SupportsHeightfieldRepresentation() const { return bSupportsHeightfieldRepresentation; }
 	inline bool TreatAsBackgroundForOcclusion() const { return bTreatAsBackgroundForOcclusion; }
 #if WITH_EDITOR
 	inline int32 GetNumUncachedStaticLightingInteractions() { return NumUncachedStaticLightingInteractions; }
@@ -513,6 +494,8 @@ protected:
 	/** True if the primitive casts Reflective Shadow Map shadows (meaning it affects Light Propagation Volumes). */
 	uint32 bAffectDynamicIndirectLighting : 1;
 
+	uint32 bAffectDistanceFieldLighting : 1;
+
 	/** True if the primitive casts static shadows. */
 	uint32 bCastStaticShadow : 1;
 
@@ -553,6 +536,12 @@ protected:
 
 	/** Whether editor compositing depth testing should be used for this primitive.  Only matters for primitives with bUseEditorCompositing. */
 	uint32 bUseEditorDepthTest : 1;
+
+	/** Whether the primitive type supports a distance field representation.  Does not mean the primitive has a valid representation. */
+	uint32 bSupportsDistanceFieldRepresentation : 1;
+
+	/** Whether the primitive implements GetHeightfieldRepresentation() */
+	uint32 bSupportsHeightfieldRepresentation : 1;
 
 private:
 

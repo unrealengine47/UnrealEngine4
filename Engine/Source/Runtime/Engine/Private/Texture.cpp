@@ -143,7 +143,7 @@ void UTexture::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEven
 		}
 #endif // #if WITH_EDITORONLY_DATA
 
-		bool bPreventSRGB = (CompressionSettings == TC_Alpha || CompressionSettings == TC_Normalmap || CompressionSettings == TC_Masks || CompressionSettings == TC_HDR);		
+		bool bPreventSRGB = (CompressionSettings == TC_Alpha || CompressionSettings == TC_Normalmap || CompressionSettings == TC_Masks || CompressionSettings == TC_HDR || CompressionSettings == TC_HDR_Compressed);
 		if(bPreventSRGB && SRGB == true)
 		{
 			SRGB = false;
@@ -313,10 +313,8 @@ void UTexture::PostLoad()
 
 	if( !IsTemplate() )
 	{
-#if WITH_EDITOR
 		// Update cached LOD bias.
 		UpdateCachedLODBias();
-#endif // #if WITH_EDITOR
 
 		// The texture will be cached by the cubemap it is contained within on consoles.
 		UTextureCube* CubeMap = Cast<UTextureCube>(GetOuter());

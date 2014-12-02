@@ -136,6 +136,19 @@ void FActorDetails::CustomizeDetails( IDetailLayoutBuilder& DetailLayout )
 
 		//AddComponentsCategory( DetailLayout );
 	}
+
+	// Defaults only
+	if (DetailLayout.GetDetailsView().HasClassDefaultObject())
+	{
+		IDetailCategoryBuilder& TickCategory = DetailLayout.EditCategory("Tick");
+
+		TSharedPtr<IPropertyHandle> PrimaryTickProperty = DetailLayout.GetProperty(GET_MEMBER_NAME_CHECKED(AActor, PrimaryActorTick));
+		TickCategory.AddProperty(PrimaryTickProperty->GetChildHandle(GET_MEMBER_NAME_CHECKED(FTickFunction, bStartWithTickEnabled)));
+		TickCategory.AddProperty(PrimaryTickProperty->GetChildHandle(GET_MEMBER_NAME_CHECKED(FTickFunction, bTickEvenWhenPaused)), EPropertyLocation::Advanced);
+		TickCategory.AddProperty(PrimaryTickProperty->GetChildHandle(GET_MEMBER_NAME_CHECKED(FTickFunction, bAllowTickOnDedicatedServer)), EPropertyLocation::Advanced);
+
+		PrimaryTickProperty->MarkHiddenByCustomization();
+	}
 }
 
 void FActorDetails::OnConvertActor(UClass* ChosenClass)
@@ -403,10 +416,10 @@ void FActorDetails::AddLayersCategory( IDetailLayoutBuilder& DetailBuilder )
 
 	FLayersModule& LayersModule = FModuleManager::LoadModuleChecked< FLayersModule >( TEXT("Layers") );
 
-	const FString LayerCategory = LOCTEXT("LayersCategory", "Layers").ToString();
+	const FText LayerCategory = LOCTEXT("LayersCategory", "Layers");
 
 	DetailBuilder.EditCategory( "Layers", LayerCategory, ECategoryPriority::Uncommon )
-	.AddCustomRow( TEXT("") )
+	.AddCustomRow( FText::GetEmpty() )
 	[
 		LayersModule.CreateLayerCloud( SelectedActors )
 	];
@@ -428,7 +441,7 @@ void FActorDetails::AddTransformCategory( IDetailLayoutBuilder& DetailBuilder )
 	
 	TSharedRef<FComponentTransformDetails> TransformDetails = MakeShareable( new FComponentTransformDetails( DetailBuilder.GetDetailsView().GetSelectedObjects(), SelectedActorInfo, DetailBuilder ) );
 
-	IDetailCategoryBuilder& TransformCategory = DetailBuilder.EditCategory( "TransformCommon", LOCTEXT("TransformCommonCategory", "Transform").ToString(), ECategoryPriority::Transform );
+	IDetailCategoryBuilder& TransformCategory = DetailBuilder.EditCategory( "TransformCommon", LOCTEXT("TransformCommonCategory", "Transform"), ECategoryPriority::Transform );
 
 	TransformCategory.AddCustomBuilder( TransformDetails );
 }
@@ -442,9 +455,9 @@ void FActorDetails::AddExperimentalWarningCategory( IDetailLayoutBuilder& Detail
 		const bool bExperimental = SelectedActorInfo.bHaveExperimentalClass;
 
 		const FName CategoryName(TEXT("Warning"));
-		const FString CategoryDisplayName = LOCTEXT("WarningCategoryDisplayName", "Warning").ToString();
+		const FText CategoryDisplayName = LOCTEXT("WarningCategoryDisplayName", "Warning");
 		const FText WarningText = bExperimental ? LOCTEXT("ExperimentalClassWarning", "Uses experimental class") : LOCTEXT("EarlyAccessClassWarning", "Uses early access class");
-		const FString SearchString = WarningText.ToString();
+		const FText SearchString = WarningText;
 		const FText Tooltip = bExperimental ? LOCTEXT("ExperimentalClassTooltip", "Here be dragons!  Uses one or more unsupported 'experimental' classes") : LOCTEXT("EarlyAccessClassTooltip", "Uses one or more 'early access' classes");
 		const FString ExcerptName = bExperimental ? TEXT("ActorUsesExperimentalClass") : TEXT("ActorUsesEarlyAccessClass");
 		const FSlateBrush* WarningIcon = FEditorStyle::GetBrush(bExperimental ? "PropertyEditor.ExperimentalClass" : "PropertyEditor.EarlyAccessClass");
@@ -497,7 +510,7 @@ void FActorDetails::AddActorCategory( IDetailLayoutBuilder& DetailBuilder, const
 	const FSelectedActorInfo& SelectedActorInfo = DetailBuilder.GetDetailsView().GetSelectedActorInfo();
 	TSharedPtr<SVerticalBox> LevelBox;
 
-	IDetailCategoryBuilder& ActorCategory = DetailBuilder.EditCategory("Actor", TEXT(""), ECategoryPriority::Uncommon );
+	IDetailCategoryBuilder& ActorCategory = DetailBuilder.EditCategory("Actor", FText::GetEmpty(), ECategoryPriority::Uncommon );
 
 
 	// Create the info buttons per level
@@ -521,7 +534,7 @@ void FActorDetails::AddActorCategory( IDetailLayoutBuilder& DetailBuilder, const
 		// Create the row for this level
 		TWeakObjectPtr<ULevel> WeakLevelPtr = Level;
 
-		ActorCategory.AddCustomRow( LOCTEXT("SelectionFilter", "Selected").ToString() )
+		ActorCategory.AddCustomRow( LOCTEXT("SelectionFilter", "Selected") )
 		.NameContent()
 		[
 			SNew(SHyperlink)
@@ -543,7 +556,7 @@ void FActorDetails::AddActorCategory( IDetailLayoutBuilder& DetailBuilder, const
 	// WorldSettings should never convert to another class type
 	if( SelectedActorInfo.SelectionClass != AWorldSettings::StaticClass() && SelectedActorInfo.HasConvertableAsset() )
 	{
-		ActorCategory.AddCustomRow( LOCTEXT("ConvertMenu", "Convert").ToString() )
+		ActorCategory.AddCustomRow( LOCTEXT("ConvertMenu", "Convert") )
 		.NameContent()
 		[
 			SNew(STextBlock)
@@ -563,7 +576,7 @@ void FActorDetails::AddBlueprintCategory( IDetailLayoutBuilder& DetailBuilder, c
 	// Create the overarching structure and expose the vertical box to add entries per-blueprint
 	TSharedPtr<SVerticalBox> Box;
 
-	IDetailCategoryBuilder& BlueprintCategory = DetailBuilder.EditCategory("Blueprint", NSLOCTEXT("BlueprintDetails", "BlueprintTitle", "Blueprint").ToString(), ECategoryPriority::Uncommon );
+	IDetailCategoryBuilder& BlueprintCategory = DetailBuilder.EditCategory("Blueprint", NSLOCTEXT("BlueprintDetails", "BlueprintTitle", "Blueprint"), ECategoryPriority::Uncommon );
 
 	// Only show the blueprints section if a single actor is selected
 	if ( SelectedActors.Num() > 0 )
@@ -592,7 +605,7 @@ void FActorDetails::AddBlueprintCategory( IDetailLayoutBuilder& DetailBuilder, c
 void FActorDetails::AddBlutilityCategory( IDetailLayoutBuilder& DetailBuilder, const TMap<UBlueprint*, UObject*>& UniqueBlueprints )
 {
 	// Create the Blutilities Category
-	IDetailCategoryBuilder& BlutilitiesCategory = DetailBuilder.EditCategory("Blutilities", NSLOCTEXT("Blutilities", "BlutilityTitle", "Blutilities").ToString(), ECategoryPriority::Uncommon );
+	IDetailCategoryBuilder& BlutilitiesCategory = DetailBuilder.EditCategory("Blutilities", NSLOCTEXT("Blutilities", "BlutilityTitle", "Blutilities"), ECategoryPriority::Uncommon );
 
 	// Only show the bluetilities section if a single actor is selected
 	if ( SelectedActors.Num() > 0 && DoesActorHaveBlutiltyFunctions() )
@@ -614,7 +627,7 @@ void FActorDetails::AddBlutilityCategory( IDetailLayoutBuilder& DetailBuilder, c
 		const FText ButtonLabel = FText::Format( NSLOCTEXT( "Blutilities", "CallInEditor_ButtonLabel", "Run" ), Args );
 		const FText ButtonToolTip = FText::Format( NSLOCTEXT( "Blutilities", "CallInEditor_ButtonTooltip", "Run Selected Blutility Function on {ActorLabel}" ), Args );
 		// Build Content
-		BlutilitiesCategory.AddCustomRow( NSLOCTEXT( "Blutilities", "CallInEditorHeader", "Blutility Functions").ToString())
+		BlutilitiesCategory.AddCustomRow( NSLOCTEXT( "Blutilities", "CallInEditorHeader", "Blutility Functions"))
 		.WholeRowContent()
 		[
 			SNew(SHorizontalBox)
@@ -670,9 +683,9 @@ void FActorDetails::AddComponentsCategory( IDetailLayoutBuilder& DetailBuilder )
 		SelectedActor = Actors[0].Get();
 	}
 
-	DetailBuilder.EditCategory( "Components", NSLOCTEXT("ActorDetails", "ComponentsSection", "Components").ToString(), ECategoryPriority::Uncommon )
+	DetailBuilder.EditCategory( "Components", NSLOCTEXT("ActorDetails", "ComponentsSection", "Components"), ECategoryPriority::Uncommon )
 		.InitiallyCollapsed( true )
-		.AddCustomRow( NSLOCTEXT("ActorDetails", "ComponentsSection", "Components").ToString() )
+		.AddCustomRow( NSLOCTEXT("ActorDetails", "ComponentsSection", "Components") )
 		[
 			SNew( SComponentsTree, SelectedActor )
 		];
@@ -699,10 +712,10 @@ void FActorDetails::AddUtilityBlueprintRows( IDetailCategoryBuilder& BlueprintCa
 		FFormatNamedArguments Args;
 		Args.Add( TEXT( "ActorLabel" ), ActorLabel );
 
-		const FText FindButtonLabel = FText::Format( LOCTEXT( "FindInLevelScript", "Find {ActorLabel} in Level Blueprint" ), Args );
+		const FText FindButtonLabel = LOCTEXT( "FindInLevelScript", "Find in Level Blueprint" );
 		const FText FindButtonToolTip = FText::Format( LOCTEXT( "FindInLevelScript_ToolTip", "Search for uses of {ActorLabel} in the Level Blueprint" ), Args );
 
-		BlueprintCategory.AddCustomRow( LOCTEXT( "FindInLevelScript_Filter", "Find in Level Script" ).ToString() )
+		BlueprintCategory.AddCustomRow( LOCTEXT( "FindInLevelScript_Filter", "Find in Level Script" ) )
 		.WholeRowContent()
 		[
 			SNew( SHorizontalBox )
@@ -712,7 +725,7 @@ void FActorDetails::AddUtilityBlueprintRows( IDetailCategoryBuilder& BlueprintCa
 			.Padding( 0, 0, 10, 0 )
 			[
 				SNew( SBox )
-				.WidthOverride( 250 )
+				.WidthOverride( 200 )
 				[
 					SNew( SButton )
 					.ToolTipText( FindButtonToolTip )
@@ -730,10 +743,10 @@ void FActorDetails::AddUtilityBlueprintRows( IDetailCategoryBuilder& BlueprintCa
 		];
 
 		// Add Level Events
-		const FText AddEventLabel = FText::Format( LOCTEXT( "ScriptingEvents", "Add Level Events for {ActorLabel}" ), Args );
+		const FText AddEventLabel = LOCTEXT( "ScriptingEvents", "Add Level Events" );
 		const FText AddEventToolTip = FText::Format( LOCTEXT( "ScripingEvents_Tooltip", "Adds or views events for {ActorLabel} in the Level Blueprint" ), Args );
 
-		BlueprintCategory.AddCustomRow( LOCTEXT( "ScriptingEvents_Filter", "Level Blueprint Events" ).ToString() )
+		BlueprintCategory.AddCustomRow( LOCTEXT( "ScriptingEvents_Filter", "Level Blueprint Events" ) )
 		.WholeRowContent()
 		[
 			SNew( SHorizontalBox )
@@ -743,7 +756,7 @@ void FActorDetails::AddUtilityBlueprintRows( IDetailCategoryBuilder& BlueprintCa
 			.Padding( 0, 0, 10, 0 )
 			[
 				SNew( SBox )
-				.WidthOverride( 250 )
+				.WidthOverride( 200 )
 				[
 					SNew( SComboButton )
 					.IsEnabled( this, &FActorDetails::IsActorValidForLevelScript )
@@ -763,7 +776,7 @@ void FActorDetails::AddUtilityBlueprintRows( IDetailCategoryBuilder& BlueprintCa
 	}
 
 	// Create the row for this blueprint
-	BlueprintCategory.AddCustomRow( NSLOCTEXT( "BlueprintDetails", "BlueprintFilter", "Blueprints" ).ToString() )
+	BlueprintCategory.AddCustomRow( NSLOCTEXT( "BlueprintDetails", "BlueprintFilter", "Blueprints" ) )
 	.WholeRowContent()
 	[
 		SNew( SHorizontalBox )
@@ -773,7 +786,7 @@ void FActorDetails::AddUtilityBlueprintRows( IDetailCategoryBuilder& BlueprintCa
 		.Padding( 0, 0, 10, 0 )
 		[
 			SNew( SBox )
-			.WidthOverride( 250 )
+			.WidthOverride( 200 )
 			[
 				SNew( SButton )
 				.ToolTipText( LOCTEXT( "CreateHarvestBlueprint_ToolTip", "Harvest Components from Selected Actors and create Blueprint" ) )
@@ -784,6 +797,7 @@ void FActorDetails::AddUtilityBlueprintRows( IDetailCategoryBuilder& BlueprintCa
 				[
 					SNew( STextBlock )
 					.Text( LOCTEXT( "ReplaceWithAmalgamBlueprint", "Replace With Composited Blueprint" ) )
+					.Font(IDetailLayoutBuilder::GetDetailFont())
 				]
 			]
 		]
@@ -857,7 +871,7 @@ void FActorDetails::AddSingleBlueprintRow( IDetailCategoryBuilder& BlueprintCate
 	FText CurrentBlueprintLong = FText::Format( FText::FromString( TEXT( "{0} {1}" ) ), Name, Description );
 
 	// Blueprint Details
-	BlueprintCategory.AddCustomRow( NSLOCTEXT("BlueprintDetails", "BlueprintFilter", "Blueprints").ToString() )
+	BlueprintCategory.AddCustomRow( NSLOCTEXT("BlueprintDetails", "BlueprintFilter", "Blueprints") )
 	.Visibility( InBlueprint ? EVisibility::Visible : EVisibility::Collapsed )
 	.NameContent()
 	[
@@ -992,38 +1006,43 @@ void FActorDetails::AddSingleBlueprintRow( IDetailCategoryBuilder& BlueprintCate
 
 	if(!InBlueprint)
 	{
-		BlueprintCategory.AddCustomRow( LOCTEXT("CreateBlueprintFilterString", "Create Blueprint").ToString(), true )
+		BlueprintCategory.AddCustomRow( LOCTEXT("CreateBlueprintFilterString", "Create Blueprint"), true )
+		.WholeRowContent()
+		.MinDesiredWidth(200)
+		.MaxDesiredWidth(200)
 		[
 			SNew( SHorizontalBox )
 			+SHorizontalBox::Slot()
 			.AutoWidth()
 			[
 				SNew(SBorder)
-					.BorderImage(FEditorStyle::GetBrush("NoBorder"))
-					.Padding(0)
-					.ToolTipText(CreateBlueprintToolTip)
+				.BorderImage(FEditorStyle::GetBrush("NoBorder"))
+				.Padding(0)
+				.ToolTipText(CreateBlueprintToolTip)
 				[
 					SNew( SButton )
-						.IsEnabled(bCanCreateActorBlueprint)
-						.ButtonColorAndOpacity(FLinearColor(0.2f, 0.4f, 0.6f, 1.0f))
-						.OnClicked(FOnClicked::CreateRaw(this, 	&FActorDetails::OnPickBlueprintPathClicked, false ))
+					.IsEnabled(bCanCreateActorBlueprint)
+					.ButtonColorAndOpacity(FLinearColor(0.2f, 0.4f, 0.6f, 1.0f))
+					.OnClicked(FOnClicked::CreateRaw(this, 	&FActorDetails::OnPickBlueprintPathClicked, false ))
+					.ContentPadding(2)
 					[
 						SNew( SHorizontalBox )
 						+SHorizontalBox::Slot()
-							.VAlign(VAlign_Center)
-							.AutoWidth()
+						.VAlign(VAlign_Center)
+						.AutoWidth()
 						[
 							SNew(STextBlock)
-								.Text( FText::Format( LOCTEXT("CreateBlueprintFromActor", "Create {0} Blueprint..."), FText::FromString( SelectedActorClassName ) ) )
+							.Text( FText::Format( LOCTEXT("CreateBlueprintFromActor", "Create {0} Blueprint..."), FText::FromString( SelectedActorClassName ) ) )
+							.Font(IDetailLayoutBuilder::GetDetailFont())
 						]
 
 						+SHorizontalBox::Slot()
-							.VAlign(VAlign_Center)
-							.AutoWidth()
-							.Padding( 4.0f, 0.0f, 0.0f, 0.0f )
+						.VAlign(VAlign_Center)
+						.AutoWidth()
+						.Padding( 4.0f, 0.0f, 0.0f, 0.0f )
 						[
 							SNew( SImage )
-								.Image(FEditorStyle::GetBrush(TEXT("Kismet.CreateBlueprint")))
+							.Image(FEditorStyle::GetBrush(TEXT("Kismet.CreateBlueprint")))
 						]
 					]
 				]

@@ -40,6 +40,8 @@
 #define RECAST_STAT(...) 
 #endif
 
+struct dtTileCacheAlloc;
+
 FORCEINLINE bool DoesBoxContainOrOverlapVector(const FBox& BigBox, const FVector& In)
 {
 	return (In.X >= BigBox.Min.X) && (In.X <= BigBox.Max.X) 
@@ -52,7 +54,7 @@ FORCEINLINE bool DoesBoxContainBox(const FBox& BigBox, const FBox& SmallBox)
 	return DoesBoxContainOrOverlapVector(BigBox, SmallBox.Min) && DoesBoxContainOrOverlapVector(BigBox, SmallBox.Max);
 }
 
-int32 GetTilesCountHelper(const class dtNavMesh* DetourMesh)
+int32 GetTilesCountHelper(const dtNavMesh* DetourMesh)
 {
 	int32 NumTiles = 0;
 	if (DetourMesh)
@@ -191,9 +193,9 @@ struct FRecastGeometryExport : public FNavigableGeometryExport
 	FWalkableSlopeOverride SlopeOverride;
 
 #if WITH_PHYSX
-	virtual void ExportPxTriMesh16Bit(class physx::PxTriangleMesh const * const TriMesh, const FTransform& LocalToWorld) override;
-	virtual void ExportPxTriMesh32Bit(class physx::PxTriangleMesh const * const TriMesh, const FTransform& LocalToWorld) override;
-	virtual void ExportPxConvexMesh(class physx::PxConvexMesh const * const ConvexMesh, const FTransform& LocalToWorld) override;
+	virtual void ExportPxTriMesh16Bit(physx::PxTriangleMesh const * const TriMesh, const FTransform& LocalToWorld) override;
+	virtual void ExportPxTriMesh32Bit(physx::PxTriangleMesh const * const TriMesh, const FTransform& LocalToWorld) override;
+	virtual void ExportPxConvexMesh(physx::PxConvexMesh const * const ConvexMesh, const FTransform& LocalToWorld) override;
 	virtual void ExportPxHeightField(physx::PxHeightField const * const HeightField, const FTransform& LocalToWorld) override;
 #endif // WITH_PHYSX
 	virtual void ExportCustomMesh(const FVector* InVertices, int32 NumVerts, const int32* InIndices, int32 NumIndices, const FTransform& LocalToWorld) override;
@@ -1036,8 +1038,8 @@ FORCEINLINE void GrowConvexHull(const float ExpandBy, const TArray<FVector>& Ver
 		const FVector& V2 = AllVerts[Index + 1];
 		const FVector& V3 = AllVerts[Index + 2];
 
-		const FVector V01 = (V1 - V2).SafeNormal();
-		const FVector V12 = (V2 - V3).SafeNormal();
+		const FVector V01 = (V1 - V2).GetSafeNormal();
+		const FVector V12 = (V2 - V3).GetSafeNormal();
 		const FVector NV1 = Rotation90.RotateVector(V01);
 		const float d = FVector::DotProduct(NV1, V12);
 
@@ -1079,14 +1081,14 @@ FORCEINLINE void GrowConvexHull(const float ExpandBy, const TArray<FVector>& Ver
 		}
 		else
 		{
-			const FVector V01 = (V1 - V2).SafeNormal();
-			const FVector N1 = Rotation.RotateVector(V01).SafeNormal();
+			const FVector V01 = (V1 - V2).GetSafeNormal();
+			const FVector N1 = Rotation.RotateVector(V01).GetSafeNormal();
 			const FVector MoveDir1 = N1 * ExpandBy;
 			Line1 = FSimpleLine(V1 + MoveDir1, V2 + MoveDir1);
 		}
 
-		const FVector V12 = (V2 - V3).SafeNormal();
-		const FVector N2 = Rotation.RotateVector(V12).SafeNormal();
+		const FVector V12 = (V2 - V3).GetSafeNormal();
+		const FVector N2 = Rotation.RotateVector(V12).GetSafeNormal();
 		const FVector MoveDir2 = N2 * ExpandBy;
 		const FSimpleLine Line2(V2 + MoveDir2, V3 + MoveDir2);
 
@@ -1103,7 +1105,7 @@ FORCEINLINE void GrowConvexHull(const float ExpandBy, const TArray<FVector>& Ver
 			if (DistToNewVector > ExpansionThresholdSQ)
 			{
 				//clamp our point to not move to far from original location
-				const FVector HelpPos = V2 + VectorToNewPoint.SafeNormal2D() * ExpandBy * 1.4142;
+				const FVector HelpPos = V2 + VectorToNewPoint.GetSafeNormal2D() * ExpandBy * 1.4142;
 				OutResult.Add(HelpPos);
 			}
 			else
@@ -1554,7 +1556,7 @@ void FRecastTileGenerator::GatherGeometry(const FRecastNavMeshGenerator* ParentG
 	}
 }
 
-void FRecastTileGenerator::ApplyVoxelFilter(struct rcHeightfield* HF, float WalkableRadius)
+void FRecastTileGenerator::ApplyVoxelFilter(rcHeightfield* HF, float WalkableRadius)
 {
 	SCOPE_CYCLE_COUNTER(STAT_Navigation_TileVoxelFilteringAsync);
 
@@ -2238,7 +2240,7 @@ void FRecastTileGenerator::MarkStaticAreas(FNavMeshBuildContext& BuildContext, r
 
 struct FTileGenerationContext
 {
-	FTileGenerationContext(struct dtTileCacheAlloc* MyAllocator) :
+	FTileGenerationContext(dtTileCacheAlloc* MyAllocator) :
 		Allocator(MyAllocator), Layer(0), DistanceField(0), ContourSet(0), ClusterSet(0), PolyMesh(0), DetailMesh(0)
 	{
 	}
@@ -2709,19 +2711,49 @@ static int32 CaclulateMaxTilesCount(const TNavStatArray<FBox>& NavigableAreas, f
 // FRecastNavMeshGenerator
 //----------------------------------------------------------------------//
 
-FRecastNavMeshGenerator::FRecastNavMeshGenerator(class ARecastNavMesh* InDestNavMesh)
-	: NumActiveTiles(0)
-	, MaxTileGeneratorTasks(1)
-	, AvgLayersPerTile(8.0f)
-	, DestNavMesh(InDestNavMesh)
-	, bInitialized(false)
-	, Version(0)
+FRecastNavMeshGenerator::FRecastNavMeshGenerator(ARecastNavMesh* InDestNavMesh)
+	: NumActiveTiles(0),
+	  MaxTileGeneratorTasks(1),
+	  AvgLayersPerTile(8.0f),
+	  DestNavMesh(InDestNavMesh),
+	  bInitialized(false),
+	  Version(0)
 {
-	INC_DWORD_STAT_BY( STAT_NavigationMemory, sizeof(*this) );
+	INC_DWORD_STAT_BY(STAT_NavigationMemory, sizeof(*this));
 
 	check(InDestNavMesh);
 	Init();
-	ConstructTiledNavMesh();
+
+	// recreate navmesh if no data was loaded, or when loaded data doesn't match current grid layout
+	bool bRecreateNavmesh = true;
+	if (DestNavMesh->HasValidNavmesh())
+	{
+		const dtNavMeshParams* SavedNavParams = DestNavMesh->GetRecastNavMeshImpl()->DetourNavMesh->getParams();
+		if (SavedNavParams)
+		{
+			const float TileDim = Config.tileSize * Config.cs;
+			if (SavedNavParams->tileHeight == TileDim && SavedNavParams->tileWidth == TileDim)
+			{
+				const FVector Orig = Recast2UnrealPoint(SavedNavParams->orig);
+				const FVector OrigError(FMath::Fmod(Orig.X, TileDim), FMath::Fmod(Orig.X, TileDim), FMath::Fmod(Orig.X, TileDim));
+				if (OrigError.IsNearlyZero())
+				{
+					bRecreateNavmesh = false;
+				}
+			}
+		};
+	}
+
+	if (bRecreateNavmesh)
+	{
+		ConstructTiledNavMesh();
+	}
+	else
+	{
+		int32 MaxTiles = 0;
+		CalcNavMeshProperties(MaxTiles, Config.MaxPolysPerTile);
+		NumActiveTiles = GetTilesCountHelper(DestNavMesh->GetRecastNavMeshImpl()->DetourNavMesh);
+	}
 }
 
 FRecastNavMeshGenerator::~FRecastNavMeshGenerator()
@@ -2796,6 +2828,7 @@ void FRecastNavMeshGenerator::Init()
 	/** setup maximum number of active tile generator*/
 	const int32 NumberOfWorkerThreads = FTaskGraphInterface::Get().GetNumWorkerThreads();
 	MaxTileGeneratorTasks = FMath::Max(NumberOfWorkerThreads*2, 1);
+	UE_LOG(LogNavigation, Log, TEXT("Using max of %d workers to build navigation."), MaxTileGeneratorTasks);
 	NumActiveTiles = 0;
 
 	// prepare voxel cache if needed
@@ -2853,38 +2886,9 @@ bool FRecastNavMeshGenerator::ConstructTiledNavMesh()
 		TiledMeshParameters.tileWidth = Config.tileSize * Config.cs;
 		TiledMeshParameters.tileHeight = Config.tileSize * Config.cs;
 
-		// limit max amount of tiles
-#if USE_64BIT_ADDRESS
-		const int32 MaxTileBits = 30;
-#else
-		const int32 MaxTileBits = 14;
-#endif//USE_64BIT_ADDRESS
+		CalcNavMeshProperties(TiledMeshParameters.maxTiles, TiledMeshParameters.maxPolys);
+		Config.MaxPolysPerTile = TiledMeshParameters.maxPolys;
 
-		const int32 MaxTiles = (1 << MaxTileBits);
-		int32 MaxRequestedTiles = 0;
-		if (DestNavMesh->IsResizable())
-		{
-			MaxRequestedTiles = CaclulateMaxTilesCount(InclusionBounds, Config.tileSize * Config.cs, AvgLayersPerTile);
-		}
-		else
-		{
-			MaxRequestedTiles = DestNavMesh->TilePoolSize;
-		}
-		
-		if (MaxRequestedTiles < 0 || MaxRequestedTiles > MaxTiles)
-		{
-			UE_LOG(LogNavigation, Error, TEXT("Navmesh bounds are too large! Limiting requested tiles count (%d) to: (%d)"), MaxRequestedTiles, MaxTiles);
-			MaxRequestedTiles = MaxTiles;
-		}
-
-		// Max tiles and max polys affect how the tile IDs are calculated.
-		// There are (sizeof(dtPolyRef)*8 - DT_MIN_SALT_BITS) bits available for 
-		// identifying a tile and a polygon.
-		Config.MaxPolysPerTile = 1 << ((sizeof(dtPolyRef)*8 - DT_MIN_SALT_BITS) - MaxTileBits);
-
-		TiledMeshParameters.maxTiles = MaxRequestedTiles;
-		TiledMeshParameters.maxPolys = Config.MaxPolysPerTile;
-	
 		const dtStatus status = DetourMesh->init(&TiledMeshParameters);
 
 		if (dtStatusFailed(status))
@@ -2906,6 +2910,39 @@ bool FRecastNavMeshGenerator::ConstructTiledNavMesh()
 	}
 	
 	return bSuccess;
+}
+
+void FRecastNavMeshGenerator::CalcNavMeshProperties(int32& MaxTiles, int32& MaxPolys)
+{
+	// limit max amount of tiles
+#if USE_64BIT_ADDRESS
+	const int32 MaxTileBits = 30;
+#else
+	const int32 MaxTileBits = 14;
+#endif//USE_64BIT_ADDRESS
+
+	const int32 MaxTilesFromMask = (1 << MaxTileBits);
+	int32 MaxRequestedTiles = 0;
+	if (DestNavMesh->IsResizable())
+	{
+		MaxRequestedTiles = CaclulateMaxTilesCount(InclusionBounds, Config.tileSize * Config.cs, AvgLayersPerTile);
+	}
+	else
+	{
+		MaxRequestedTiles = DestNavMesh->TilePoolSize;
+	}
+
+	if (MaxRequestedTiles < 0 || MaxRequestedTiles > MaxTilesFromMask)
+	{
+		UE_LOG(LogNavigation, Error, TEXT("Navmesh bounds are too large! Limiting requested tiles count (%d) to: (%d)"), MaxRequestedTiles, MaxTilesFromMask);
+		MaxRequestedTiles = MaxTilesFromMask;
+	}
+
+	// Max tiles and max polys affect how the tile IDs are calculated.
+	// There are (sizeof(dtPolyRef)*8 - DT_MIN_SALT_BITS) bits available for 
+	// identifying a tile and a polygon.
+	MaxPolys = 1 << ((sizeof(dtPolyRef)* 8 - DT_MIN_SALT_BITS) - MaxTileBits);
+	MaxTiles = MaxRequestedTiles;
 }
 
 bool FRecastNavMeshGenerator::RebuildAll()
@@ -3071,7 +3108,9 @@ TArray<uint32> FRecastNavMeshGenerator::RemoveTileLayers(const int32 TileX, cons
 {
 	TArray<uint32> ResultTileIndices;
 	dtNavMesh* DetourMesh = DestNavMesh->GetRecastNavMeshImpl()->GetRecastMesh();
-	const int32 NumLayers = DetourMesh ? DetourMesh->getTileCountAt(TileX, TileY) : 0;
+	
+	check(DetourMesh == nullptr || DetourMesh->isEmpty() == false);
+	const int32 NumLayers = DetourMesh != nullptr ? DetourMesh->getTileCountAt(TileX, TileY) : 0;
 	
 	if (NumLayers > 0)
 	{

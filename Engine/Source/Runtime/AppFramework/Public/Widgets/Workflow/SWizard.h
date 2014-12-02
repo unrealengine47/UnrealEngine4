@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "SlateBasics.h"
 
 /**
  * Delegate type for getting a page's enabled state.
@@ -152,10 +153,10 @@ public:
 		SLATE_ATTRIBUTE(bool, CanFinish)
 
 		/** Holds the label text of the wizard's 'Finish' button. */
-		SLATE_TEXT_ATTRIBUTE(FinishButtonText)
+		SLATE_ATTRIBUTE(FText, FinishButtonText)
 
 		/** Holds the tool tip text of the wizard's 'Finish' button. */
-		SLATE_TEXT_ATTRIBUTE(FinishButtonToolTip)
+		SLATE_ATTRIBUTE(FText, FinishButtonToolTip)
 
 		/** Holds the index of the initial page to be displayed (0 = default). */
 		SLATE_ATTRIBUTE(int32, InitialPageIndex)

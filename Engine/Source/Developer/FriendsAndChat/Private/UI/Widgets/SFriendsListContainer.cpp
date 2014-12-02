@@ -33,7 +33,7 @@ public:
 			.AutoHeight()
 			[
 				SNew(SBorder)
-				.Padding(15.0f)
+				.Padding(FriendStyle.BorderPadding)
 				.BorderImage(&FriendStyle.FriendListHeader)
 				[
 					SNew(SButton)
@@ -79,6 +79,17 @@ public:
 							SNew(SSpacer)
 						]
 						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.HAlign(HAlign_Right)
+						[
+							SNew(STextBlock)
+							.Visibility(ViewModel->GetOnlineCountVisibility())
+							.ColorAndOpacity(FLinearColor::White)
+							.Font(FriendStyle.FriendsFontStyleBold)
+							.Text(ViewModelPtr, &FFriendListViewModel::GetOnlineCountText)
+						]
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
 						.HAlign(HAlign_Right)
 						[
 							SNew(STextBlock)
@@ -154,7 +165,7 @@ private:
 
 	TSharedPtr<FFriendListViewModel> ViewModel;
 
-	SMenuAnchor::EMethod MenuMethod;
+	EPopupMethod MenuMethod;
 };
 
 TSharedRef<SFriendsListContainer> SFriendsListContainer::New()

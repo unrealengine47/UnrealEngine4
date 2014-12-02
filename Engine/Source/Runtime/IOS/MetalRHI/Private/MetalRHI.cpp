@@ -46,8 +46,12 @@ FMetalDynamicRHI::FMetalDynamicRHI()
 	id<MTLDevice> Device = [IOSAppDelegate GetDelegate].IOSView->MetalDevice;
 	// A8 can use 256 bits of MRTs
 	bool bCanUseWideMRTs = [Device supportsFeatureSet:MTLFeatureSet_iOS_GPUFamily2_v1];
+
+	bool bProjectSupportsMRTs = false;
+	GConfig->GetBool(TEXT("/Script/IOSRuntimeSettings.IOSRuntimeSettings"), TEXT("bSupportsMetalMRT"), bProjectSupportsMRTs, GEngineIni);
+
 	// only allow GBuffers, etc on A8s (A7s are just not going to cut it)
-	if (bCanUseWideMRTs && FParse::Param(FCommandLine::Get(),TEXT("metalmrt")))
+	if (bProjectSupportsMRTs && bCanUseWideMRTs && FParse::Param(FCommandLine::Get(),TEXT("metalmrt")))
 	{
 		GMaxRHIFeatureLevel = ERHIFeatureLevel::SM4;
 		GMaxRHIShaderPlatform = SP_METAL_MRT;
@@ -91,7 +95,7 @@ FMetalDynamicRHI::FMetalDynamicRHI()
 	GShaderPlatformForFeatureLevel[ERHIFeatureLevel::SM4] = (GMaxRHIShaderPlatform == SP_METAL_MRT) ? SP_METAL_MRT : SP_NumPlatforms;
 	GShaderPlatformForFeatureLevel[ERHIFeatureLevel::SM5] = SP_NumPlatforms;
 
-	// @todo metal mrt:
+	// we cannot render to a volume texture without geometry shader support
 	GSupportsVolumeTextureRendering = false;
 
 // 	GDrawUPVertexCheckCount = MAX_uint16;

@@ -285,6 +285,16 @@ FReply SWidget::OnMotionDetected( const FGeometry& MyGeometry, const FMotionEven
 	return FReply::Unhandled();
 }
 
+TOptional<EPopupMethod> SWidget::OnQueryPopupMethod() const
+{
+	return TOptional<EPopupMethod>();
+}
+
+TSharedPtr<struct FVirtualPointerPosition> SWidget::TranslateMouseCoordinateFor3DChild(const TSharedRef<SWidget>& ChildWidget, const FGeometry& MyGeometry, const FVector2D& ScreenSpaceMouseCoordinate, const FVector2D& LastScreenSpaceMouseCoordinate) const
+{
+	return nullptr;
+}
+
 
 void SWidget::OnFinishedPointerInput()
 {
@@ -384,18 +394,30 @@ bool SWidget::SupportsKeyboardFocus() const
 	return false;
 }
 
-
 bool SWidget::HasKeyboardFocus() const
 {
 	return (FSlateApplicationBase::Get().GetKeyboardFocusedWidget().Get() == this);
 }
 
+TOptional<EFocusCause> SWidget::HasUserFocus(int32 UserIndex) const
+{
+	return FSlateApplicationBase::Get().HasUserFocus(SharedThis(this), UserIndex);
+}
+
+TOptional<EFocusCause> SWidget::HasAnyUserFocus() const
+{
+	return FSlateApplicationBase::Get().HasAnyUserFocus(SharedThis(this));
+}
 
 bool SWidget::HasFocusedDescendants() const
 {
 	return FSlateApplicationBase::Get().HasFocusedDescendants(SharedThis(this));
 }
 
+const FSlateBrush* SWidget::GetFocusBrush() const
+{
+	return FCoreStyle::Get().GetBrush("FocusRectangle");
+}
 
 bool SWidget::HasMouseCapture() const
 {
@@ -604,7 +626,31 @@ int32 SWidget::Paint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, 
 	}
 
 	const FPaintArgs UpdatedArgs = Args.RecordHittestGeometry( this, AllottedGeometry, MyClippingRect );
-	return OnPaint(UpdatedArgs, AllottedGeometry, MyClippingRect, OutDrawElements, LayerId, InWidgetStyle, bParentEnabled);
+	int32 NewLayerID = OnPaint(UpdatedArgs, AllottedGeometry, MyClippingRect, OutDrawElements, LayerId, InWidgetStyle, bParentEnabled);
+
+	if (SupportsKeyboardFocus())
+	{
+		TOptional<EFocusCause> FocusCause = HasAnyUserFocus();
+		if (FocusCause.IsSet() && FocusCause.GetValue() == EFocusCause::Navigation)
+		{
+			const FSlateBrush* BrushResource = GetFocusBrush();
+
+			if (BrushResource != nullptr)
+			{
+				FSlateDrawElement::MakeBox(
+					OutDrawElements,
+					NewLayerID,
+					AllottedGeometry.ToPaintGeometry(),
+					BrushResource,
+					MyClippingRect,
+					ESlateDrawEffect::None,
+					FColor(255, 255, 255, 128)
+					);
+			}
+		}
+	}
+
+	return NewLayerID;
 }
 
 void SWidget::ArrangeChildren(const FGeometry& AllottedGeometry, FArrangedChildren& ArrangedChildren) const

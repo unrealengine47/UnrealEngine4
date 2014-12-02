@@ -475,6 +475,13 @@ FBuildPatchAppManifest::FBuildPatchAppManifest(const uint32& InAppID, const FStr
 	Data->AppName = AppName;
 }
 
+FBuildPatchAppManifest::FBuildPatchAppManifest(const FBuildPatchAppManifest& Other)
+{
+	Data = DuplicateObject<UBuildPatchManifest>(Other.Data, Other.Data->GetOuter());
+	InitLookups();
+	bNeedsResaving = Other.bNeedsResaving;
+}
+
 FBuildPatchAppManifest::~FBuildPatchAppManifest()
 {
 //	Data->MarkPendingKill(); ??? Mark for destory and run GC?
@@ -1258,6 +1265,39 @@ const FString& FBuildPatchAppManifest::GetPrereqArgs() const
 IBuildManifestRef FBuildPatchAppManifest::Duplicate() const
 {
 	return MakeShareable(new FBuildPatchAppManifest(*this));
+}
+
+void FBuildPatchAppManifest::CopyCustomFields(IBuildManifestRef InOther, bool bClobber)
+{
+	// Cast manifest parameters
+	FBuildPatchAppManifestRef Other = StaticCastSharedRef< FBuildPatchAppManifest >(InOther);
+
+	// Use lookup to overwrite existing and list additional fields
+	TArray<FCustomFieldData> Extras;
+	for (const auto& CustomField : Other->Data->CustomFields)
+	{
+		if (CustomFieldLookup.Contains(CustomField.Key))
+		{
+			if (bClobber)
+			{
+				CustomFieldLookup[CustomField.Key]->Value = CustomField.Value;
+			}
+		}
+		else
+		{
+			Extras.Add(CustomField);
+		}
+	}
+
+	// Add the extra fields
+	Data->CustomFields.Append(Extras);
+
+	// Reset the loookup
+	CustomFieldLookup.Empty(Data->CustomFields.Num());
+	for (auto& CustomField : Data->CustomFields)
+	{
+		CustomFieldLookup.Add(CustomField.Key, &CustomField);
+	}
 }
 
 const IManifestFieldPtr FBuildPatchAppManifest::GetCustomField(const FString& FieldName) const

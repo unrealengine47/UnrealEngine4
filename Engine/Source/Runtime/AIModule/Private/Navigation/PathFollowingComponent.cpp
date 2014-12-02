@@ -4,8 +4,8 @@
 #if WITH_RECAST
 #	include "Detour/DetourNavMeshQuery.h"
 #endif
+#include "AI/Navigation/AbstractNavData.h"
 #include "AI/Navigation/RecastNavMesh.h"
-#include "Navigation/NavigationComponent.h"
 #include "AI/Navigation/NavLinkCustomInterface.h"
 #include "GameFramework/NavMovementComponent.h"
 #include "GameFramework/Character.h"
@@ -85,7 +85,7 @@ void LogBlockHelper(AActor* LogOwner, UNavMovementComponent* MoveComp, float Rad
 	{
 		const FVector AgentLocation = MoveComp->GetActorFeetLocation();
 		const FVector ToTarget = (SegmentEnd - AgentLocation);
-		const float SegmentDot = FVector::DotProduct(ToTarget.SafeNormal(), (SegmentEnd - SegmentStart).SafeNormal());
+		const float SegmentDot = FVector::DotProduct(ToTarget.GetSafeNormal(), (SegmentEnd - SegmentStart).GetSafeNormal());
 		UE_VLOG(LogOwner, LogPathFollowing, Verbose, TEXT("[agent to segment end] dot [segment dir]: %f"), SegmentDot);
 		
 		float AgentRadius = 0.0f;
@@ -263,11 +263,6 @@ void UPathFollowingComponent::AbortMove(const FString& Reason, FAIRequestID Requ
 			MovementComp->StopMovementKeepPathing();
 		}
 
-		if (NavComp && FinishResult != EPathFollowingResult::Skipped)
-		{
-			NavComp->ResetTransientData();
-		}
-
 		// notify observers after state was reset (they can request another move)
 		SavedReqFinished.ExecuteIfBound(FinishResult);
 		OnMoveFinished.Broadcast(AbortedMoveId, FinishResult);
@@ -299,6 +294,8 @@ void UPathFollowingComponent::PauseMove(FAIRequestID RequestID, bool bResetVeloc
 
 		UpdateMoveFocus();
 	}
+
+	// TODO: pause path updates with goal movement
 }
 
 void UPathFollowingComponent::ResumeMove(FAIRequestID RequestID)
@@ -380,11 +377,6 @@ void UPathFollowingComponent::OnPathFinished(EPathFollowingResult::Type Result)
 		MovementComp->StopMovementKeepPathing();
 	}
 
-	if (NavComp && Result != EPathFollowingResult::Skipped)
-	{
-		NavComp->ResetTransientData();
-	}
-
 	// notify observers after state was reset (they can request another move)
 	SavedReqFinished.ExecuteIfBound(Result);
 	OnMoveFinished.Broadcast(FinishedMoveId, Result);
@@ -413,12 +405,6 @@ void UPathFollowingComponent::Cleanup()
 
 void UPathFollowingComponent::UpdateCachedComponents()
 {
-	AActor* MyOwner = GetOwner();
-	if (MyOwner)
-	{
-		NavComp = MyOwner->FindComponentByClass<UNavigationComponent>();
-	}
-
 	UpdateMovementComponent(/*bForce=*/true);
 }
 
@@ -447,14 +433,13 @@ void UPathFollowingComponent::SetMovementComponent(UNavMovementComponent* MoveCo
 
 	if (MoveComp != NULL)
 	{
-		const FNavAgentProperties* NavAgentProps = MoveComp->GetNavAgentProperties();
-		check(NavAgentProps);
-		MyDefaultAcceptanceRadius = NavAgentProps->AgentRadius;
+		const FNavAgentProperties& NavAgentProps = MoveComp->GetNavAgentProperties();
+		MyDefaultAcceptanceRadius = NavAgentProps.AgentRadius;
 		MoveComp->PathFollowingComp = this;
 
 		if (GetWorld() && GetWorld()->GetNavigationSystem())
 		{	
-			MyNavData = GetWorld()->GetNavigationSystem()->GetNavDataForProps(*NavAgentProps);
+			MyNavData = GetWorld()->GetNavigationSystem()->GetNavDataForProps(NavAgentProps);
 		}
 	}
 }
@@ -572,12 +557,12 @@ void UPathFollowingComponent::SetMoveSegment(int32 SegmentStartIndex)
 		CurrentDestination.Set(Path->GetBaseActor(), SegmentEnd);
 		CurrentAcceptanceRadius = (Path->GetPathPoints().Num() == (EndSegmentIndex + 1)) ? AcceptanceRadius : 0.0f;
 
-		MoveSegmentDirection = (SegmentEnd - SegmentStart).SafeNormal();
+		MoveSegmentDirection = (SegmentEnd - SegmentStart).GetSafeNormal();
 		
 		// make sure we have a non-zero direction if still following a valid path
 		if (MoveSegmentDirection.IsZero() && int32(MoveSegmentEndIndex + 1) < Path->GetPathPoints().Num())
 		{
-			MoveSegmentDirection = (Path->GetPathPoints()[MoveSegmentEndIndex + 1].Location - SegmentStart).SafeNormal();
+			MoveSegmentDirection = (Path->GetPathPoints()[MoveSegmentEndIndex + 1].Location - SegmentStart).GetSafeNormal();
 		}
 
 		// handle moving through custom nav links
@@ -624,13 +609,8 @@ int32 UPathFollowingComponent::OptimizeSegmentVisibility(int32 StartIndex)
 	//SCOPE_CYCLE_COUNTER(STAT_Navigation_PathVisibilityOptimisation);
 
 	const AAIController* MyAI = Cast<AAIController>(GetOwner());
-	const ANavigationData* NavData = MyAI && MyAI->GetNavComponent() ? MyAI->GetNavComponent()->GetNavData() : NULL;
-	if (Path.IsValid())
-	{
-		Path->ShortcutNodeRefs.Reset();
-	}
-
-	if (NavData == NULL)
+	const ANavigationData* NavData = Path.IsValid() ? Path->GetNavigationDataUsed() : NULL;
+	if (NavData == NULL || MyAI == NULL)
 	{
 		return StartIndex + 1;
 	}
@@ -652,7 +632,7 @@ int32 UPathFollowingComponent::OptimizeSegmentVisibility(int32 StartIndex)
 	}
 
 #endif
-	TSharedPtr<FNavigationQueryFilter> QueryFilter = (NavComp && NavComp->GetStoredQueryFilter().IsValid()) ? NavComp->GetStoredQueryFilter()->GetCopy() : NavData->GetDefaultQueryFilter()->GetCopy();
+	TSharedPtr<FNavigationQueryFilter> QueryFilter = Path->GetFilter()->GetCopy();
 #if WITH_RECAST
 	const uint8 StartArea = FNavMeshNodeFlags(Path->GetPathPoints()[StartIndex].Flags).Area;
 	TArray<float> CostArray;
@@ -663,6 +643,7 @@ int32 UPathFollowingComponent::OptimizeSegmentVisibility(int32 StartIndex)
 
 	const int32 MaxPoints = Path->GetPathPoints().Num();
 	int32 Index = StartIndex + 2;
+	Path->ShortcutNodeRefs.Reset();
 
 	for (; Index <= MaxPoints; ++Index)
 	{
@@ -726,7 +707,7 @@ void UPathFollowingComponent::UpdatePathSegment()
 
 	if (!Path->IsValid())
 	{
-		if (NavComp == NULL || !NavComp->IsWaitingForRepath())
+		if (!Path->IsWaitingForRepath())
 		{
 			AbortMove(TEXT("no path"), FAIRequestID::CurrentRequest, true, false, EPathFollowingMessage::NoPath);
 		}
@@ -829,7 +810,7 @@ bool UPathFollowingComponent::HasReached(const FVector& TestPoint, float InAccep
 	{
 		InAcceptanceRadius = MyDefaultAcceptanceRadius;
 	}
-	return HasReachedInternal(TestPoint, GoalRadius, GoalHalfHeight, CurrentLocation, InAcceptanceRadius, !bExactSpot);
+	return HasReachedInternal(TestPoint, GoalRadius, GoalHalfHeight, CurrentLocation, InAcceptanceRadius, /*bSuccessOnRadiusOverlap=*/!bExactSpot);
 }
 
 bool UPathFollowingComponent::HasReached(const AActor& TestGoal, float InAcceptanceRadius, bool bExactSpot) const
@@ -853,7 +834,7 @@ bool UPathFollowingComponent::HasReached(const AActor& TestGoal, float InAccepta
 	}
 
 	const FVector CurrentLocation = MovementComp ? MovementComp->GetActorFeetLocation() : FVector::ZeroVector;
-	return HasReachedInternal(TestPoint, GoalRadius, GoalHalfHeight, CurrentLocation, InAcceptanceRadius, !bExactSpot);
+	return HasReachedInternal(TestPoint, GoalRadius, GoalHalfHeight, CurrentLocation, InAcceptanceRadius, /*bSuccessOnRadiusOverlap=*/!bExactSpot);
 }
 
 bool UPathFollowingComponent::HasReachedDestination(const FVector& CurrentLocation) const
@@ -879,7 +860,7 @@ bool UPathFollowingComponent::HasReachedDestination(const FVector& CurrentLocati
 		}
 	}
 
-	return HasReachedInternal(GoalLocation, GoalRadius, GoalHalfHeight, CurrentLocation, AcceptanceRadius, bStopOnOverlap);
+	return HasReachedInternal(GoalLocation, GoalRadius, GoalHalfHeight, CurrentLocation, AcceptanceRadius, /*bSuccessOnRadiusOverlap=*/bStopOnOverlap);
 }
 
 bool UPathFollowingComponent::HasReachedCurrentTarget(const FVector& CurrentLocation) const
@@ -903,10 +884,10 @@ bool UPathFollowingComponent::HasReachedCurrentTarget(const FVector& CurrentLoca
 	// don't use acceptance radius here, it has to be exact for moving near corners
 	const float GoalRadius = 0.0f;
 	const float GoalHalfHeight = 0.0f;
-	return HasReachedInternal(CurrentTarget, GoalRadius, GoalHalfHeight, CurrentLocation, CurrentAcceptanceRadius, false);
+	return HasReachedInternal(CurrentTarget, GoalRadius, GoalHalfHeight, CurrentLocation, CurrentAcceptanceRadius, /*bSuccessOnRadiusOverlap=*/false);
 }
 
-bool UPathFollowingComponent::HasReachedInternal(const FVector& Goal, float GoalRadius, float GoalHalfHeight, const FVector& AgentLocation, float RadiusThreshold, bool bUseAgentRadius) const
+bool UPathFollowingComponent::HasReachedInternal(const FVector& Goal, float GoalRadius, float GoalHalfHeight, const FVector& AgentLocation, float RadiusThreshold, bool bSuccessOnRadiusOverlap) const
 {
 	if (MovementComp == NULL)
 	{
@@ -923,7 +904,7 @@ bool UPathFollowingComponent::HasReachedInternal(const FVector& Goal, float Goal
 	const FVector ToGoal = Goal - AgentLocation;
 
 	const float Dist2DSq = ToGoal.SizeSquared2D();
-	const float UseRadius = GoalRadius + RadiusThreshold + (bUseAgentRadius ? AgentRadius * MinAgentRadiusPct : 0.0f);
+	const float UseRadius = FMath::Max(RadiusThreshold, GoalRadius + (bSuccessOnRadiusOverlap ? AgentRadius * MinAgentRadiusPct : 0.0f));
 	if (Dist2DSq > FMath::Square(UseRadius))
 	{
 		return false;
@@ -981,7 +962,7 @@ void UPathFollowingComponent::DebugReachTest(float& CurrentDot, float& CurrentDi
 	}
 
 	const FVector ToGoal = (GoalLocation - AgentLocation);
-	CurrentDot = FVector::DotProduct(ToGoal.SafeNormal(), MoveSegmentDirection);
+	CurrentDot = FVector::DotProduct(ToGoal.GetSafeNormal(), MoveSegmentDirection);
 	bDotFailed = (CurrentDot < 0.0f) ? 1 : 0;
 
 	// get cylinder of moving agent
@@ -991,7 +972,7 @@ void UPathFollowingComponent::DebugReachTest(float& CurrentDot, float& CurrentDi
 	MovingAgent->GetSimpleCollisionCylinder(AgentRadius, AgentHalfHeight);
 
 	CurrentDistance = ToGoal.Size2D();
-	const float UseRadius = GoalRadius + RadiusThreshold + (bUseAgentRadius ? AgentRadius * MinAgentRadiusPct : 0.0f);
+	const float UseRadius = FMath::Max(RadiusThreshold, GoalRadius + (bUseAgentRadius ? AgentRadius * MinAgentRadiusPct : 0.0f));
 	bDistanceFailed = (CurrentDistance > UseRadius) ? 1 : 0;
 
 	CurrentHeight = FMath::Abs(ToGoal.Z);
@@ -1180,7 +1161,7 @@ void UPathFollowingComponent::UpdateMoveFocus()
 		if (Status == EPathFollowingStatus::Moving)
 		{
 			const FVector MoveFocus = GetMoveFocus(AIOwner->bAllowStrafe);
-			AIOwner->SetFocalPoint(MoveFocus, false, EAIFocusPriority::Move);
+			AIOwner->SetFocalPoint(MoveFocus, EAIFocusPriority::Move);
 		}
 		else
 		{
@@ -1243,7 +1224,7 @@ EPathFollowingAction::Type UPathFollowingComponent::GetPathActionType() const
 		case EPathFollowingStatus::Paused:	
 		case EPathFollowingStatus::Moving:
 			return Path.IsValid() == false ? EPathFollowingAction::Error :
-				Path->IsDirect() ? EPathFollowingAction::DirectMove :
+				Path->CastPath<FAbstractNavigationPath>() ? EPathFollowingAction::DirectMove :
 				Path->IsPartial() ? EPathFollowingAction::PartialPath : EPathFollowingAction::PathToGoal;
 
 		default:
@@ -1324,7 +1305,10 @@ void UPathFollowingComponent::DescribeSelfToVisLog(FVisualLogEntry* Snapshot) co
 	}
 
 	Category.Add(TEXT("Status"), StatusDesc);
-	Category.Add(TEXT("Path"), !Path.IsValid() ? TEXT("none") : (Path->CastPath<FNavMeshPath>() != NULL) ? TEXT("navmesh") : TEXT("direct"));
+	Category.Add(TEXT("Path"), !Path.IsValid() ? TEXT("none") :
+		(Path->CastPath<FNavMeshPath>() != NULL) ? TEXT("navmesh") :
+		(Path->CastPath<FAbstractNavigationPath>() != NULL) ? TEXT("direct") :
+		TEXT("unknown"));
 	
 	UObject* CustomNavLinkOb = CurrentCustomLinkOb.Get();
 	if (CustomNavLinkOb)
@@ -1350,7 +1334,7 @@ void UPathFollowingComponent::GetDebugStringTokens(TArray<FString>& Tokens, TArr
 	if (Path.IsValid())
 	{
 		const int32 NumMoveSegments = (Path.IsValid() && Path->IsValid()) ? Path->GetPathPoints().Num() : -1;
-		const bool bIsDirect = HasDirectPath();
+		const bool bIsDirect = (Path->CastPath<FAbstractNavigationPath>() != NULL);
 		const bool bIsCustomLink = CurrentCustomLinkOb.IsValid();
 
 		if (!bIsDirect)
@@ -1404,6 +1388,11 @@ FString UPathFollowingComponent::GetDebugString() const
 	}
 
 	return Desc;
+}
+
+bool UPathFollowingComponent::IsPathFollowingAllowed() const
+{
+	return MovementComp && MovementComp->CanStartPathFollowing();
 }
 
 void UPathFollowingComponent::LockResource(EAIRequestPriority::Type LockSource)

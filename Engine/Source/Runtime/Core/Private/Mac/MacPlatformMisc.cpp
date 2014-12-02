@@ -545,16 +545,15 @@ uint32 FMacPlatformMisc::GetKeyMap( uint16* KeyCodes, FString* KeyNames, uint32 
 		ADDKEYMAP( kVK_F11, TEXT("F11") );
 		ADDKEYMAP( kVK_F12, TEXT("F12") );
 
-		// Mac pretends the Command key is Ctrl and Ctrl is Command key
-		ADDKEYMAP( MMK_RightCommand, TEXT("RightControl") );
-		ADDKEYMAP( MMK_LeftCommand, TEXT("LeftControl") );
+		ADDKEYMAP( MMK_RightControl, TEXT("RightControl") );
+		ADDKEYMAP( MMK_LeftControl, TEXT("LeftControl") );
 		ADDKEYMAP( MMK_LeftShift, TEXT("LeftShift") );
 		ADDKEYMAP( MMK_CapsLock, TEXT("CapsLock") );
 		ADDKEYMAP( MMK_LeftAlt, TEXT("LeftAlt") );
-		ADDKEYMAP( MMK_LeftControl, TEXT("LeftCommand") );
+		ADDKEYMAP( MMK_LeftCommand, TEXT("LeftCommand") );
 		ADDKEYMAP( MMK_RightShift, TEXT("RightShift") );
 		ADDKEYMAP( MMK_RightAlt, TEXT("RightAlt") );
-		ADDKEYMAP( MMK_RightControl, TEXT("RightCommand") );
+		ADDKEYMAP( MMK_RightCommand, TEXT("RightCommand") );
 	}
 
 	check(NumMappings < MaxMappings);
@@ -1064,6 +1063,34 @@ bool FMacPlatformMisc::IsRunningOnBattery()
 bool FMacPlatformMisc::IsRunningOnMavericks()
 {
 	return GMacAppInfo.RunningOnMavericks;
+}
+
+int32 FMacPlatformMisc::MacOSXVersionCompare(uint8 Major, uint8 Minor, uint8 Revision)
+{
+	TArray<FString> Components;
+	GMacAppInfo.OSVersion.ParseIntoArray(&Components, TEXT("."), true);
+	
+	uint8 TargetValues[3] = {Major, Minor, Revision};
+	uint8 ComponentValues[3] = {0, 0, 0};
+	
+	for(uint32 i = 0; i < Components.Num(); i++)
+	{
+		TTypeFromString<uint8>::FromString(ComponentValues[i], *Components[i]);
+	}
+	
+	for(uint32 i = 0; i < 3; i++)
+	{
+		if(ComponentValues[i] < TargetValues[i])
+		{
+			return -1;
+		}
+		else if(ComponentValues[i] > TargetValues[i])
+		{
+			return 1;
+		}
+	}
+	
+	return 0;
 }
 
 /** Global pointer to crash handler */
@@ -1696,9 +1723,9 @@ void FMacCrashContext::GenerateCrashInfoAndLaunchReporter() const
 			WriteLine(ReportFile, *GMacAppInfo.AppName);
 			
 			WriteUTF16String(ReportFile, TEXT("BuildVersion 1.0."));
-			WriteUTF16String(ReportFile, ItoTCHAR(ENGINE_VERSION_HIWORD, 10));
+			WriteUTF16String(ReportFile, ItoTCHAR(ENGINE_VERSION >> 16, 10));
 			WriteUTF16String(ReportFile, TEXT("."));
-			WriteLine(ReportFile, ItoTCHAR(ENGINE_VERSION_LOWORD, 10));
+			WriteLine(ReportFile, ItoTCHAR(ENGINE_VERSION & 0xffff, 10));
 			
 			WriteUTF16String(ReportFile, TEXT("CommandLine "));
 			WriteLine(ReportFile, *GMacAppInfo.CommandLine);

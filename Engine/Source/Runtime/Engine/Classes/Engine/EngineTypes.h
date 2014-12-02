@@ -688,6 +688,9 @@ struct ENGINE_API FCollisionResponseContainer
 	/** Set all channels to the specified response */
 	void SetAllChannels(ECollisionResponse NewResponse);
 
+	/** Replace the channels matching the old response with the new response */
+	void ReplaceChannels(ECollisionResponse OldResponse, ECollisionResponse NewResponse);
+
 	/** Returns the response set on the specified channel */
 	ECollisionResponse GetResponse(ECollisionChannel Channel) const;
 
@@ -1124,7 +1127,7 @@ struct FLightmassPrimitiveSettings
 	{
 		bUseTwoSidedLighting = false;
 		bShadowIndirectOnly = false;
-		bUseEmissiveForStaticLighting = true;
+		bUseEmissiveForStaticLighting = false;
 		EmissiveLightFalloffExponent = 8.0f;
 		EmissiveLightExplicitInfluenceRadius = 0.0f;
 		EmissiveBoost = 1.0f;
@@ -2196,6 +2199,8 @@ namespace EEndPlayReason
 	};
 
 }
+
+DECLARE_DYNAMIC_DELEGATE(FTimerDynamicDelegate);
 
 /** Replicated movement data of our RootComponent.
   * Struct used for efficient replication as velocity and location are generally replicated together (this saves a repindex) 

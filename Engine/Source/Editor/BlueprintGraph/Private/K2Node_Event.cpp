@@ -160,28 +160,33 @@ void UK2Node_Event::PostReconstructNode()
 	UpdateDelegatePin();
 }
 
-void UK2Node_Event::UpdateDelegatePin()
+void UK2Node_Event::UpdateDelegatePin(bool bSilent)
 {
 	UEdGraphPin* Pin = FindPinChecked(DelegateOutputName);
 	checkSlow(EGPD_Output == Pin->Direction);
-	const UObject* OldSignature = Pin->PinType.PinSubCategoryObject.Get();
 
+	const UObject* OldSignature = FMemberReference::ResolveSimpleMemberReference<UFunction>(Pin->PinType.PinSubCategoryMemberReference);
+	if (!OldSignature)
+	{
+		OldSignature = Pin->PinType.PinSubCategoryObject.Get();
+	}
+
+	UFunction* NewSignature = NULL;
 	if(bOverrideFunction)
 	{
-		Pin->PinType.PinSubCategoryObject = EventSignatureClass->FindFunctionByName(EventSignatureName);
+		NewSignature = EventSignatureClass->FindFunctionByName(EventSignatureName);
 	}
 	else if(UBlueprint* Blueprint = GetBlueprint())
 	{
-		Pin->PinType.PinSubCategoryObject = Blueprint->SkeletonGeneratedClass 
+		NewSignature = Blueprint->SkeletonGeneratedClass
 			? Blueprint->SkeletonGeneratedClass->FindFunctionByName(CustomFunctionName)
 			: NULL;
 	}
-	else
-	{
-		Pin->PinType.PinSubCategoryObject = NULL;
-	}
 
-	if(OldSignature != Pin->PinType.PinSubCategoryObject.Get())
+	Pin->PinType.PinSubCategoryObject = NULL;
+	FMemberReference::FillSimpleMemberReference<UFunction>(NewSignature, Pin->PinType.PinSubCategoryMemberReference);
+
+	if ((OldSignature != NewSignature) && !bSilent)
 	{
 		PinTypeChanged(Pin);
 	}
@@ -234,6 +239,8 @@ void UK2Node_Event::AllocateDefaultPins()
 		CreatePinsForFunctionEntryExit(Function, /*bIsFunctionEntry=*/ true);
 	}
 
+	UpdateDelegatePin(true);
+
 	Super::AllocateDefaultPins();
 }
 
@@ -246,6 +253,12 @@ void UK2Node_Event::ValidateNodeDuringCompilation(class FCompilerResultsLog& Mes
 	{
 		MessageLog.Error(*FString::Printf(*NSLOCTEXT("KismetCompiler", "MissingEventSig_Error", "Missing Event '%s' for @@").ToString(), *EventSignatureName.ToString()), this);
 	}
+}
+
+bool UK2Node_Event::NodeCausesStructuralBlueprintChange() const
+{
+	// will only change class structure when UGPF is disabled
+	return !UBlueprintGeneratedClass::UsePersistentUberGraphFrame();
 }
 
 void UK2Node_Event::GetRedirectPinNames(const UEdGraphPin& Pin, TArray<FString>& RedirectPinNames) const

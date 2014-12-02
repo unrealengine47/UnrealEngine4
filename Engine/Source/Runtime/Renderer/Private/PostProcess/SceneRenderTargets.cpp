@@ -41,17 +41,6 @@ static TAutoConsoleVariable<int32> CVarSceneTargetsResizingMethod(
 	ECVF_RenderThreadSafe
 	);
 
-static TAutoConsoleVariable<int32> CVarSceneCaptureResizingMethod(
-	TEXT("r.SceneCaptureResizeMethod"),
-	0,
-	TEXT("Control the scene render target resize method for scene captures:\n")
-	TEXT("(This value is only used in game mode and on windowing platforms.)\n")
-	TEXT("0: All scene capture renders are limited to screen resolution or smaller. (Default - prevents allocation when requested dimensions are too large.)\n")
-	TEXT("1: Allows scene capture targets to expand to encompass the dimensions requested.\n")
-	TEXT("   (large sizes could cause stalling without 'r.SceneRenderTargetResizeMethod 2'. Out of memory issues can occur if size is too large)"),
-	ECVF_RenderThreadSafe
-	);
-
 static TAutoConsoleVariable<int32> CVarOptimizeForUAVPerformance(
 	TEXT("r.OptimizeForUAVPerformance"),
 	0,
@@ -77,7 +66,7 @@ static TAutoConsoleVariable<int32> CVarMobileMSAA(
 	TEXT("Use MSAA instead of Temporal AA on mobile:\n")
 	TEXT("1: Use Temporal AA (MSAA disabled)\n")
 	TEXT("2: Use 2x MSAA (Temporal AA disabled)\n")
-	TEXT("4: Use 4x MSAA (Temporal AA disabled)\n"),
+	TEXT("4: Use 4x MSAA (Temporal AA disabled)"),
 	ECVF_RenderThreadSafe
 	);
 
@@ -116,18 +105,21 @@ inline const TCHAR* GetSceneColorTargetName(FSceneRenderTargets::EShadingPath Sh
 	return SceneColorNames[(uint32)ShadingPath];
 }
 
-FIntPoint FSceneRenderTargets::GetSceneRenderTargetSize(const FSceneViewFamily& ViewFamily) const
+FIntPoint FSceneRenderTargets::ComputeDesiredSize(const FSceneViewFamily& ViewFamily) const
 {
 	// Don't expose Clamped to the cvar since you need to at least grow to the initial state.
-	enum ESizingMethods { RequestedSize, ScreenRes, Grow, VisibleSizingMethodsCount, Clamped};
+	enum ESizingMethods { RequestedSize, ScreenRes, Grow, VisibleSizingMethodsCount, Clamped };
 	ESizingMethods SceneTargetsSizingMethod = Grow;
 
-	bool bCapture = false;
-	for (int32 ViewIndex = 0; ViewIndex < ViewFamily.Views.Num(); ++ViewIndex)
+	bool bIsSceneCapture = false;
+	bool bIsReflectionCapture = false;
+
+	for (int32 ViewIndex = 0, ViewCount = ViewFamily.Views.Num(); ViewIndex < ViewCount; ++ViewIndex)
 	{
 		const FSceneView* View = ViewFamily.Views[ViewIndex];
 
-		bCapture |= View->bIsSceneCapture || View->bIsReflectionCapture;
+		bIsSceneCapture |= View->bIsSceneCapture;
+		bIsReflectionCapture |= View->bIsReflectionCapture;
 	}
 
 	if(!FPlatformProperties::SupportsWindowedMode())
@@ -146,25 +138,24 @@ FIntPoint FSceneRenderTargets::GetSceneRenderTargetSize(const FSceneViewFamily& 
 		SceneTargetsSizingMethod = (ESizingMethods) FMath::Clamp(CVarSceneTargetsResizingMethod.GetValueOnRenderThread(), 0, (int32)VisibleSizingMethodsCount);
 	}
 	
-	if (bCapture)
+	if (bIsSceneCapture)
 	{
-		// In general, we don't want scenecapture to grow our buffers, because depending on the cvar for our game, we may not recover that memory.  This can be changed if necessary.
-		// However, in the editor a user might have a small editor window, but be capturing cubemaps or other dynamic assets for data distribution, 
-		// in which case we need to grow for correctness.
-		// We also don't want to reallocate all our buffers for a temporary use case like a capture.  So we just clamp the biggest capture size to the currently available buffers.
-		if (GIsEditor)
-		{
-			SceneTargetsSizingMethod = Grow;
-		}
-		else
-		{
-			SceneTargetsSizingMethod = Clamped;
-			int32 CaptureTargetSizeMethod = CVarSceneCaptureResizingMethod.GetValueOnRenderThread();
-			if (FPlatformProperties::SupportsWindowedMode() && CaptureTargetSizeMethod == 1)
-			{
-				SceneTargetsSizingMethod = Grow;
-			}
-		}
+		// This is a bit dangerous as someone in the middle of the game can requests a high res RenderTarget (Larger than screen) and from that point on the SceneRenderTargets will never get smaller again.
+		// This can cause more pressure in the RenderTargetPool and cause more trashing there. It also could slowdown post processing (border clear / handling).
+		// Preventing that case can cause more trouble (When to shrink? Should we keep the former RenderTargets in the pool?).
+		// If this becomes an issue we suggest to shrink the SceneRenderTargets with some game code call (e.g. each level load).
+		SceneTargetsSizingMethod = Grow;
+	}
+	else if(bIsReflectionCapture)
+	{
+		// reflection captures are low in resolution usually 128, they should not cause the BufferSize to be larger than needed (larger than ScreenSize)
+//		check(ViewFamily.FamilySizeX <= 256);
+//		check(ViewFamily.FamilySizeY <= 256);
+
+		// this can cause a reallocation during startup if the reflections are updated before the SceneRenderTarget have been allocated with the proper Screen size.
+		// This results in one log printout and some extra minor cost memory and performance cost.
+		// On XBoxOn it can cause different ESRam allocation (Rare, only if Reflection Capture wasn't cooked)
+		SceneTargetsSizingMethod = Grow;
 	}
 
 	switch (SceneTargetsSizingMethod)
@@ -196,7 +187,7 @@ void FSceneRenderTargets::Allocate(const FSceneViewFamily& ViewFamily)
 	const auto NewFeatureLevel = ViewFamily.Scene->GetFeatureLevel();
 	CurrentShadingPath = ViewFamily.Scene->ShouldUseDeferredRenderer() ? EShadingPath::Deferred : EShadingPath::Forward;
 
-	FIntPoint DesiredBufferSize = GetSceneRenderTargetSize(ViewFamily);
+	FIntPoint DesiredBufferSize = ComputeDesiredSize(ViewFamily);
 	check(DesiredBufferSize.X > 0 && DesiredBufferSize.Y > 0);
 	QuantizeBufferSize(DesiredBufferSize.X, DesiredBufferSize.Y);
 

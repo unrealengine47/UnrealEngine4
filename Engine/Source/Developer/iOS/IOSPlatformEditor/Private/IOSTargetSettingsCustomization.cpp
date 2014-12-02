@@ -18,6 +18,7 @@
 #include "SNotificationList.h"
 #include "NotificationManager.h"
 #include "TargetPlatform.h"
+#include "GameProjectGenerationModule.h"
 
 #define LOCTEXT_NAMESPACE "IOSTargetSettings"
 
@@ -97,7 +98,7 @@ void FIOSTargetSettingsCustomization::BuildPListSection(IDetailLayoutBuilder& De
 	IDetailCategoryBuilder& RenderCategory = DetailLayout.EditCategory(TEXT("Rendering"));
 	IDetailCategoryBuilder& OSInfoCategory = DetailLayout.EditCategory(TEXT("OS Info"));
 	IDetailCategoryBuilder& DeviceCategory = DetailLayout.EditCategory(TEXT("Devices"));
-	IDetailCategoryBuilder& CookCategory = DetailLayout.EditCategory(TEXT("Cook Settings"));
+	IDetailCategoryBuilder& BuildCategory = DetailLayout.EditCategory(TEXT("Build"));
 
 	TSharedRef<SPlatformSetupMessage> PlatformSetupMessage = SNew(SPlatformSetupMessage, GameInfoPath)
 		.PlatformName(LOCTEXT("iOSPlatformName", "iOS"))
@@ -133,7 +134,7 @@ void FIOSTargetSettingsCustomization::BuildPListSection(IDetailLayoutBuilder& De
 			]
 		];*/
 
-	ProvisionCategory.AddCustomRow(TEXT("Mobile Provision"), false)
+	ProvisionCategory.AddCustomRow(LOCTEXT("ProvisionLabel", "Provision"), false)
 		.NameContent()
 		[
 			SNew(SHorizontalBox)
@@ -147,21 +148,24 @@ void FIOSTargetSettingsCustomization::BuildPListSection(IDetailLayoutBuilder& De
 			]
 		]
 		.ValueContent()
+			.MinDesiredWidth(300.0f)
+			.MaxDesiredWidth(350.0f)
 		[
 			SNew(SHorizontalBox)
 			+ SHorizontalBox::Slot()
-			.Padding(FMargin(8, 0, 8, 0))
+			.Padding(FMargin(8,3,8,3))
 			.AutoWidth()
 			[
 				SNew(SImage)
 				.Image(this, &FIOSTargetSettingsCustomization::GetProvisionStatus)
 			]
 			+ SHorizontalBox::Slot()
-			.Padding(FMargin(0, 1, 0, 1))
-			.FillWidth(1.0f)
+			.Padding(FMargin(0, 0, 0, 0))
+			.AutoWidth()
 			[
 				SNew(SButton)
 				.HAlign(HAlign_Center)
+				.VAlign(VAlign_Center)
 				.OnClicked(this, &FIOSTargetSettingsCustomization::OnInstallProvisionClicked)
 				[
 					SNew(STextBlock)
@@ -170,7 +174,7 @@ void FIOSTargetSettingsCustomization::BuildPListSection(IDetailLayoutBuilder& De
 			]
 		];
 
-	ProvisionCategory.AddCustomRow(TEXT("Certificate"), false)
+	ProvisionCategory.AddCustomRow(LOCTEXT("CertificateLabel", "Certificate"), false)
 		.NameContent()
 		[
 			SNew(SHorizontalBox)
@@ -184,36 +188,38 @@ void FIOSTargetSettingsCustomization::BuildPListSection(IDetailLayoutBuilder& De
 			]
 		]
 		.ValueContent()
+			.MinDesiredWidth(300.0f)
+			.MaxDesiredWidth(350.0f)
 			[
 				SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot()
-				.Padding(FMargin(8, 0, 8, 0))
 				.AutoWidth()
+				.Padding(FMargin(8,3,8,3))
 				[
 					SNew(SImage)
 					.Image(this, &FIOSTargetSettingsCustomization::GetCertificateStatus)
 				]
 				+ SHorizontalBox::Slot()
-				.Padding(FMargin(0, 1, 0, 1))
-				.FillWidth(1.0f)
-				[
-					SNew(SButton)
-					.HAlign(HAlign_Center)
-					.OnClicked(this, &FIOSTargetSettingsCustomization::OnInstallCertificateClicked)
+					.AutoWidth()
 					[
-						SNew(STextBlock)
-						.Text(FText::FromString("Import Certificate"))
+						SNew(SButton)
+						.HAlign(HAlign_Center)
+						.VAlign(VAlign_Center)
+						.OnClicked(this, &FIOSTargetSettingsCustomization::OnInstallCertificateClicked)
+						[
+							SNew(STextBlock)
+							.Text(FText::FromString("Import Certificate"))
+						]
 					]
-				]
 			];
 
-	AppManifestCategory.AddCustomRow(TEXT("Warning"), false)
+	AppManifestCategory.AddCustomRow(LOCTEXT("Warning", "Warning"), false)
 		.WholeRowWidget
 		[
 			PlatformSetupMessage
 		];
 
-	AppManifestCategory.AddCustomRow(TEXT("Info.plist Hyperlink"), false)
+	AppManifestCategory.AddCustomRow(LOCTEXT("InfoPlistHyperlink", "Info.plist Hyperlink"), false)
 		.WholeRowWidget
 		[
 			SNew(SBox)
@@ -226,7 +232,7 @@ void FIOSTargetSettingsCustomization::BuildPListSection(IDetailLayoutBuilder& De
 		];
 
 
-	AppManifestCategory.AddCustomRow(TEXT("Info.plist"), false)
+	AppManifestCategory.AddCustomRow(LOCTEXT("InfoPlist", "Info.plist"), false)
 		.IsEnabled(SetupForPlatformAttribute)
 		.NameContent()
 		[
@@ -255,6 +261,17 @@ void FIOSTargetSettingsCustomization::BuildPListSection(IDetailLayoutBuilder& De
 
 	// Show properties that are gated by the plist being present and writable
 	FSimpleDelegate PlistModifiedDelegate = FSimpleDelegate::CreateRaw(this, &FIOSTargetSettingsCustomization::OnPlistPropertyModified);
+	FGameProjectGenerationModule& GameProjectModule = FModuleManager::LoadModuleChecked<FGameProjectGenerationModule>(TEXT("GameProjectGeneration"));
+	bool bHasCode = GameProjectModule.Get().ProjectHasCodeFiles();
+
+#define SETUP_NONROCKET_PROP(PropName, Category, Tip, DisabledTip) \
+	{ \
+		TSharedRef<IPropertyHandle> PropertyHandle = DetailLayout.GetProperty(GET_MEMBER_NAME_CHECKED(UIOSRuntimeSettings, PropName)); \
+		Category.AddProperty(PropertyHandle) \
+			.EditCondition(SetupForPlatformAttribute, NULL) \
+			.IsEnabled(!FRocketSupport::IsRocket()) \
+			.ToolTip(!FRocketSupport::IsRocket() ? Tip : DisabledTip); \
+	}
 
 #define SETUP_PLIST_PROP(PropName, Category, Tip) \
 	{ \
@@ -265,24 +282,33 @@ void FIOSTargetSettingsCustomization::BuildPListSection(IDetailLayoutBuilder& De
 			.ToolTip(Tip); \
 	}
 
-	SETUP_PLIST_PROP(BundleDisplayName, BundleCategory, TEXT("Specifies the the display name for the application. This will be displayed under the icon on the device."));
-	SETUP_PLIST_PROP(BundleName, BundleCategory, TEXT("Specifies the the name of the application bundle. This is the short name for the application bundle."));
-	SETUP_PLIST_PROP(BundleIdentifier, BundleCategory, TEXT("Specifies the bundle identifier for the application."));
-	SETUP_PLIST_PROP(VersionInfo, BundleCategory, TEXT("Specifies the version for the application."));
-	SETUP_PLIST_PROP(bSupportsPortraitOrientation, OrientationCategory, TEXT("Supports default portrait orientation. Landscape will not be supported."));
-	SETUP_PLIST_PROP(bSupportsUpsideDownOrientation, OrientationCategory, TEXT("Supports upside down portrait orientation. Landscape will not be supported."));
-	SETUP_PLIST_PROP(bSupportsLandscapeLeftOrientation, OrientationCategory, TEXT("Supports left landscape orientation. Protrait will not be supported."));
-	SETUP_PLIST_PROP(bSupportsLandscapeRightOrientation, OrientationCategory, TEXT("Supports right landscape orientation. Protrait will not be supported."));
+	SETUP_PLIST_PROP(BundleDisplayName, BundleCategory, LOCTEXT("BundleDisplayNameToolTip", "Specifies the the display name for the application. This will be displayed under the icon on the device."));
+	SETUP_PLIST_PROP(BundleName, BundleCategory, LOCTEXT("BundleNameToolTip", "Specifies the the name of the application bundle. This is the short name for the application bundle."));
+	SETUP_PLIST_PROP(BundleIdentifier, BundleCategory, LOCTEXT("BundleIdentifierToolTip", "Specifies the bundle identifier for the application."));
+	SETUP_PLIST_PROP(VersionInfo, BundleCategory, LOCTEXT("VersionInfoToolTip", "Specifies the version for the application."));
+	SETUP_PLIST_PROP(bSupportsPortraitOrientation, OrientationCategory, LOCTEXT("SupportsPortraitOrientationToolTip", "Supports default portrait orientation. Landscape will not be supported."));
+	SETUP_PLIST_PROP(bSupportsUpsideDownOrientation, OrientationCategory, LOCTEXT("SupportsUpsideDownOrientationToolTip", "Supports upside down portrait orientation. Landscape will not be supported."));
+	SETUP_PLIST_PROP(bSupportsLandscapeLeftOrientation, OrientationCategory, LOCTEXT("SupportsLandscapeLeftOrientationToolTip", "Supports left landscape orientation. Protrait will not be supported."));
+	SETUP_PLIST_PROP(bSupportsLandscapeRightOrientation, OrientationCategory, LOCTEXT("SupportsLandscapeRightOrientationToolTip", "Supports right landscape orientation. Protrait will not be supported."));
 	
-	SETUP_PLIST_PROP(bSupportsMetal, RenderCategory, TEXT("Whether or not to add support for Metal API (requires IOS8 and A7 processors)."));
-	SETUP_PLIST_PROP(bSupportsOpenGLES2, RenderCategory, TEXT("Whether or not to add support for OpenGL ES2 (if this is false, then your game should specify minimum IOS8 version and use \"metal\" instead of \"opengles-2\" in UIRequiredDeviceCapabilities)"));
+	SETUP_PLIST_PROP(bSupportsMetal, RenderCategory, LOCTEXT("SupportsMetalToolTip", "Whether or not to add support for Metal API (requires IOS8 and A7 processors)."));
+	SETUP_PLIST_PROP(bSupportsOpenGLES2, RenderCategory, LOCTEXT("SupportsOpenGLES2ToolTip", "Whether or not to add support for OpenGL ES2 (if this is false, then your game should specify minimum IOS8 version and use \"metal\" instead of \"opengles-2\" in UIRequiredDeviceCapabilities)"));
 
-	SETUP_PLIST_PROP(bSupportsIPad, DeviceCategory, TEXT("Whether or not to add support for iPad devices"));
-	SETUP_PLIST_PROP(bSupportsIPhone, DeviceCategory, TEXT("Whether or not to add support for iPhone devices"));
+	SETUP_PLIST_PROP(bSupportsIPad, DeviceCategory, LOCTEXT("SupportsIPadToolTip", "Whether or not to add support for iPad devices"));
+	SETUP_PLIST_PROP(bSupportsIPhone, DeviceCategory, LOCTEXT("SupportsIPhoneToolTip", "Whether or not to add support for iPhone devices"));
 
-	SETUP_PLIST_PROP(MinimumiOSVersion, OSInfoCategory, TEXT("WMinimum iOS version this game supports"));
+	SETUP_PLIST_PROP(MinimumiOSVersion, OSInfoCategory, LOCTEXT("MinimumiOSVersionToolTip", "Minimum iOS version this game supports"));
+
+	const FText DisabledTip = LOCTEXT("GitHubSourceRequiredToolTip", "This requires GitHub source.");
+	SETUP_NONROCKET_PROP(bDevForArmV7, BuildCategory, LOCTEXT("DevForArmV7ToolTip", "Enable ArmV7 support? (this will be used if all type are unchecked)"), DisabledTip);
+	SETUP_NONROCKET_PROP(bDevForArm64, BuildCategory, LOCTEXT("DevForArm64ToolTip", "Enable Arm64 support?"), DisabledTip);
+	SETUP_NONROCKET_PROP(bDevForArmV7S, BuildCategory, LOCTEXT("DevForArmV7SToolTip", "Enable ArmV7s support?"), DisabledTip);
+	SETUP_NONROCKET_PROP(bShipForArmV7, BuildCategory, LOCTEXT("ShipForArmV7ToolTip", "Enable ArmV7 support? (this will be used if all type are unchecked)"), DisabledTip);
+	SETUP_NONROCKET_PROP(bShipForArm64, BuildCategory, LOCTEXT("ShipForArm64ToolTip", "Enable Arm64 support?"), DisabledTip);
+	SETUP_NONROCKET_PROP(bShipForArmV7S, BuildCategory, LOCTEXT("ShipForArmV7SToolTip", "Enable ArmV7s support?"), DisabledTip);
 
 #undef SETUP_PLIST_PROP
+#undef SETUP_NONROCKET_PROP
 }
 
 void FIOSTargetSettingsCustomization::BuildIconSection(IDetailLayoutBuilder& DetailLayout)
@@ -464,7 +490,7 @@ void FIOSTargetSettingsCustomization::BuildImageRow(IDetailLayoutBuilder& Detail
 	const FString AutomaticImagePath = EngineGraphicsPath / Info.IconPath;
 	const FString TargetImagePath = GameGraphicsPath / Info.IconPath;
 
-	Category.AddCustomRow(Info.IconName.ToString())
+	Category.AddCustomRow(Info.IconName)
 		.NameContent()
 		[
 			SNew(SHorizontalBox)

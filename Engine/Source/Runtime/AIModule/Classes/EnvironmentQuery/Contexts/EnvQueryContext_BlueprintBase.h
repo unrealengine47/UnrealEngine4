@@ -5,7 +5,11 @@
 #include "EnvironmentQuery/EnvQueryContext.h"
 #include "EnvQueryContext_BlueprintBase.generated.h"
 
-UCLASS(MinimalAPI, Blueprintable)
+class UWorld;
+struct FEnvQueryInstance;
+struct FEnvQueryContextData;
+
+UCLASS(MinimalAPI, Abstract, Blueprintable)
 class UEnvQueryContext_BlueprintBase : public UEnvQueryContext
 {
 	GENERATED_UCLASS_BODY()
@@ -22,9 +26,9 @@ class UEnvQueryContext_BlueprintBase : public UEnvQueryContext
 	ECallMode CallMode;
 
 	// We need to implement GetWorld() so that blueprint functions which use a hidden WorldContextObject* will work properly.
-	virtual class UWorld* GetWorld() const;
+	virtual UWorld* GetWorld() const;
 
-	virtual void ProvideContext(struct FEnvQueryInstance& QueryInstance, struct FEnvQueryContextData& ContextData) const override;
+	virtual void ProvideContext(FEnvQueryInstance& QueryInstance, FEnvQueryContextData& ContextData) const override;
 
 	UFUNCTION(BlueprintImplementableEvent)
 	virtual void ProvideSingleActor(AActor* QuerierActor, AActor*& ResultingActor) const;

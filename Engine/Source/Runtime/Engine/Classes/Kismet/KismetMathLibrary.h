@@ -208,7 +208,7 @@ class UKismetMathLibrary : public UBlueprintFunctionLibrary
 	UFUNCTION(BlueprintPure, Category="Math|Random")
 	static int32 RandomInteger(int32 Max);
 
-	/** Return a random integer between Min and Max */
+	/** Return a random integer between Min and Max (>= Min and <= Max) */
 	UFUNCTION(BlueprintPure, Category="Math|Random")
 	static int32 RandomIntegerInRange(int32 Min, int32 Max);
 
@@ -1114,6 +1114,14 @@ class UKismetMathLibrary : public UBlueprintFunctionLibrary
 	/** Breaks apart a transform into location, rotation and scale */
 	UFUNCTION(BlueprintPure, Category="Math|Transform", meta=(NativeBreakFunc))
 	static void BreakTransform(const FTransform& InTransform, FVector& Location, FRotator& Rotation, FVector& Scale);
+
+	/** Makes a SRand-based random number generator */
+	UFUNCTION(BlueprintPure, meta = (Keywords = "construct build", NativeMakeFunc), Category = "Math|Random")
+		static FRandomStream MakeRandomStream(int32 InitialSeed);
+
+	/** Breaks apart a random number generator */
+	UFUNCTION(BlueprintPure, Category = "Math|Random", meta = (NativeBreakFunc))
+		static void BreakRandomStream(const FRandomStream& InRandomStream, int32& InitialSeed);
 
 	/** Make a color from individual color components (RGB space) */
 	UFUNCTION(BlueprintPure, Category="Math|Color", meta=(Keywords="construct build"))

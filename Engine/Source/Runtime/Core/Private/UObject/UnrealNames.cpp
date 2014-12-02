@@ -750,14 +750,8 @@ void FName::StaticInit()
 	{
 		// Register all hardcoded names.
 		#define REGISTER_NAME(num,namestr) FName Temp_##namestr(EName(num), TEXT(#namestr));
-		#ifdef _UNREAL_NAMES_H_
-		#undef _UNREAL_NAMES_H_
-		#define _RECOVER_UNREAL_NAMES_H_
-		#endif
-		#include "UObject/UnrealNames.h"
-		#ifdef _RECOVER_UNREAL_NAMES_H_
-		#define _UNREAL_NAMES_H_
-		#endif
+		#include "UObject/UnrealNames.inl"
+		#undef REGISTER_NAME
 	}
 
 #if DO_CHECK
@@ -801,6 +795,10 @@ void FName::StaticInit()
 		}
 	}
 #endif
+
+	// Initialize stats metadata.
+	// We need to do here, after all hardcoded names have been initialized.
+	GMalloc->InitializeStatsMetadata();
 }
 
 bool& FName::GetIsInitialized()

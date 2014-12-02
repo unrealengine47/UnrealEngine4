@@ -8,7 +8,7 @@
 //----------------------------------------------------------------------//
 // FPathFindingQuery
 //----------------------------------------------------------------------//
-FPathFindingQuery::FPathFindingQuery(const UObject* InOwner, const class ANavigationData* InNavData, const FVector& Start, const FVector& End, TSharedPtr<const FNavigationQueryFilter> SourceQueryFilter, FNavPathSharedPtr InPathInstanceToFill)
+FPathFindingQuery::FPathFindingQuery(const UObject* InOwner, const ANavigationData* InNavData, const FVector& Start, const FVector& End, TSharedPtr<const FNavigationQueryFilter> SourceQueryFilter, FNavPathSharedPtr InPathInstanceToFill)
 : NavData(InNavData)
 , Owner(InOwner)
 , StartLocation(Start)
@@ -16,6 +16,7 @@ FPathFindingQuery::FPathFindingQuery(const UObject* InOwner, const class ANaviga
 , QueryFilter(SourceQueryFilter)
 , PathInstanceToFill(InPathInstanceToFill)
 , NavDataFlags(0)
+, bAllowPartialPaths(true)
 {
 	if (SourceQueryFilter.IsValid() == false && NavData.IsValid() == true)
 	{
@@ -31,6 +32,7 @@ FPathFindingQuery::FPathFindingQuery(const FPathFindingQuery& Source)
 , QueryFilter(Source.QueryFilter)
 , PathInstanceToFill(Source.PathInstanceToFill)
 , NavDataFlags(Source.NavDataFlags)
+, bAllowPartialPaths(Source.bAllowPartialPaths)
 {
 	if (Source.QueryFilter.IsValid() == false && NavData.IsValid() == true)
 	{
@@ -46,6 +48,7 @@ FPathFindingQuery::FPathFindingQuery(FNavPathSharedRef PathToRecalculate, const 
 , QueryFilter(PathToRecalculate->GetFilter())
 , PathInstanceToFill(PathToRecalculate)
 , NavDataFlags(0)
+, bAllowPartialPaths(true)
 {
 	if (QueryFilter.IsValid() == false && NavData.IsValid() == true)
 	{
@@ -58,7 +61,7 @@ FPathFindingQuery::FPathFindingQuery(FNavPathSharedRef PathToRecalculate, const 
 //----------------------------------------------------------------------//
 uint32 FAsyncPathFindingQuery::LastPathFindingUniqueID = INVALID_NAVQUERYID;
 
-FAsyncPathFindingQuery::FAsyncPathFindingQuery(const UObject* InOwner, const class ANavigationData* InNavData, const FVector& Start, const FVector& End, const FNavPathQueryDelegate& Delegate, TSharedPtr<const FNavigationQueryFilter> SourceQueryFilter)
+FAsyncPathFindingQuery::FAsyncPathFindingQuery(const UObject* InOwner, const ANavigationData* InNavData, const FVector& Start, const FVector& End, const FNavPathQueryDelegate& Delegate, TSharedPtr<const FNavigationQueryFilter> SourceQueryFilter)
 : FPathFindingQuery(InOwner, InNavData, Start, End, SourceQueryFilter)
 , QueryID(GetUniqueID())
 , OnDoneDelegate(Delegate)
@@ -215,9 +218,19 @@ void ANavigationData::TickActor(float DeltaTime, enum ELevelTick TickType, FActo
 
 	if (RepathRequests.Num() > 0)
 	{
+		TArray<FNavPathRecalculationRequest> PostponedRequests;
+
 		// @todo batch-process it!
 		for (auto RecalcRequest : RepathRequests)
 		{
+			// check if it can be updated right now
+			const UObject* PathQuerier = RecalcRequest.Path->GetQuerier();
+			const INavAgentInterface* PathNavAgent = Cast<const INavAgentInterface>(PathQuerier);
+			if (PathNavAgent && PathNavAgent->ShouldPostponePathUpdates())
+			{
+				PostponedRequests.Add(RecalcRequest);
+			}
+
 			FPathFindingQuery Query(RecalcRequest.Path);
 			// @todo consider supplying NavAgentPropertied from path's querier
 			const FPathFindingResult Result = FindPath(FNavAgentProperties(), Query.SetPathInstanceToUpdate(RecalcRequest.Path));
@@ -239,6 +252,7 @@ void ANavigationData::TickActor(float DeltaTime, enum ELevelTick TickType, FActo
 		}
 
 		RepathRequests.Reset();
+		RepathRequests.Append(PostponedRequests);
 	}
 }
 
@@ -316,6 +330,11 @@ void ANavigationData::PostEditUndo()
 	}
 }
 #endif // WITH_EDITOR
+
+bool ANavigationData::DoesSupportAgent(const FNavAgentProperties& AgentProps) const
+{
+	return NavDataConfig.IsEquivalent(AgentProps);
+}
 
 void ANavigationData::Destroyed()
 {
@@ -588,22 +607,31 @@ int32 ANavigationData::GetAreaID(const UClass* AreaClass) const
 	return PtrId ? *PtrId : INDEX_NONE;
 }
 
-void ANavigationData::UpdateCustomLink(const class INavLinkCustomInterface* CustomLink)
+void ANavigationData::SetNavRenderingEnabled(bool bEnable)
+{
+	if (bEnableDrawing != bEnable)
+	{
+		bEnableDrawing = bEnable;
+		MarkComponentsRenderStateDirty();
+	}
+}
+
+void ANavigationData::UpdateCustomLink(const INavLinkCustomInterface* CustomLink)
 {
 	// no implementation for abstract class
 }
 
-TSharedPtr<const FNavigationQueryFilter> ANavigationData::GetQueryFilter(TSubclassOf<class UNavigationQueryFilter> FilterClass) const
+TSharedPtr<const FNavigationQueryFilter> ANavigationData::GetQueryFilter(TSubclassOf<UNavigationQueryFilter> FilterClass) const
 {
 	return QueryFilters.FindRef(FilterClass);
 }
 
-void ANavigationData::StoreQueryFilter(TSubclassOf<class UNavigationQueryFilter> FilterClass, TSharedPtr<const FNavigationQueryFilter> NavFilter)
+void ANavigationData::StoreQueryFilter(TSubclassOf<UNavigationQueryFilter> FilterClass, TSharedPtr<const FNavigationQueryFilter> NavFilter)
 {
 	QueryFilters.Add(FilterClass, NavFilter);
 }
 
-void ANavigationData::RemoveQueryFilter(TSubclassOf<class UNavigationQueryFilter> FilterClass)
+void ANavigationData::RemoveQueryFilter(TSubclassOf<UNavigationQueryFilter> FilterClass)
 {
 	QueryFilters.Remove(FilterClass);
 }

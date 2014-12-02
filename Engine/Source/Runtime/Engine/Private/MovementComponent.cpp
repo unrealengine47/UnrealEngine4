@@ -40,7 +40,7 @@ UMovementComponent::UMovementComponent(const FObjectInitializer& ObjectInitializ
 
 void UMovementComponent::SetUpdatedComponent(UPrimitiveComponent* NewUpdatedComponent)
 {
-	if ( UpdatedComponent && UpdatedComponent!=NewUpdatedComponent )
+	if (UpdatedComponent && UpdatedComponent != NewUpdatedComponent)
 	{
 		UpdatedComponent->bShouldUpdatePhysicsVolume = false;
 		if (!UpdatedComponent->IsPendingKill())
@@ -55,7 +55,7 @@ void UMovementComponent::SetUpdatedComponent(UPrimitiveComponent* NewUpdatedComp
 
 	UpdatedComponent = NewUpdatedComponent;
 
-	if ( UpdatedComponent != NULL )
+	if (IsValid(UpdatedComponent))
 	{
 		UpdatedComponent->bShouldUpdatePhysicsVolume = true;
 		UpdatedComponent->PhysicsVolumeChangedDelegate.AddUniqueDynamic(this, &UMovementComponent::PhysicsVolumeChanged);
@@ -120,7 +120,7 @@ void UMovementComponent::OnRegister()
 		SetPlaneConstraintAxisSetting(PlaneConstraintAxisSetting);
 	}
 
-	PlaneConstraintNormal = PlaneConstraintNormal.SafeNormal();
+	PlaneConstraintNormal = PlaneConstraintNormal.GetSafeNormal();
 
 	if (bSnapToPlaneAtStart)
 	{
@@ -348,13 +348,13 @@ void UMovementComponent::SetPlaneConstraintAxisSetting(EPlaneConstraintAxisSetti
 
 void UMovementComponent::SetPlaneConstraintNormal(FVector PlaneNormal)
 {
-	PlaneConstraintNormal = PlaneNormal.SafeNormal();
+	PlaneConstraintNormal = PlaneNormal.GetSafeNormal();
 	PlaneConstraintAxisSetting = EPlaneConstraintAxisSetting::Custom;
 }
 
 void UMovementComponent::SetPlaneConstraintFromVectors(FVector Forward, FVector Up)
 {
-	PlaneConstraintNormal = (Up ^ Forward).SafeNormal();
+	PlaneConstraintNormal = (Up ^ Forward).GetSafeNormal();
 }
 
 void UMovementComponent::SetPlaneConstraintOrigin(FVector PlaneOrigin)
@@ -398,7 +398,7 @@ FVector UMovementComponent::ConstrainNormalToPlane(FVector Normal) const
 {
 	if (bConstrainToPlane)
 	{
-		Normal = FVector::VectorPlaneProject(Normal, PlaneConstraintNormal).SafeNormal();
+		Normal = FVector::VectorPlaneProject(Normal, PlaneConstraintNormal).GetSafeNormal();
 	}
 
 	return Normal;
@@ -621,7 +621,7 @@ void UMovementComponent::TwoWallAdjust(FVector& OutDelta, const FHitResult& Hit,
 	{
 		const FVector DesiredDir = Delta;
 		FVector NewDir = (HitNormal ^ OldHitNormal);
-		NewDir = NewDir.SafeNormal();
+		NewDir = NewDir.GetSafeNormal();
 		Delta = (Delta | NewDir) * (1.f - Hit.Time) * NewDir;
 		if ((DesiredDir | Delta) < 0.f)
 		{

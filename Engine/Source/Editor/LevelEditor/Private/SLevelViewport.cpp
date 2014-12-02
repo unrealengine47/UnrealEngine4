@@ -205,6 +205,7 @@ void SLevelViewport::ConstructViewportOverlayContent()
 	.Padding(5.0f)
 	[
 		SNew(SLevelViewportControlsPopup)
+		.Visibility(this, &SLevelViewport::GetViewportControlsVisibility)
 	];
 
 	ViewportOverlay->AddSlot( SlotIndex )
@@ -948,10 +949,23 @@ void SLevelViewport::OnMapChanged( UWorld* World, EMapChangeType::Type MapChange
 	
 			ResetNewLevelViewFlags();
 
-			LevelViewportClient->SetInitialViewTransform(
-				World->EditorViews[LevelViewportClient->ViewportType].CamPosition,
-				World->EditorViews[LevelViewportClient->ViewportType].CamRotation,
-				World->EditorViews[LevelViewportClient->ViewportType].CamOrthoZoom );
+			bool bInitializedOrthoViewport = false;
+			for (int32 ViewportType = 0; ViewportType < LVT_MAX; ViewportType++)
+			{
+				if (ViewportType == LVT_Perspective || !bInitializedOrthoViewport)
+				{
+					LevelViewportClient->SetInitialViewTransform(
+						static_cast<ELevelViewportType>(ViewportType),
+						World->EditorViews[ViewportType].CamPosition,
+						World->EditorViews[ViewportType].CamRotation,
+						World->EditorViews[ViewportType].CamOrthoZoom);
+
+					if (ViewportType != LVT_Perspective)
+					{
+						bInitializedOrthoViewport = true;
+					}
+				}
+			}
 		}
 		else if( MapChangeType == EMapChangeType::SaveMap )
 		{
@@ -1935,7 +1949,7 @@ FLevelEditorViewportInstanceSettings SLevelViewport::LoadLegacyConfigFromIni(con
 	{
 		int32 ViewportTypeAsInt = ViewportInstanceSettings.ViewportType;
 		GConfig->GetInt(*IniSection, *(ConfigKey + TEXT(".Type")), ViewportTypeAsInt, GEditorUserSettingsIni);
-		ViewportInstanceSettings.ViewportType = (ViewportTypeAsInt == -1) ? LVT_None : static_cast<ELevelViewportType>(ViewportTypeAsInt); // LVT_None used to be -1
+		ViewportInstanceSettings.ViewportType = (ViewportTypeAsInt == -1 || ViewportTypeAsInt == 255) ? LVT_None : static_cast<ELevelViewportType>(ViewportTypeAsInt); // LVT_None used to be -1 or 255
 
 		if(ViewportInstanceSettings.ViewportType == LVT_None)
 		{
@@ -3186,6 +3200,13 @@ EVisibility SLevelViewport::GetCurrentFeatureLevelPreviewTextVisibility() const
 	}
 }
 
+EVisibility SLevelViewport::GetViewportControlsVisibility() const
+{
+	// Do not show the controls if this viewport has a play in editor session
+	// or is not the current viewport
+	return (&GetLevelViewportClient() == GCurrentLevelEditingViewportClient && !IsPlayInEditorViewportActive()) ? OnGetViewportContentVisibility() : EVisibility::Collapsed;
+}
+
 void SLevelViewport::OnSetViewportConfiguration(FName ConfigurationName)
 {
 	TSharedPtr<FLevelViewportLayout> LayoutPinned = ParentLayout.Pin();
@@ -3329,10 +3350,7 @@ FText SLevelViewport::GetMouseCaptureLabelText() const
 			if (TargetPlayer && TargetPlayer->PlayerController && TargetPlayer->PlayerController->PlayerInput)
 			{
 				FKeyBind Binding = TargetPlayer->PlayerController->PlayerInput->GetExecBind(TEXT("ShowMouseCursor"));
-				Gesture.Key = Binding.Key;
-				Gesture.bAlt = Binding.Alt;
-				Gesture.bCtrl = Binding.Control;
-				Gesture.bShift = Binding.Shift;
+				Gesture = FInputGesture(Binding.Key, EModifierKey::FromBools(Binding.Control, Binding.Alt, Binding.Shift, Binding.Cmd));
 				bInitedGesture = true;
 			}
 		}

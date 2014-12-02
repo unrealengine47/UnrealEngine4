@@ -471,14 +471,6 @@ protected:
 
 	virtual ~FLandscapeComponentSceneProxy();
 
-	// Used for DrawDynamicElements
-	FMeshBatch DynamicMesh;			// Landscape Rendering using Dynamic path
-#if WITH_EDITOR
-	FMeshBatch DynamicMeshTools;	// Tool rendering, don't support tessellation for now
-#endif
-	TArray<FLandscapeBatchElementParams> DynamicMeshBatchParamArray;
-
-
 public:
 	// constructor
 	FLandscapeComponentSceneProxy(ULandscapeComponent* InComponent, FLandscapeEditToolRenderData* InEditToolRenderData);
@@ -486,7 +478,6 @@ public:
 	// FPrimitiveSceneProxy interface.
 	virtual void DrawStaticElements(FStaticPrimitiveDrawInterface* PDI) override;
 	virtual void GetDynamicMeshElements(const TArray<const FSceneView*>& Views, const FSceneViewFamily& ViewFamily, uint32 VisibilityMap, FMeshElementCollector& Collector) const override;
-	virtual void DrawDynamicElements(FPrimitiveDrawInterface* PDI,const FSceneView* View) override;
 	virtual uint32 GetMemoryFootprint( void ) const override { return( sizeof( *this ) + GetAllocatedSize() ); }
 	virtual FPrimitiveViewRelevance GetViewRelevance(const FSceneView* View) override;
 	virtual bool CanBeOccluded() const override;
@@ -510,6 +501,16 @@ public:
 
 	// FLandcapeSceneProxy
 	void ChangeLODDistanceFactor_RenderThread(FVector2D InLODDistanceFactors);
+
+	virtual void GetHeightfieldRepresentation(UTexture2D*& OutHeightmapTexture, FVector4& OutHeightfieldScaleBias, FVector4& OutMinMaxUV) override
+	{
+		OutHeightmapTexture = HeightmapTexture;
+		OutHeightfieldScaleBias = HeightmapScaleBias;
+		// Section base is in terms of quads, convert into texels
+		int32 TexelsSectionBaseX = SectionBase.X / SubsectionSizeQuads * SubsectionSizeVerts;
+		int32 TexelsSectionBaseY = SectionBase.Y / SubsectionSizeQuads * SubsectionSizeVerts;
+		OutMinMaxUV = FVector4(TexelsSectionBaseX * HeightmapScaleBias.X, TexelsSectionBaseY * HeightmapScaleBias.Y, (TexelsSectionBaseX + SubsectionSizeVerts - 1) * HeightmapScaleBias.X, (TexelsSectionBaseY + SubsectionSizeVerts - 1) * HeightmapScaleBias.Y);
+	}
 };
 
 class FLandscapeDebugMaterialRenderProxy : public FMaterialRenderProxy

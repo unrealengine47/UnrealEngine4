@@ -65,7 +65,7 @@ ESocketErrors FSocketSubsystemBSD::GetHostByName(const ANSICHAR* HostName, FInte
 	HintAddrInfo.ai_family = AF_INET;
 
 	int32 ErrorCode = getaddrinfo(HostName, nullptr, &HintAddrInfo, &AddrInfo);
-	ESocketErrors SocketError = TranslateErrorCode(ErrorCode);
+	ESocketErrors SocketError = TranslateGAIErrorCode(ErrorCode);
 	if (SocketError == SE_NO_ERROR)
 	{
 		for (; AddrInfo != nullptr; AddrInfo = AddrInfo->ai_next)

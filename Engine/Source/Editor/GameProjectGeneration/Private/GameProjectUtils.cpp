@@ -2933,7 +2933,7 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 bool GameProjectUtils::FindSourceFileInProject(const FString& InFilename, const FString& InSearchPath, FString& OutPath)
 {
 	TArray<FString> Filenames;
-	const FString FilenameWidcard = /*TEXT("*") +*/ InFilename;
+	const FString FilenameWidcard = TEXT("*") + InFilename;
 	IFileManager::Get().FindFilesRecursive(Filenames, *InSearchPath, *FilenameWidcard, true, false, false);
 	
 	if(Filenames.Num())

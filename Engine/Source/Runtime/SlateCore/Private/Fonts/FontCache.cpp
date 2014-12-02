@@ -957,7 +957,9 @@ bool FCharacterList::IsStale() const
 
 int8 FCharacterList::GetKerning( TCHAR FirstChar, TCHAR SecondChar )
 {
-	return GetKerning( GetCharacter( FirstChar ), GetCharacter( SecondChar ) );
+	const FCharacterEntry First = GetCharacter( FirstChar );
+	const FCharacterEntry Second = GetCharacter( SecondChar );
+	return GetKerning( First, Second );
 }
 
 int8 FCharacterList::GetKerning( const FCharacterEntry& FirstCharacterEntry, const FCharacterEntry& SecondCharacterEntry )
@@ -1067,6 +1069,26 @@ FSlateFontCache::FSlateFontCache( TSharedRef<ISlateFontAtlasFactory> InFontAtlas
 FSlateFontCache::~FSlateFontCache()
 {	
 
+}
+
+int32 FSlateFontCache::GetNumAtlasPages() const
+{
+	return FontAtlases.Num();
+}
+
+FIntPoint FSlateFontCache::GetAtlasPageSize() const
+{
+	return FontAtlasFactory->GetAtlasSize();
+}
+
+FSlateShaderResource* FSlateFontCache::GetAtlasPageResource(const int32 InIndex) const
+{
+	return FontAtlases[InIndex]->GetSlateTexture();
+}
+
+bool FSlateFontCache::IsAtlasPageResourceAlphaOnly() const
+{
+	return true;
 }
 
 bool FSlateFontCache::AddNewEntry( TCHAR Character, const FSlateFontKey& InKey, FCharacterEntry& OutCharacterEntry ) const

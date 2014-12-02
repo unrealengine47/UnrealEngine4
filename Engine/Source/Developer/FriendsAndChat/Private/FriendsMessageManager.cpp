@@ -4,6 +4,11 @@
 #include "OnlineChatInterface.h"
 
 #define LOCTEXT_NAMESPACE "FriendsMessageManager"
+// Message expiry time for different message types
+static const int32 GlobalMessageLifetime = 5 * 60.0f;  // 5 min
+static const int32 PartyMessageLifetime = 5 * 60.0f;  // 5 min
+static const int32 WhisperMessageLifetime = 5 * 60.0f;  // 5 min
+static const int32 MessageStore = 200;
 
 class FFriendsMessageManagerImpl
 	: public FFriendsMessageManager
@@ -44,6 +49,11 @@ public:
 		UnInitialize();
 	}
 
+	virtual const TArray<TSharedPtr<FFriendChatMessage> >& GetMessageList() const override
+	{
+		return ReceivedMessages;
+	}
+
 	virtual bool SendRoomMessage(const FString& RoomName, const FString& MsgBody) override
 	{
 		if (OnlineSub != nullptr &&
@@ -82,7 +92,7 @@ public:
 		return false;
 	}
 
-	virtual bool SendPrivateMessage(const FUniqueNetId& RecipientId, const FString& MsgBody) override
+	virtual bool SendPrivateMessage(const FUniqueNetId& RecipientId, TSharedPtr< FFriendChatMessage > ChatMessage) override
 	{
 		if (OnlineSub != nullptr &&
 			LoggedInUser.IsValid())
@@ -90,7 +100,8 @@ public:
 			IOnlineChatPtr ChatInterface = OnlineSub->GetChatInterface();
 			if(ChatInterface.IsValid())
 			{
-				return ChatInterface->SendPrivateChat(*LoggedInUser, RecipientId, MsgBody);
+				AddMessage(ChatMessage.ToSharedRef());
+				return ChatInterface->SendPrivateChat(*LoggedInUser, RecipientId, ChatMessage->Message.ToString());
 			}
 		}
 		return false;
@@ -103,8 +114,9 @@ public:
 		ChatItem->Message = FText::FromString(MsgBody);
 		ChatItem->MessageType = EChatMessageType::Party;
 		ChatItem->MessageTimeText = FText::AsTime(FDateTime::UtcNow());
+		ChatItem->ExpireTime = FDateTime::UtcNow() + PartyMessageLifetime;
 		ChatItem->bIsFromSelf = false;
-		OnChatMessageRecieved().Broadcast(ChatItem.ToSharedRef());
+		AddMessage(ChatItem.ToSharedRef());
 	}
 
 	virtual void JoinPublicRoom(const FString& RoomName) override
@@ -235,8 +247,9 @@ private:
 			ChatItem->Message = FText::FromString(TEXT("entered room"));
 			ChatItem->MessageType = EChatMessageType::Global;
 			ChatItem->MessageTimeText = FText::AsTime(FDateTime::UtcNow());
+			ChatItem->ExpireTime = FDateTime::UtcNow() + GlobalMessageLifetime;
 			ChatItem->bIsFromSelf = false;
-			OnChatMessageRecieved().Broadcast(ChatItem.ToSharedRef());
+			AddMessage(ChatItem);
 		}
 	}
 
@@ -255,8 +268,9 @@ private:
 			ChatItem->Message = FText::FromString(TEXT("left room"));
 			ChatItem->MessageType = EChatMessageType::Global;
 			ChatItem->MessageTimeText = FText::AsTime(FDateTime::UtcNow());
+			ChatItem->ExpireTime = FDateTime::UtcNow() + GlobalMessageLifetime;
 			ChatItem->bIsFromSelf = false;
-			OnChatMessageRecieved().Broadcast(ChatItem.ToSharedRef());
+			AddMessage(ChatItem);
 		}
 	}
 
@@ -272,13 +286,16 @@ private:
 		ChatItem->Message = FText::FromString(*ChatMessage->GetBody());
 		ChatItem->MessageType = EChatMessageType::Global;
 		ChatItem->MessageTimeText = FText::AsTime(ChatMessage->GetTimestamp());
+		ChatItem->ExpireTime = ChatMessage->GetTimestamp() + GlobalMessageLifetime;
 		ChatItem->bIsFromSelf = ChatMessage->GetUserId() == *LoggedInUser;
 		TSharedPtr<IFriendItem> FoundFriend = FFriendsAndChatManager::Get()->FindUser(ChatMessage->GetUserId());
 		if(FoundFriend.IsValid())
 		{
 			ChatItem->SenderId = FoundFriend->GetUniqueID();
 		}
-		OnChatMessageRecieved().Broadcast(ChatItem.ToSharedRef());
+
+		ChatItem->MessageRef = ChatMessage;
+		AddMessage(ChatItem);
 
 	}
 
@@ -287,20 +304,19 @@ private:
 		TSharedPtr< FFriendChatMessage > ChatItem = MakeShareable(new FFriendChatMessage());
 
 		TSharedPtr<IFriendItem> FoundFriend = FFriendsAndChatManager::Get()->FindUser(ChatMessage->GetUserId());
+		// Ignore messages from unknown people
 		if(FoundFriend.IsValid())
 		{
 			ChatItem->FromName = FText::FromString(*FoundFriend->GetName());
 			ChatItem->SenderId = FoundFriend->GetUniqueID();
+			ChatItem->Message = FText::FromString(*ChatMessage->GetBody());
+			ChatItem->MessageType = EChatMessageType::Whisper;
+			ChatItem->MessageTimeText = FText::AsTime(ChatMessage->GetTimestamp());
+			ChatItem->ExpireTime = ChatMessage->GetTimestamp() + WhisperMessageLifetime;
+			ChatItem->bIsFromSelf = false;
+			ChatItem->MessageRef = ChatMessage;
+			AddMessage(ChatItem);
 		}
-		else
-		{
-			ChatItem->FromName = FText::FromString("Unknown");
-		}
-		ChatItem->Message = FText::FromString(*ChatMessage->GetBody());
-		ChatItem->MessageType = EChatMessageType::Whisper;
-		ChatItem->MessageTimeText = FText::AsTime(ChatMessage->GetTimestamp());
-		ChatItem->bIsFromSelf = false;
-		OnChatMessageRecieved().Broadcast(ChatItem.ToSharedRef());
 	}
 
 	void OnPresenceReceived(const FUniqueNetId& UserId, const TSharedRef<FOnlineUserPresence>& Presence)
@@ -315,6 +331,45 @@ private:
 					JoinPublicRoom(RoomName);
 				}
 			}
+		}
+	}
+
+	void AddMessage(TSharedPtr< FFriendChatMessage > ChatItem)
+	{
+		if(ReceivedMessages.Add(ChatItem) > MessageStore)
+		{
+			bool bGlobalTimeFound = false;
+			bool bPartyTimeFound = false;
+			bool bWhisperFound = false;
+			FDateTime CurrentTime = FDateTime::UtcNow();
+			for(int32 Index = 0; Index < ReceivedMessages.Num(); Index++)
+			{
+				TSharedPtr<FFriendChatMessage> Message = ReceivedMessages[Index];
+				if(Message->ExpireTime < CurrentTime)
+				{
+					ReceivedMessages.Remove(Message);
+					Index--;
+				}
+				else
+				{
+					switch(Message->MessageType)
+					{
+						case EChatMessageType::Global : bGlobalTimeFound = true; break;
+						case EChatMessageType::Party : bPartyTimeFound = true; break;
+						case EChatMessageType::Whisper : bWhisperFound = true; break;
+					}
+				}
+
+				if(ReceivedMessages.Num() < MessageStore || (bPartyTimeFound && bGlobalTimeFound && bWhisperFound))
+				{
+					break;
+				}
+			}
+			OnChatMessageRecieved().Broadcast(ChatItem.ToSharedRef());
+		}
+		else
+		{
+			OnChatMessageRecieved().Broadcast(ChatItem.ToSharedRef());
 		}
 	}
 
@@ -338,6 +393,12 @@ private:
 	IOnlineSubsystem* OnlineSub;
 	TSharedPtr<FUniqueNetId> LoggedInUser;
 	TArray<FString> RoomJoins;
+
+	TArray<TSharedPtr< FFriendChatMessage > > ReceivedMessages;
+
+	TArray<TSharedPtr< FFriendChatMessage > > GlobalMessages;
+	TArray<TSharedPtr< FFriendChatMessage > > WhisperMessages;
+	TArray<TSharedPtr< FFriendChatMessage > > PartyMessages;
 
 	bool bEnableEnterExitMessages;
 

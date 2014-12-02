@@ -525,7 +525,7 @@ void FSlateElementBatcher::AddTextElement(const FSlateDrawElement& DrawElement)
 
 	float LineX = 0;
 
-	const FCharacterEntry* PreviousCharEntry = nullptr;
+	FCharacterEntry PreviousCharEntry;
 
 	int32 Kerning = 0;
 
@@ -575,9 +575,9 @@ void FSlateElementBatcher::AddTextElement(const FSlateDrawElement& DrawElement)
 
 			const bool bIsWhitespace = FChar::IsWhitespace(CurrentChar);
 
-			if( !bIsWhitespace && CharIndex > 0 )
+			if( !bIsWhitespace && PreviousCharEntry.IsValidEntry() )
 			{
-				Kerning = CharacterList.GetKerning( *PreviousCharEntry, Entry );
+				Kerning = CharacterList.GetKerning( PreviousCharEntry, Entry );
 			}
 			else
 			{
@@ -585,7 +585,7 @@ void FSlateElementBatcher::AddTextElement(const FSlateDrawElement& DrawElement)
 			}
 
 			LineX += Kerning;
-			PreviousCharEntry = &Entry;
+			PreviousCharEntry = Entry;
 
 			if( !bIsWhitespace )
 			{
@@ -823,7 +823,7 @@ void FSlateElementBatcher::AddSplineElement( const FSlateDrawElement& DrawElemen
 	const FVector2D EndDir = InPayload.EndDir;
 	
 	// Compute the normal to the line
-	FVector2D Normal = FVector2D( StartPt.Y - EndPt.Y, EndPt.X - StartPt.X ).SafeNormal();
+	FVector2D Normal = FVector2D( StartPt.Y - EndPt.Y, EndPt.X - StartPt.X ).GetSafeNormal();
 
 	FVector2D Up = Normal * HalfThickness;
 
@@ -850,7 +850,7 @@ void FSlateElementBatcher::AddSplineElement( const FSlateDrawElement& DrawElemen
 		int32 IndexStart = BatchVertices.Num();
 
 		// Compute the normal to the line
-		FVector2D SegmentNormal = FVector2D( StartPos.Y - EndPos.Y, EndPos.X - StartPos.X ).SafeNormal();
+		FVector2D SegmentNormal = FVector2D( StartPos.Y - EndPos.Y, EndPos.X - StartPos.X ).GetSafeNormal();
 
 		// Create the new vertices for the thick line segment
 		Up = SegmentNormal * HalfThickness;
@@ -968,7 +968,7 @@ void FSlateElementBatcher::AddLineElement( const FSlateDrawElement& DrawElement 
 		FVector2D StartPos = Points[0];
 		FVector2D EndPos = Points[1];
 
-		FVector2D Normal = FVector2D( StartPos.Y - EndPos.Y, EndPos.X - StartPos.X ).SafeNormal();
+		FVector2D Normal = FVector2D( StartPos.Y - EndPos.Y, EndPos.X - StartPos.X ).GetSafeNormal();
 
 		FVector2D Up = Normal * HalfThickness;
 
@@ -985,7 +985,7 @@ void FSlateElementBatcher::AddLineElement( const FSlateDrawElement& DrawElement 
 			uint32 IndexStart = BatchVertices.Num();
 
 			// Compute the normal to the line
-			Normal = FVector2D( StartPos.Y - EndPos.Y, EndPos.X - StartPos.X ).SafeNormal();
+			Normal = FVector2D( StartPos.Y - EndPos.Y, EndPos.X - StartPos.X ).GetSafeNormal();
 
 			// Create the new vertices for the thick line segment
 			Up = Normal * HalfThickness;
@@ -1000,7 +1000,7 @@ void FSlateElementBatcher::AddLineElement( const FSlateDrawElement& DrawElement 
 				const FVector2D NextEndPos = Points[Point+1];
 
 				// The normal of the next segment
-				const FVector2D NextNormal = FVector2D( EndPos.Y - NextEndPos.Y, NextEndPos.X - EndPos.X ).SafeNormal();
+				const FVector2D NextNormal = FVector2D( EndPos.Y - NextEndPos.Y, NextEndPos.X - EndPos.X ).GetSafeNormal();
 
 				// The next amount to adjust the vertices by 
 				FVector2D NextUp = NextNormal * HalfThickness;
@@ -1127,9 +1127,21 @@ void FSlateElementBatcher::AddViewportElement( const FSlateDrawElement& DrawElem
 
 	TSharedPtr<const ISlateViewport> ViewportPin = InPayload.Viewport.Pin();
 
-	FSlateShaderResource* ViewportResource = ViewportPin.IsValid() ? ViewportPin->GetViewportRenderTargetTexture() : nullptr;
+	FSlateShaderResource* ViewportResource =  nullptr;
+	ESlateShader::Type ShaderType = ESlateShader::Default;
 
-	FSlateElementBatch& ElementBatch = FindBatchForElement( Layer, FShaderParams(), ViewportResource, ESlateDrawPrimitive::TriangleList, ESlateShader::Default, InDrawEffects, DrawFlags, DrawElement.GetScissorRect() );
+	if( ViewportPin.IsValid() )
+	{
+		ViewportResource = ViewportPin->GetViewportRenderTargetTexture();
+
+		if( ViewportPin->IsViewportTextureAlphaOnly() )
+		{
+			// This is a slight hack, but the font shader is the same as the general shader except it reads alpha only textures
+			ShaderType = ESlateShader::Font;
+		}
+	}
+
+	FSlateElementBatch& ElementBatch = FindBatchForElement( Layer, FShaderParams(), ViewportResource, ESlateDrawPrimitive::TriangleList, ShaderType, InDrawEffects, DrawFlags, DrawElement.GetScissorRect() );
 	TArray<FSlateVertex>& BatchVertices = BatchVertexArrays[ElementBatch.VertexArrayIndex];
 	TArray<SlateIndex>& BatchIndices = BatchIndexArrays[ElementBatch.IndexArrayIndex];
 

@@ -106,6 +106,12 @@ void UGlobalEditorUtilityBase::ClearActorSelectionSet()
 	bDirtiedSelectionSet = true;
 }
 
+void UGlobalEditorUtilityBase::SelectNothing()
+{
+	GEditor->SelectNone(true, true, false);
+	bDirtiedSelectionSet = true;
+}
+
 void UGlobalEditorUtilityBase::SetActorSelectionState(AActor* Actor, bool bShouldBeSelected)
 {
 	GEditor->SelectActor(Actor, bShouldBeSelected, /*bNotify=*/ false);

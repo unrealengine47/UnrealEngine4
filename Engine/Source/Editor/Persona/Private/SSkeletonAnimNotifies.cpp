@@ -11,6 +11,7 @@
 #include "SInlineEditableTextBlock.h"
 #include "SNotificationList.h"
 #include "NotificationManager.h"
+#include "BlueprintActionDatabase.h"
 
 #define LOCTEXT_NAMESPACE "SkeletonAnimNotifies"
 
@@ -145,7 +146,7 @@ void SSkeletonAnimNotifies::Construct(const FArguments& InArgs)
 			(
 				SNew( SHeaderRow )
 				+ SHeaderRow::Column( ColumnId_AnimNotifyNameLabel )
-				.DefaultLabel( LOCTEXT( "AnimNotifyNameLabel", "Notify Name" ).ToString() )
+				.DefaultLabel( LOCTEXT( "AnimNotifyNameLabel", "Notify Name" ) )
 			)
 		]
 	];
@@ -295,6 +296,8 @@ void SSkeletonAnimNotifies::OnDeleteAnimNotify()
 
 		NotifyUser( Info );
 	}
+
+	FBlueprintActionDatabase::Get().RefreshAssetActions(TargetSkeleton);
 
 	CreateNotifiesList( NameFilterBox->GetText().ToString() );
 }

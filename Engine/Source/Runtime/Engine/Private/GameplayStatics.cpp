@@ -189,7 +189,7 @@ static bool ComponentIsDamageableFrom(UPrimitiveComponent* VictimComp, FVector c
 	// didn't hit anything, assume nothing blocking the damage and victim is consequently visible
 	// but since we don't have a hit result to pass back, construct a simple one, modeling the damage as having hit a point at the component's center.
 	FVector const FakeHitLoc = VictimComp->GetComponentLocation();
-	FVector const FakeHitNorm = (Origin - FakeHitLoc).SafeNormal();		// normal points back toward the epicenter
+	FVector const FakeHitNorm = (Origin - FakeHitLoc).GetSafeNormal();		// normal points back toward the epicenter
 	OutHitResult = FHitResult(VictimComp->GetOwner(), VictimComp, FakeHitLoc, FakeHitNorm);
 	return true;
 }
@@ -894,7 +894,7 @@ void UGameplayStatics::DeactivateReverbEffect(FName TagName)
 
 UDecalComponent* CreateDecalComponent(class UMaterialInterface* DecalMaterial, FVector DecalSize, UWorld* World, AActor* Actor, float LifeSpan)
 {
-	const FMatrix DecalInternalTransform = FRotationMatrix(FRotator(0, 90.0f, -90.0f));
+	const FMatrix DecalInternalTransform = FRotationMatrix(FRotator(0.f, 90.0f, -90.0f));
 
 	UDecalComponent* DecalComp = ConstructObject<UDecalComponent>(UDecalComponent::StaticClass(), (Actor ? Actor : (UObject*)GetTransientPackage()));
 	DecalComp->DecalMaterial = DecalMaterial;
@@ -902,9 +902,9 @@ UDecalComponent* CreateDecalComponent(class UMaterialInterface* DecalMaterial, F
 	DecalComp->bAbsoluteScale = true;
 	DecalComp->RegisterComponentWithWorld(World);
 
-	if (LifeSpan > 0)
+	if (LifeSpan > 0.f)
 	{
-		World->GetTimerManager().SetTimer(DecalComp, &UDecalComponent::DestroyComponent, LifeSpan, false);
+		DecalComp->SetLifeSpan(LifeSpan);
 	}
 
 	return DecalComp;
@@ -926,20 +926,20 @@ UDecalComponent* UGameplayStatics::SpawnDecalAtLocation(UObject* WorldContextObj
 
 UDecalComponent* UGameplayStatics::SpawnDecalAttached(class UMaterialInterface* DecalMaterial, FVector DecalSize, class USceneComponent* AttachToComponent, FName AttachPointName, FVector Location, FRotator Rotation, EAttachLocation::Type LocationType, float LifeSpan)
 {
-	UDecalComponent* DecalComp = NULL;
+	UDecalComponent* DecalComp = nullptr;
 
 	if (DecalMaterial)
 	{
-		if (AttachToComponent == NULL)
+		if (AttachToComponent == nullptr)
 		{
 			UE_LOG(LogScript, Warning, TEXT("UGameplayStatics::SpawnDecalAttached: NULL AttachComponent specified!"));
 		}
 		else
 		{
 			UPrimitiveComponent* AttachToPrimitive = Cast<UPrimitiveComponent>(AttachToComponent);
-			if (AttachToPrimitive == NULL || AttachToPrimitive->bReceivesDecals)
+			if (AttachToPrimitive == nullptr || AttachToPrimitive->bReceivesDecals)
 			{
-				const bool bOnBSPBrush = (Cast<AWorldSettings>(AttachToPrimitive->GetOwner()) != NULL);
+				const bool bOnBSPBrush = AttachToPrimitive && (Cast<AWorldSettings>(AttachToPrimitive->GetOwner()) != nullptr);
 				if (bOnBSPBrush)
 				{
 					// special case: don't attach to component when it's owned by invisible WorldSettings (decals on BSP brush)
@@ -1132,7 +1132,7 @@ bool UGameplayStatics::BlueprintSuggestProjectileVelocity(UObject* WorldContextO
 bool UGameplayStatics::SuggestProjectileVelocity(UObject* WorldContextObject, FVector& OutTossVelocity, FVector Start, FVector End, float TossSpeed, bool bFavorHighArc, float CollisionRadius, float OverrideGravityZ, ESuggestProjVelocityTraceOption::Type TraceOption, const FCollisionResponseParams& ResponseParam, const TArray<AActor*>& ActorsToIgnore, bool bDrawDebug)
 {
 	const FVector FlightDelta = End - Start;
-	const FVector DirXY = FlightDelta.SafeNormal2D();
+	const FVector DirXY = FlightDelta.GetSafeNormal2D();
 	const float DeltaXY = FlightDelta.Size2D();
 
 	const float DeltaZ = FlightDelta.Z;

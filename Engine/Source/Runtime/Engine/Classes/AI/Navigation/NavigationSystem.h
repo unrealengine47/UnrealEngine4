@@ -40,7 +40,7 @@ ENGINE_API DECLARE_LOG_CATEGORY_EXTERN(LogNavigation, Warning, All);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnNavAreaChanged, const UClass* /*AreaClass*/);
 
 /** Delegate to let interested parties know that Nav Data has been registered */
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnNavDataRegistered, ANavigationData*, NavData);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnNavDataGenerigEvent, ANavigationData*, NavData);
 
 namespace NavigationDebugDrawing
 {
@@ -133,6 +133,10 @@ class ENGINE_API UNavigationSystem : public UBlueprintFunctionLibrary
 	UPROPERTY()
 	ANavigationData* MainNavData;
 
+	/** special navigation data for managing direct paths, not part of NavDataSet! */
+	UPROPERTY()
+	ANavigationData* AbstractNavData;
+
 	/** Should navigation system spawn default Navigation Data when there's none and there are navigation bounds present? */
 	UPROPERTY(config, EditAnywhere, Category=NavigationSystem)
 	uint32 bAutoCreateNavigationData:1;
@@ -186,8 +190,11 @@ class ENGINE_API UNavigationSystem : public UBlueprintFunctionLibrary
 	TArray<FNavigationBoundsUpdateRequest> PendingNavBoundsUpdates;
 
  	UPROPERTY(/*BlueprintAssignable, */Transient)
-	FOnNavDataRegistered OnNavDataRegisteredEvent;
+	FOnNavDataGenerigEvent OnNavDataRegisteredEvent;
 
+	UPROPERTY(BlueprintAssignable, Transient, meta = (displayname = OnNavigationGenerationFinished))
+	FOnNavDataGenerigEvent OnNavigationGenerationFinishedDelegate;
+	
 private:
 	TWeakObjectPtr<UCrowdManager> CrowdManager;
 
@@ -286,6 +293,9 @@ public:
 	// Begin UObject Interface
 	virtual void PostInitProperties() override;
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif // WITH_EDITOR
 	// End UObject Interface
 
 	virtual void Tick(float DeltaSeconds);	
@@ -387,6 +397,8 @@ public:
 	ANavigationData* GetMainNavData(FNavigationSystem::ECreateIfEmpty CreateNewIfNoneFound);
 	/** Returns the world nav mesh object.  Creates one if it doesn't exist. */
 	const ANavigationData* GetMainNavData() const { return MainNavData; }
+
+	ANavigationData* GetAbstractNavData() const { return AbstractNavData; }
 
 	TSharedPtr<FNavigationQueryFilter> CreateDefaultQueryFilterCopy() const;
 
@@ -559,6 +571,8 @@ public:
 	/** Used to display "navigation building in progress" notify */
 	bool IsNavigationBuildInProgress(bool bCheckDirtyToo = true);
 
+	void OnNavigationGenerationFinished(ANavigationData& NavData);
+
 	/** Used to display "navigation building in progress" counter */
 	int32 GetNumRemainingBuildTasks() const;
 
@@ -678,6 +692,7 @@ protected:
 	uint32 bInitialBuildingLockActive:1;
 	uint32 bInitialSetupHasBeenPerformed:1;
 	uint32 bInitialLevelsAdded:1;
+	uint32 bSkipDirtyAreasOnce:1;
 	uint32 bAsyncBuildPaused:1;
 
 	/** cached navigable world bounding box*/
@@ -761,7 +776,7 @@ private:
 
 	/** constructs a navigation data instance of specified NavDataClass, in passed World
 	 *	for supplied NavConfig */
-	virtual ANavigationData* CreateNavigationDataInstance(TSubclassOf<ANavigationData> NavDataClass, UWorld* World, const FNavDataConfig& NavConfig);
+	virtual ANavigationData* CreateNavigationDataInstance(const FNavDataConfig& NavConfig);
 
 	/** Triggers navigation building on all eligible navigation data. */
 	void RebuildAll();

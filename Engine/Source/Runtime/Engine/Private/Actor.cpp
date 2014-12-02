@@ -388,18 +388,6 @@ void AActor::SetTickableWhenPaused(bool bTickableWhenPaused)
 	PrimaryActorTick.bTickEvenWhenPaused = bTickableWhenPaused;
 }
 
-void AActor::SetTickEnabled(bool bEnable)
-{
-	if (CanEverTick())
-	{
-		PrimaryActorTick.SetTickFunctionEnable(bEnable);
-	}
-	else if (bEnable)
-	{
-		UE_LOG(LogActor, Warning, TEXT("Attempting to enable ticking for '%s' when the actor is explicitly prevented from doing so (check CanEverTick)."), *GetName());
-	}
-}
-
 void AActor::AddControllingMatineeActor( AMatineeActor& InMatineeActor )
 {
 	if (RootComponent)
@@ -3424,11 +3412,11 @@ void AActor::SetLifeSpan( float InLifespan )
 	{
 		if( InLifespan > 0.0f)
 		{
-			GetWorldTimerManager().SetTimer( this, &AActor::LifeSpanExpired, InLifespan );
+			GetWorldTimerManager().SetTimer( TimerHandle_LifeSpanExpired, this, &AActor::LifeSpanExpired, InLifespan );
 		}
 		else
 		{
-			GetWorldTimerManager().ClearTimer( this, &AActor::LifeSpanExpired );		
+			GetWorldTimerManager().ClearTimer( TimerHandle_LifeSpanExpired );		
 		}
 	}
 }
@@ -3436,7 +3424,7 @@ void AActor::SetLifeSpan( float InLifespan )
 float AActor::GetLifeSpan() const
 {
 	// Timer remaining returns -1.0f if there is no such timer - return this as ZERO
-	const float CurrentLifespan = GetWorldTimerManager().GetTimerRemaining( this, &AActor::LifeSpanExpired );
+	const float CurrentLifespan = GetWorldTimerManager().GetTimerRemaining(TimerHandle_LifeSpanExpired);
 	return ( CurrentLifespan != -1.0f ) ? CurrentLifespan : 0.0f;
 }
 
@@ -3513,7 +3501,7 @@ float AActor::GetDotProductTo(AActor* OtherActor)
 	{
 		FVector Dir = GetActorForwardVector();
 		FVector Offset = OtherActor->GetActorLocation() - GetActorLocation();
-		Offset = Offset.SafeNormal();
+		Offset = Offset.GetSafeNormal();
 		return FVector::DotProduct(Dir, Offset);
 	}
 	return -2.0;
@@ -3525,7 +3513,7 @@ float AActor::GetHorizontalDotProductTo(AActor* OtherActor)
 	{
 		FVector Dir = GetActorForwardVector();
 		FVector Offset = OtherActor->GetActorLocation() - GetActorLocation();
-		Offset = Offset.SafeNormal2D();
+		Offset = Offset.GetSafeNormal2D();
 		return FVector::DotProduct(Dir, Offset);
 	}
 	return -2.0;

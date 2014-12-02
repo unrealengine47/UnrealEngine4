@@ -310,7 +310,7 @@ public:
 			const ALandscapeProxy* LandscapeProxy = EdMode->CurrentToolTarget.LandscapeInfo->GetLandscapeProxy();
 			const FTransform LandscapeToWorld = LandscapeProxy->LandscapeActorToWorld();
 
-			const FLinearColor SelectedSpriteColor = FLinearColor::White + (GEngine->GetSelectedMaterialColor() * GEngine->SelectionHighlightIntensity * 10); // copied from FSpriteSceneProxy::DrawDynamicElements()
+			const FLinearColor SelectedSpriteColor = FLinearColor::White + (GEngine->GetSelectedMaterialColor() * GEngine->SelectionHighlightIntensity * 10);
 
 			FVector WorldPoints[2];
 			for (int32 i = 0; i < NumPoints; i++)
@@ -344,7 +344,7 @@ public:
 
 			if (NumPoints == 2)
 			{
-				const FVector Side = FVector::CrossProduct(Points[1] - Points[0], FVector(0, 0, 1)).SafeNormal2D();
+				const FVector Side = FVector::CrossProduct(Points[1] - Points[0], FVector(0, 0, 1)).GetSafeNormal2D();
 				const FVector InnerSide = Side * (EdMode->UISettings->RampWidth * 0.5f * (1 - EdMode->UISettings->RampSideFalloff));
 				const FVector OuterSide = Side * (EdMode->UISettings->RampWidth * 0.5f);
 				FVector InnerVerts[2][2];
@@ -455,7 +455,7 @@ public:
 		const ALandscapeProxy* LandscapeProxy = LandscapeInfo->GetLandscapeProxy();
 		const FTransform LandscapeToWorld = LandscapeProxy->LandscapeActorToWorld();
 
-		const FVector2D Side = FVector2D(FVector::CrossProduct(Points[1] - Points[0], FVector(0,0,1))).SafeNormal();
+		const FVector2D Side = FVector2D(FVector::CrossProduct(Points[1] - Points[0], FVector(0,0,1))).GetSafeNormal();
 		const FVector2D InnerSide = Side * (EdMode->UISettings->RampWidth * 0.5f * (1 - EdMode->UISettings->RampSideFalloff)) / LandscapeToWorld.GetScale3D().X;
 		const FVector2D OuterSide = Side * (EdMode->UISettings->RampWidth * 0.5f) / LandscapeToWorld.GetScale3D().X;
 

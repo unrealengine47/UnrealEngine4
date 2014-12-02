@@ -195,7 +195,12 @@ private:
 	void RenderDynamicSkyLighting(FRHICommandListImmediate& RHICmdList, TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO);
 
 	/** Render Ambient Occlusion using mesh distance fields and the surface cache, which supports dynamic rigid meshes. */
-	bool RenderDistanceFieldAOSurfaceCache(FRHICommandListImmediate& RHICmdList, const class FDistanceFieldAOParameters& Parameters, TRefCountPtr<IPooledRenderTarget>& OutDynamicBentNormalAO, bool bApplyToSceneColor);
+	bool RenderDistanceFieldAOSurfaceCache(
+		FRHICommandListImmediate& RHICmdList, 
+		const class FDistanceFieldAOParameters& Parameters, 
+		TRefCountPtr<IPooledRenderTarget>& OutDynamicBentNormalAO, 
+		TRefCountPtr<IPooledRenderTarget>& OutDynamicIrradiance,
+		bool bApplyToSceneColor);
 
 	void RenderMeshDistanceFieldVisualization(FRHICommandListImmediate& RHICmdList, const FDistanceFieldAOParameters& Parameters);
 
@@ -240,7 +245,6 @@ private:
 
 	/** Renders the velocities for a subset of movable objects for the motion blur effect. */
 	friend class FRenderVelocityDynamicThreadTask;
-	void RenderDynamicVelocitiesInner(FRHICommandList& RHICmdList, const FViewInfo& View, int32 FirstIndex, int32 LastIndex);
 	void RenderDynamicVelocitiesMeshElementsInner(FRHICommandList& RHICmdList, const FViewInfo& View, int32 FirstIndex, int32 LastIndex);
 
 	/** Renders the velocities of movable objects for the motion blur effect. */
@@ -340,6 +344,14 @@ private:
 	void RenderStandardDeferredImageBasedReflections(FRHICommandListImmediate& RHICmdList, bool bReflectionEnv, const TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO);
 
 	bool ShouldDoReflectionEnvironment() const;
+	
+	bool ShouldRenderDynamicSkyLight() const;
+
+	/** Whether distance field global data structures should be prepared for features that use it. */
+	bool ShouldPrepareForDistanceFieldShadows() const;
+	bool ShouldPrepareForDistanceFieldAO() const;
+
+	void UpdateGlobalDistanceFieldObjectBuffers(FRHICommandListImmediate& RHICmdList, bool bReallocatedAtlasLayouts);
 
 	friend class FTranslucentPrimSet;
 };

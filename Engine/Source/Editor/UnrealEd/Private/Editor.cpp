@@ -186,7 +186,7 @@ static void PrivateDestroySelectedSets()
 #endif
 }
 
-UEditorEngine::UEditorEngine(const class FObjectInitializer& ObjectInitializer)
+UEditorEngine::UEditorEngine(const FObjectInitializer& ObjectInitializer)
 : Super(ObjectInitializer)
 {
 	if (!IsRunningCommandlet())
@@ -1624,6 +1624,13 @@ bool UEditorEngine::UpdateSingleViewportClient(FEditorViewportClient* InViewport
 {
 	bool bUpdatedNonRealtimeViewport = false;
 
+	// Always submit view information for content streaming 
+	// otherwise content for editor view can be streamed out if there are other views (ex: thumbnails)
+	if (InViewportClient->IsPerspective())
+	{
+		IStreamingManager::Get().AddViewInformation( InViewportClient->GetViewLocation(), InViewportClient->Viewport->GetSizeXY().X, InViewportClient->Viewport->GetSizeXY().X / FMath::Tan(InViewportClient->ViewFOV) );
+	}
+	
 	// Only allow viewports to be drawn if we are not throttling for slate UI responsiveness or if the viewport client requested a redraw
 	// Note about bNeedsRedraw: Redraws can happen during some Slate events like checking a checkbox in a menu to toggle a view mode in the viewport.  In those cases we need to show the user the results immediately
 	if( FSlateThrottleManager::Get().IsAllowingExpensiveTasks() || InViewportClient->bNeedsRedraw )
@@ -1634,7 +1641,6 @@ bool UEditorEngine::UpdateSingleViewportClient(FEditorViewportClient* InViewport
 		// Add view information for perspective viewports.
 		if( InViewportClient->IsPerspective() )
 		{
-			IStreamingManager::Get().AddViewInformation( InViewportClient->GetViewLocation(), InViewportClient->Viewport->GetSizeXY().X, InViewportClient->Viewport->GetSizeXY().X / FMath::Tan(InViewportClient->ViewFOV) );
 			GWorld->ViewLocationsRenderedLastFrame.Add(InViewportClient->GetViewLocation());
 	
 			// If we're currently simulating in editor, then we'll need to make sure that sub-levels are streamed in.
@@ -3378,7 +3384,7 @@ struct FConvertStaticMeshActorInfo
 	// Component properties.
 	UStaticMesh*						StaticMesh;
 	USkeletalMesh*						SkeletalMesh;
-	TArray<UMaterialInterface*>			Materials;
+	TArray<UMaterialInterface*>			OverrideMaterials;
 	TArray<FGuid>						IrrelevantLights;
 	float								CachedMaxDrawDistance;
 	bool								CastShadow;
@@ -3431,7 +3437,7 @@ struct FConvertStaticMeshActorInfo
 
 		// Copy over component properties.
 		StaticMesh				= MeshComp->StaticMesh;
-		Materials				= MeshComp->Materials;
+		OverrideMaterials		= MeshComp->OverrideMaterials;
 		IrrelevantLights		= MeshComp->IrrelevantLights;
 		CachedMaxDrawDistance	= MeshComp->CachedMaxDrawDistance;
 		CastShadow				= MeshComp->CastShadow;
@@ -3475,7 +3481,7 @@ struct FConvertStaticMeshActorInfo
 
 		// Set component properties.
 		if ( bComponentPropsDifferFromDefaults[0] ) MeshComp->StaticMesh			= StaticMesh;
-		if ( bComponentPropsDifferFromDefaults[1] ) MeshComp->Materials				= Materials;
+		if ( bComponentPropsDifferFromDefaults[1] ) MeshComp->OverrideMaterials		= OverrideMaterials;
 		if ( bComponentPropsDifferFromDefaults[2] ) MeshComp->IrrelevantLights		= IrrelevantLights;
 		if ( bComponentPropsDifferFromDefaults[3] ) MeshComp->CachedMaxDrawDistance	= CachedMaxDrawDistance;
 		if ( bComponentPropsDifferFromDefaults[4] ) MeshComp->CastShadow			= CastShadow;
@@ -3534,7 +3540,7 @@ struct FConvertStaticMeshActorInfo
 
 		// Copy over component properties.
 		SkeletalMesh			= MeshComp->SkeletalMesh;
-		Materials				= MeshComp->Materials;
+		OverrideMaterials		= MeshComp->OverrideMaterials;
 		CachedMaxDrawDistance	= MeshComp->CachedMaxDrawDistance;
 		CastShadow				= MeshComp->CastShadow;
 
@@ -3558,7 +3564,7 @@ struct FConvertStaticMeshActorInfo
 
 		// Set component properties.
 		if ( bComponentPropsDifferFromDefaults[0] ) MeshComp->SkeletalMesh			= SkeletalMesh;
-		if ( bComponentPropsDifferFromDefaults[1] ) MeshComp->Materials				= Materials;
+		if ( bComponentPropsDifferFromDefaults[1] ) MeshComp->OverrideMaterials		= OverrideMaterials;
 		if ( bComponentPropsDifferFromDefaults[3] ) MeshComp->CachedMaxDrawDistance	= CachedMaxDrawDistance;
 		if ( bComponentPropsDifferFromDefaults[4] ) MeshComp->CastShadow			= CastShadow;
 		if ( bComponentPropsDifferFromDefaults[5] ) MeshComp->BodyInstance.CopyBodyInstancePropertiesFrom(&BodyInstance);

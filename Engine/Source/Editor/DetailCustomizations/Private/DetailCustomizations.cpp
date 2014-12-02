@@ -81,6 +81,7 @@
 #include "ParticleSystemComponentDetails.h"
 #include "ParticleSysParamStructCustomization.h"
 #include "RawDistributionVectorStructCustomization.h"
+#include "CollisionProfileNameCustomization.h"
 #include "DocumentationActorDetails.h"
 #include "MediaPlayerCustomization.h"
 #include "MediaSoundWaveCustomization.h"
@@ -183,6 +184,7 @@ void FDetailCustomizationsModule::RegisterPropertyTypeCustomizations()
 	RegisterCustomPropertyTypeLayout("RuntimeCurveLinearColor", FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FCurveColorCustomization::MakeInstance));
 	RegisterCustomPropertyTypeLayout("ParticleSysParam", FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FParticleSysParamStructCustomization::MakeInstance));
 	RegisterCustomPropertyTypeLayout("RawDistributionVector", FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FRawDistributionVectorStructCustomization::MakeInstance));
+	RegisterCustomPropertyTypeLayout("CollisionProfileName", FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FCollisionProfileNameCustomization::MakeInstance));
 }
 
 

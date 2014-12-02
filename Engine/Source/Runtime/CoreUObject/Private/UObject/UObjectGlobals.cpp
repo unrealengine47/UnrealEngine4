@@ -8,6 +8,7 @@
 #include "Misc/SecureHash.h"
 #include "UObject/ConstructorHelpers.h"
 #include "UObject/UObjectAnnotation.h"
+#include "UObject/TlsObjectInitializers.h"
 
 DEFINE_LOG_CATEGORY(LogUObjectGlobals);
 
@@ -449,6 +450,12 @@ UPackage* CreatePackage( UObject* InOuter, const TCHAR* PackageName )
 	{
 		InName = PackageName;
 	}
+
+	if (InName.Contains(TEXT("//")))
+	{
+		UE_LOG(LogUObjectGlobals, Fatal, TEXT("Attempted to create a package with name containing double slashes. PackageName: %s"), PackageName);
+	}
+
 	if( InName.EndsWith( TEXT( "." ) ) )
 	{
 		FString InName2 = InName.Left( InName.Len() - 1 );
@@ -1849,7 +1856,7 @@ UObject::UObject(const FObjectInitializer& ObjectInitializer)
 }
 
 /* Global flag so that FObjectFinders know if they are called from inside the UObject constructors or not. */
-static int32 GIsInConstructor = 0;
+int32 GIsInConstructor = 0;
 /* Object that is currently being constructed with ObjectInitializer */
 static UObject* GConstructedObject = NULL;
 
@@ -1865,6 +1872,7 @@ FObjectInitializer::FObjectInitializer() :
 	// Mark we're in the constructor now.	
 	GIsInConstructor++;
 	GConstructedObject = Obj;
+	FTlsObjectInitializers::Push(this);
 }	
 
 FObjectInitializer::FObjectInitializer(UObject* InObj, UObject* InObjectArchetype, bool bInCopyTransientsFromClassDefaults, bool bInShouldIntializeProps, struct FObjectInstancingGraph* InInstanceGraph) :
@@ -1880,6 +1888,7 @@ FObjectInitializer::FObjectInitializer(UObject* InObj, UObject* InObjectArchetyp
 	// Mark we're in the constructor now.
 	GIsInConstructor++;
 	GConstructedObject = Obj;
+	FTlsObjectInitializers::Push(this);
 }
 
 /**
@@ -1887,6 +1896,7 @@ FObjectInitializer::FObjectInitializer(UObject* InObj, UObject* InObjectArchetyp
  **/
 FObjectInitializer::~FObjectInitializer()
 {
+	FTlsObjectInitializers::Pop();
 	// Let the FObjectFinders know we left the constructor.
 	GIsInConstructor--;
 	check(GIsInConstructor >= 0);
@@ -2599,4 +2609,20 @@ UObject* FObjectInitializer::CreateDefaultSubobject(UObject* Outer, FName Subobj
 		}
 	}
 	return Result;
+}
+
+UObject* FObjectInitializer::CreateEditorOnlyDefaultSubobject(UObject* Outer, FName SubobjectName, UClass* ReturnType, bool bTransient /*= false*/) const
+{
+#if WITH_EDITOR
+	if (GIsEditor)
+	{
+		UObject* EditorSubobject = CreateDefaultSubobject(Outer, SubobjectName, ReturnType, ReturnType, /*bIsRequired =*/ false, /*bIsAbstract =*/ false, bTransient);
+		if (EditorSubobject)
+		{
+			EditorSubobject->MarkAsEditorOnlySubobject();
+		}
+		return EditorSubobject;
+	}
+#endif
+	return nullptr;
 }

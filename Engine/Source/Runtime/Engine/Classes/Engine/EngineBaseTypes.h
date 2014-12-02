@@ -142,7 +142,7 @@ public:
 	TEnumAsByte<enum ETickingGroup> TickGroup;
 
 	/** Bool indicating that this function should execute even if the game is paused. Pause ticks are very limited in capabilities. **/
-	UPROPERTY()
+	UPROPERTY(EditDefaultsOnly, Category="Tick", AdvancedDisplay)
 	uint32 bTickEvenWhenPaused:1;
 
 	/** If false, this tick function will never be registered and will never tick. Only settable in defaults. */
@@ -150,11 +150,11 @@ public:
 	uint32 bCanEverTick:1;
 
 	/** If true, this tick function will start enabled, but can be disabled later on. */
-	UPROPERTY()
+	UPROPERTY(EditDefaultsOnly, Category="Tick")
 	uint32 bStartWithTickEnabled:1;
 
 	/** If we allow this tick to run on a dedicated server */
-	UPROPERTY()
+	UPROPERTY(EditDefaultsOnly, Category="Tick", AdvancedDisplay)
 	uint32 bAllowTickOnDedicatedServer:1;
 
 	/** If false, this tick will run on the game thread, otherwise it will run on any thread in parallel with the game thread and in parallel with other "async ticks" **/
@@ -540,6 +540,43 @@ enum ETravelType
 	TRAVEL_Relative,
 	TRAVEL_MAX,
 };
+
+/** Types of demo play failures broadcast from the engine */
+UENUM(BlueprintType)
+namespace EDemoPlayFailure
+{
+	enum Type
+	{
+		/** A Generic failure */
+		Generic,
+		/** Demo was not found */
+		DemoNotFound,
+		/** Demo is corrupt */
+		Corrupt,
+		/** Invalid version */
+		InvalidVersion,
+	};
+}
+
+namespace EDemoPlayFailure
+{
+	inline const TCHAR* ToString(EDemoPlayFailure::Type FailureType)
+	{
+		switch (FailureType)
+		{
+		case Generic:
+			return TEXT("Gneric");
+		case DemoNotFound:
+			return TEXT("DemoNotFound");
+		case Corrupt:
+			return TEXT("Corrupt");
+		case InvalidVersion:
+			return TEXT("InvalidVersion");
+		}
+
+		return TEXT("Unknown EDemoPlayFailure error occurred.");
+	}
+}
 
 //URL structure.
 USTRUCT()

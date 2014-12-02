@@ -314,13 +314,25 @@ void USkinnedMeshComponent::UpdateSlaveComponent()
 	MarkRenderDynamicDataDirty();
 }
 
+TArray<class UMaterialInterface*> USkinnedMeshComponent::GetMaterials() const
+{
+	TArray<class UMaterialInterface*> OutMaterials = Super::GetMaterials();
+
+	// if no material is overriden, look for mesh material;
+	if(OutMaterials.Num() == 0 && SkeletalMesh)
+	{
+		for (auto Material : SkeletalMesh->Materials)
+		{
+			OutMaterials.Add(Material.MaterialInterface);
+		}
+	}
+
+	return OutMaterials;
+}
+
 int32 USkinnedMeshComponent::GetNumMaterials() const
 {
-	if (Materials.Num() > 0)
-	{
-		return Materials.Num();
-	}
-	else if (SkeletalMesh)
+	if (SkeletalMesh)
 	{
 		return SkeletalMesh->Materials.Num();
 	}
@@ -330,9 +342,9 @@ int32 USkinnedMeshComponent::GetNumMaterials() const
 
 UMaterialInterface* USkinnedMeshComponent::GetMaterial(int32 MaterialIndex) const
 {
-	if(MaterialIndex < Materials.Num() && Materials[MaterialIndex])
+	if(MaterialIndex < OverrideMaterials.Num() && OverrideMaterials[MaterialIndex])
 	{
-		return Materials[MaterialIndex];
+		return OverrideMaterials[MaterialIndex];
 	}
 	else if (SkeletalMesh && MaterialIndex < SkeletalMesh->Materials.Num() && SkeletalMesh->Materials[MaterialIndex].MaterialInterface)
 	{
@@ -354,7 +366,7 @@ void USkinnedMeshComponent::GetStreamingTextureInfo(TArray<FStreamingTexturePrim
 	{
 		const float LocalTexelFactor = SkeletalMesh->GetStreamingTextureFactor(0) * StreamingDistanceMultiplier;
 		const float WorldTexelFactor = LocalTexelFactor * ComponentToWorld.GetMaximumAxisScale();
-		const int32 NumMaterials = FMath::Max(SkeletalMesh->Materials.Num(), Materials.Num());
+		const int32 NumMaterials = FMath::Max(SkeletalMesh->Materials.Num(), OverrideMaterials.Num());
 		for( int32 MatIndex = 0; MatIndex < NumMaterials; MatIndex++ )
 		{
 			UMaterialInterface* const MaterialInterface = GetMaterial(MatIndex);
@@ -485,21 +497,18 @@ FBoxSphereBounds USkinnedMeshComponent::CalcMeshBound(const FVector& RootOffset,
 	// For AnimSet Viewer, use 'bounds preview' physics asset if present.
 	else if(SkeletalMesh && bHasPhysBodies && bCanUsePhysicsAsset)
 	{
-		// @fixme UE4 this does not use LocalToWorld entered but ComponentToWorld
-		NewBounds = FBoxSphereBounds(PhysicsAsset->CalcAABB(this));
+		NewBounds = FBoxSphereBounds(PhysicsAsset->CalcAABB(this, LocalToWorld));
 	}
 #endif // WITH_EDITOR
 	// If we have a PhysicsAsset (with at least one matching bone), and we can use it, do so to calc bounds.
 	else if( bHasPhysBodies && bCanUsePhysicsAsset && UsePhysicsAsset )
 	{
-		// @fixme UE4 this does not use LocalToWorld entered but ComponentToWorld
-		NewBounds = FBoxSphereBounds(PhysicsAsset->CalcAABB(this));
+		NewBounds = FBoxSphereBounds(PhysicsAsset->CalcAABB(this, LocalToWorld));
 	}
 	// Use MasterPoseComponent's PhysicsAsset, if we don't have one and it does
 	else if(MasterPoseComponent.IsValid() && bCanUsePhysicsAsset && bMasterHasPhysBodies)
 	{
-		// @fixme UE4 this does not use LocalToWorld entered but ComponentToWorld		
-		NewBounds = FBoxSphereBounds(MasterPhysicsAsset->CalcAABB(this));
+		NewBounds = FBoxSphereBounds(MasterPhysicsAsset->CalcAABB(this, LocalToWorld));
 	}
 	// Fallback is to use the one from the skeletal mesh. Usually pretty bad in terms of Accuracy of where the SkelMesh Bounds are located (i.e. usually bigger than it needs to be)
 	else if( SkeletalMesh )
@@ -573,16 +582,20 @@ FMatrix USkinnedMeshComponent::GetBoneMatrix(int32 BoneIdx) const
 	}
 }
 
-
 FTransform USkinnedMeshComponent::GetBoneTransform(int32 BoneIdx) const
 {
-	if ( !IsRegistered() )
+	if (!IsRegistered())
 	{
 		// if not registered, we don't have SpaceBases yet. 
 		// also ComponentToWorld isn't set yet (They're set from relativelocation, relativerotation, relativescale)
 		return FTransform::Identity;
 	}
 
+	return GetBoneTransform(BoneIdx, ComponentToWorld);
+}
+
+FTransform USkinnedMeshComponent::GetBoneTransform(int32 BoneIdx, const FTransform& LocalToWorld) const
+{
 	// Handle case of use a MasterPoseComponent - get bone matrix from there.
 	if(MasterPoseComponent.IsValid())
 	{
@@ -594,7 +607,7 @@ FTransform USkinnedMeshComponent::GetBoneTransform(int32 BoneIdx) const
 			if(	ParentBoneIndex != INDEX_NONE && 
 				ParentBoneIndex < MasterPoseComponent->GetNumSpaceBases())
 			{
-				return MasterPoseComponent->GetSpaceBases()[ParentBoneIndex] * ComponentToWorld;
+				return MasterPoseComponent->GetSpaceBases()[ParentBoneIndex] * LocalToWorld;
 			}
 			else
 			{
@@ -612,7 +625,7 @@ FTransform USkinnedMeshComponent::GetBoneTransform(int32 BoneIdx) const
 	{
 		if( GetNumSpaceBases() && BoneIdx < GetNumSpaceBases() )
 		{
-			return GetSpaceBases()[BoneIdx] * ComponentToWorld;
+			return GetSpaceBases()[BoneIdx] * LocalToWorld;
 		}
 		else
 		{
@@ -1338,7 +1351,7 @@ void USkinnedMeshComponent::GetUsedMaterials( TArray<UMaterialInterface*>& OutMa
 	if( SkeletalMesh )
 	{
 		// The max number of materials used is the max of the materials on the skeletal mesh and the materials on the mesh component
-		const int32 NumMaterials = FMath::Max( SkeletalMesh->Materials.Num(), Materials.Num() );
+		const int32 NumMaterials = FMath::Max( SkeletalMesh->Materials.Num(), OverrideMaterials.Num() );
 		for( int32 MatIdx = 0; MatIdx < NumMaterials; ++MatIdx )
 		{
 			// GetMaterial will determine the correct material to use for this index.  
@@ -1689,8 +1702,10 @@ TArray<FActiveVertexAnim> USkinnedMeshComponent::UpdateActiveVertexAnims(const U
 	for(int32 AnimIdx=0; AnimIdx < ActiveAnims.Num(); AnimIdx++)
 	{
 		const FActiveVertexAnim& ActiveAnim = ActiveAnims[AnimIdx];
+		const float ActiveAnimAbsWeight = FMath::Abs(ActiveAnim.Weight);
+
 		// Check it has valid weight, and works on this SkeletalMesh
-		if(	ActiveAnim.Weight > MinVertexAnimBlendWeight &&
+		if (	ActiveAnimAbsWeight > MinVertexAnimBlendWeight &&
 			ActiveAnim.VertAnim != NULL &&
 			ActiveAnim.VertAnim->BaseSkelMesh == InSkeletalMesh)
 		{
@@ -1706,7 +1721,7 @@ TArray<FActiveVertexAnim> USkinnedMeshComponent::UpdateActiveVertexAnims(const U
 		const float& Weight	= (CurveIter).Value();
 
 		// If it has a valid weight
-		if(Weight > MinVertexAnimBlendWeight)
+		if(FMath::Abs(Weight) > MinVertexAnimBlendWeight)
 		{
 			// Find morph reference
 			UMorphTarget* Target = InSkeletalMesh ? InSkeletalMesh->FindMorphTarget(CurveName) : NULL;

@@ -1489,9 +1489,14 @@ void FK2ActionMenuBuilder::GetFuncNodesForClass(FGraphActionListBuilderBase& Lis
 		for (TFieldIterator<UFunction> FunctionIt(Class, SuperClassFlag); FunctionIt; ++FunctionIt)
 		{
 			UFunction* Function = *FunctionIt;
-			if( K2Schema->CanFunctionBeUsedInClass(Class, Function, DestGraph, FunctionTypes, bShowInherited, bCalledForEach, TargetInfo) )
+			if( K2Schema->CanFunctionBeUsedInGraph(Class, Function, DestGraph, FunctionTypes, bCalledForEach, TargetInfo) )
 			{
-				FK2ActionMenuBuilder::AddSpawnInfoForFunction(Function, false, TargetInfo, FMemberReference(), BaseCategory, K2Schema->AG_LevelReference, ListBuilder, bCalledForEach);
+				// Check if the function is hidden
+				const bool bFunctionHidden = FObjectEditorUtils::IsFunctionHiddenFromClass(Function, Class);
+				if (!bFunctionHidden)
+				{
+					FK2ActionMenuBuilder::AddSpawnInfoForFunction(Function, false, TargetInfo, FMemberReference(), BaseCategory, K2Schema->AG_LevelReference, ListBuilder, bCalledForEach);
+				}
 			}
 		}
 
@@ -1694,39 +1699,6 @@ void FK2ActionMenuBuilder::GetAnimNotifyMenuItems(FBlueprintGraphActionListBuild
 
 				UK2Node_Event* EventNode = ContextMenuBuilder.CreateTemplateNode<UK2Node_Event>();
 				FString SignatureName = FString::Printf(TEXT("AnimNotify_%s"), *Label);
-				EventNode->EventSignatureName = FName(*SignatureName);
-				EventNode->EventSignatureClass = UAnimInstance::StaticClass();
-				EventNode->CustomFunctionName = EventNode->EventSignatureName;
-				Action->NodeTemplate = EventNode;
-			}
-
-			// @todo anim: fix this to be same as notifies, save same list in the 
-			// add montage menus
-			// find all montages that uses current target skeleton
-			TArray<FName> BrancingPointHandlers;
-
-			for ( FObjectIterator Iter(UAnimMontage::StaticClass()); Iter; ++Iter )
-			{
-				UAnimMontage * Montage = CastChecked<UAnimMontage>(*Iter);
-				if ( Montage && Montage->GetSkeleton() == AnimBlueprint->TargetSkeleton )
-				{
-					// now add event handler if exists
-					for ( int32 I=0; I<Montage->BranchingPoints.Num(); ++I )
-					{
-						BrancingPointHandlers.AddUnique(Montage->BranchingPoints[I].EventName);
-					}
-				}
-			}
-
-			for ( int32 I=0; I<BrancingPointHandlers.Num(); ++I )
-			{
-				FName NotifyName = BrancingPointHandlers[I];
-				FString Label = NotifyName.ToString();
-
-				TSharedPtr<FEdGraphSchemaAction_K2NewNode> Action = FK2ActionMenuBuilder::AddNewNodeAction(ContextMenuBuilder, K2ActionCategories::BranchPointCategory, FText::FromString(Label), TEXT(""));
-
-				UK2Node_Event* EventNode = ContextMenuBuilder.CreateTemplateNode<UK2Node_Event>();
-				FString SignatureName = FString::Printf(TEXT("MontageBranchingPoint_%s"), *Label);
 				EventNode->EventSignatureName = FName(*SignatureName);
 				EventNode->EventSignatureClass = UAnimInstance::StaticClass();
 				EventNode->CustomFunctionName = EventNode->EventSignatureName;
@@ -2602,7 +2574,7 @@ void FK2ActionMenuBuilder::GetFuncNodesWithPinType(FBlueprintGraphActionListBuil
 			if (K2Schema->CanUserKismetCallFunction(Function))
 			{
 				if ((false == bPureOnly || Function->HasAnyFunctionFlags(FUNC_BlueprintPure)) && 
-					K2Schema->FunctionHasParamOfType(Function, ClassBlueprint, DesiredPinType, bWantOutput)) 
+					K2Schema->FunctionHasParamOfType(Function, ContextMenuBuilder.CurrentGraph, DesiredPinType, bWantOutput)) 
 				{
 					const bool bShowMakeOnTop = bUseNativeMake && Function->HasMetaData(NativeMakeFunc);
 					const bool bShowBrakeOnTop = bUseNativeBrake && Function->HasMetaData(NativeBrakeFunc);

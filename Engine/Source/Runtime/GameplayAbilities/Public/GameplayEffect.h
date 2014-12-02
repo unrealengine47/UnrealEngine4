@@ -112,6 +112,7 @@ public:
 	FGameplayTagContainer TargetTagFilter;
 };
 
+/** Structure to encapsulte magnitude that are calculated via custom calculation */
 USTRUCT()
 struct FCustomCalculationBasedFloat
 {
@@ -138,7 +139,7 @@ public:
 	 */
 	float CalculateMagnitude(const FGameplayEffectSpec& InRelevantSpec) const;
 
-	UPROPERTY(EditDefaultsOnly, Category=CustomCalculation)
+	UPROPERTY(EditDefaultsOnly, Category=CustomCalculation, DisplayName="Calculation Class")
 	TSubclassOf<UGameplayModMagnitudeCalculation> CalculationClassMagnitude;
 
 	/** Coefficient to the custom calculation */
@@ -154,6 +155,21 @@ public:
 	FScalableFloat PostMultiplyAdditiveValue;
 };
 
+/** Struct for holding SetBytCaller data */
+USTRUCT()
+struct FSetByCallerFloat
+{
+	GENERATED_USTRUCT_BODY()
+
+	FSetByCallerFloat()
+	: DataName(NAME_None)
+	{}
+
+	/** The Name the caller (code or blueprint) will use to set this magnitude by. */
+	UPROPERTY(EditDefaultsOnly, Category=SetByCaller)
+	FName	DataName;
+};
+
 /** Struct representing the magnitude of a gameplay effect modifier, potentially calculated in numerous different ways */
 USTRUCT()
 struct FGameplayEffectModifierMagnitude
@@ -162,15 +178,34 @@ struct FGameplayEffectModifierMagnitude
 
 public:
 
-	/** Constructor */
+	/** Default Constructor */
 	FGameplayEffectModifierMagnitude()
 		: MagnitudeCalculationType(EGameplayEffectMagnitudeCalculation::ScalableFloat)
-		, ScalableFloatMagnitude()
-		, AttributeBasedMagnitude()
-		, CustomMagnitude()
 	{
 	}
 
+	/** Constructors for setting value in code (for automation tests) */
+	FGameplayEffectModifierMagnitude(const FScalableFloat& Value)
+		: MagnitudeCalculationType(EGameplayEffectMagnitudeCalculation::ScalableFloat)
+		, ScalableFloatMagnitude(Value)
+	{
+	}
+	FGameplayEffectModifierMagnitude(const FAttributeBasedFloat& Value)
+		: MagnitudeCalculationType(EGameplayEffectMagnitudeCalculation::AttributeBased)
+		, AttributeBasedMagnitude(Value)
+	{
+	}
+	FGameplayEffectModifierMagnitude(const FCustomCalculationBasedFloat& Value)
+		: MagnitudeCalculationType(EGameplayEffectMagnitudeCalculation::CustomCalculationClass)
+		, CustomMagnitude(Value)
+	{
+	}
+	FGameplayEffectModifierMagnitude(const FSetByCallerFloat& Value)
+		: MagnitudeCalculationType(EGameplayEffectMagnitudeCalculation::SetByCaller)
+		, SetByCallerMagnitude(Value)
+	{
+	}
+ 
 	/**
 	 * Determines if the magnitude can be properly calculated with the specified gameplay effect spec (could fail if relying on an attribute not present, etc.)
 	 * 
@@ -220,6 +255,10 @@ protected:
 	/** Magnitude value represented by a custom calculation class */
 	UPROPERTY(EditDefaultsOnly, Category=Magnitude)
 	FCustomCalculationBasedFloat CustomMagnitude;
+
+	/** Magnitude value represented by a SetByCaller magnitude */
+	UPROPERTY(EditDefaultsOnly, Category=Magnitude)
+	FSetByCallerFloat SetByCallerMagnitude;
 
 	// @hack: @todo: This is temporary to aid in post-load fix-up w/o exposing members publicly
 	friend class UGameplayEffect;
@@ -480,7 +519,7 @@ public:
 	FScalableFloat	ChanceToExecuteOnGameplayEffect;
 
 	/** other gameplay effects that will be applied to the target of this effect if this effect applies */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = GameplayEffect)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = GameplayEffect,meta = (DisplayName = "Linked Gameplay Effects"))
 	TArray<TSubclassOf<UGameplayEffect>> TargetEffectClasses;
 
 	/** Deprecated. Use TargetEffectClasses instead */
@@ -553,13 +592,11 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Tags)
 	FGameplayTagRequirements ApplicationTagRequirements;
 
-	// Container of gameplay tags to be cleared upon effect application; Any active effects with these tags that can be cleared, will be.
-	/** CURRENTLY NOT IMPLEMENTED */
+	/** GameplayEffects that *have* tags in this container will be cleared upon effect application. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Tags)
-	FInheritedTagContainer InheritableClearTagsContainer;
+	FInheritedTagContainer RemoveGameplayEffectsWithTags;
 
-	// Container of gameplay tags to be cleared upon effect application; Any active effects with these tags that can be cleared, will be.
-	/** CURRENTLY NOT IMPLEMENTED */
+	/** Deprecated. Use RemoveGameplayEffectsWithTags instead */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category=Deprecated)
 	FGameplayTagContainer ClearTagsContainer;
 
@@ -633,17 +670,29 @@ struct GAMEPLAYABILITIES_API FGameplayEffectAttributeCaptureSpec
 	 * a valid capture yet.
 	 * 
 	 * @param InEvalParams	Parameters to evaluate the attribute under
-	 * @param OutMagnitude	[OUT] Computed magnitude, falls back to 0.f in the event of failure
+	 * @param OutMagnitude	[OUT] Computed magnitude
 	 * 
 	 * @return True if the magnitude was successfully calculated, false if it was not
 	 */
 	bool AttemptCalculateAttributeMagnitude(const FAggregatorEvaluateParameters& InEvalParams, OUT float& OutMagnitude) const;
 
 	/**
+	 * Attempts to calculate the magnitude of the captured attribute given the specified parameters, including a starting base value. 
+	 * Can fail if the spec doesn't have a valid capture yet.
+	 * 
+	 * @param InEvalParams	Parameters to evaluate the attribute under
+	 * @param InBaseValue	Base value to evaluate the attribute under
+	 * @param OutMagnitude	[OUT] Computed magnitude
+	 * 
+	 * @return True if the magnitude was successfully calculated, false if it was not
+	 */
+	bool AttemptCalculateAttributeMagnitudeWithBase(const FAggregatorEvaluateParameters& InEvalParams, float InBaseValue, OUT float& OutMagnitude) const;
+
+	/**
 	 * Attempts to calculate the base value of the captured attribute given the specified parameters. Can fail if the spec doesn't have
 	 * a valid capture yet.
 	 * 
-	 * @param OutBaseValue	[OUT] Computed base value, falls back to 0.f in the event of failure
+	 * @param OutBaseValue	[OUT] Computed base value
 	 * 
 	 * @return True if the base value was successfully calculated, false if it was not
 	 */
@@ -654,7 +703,7 @@ struct GAMEPLAYABILITIES_API FGameplayEffectAttributeCaptureSpec
 	 * a valid capture yet.
 	 * 
 	 * @param InEvalParams		Parameters to evaluate the attribute under
-	 * @param OutBonusMagnitude	[OUT] Computed bonus magnitude, falls back to 0.f in the event of failure
+	 * @param OutBonusMagnitude	[OUT] Computed bonus magnitude
 	 * 
 	 * @return True if the bonus magnitude was successfully calculated, false if it was not
 	 */
@@ -820,7 +869,7 @@ struct GAMEPLAYABILITIES_API FGameplayEffectSpec
 	/** Deletes any modified attributes that aren't needed. Call before replication */
 	void PruneModifiedAttributes();
 
-	/** Sets duration. This should onlyt be called as the GameplayEffect is being created */
+	/** Sets duration. This should only be called as the GameplayEffect is being created */
 	void SetDuration(float NewDuration);
 
 	float GetDuration() const;
@@ -832,7 +881,7 @@ struct GAMEPLAYABILITIES_API FGameplayEffectSpec
 	EGameplayEffectStackingPolicy::Type GetStackingType() const;
 
 	/** other effects that need to be applied to the target if this effect is successful */
-	TArray< TSharedRef< FGameplayEffectSpec > > TargetEffectSpecs;
+	TArray< FGameplayEffectSpecHandle > TargetEffectSpecs;
 
 	/** Set the context info: who and where this spec came from. */
 	void SetContext(FGameplayEffectContextHandle NewEffectContext);
@@ -844,11 +893,11 @@ struct GAMEPLAYABILITIES_API FGameplayEffectSpec
 
 	void GetAllGrantedTags(OUT FGameplayTagContainer& Container) const;
 
-	/** Sets the magnitude of one of our modifiers. This must be done on modifiers which are EGameplayEffectMagnitudeCalculation::SetByCaller  */
-	void SetModifierMagnitude(int32 ModIdx, float EvaluatedMagnitude);
+	/** Sets the magnitude of a SetByCaller modifier */
+	void SetMagnitude(FName DataName, float Magnitude);
 
-	/** Set magnitude of (the first) SetByCaller modifier with the given GameplayAttribute  */
-	void SetModifierMagnitude(FGameplayAttribute Attribute, float EvaluatedMagnitude);
+	/** Returns the magnitude of a SetByCaller modifier. Will return 0.f and Warn if the magnitude has not been set. */
+	float GetMagnitude(FName DataName) const;
 
 	// The duration in seconds of this effect
 	// instantaneous effects should have a duration of UGameplayEffect::INSTANT_APPLICATION
@@ -907,6 +956,9 @@ struct GAMEPLAYABILITIES_API FGameplayEffectSpec
 	}
 
 private:
+
+	/** Map of set by caller magnitudes */
+	TMap<FName, float>	SetByCallerMagnitudes;
 
 	void CaptureDataFromSource();
 
@@ -1268,7 +1320,7 @@ struct GAMEPLAYABILITIES_API FActiveGameplayEffectAction_Remove : public FActive
 	{
 	}
 
-	FActiveGameplayEffectAction_Remove(TWeakObjectPtr<UAbilitySystemComponent> InOwningASC, FActiveGameplayEffectHandle& InHandle)
+	FActiveGameplayEffectAction_Remove(TWeakObjectPtr<UAbilitySystemComponent> InOwningASC, const FActiveGameplayEffectHandle& InHandle)
 	: OwningASC(InOwningASC)
 	, Handle(InHandle)
 	{
@@ -1344,62 +1396,3 @@ public:
 };
 
 
-/** Allows blueprints to generate a GameplayEffectSpec once and then reference it by handle, to apply it multiple times/multiple targets. */
-USTRUCT(BlueprintType)
-struct GAMEPLAYABILITIES_API FGameplayEffectSpecHandle
-{
-	GENERATED_USTRUCT_BODY()
-
-	FGameplayEffectSpecHandle() { }
-	FGameplayEffectSpecHandle(FGameplayEffectSpec* DataPtr)
-		: Data(DataPtr)
-	{
-
-	}
-
-	TSharedPtr<FGameplayEffectSpec>	Data;
-
-	bool IsValidCache;
-
-	void Clear()
-	{
-		Data.Reset();
-	}
-
-	bool IsValid() const
-	{
-		return Data.IsValid();
-	}
-
-	bool NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess)
-	{
-		ABILITY_LOG(Fatal, TEXT("FGameplayEffectSpecHandle should not be NetSerialized"));
-		return false;
-	}
-
-	/** Comparison operator */
-	bool operator==(FGameplayEffectSpecHandle const& Other) const
-	{
-		// Both invalid structs or both valid and Pointer compare (???) // deep comparison equality
-		bool bBothValid = IsValid() && Other.IsValid();
-		bool bBothInvalid = !IsValid() && !Other.IsValid();
-		return (bBothInvalid || (bBothValid && (Data.Get() == Other.Data.Get())));
-	}
-
-	/** Comparison operator */
-	bool operator!=(FGameplayEffectSpecHandle const& Other) const
-	{
-		return !(FGameplayEffectSpecHandle::operator==(Other));
-	}
-};
-
-template<>
-struct TStructOpsTypeTraits<FGameplayEffectSpecHandle> : public TStructOpsTypeTraitsBase
-{
-	enum
-	{
-		WithCopy = true,		// Necessary so that TSharedPtr<FGameplayAbilityTargetData> Data is copied around
-		WithNetSerializer = true,
-		WithIdenticalViaEquality = true,
-	};
-};

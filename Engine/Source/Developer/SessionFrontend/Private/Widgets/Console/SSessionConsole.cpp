@@ -55,7 +55,7 @@ void SSessionConsole::Construct( const FArguments& InArgs, ISessionManagerRef In
 					[
 						// filter bar
 						SNew(SExpandableArea)
-							.AreaTitle(LOCTEXT("FilterBarAreaTitle", "Log Filter").ToString())
+							.AreaTitle(LOCTEXT("FilterBarAreaTitle", "Log Filter"))
 							.InitiallyCollapsed(true)
 							.Padding(FMargin(8.0f, 6.0f))
 							.BodyContent()
@@ -91,19 +91,19 @@ void SSessionConsole::Construct( const FArguments& InArgs, ISessionManagerRef In
 												SNew(SHeaderRow)
 
 												+ SHeaderRow::Column("Verbosity")
-													.DefaultLabel(LOCTEXT("LogListVerbosityColumnHeader", " ").ToString())
+													.DefaultLabel(LOCTEXT("LogListVerbosityColumnHeader", " "))
 													.FixedWidth(24.0f)
 
 												+ SHeaderRow::Column("Instance")
-													.DefaultLabel(LOCTEXT("LogListHostNameColumnHeader", "Instance").ToString())
+													.DefaultLabel(LOCTEXT("LogListHostNameColumnHeader", "Instance"))
 													.FillWidth(0.20f)
 
 												+ SHeaderRow::Column("TimeSeconds")
-													.DefaultLabel(LOCTEXT("LogListTimestampColumnHeader", "Seconds").ToString())
+													.DefaultLabel(LOCTEXT("LogListTimestampColumnHeader", "Seconds"))
 													.FillWidth(0.10f)
 
 												+ SHeaderRow::Column("Message")
-													.DefaultLabel(LOCTEXT("LogListTextColumnHeader", "Message").ToString())
+													.DefaultLabel(LOCTEXT("LogListTextColumnHeader", "Message"))
 													.FillWidth(0.70f)
 											)
 									]

@@ -226,7 +226,7 @@ public:
 		OutInitializer.bDirectionalLight = true;
 		OutInitializer.bOnePassPointLightShadow = false;
 		OutInitializer.PreShadowTranslation = -Bounds.Center;
-		OutInitializer.WorldToLight = FInverseRotationMatrix(FVector(WorldToLight.M[0][0],WorldToLight.M[1][0],WorldToLight.M[2][0]).SafeNormal().Rotation());
+		OutInitializer.WorldToLight = FInverseRotationMatrix(FVector(WorldToLight.M[0][0],WorldToLight.M[1][0],WorldToLight.M[2][0]).GetSafeNormal().Rotation());
 		OutInitializer.Scales = FVector(1.0f,1.0f / Bounds.W,1.0f / Bounds.W);
 		OutInitializer.FaceDirection = FVector(1,0,0);
 		OutInitializer.SubjectBounds = FBoxSphereBounds(FVector::ZeroVector,SubjectBounds.BoxExtent,SubjectBounds.SphereRadius);
@@ -253,7 +253,7 @@ public:
 
 		OutInitializer.bDirectionalLight = true;
 		OutInitializer.PreShadowTranslation = -LightPropagationVolumeBounds.GetCenter();
-		OutInitializer.WorldToLight = FInverseRotationMatrix(FVector(WorldToLight.M[0][0],WorldToLight.M[1][0],WorldToLight.M[2][0]).SafeNormal().Rotation());
+		OutInitializer.WorldToLight = FInverseRotationMatrix(FVector(WorldToLight.M[0][0],WorldToLight.M[1][0],WorldToLight.M[2][0]).GetSafeNormal().Rotation());
 		OutInitializer.Scales = FVector(1.0f,1.0f / LpvExtent,1.0f / LpvExtent);
 		OutInitializer.FaceDirection = FVector(1,0,0);
 		OutInitializer.SubjectBounds = FBoxSphereBounds( FVector::ZeroVector, LightPropagationVolumeBounds.GetExtent(), FMath::Sqrt( LpvExtent * LpvExtent * 3.0f ) );
@@ -299,7 +299,7 @@ public:
 	{
 		OutInitializer.bDirectionalLight = true;
 		OutInitializer.PreShadowTranslation = -SubjectBounds.Origin;
-		OutInitializer.WorldToLight = FInverseRotationMatrix(FVector(WorldToLight.M[0][0],WorldToLight.M[1][0],WorldToLight.M[2][0]).SafeNormal().Rotation());
+		OutInitializer.WorldToLight = FInverseRotationMatrix(FVector(WorldToLight.M[0][0],WorldToLight.M[1][0],WorldToLight.M[2][0]).GetSafeNormal().Rotation());
 		OutInitializer.Scales = FVector(1.0f,1.0f / SubjectBounds.SphereRadius,1.0f / SubjectBounds.SphereRadius);
 		OutInitializer.FaceDirection = FVector(1,0,0);
 		OutInitializer.SubjectBounds = FBoxSphereBounds(FVector::ZeroVector,SubjectBounds.BoxExtent,SubjectBounds.SphereRadius);
@@ -797,7 +797,7 @@ void UDirectionalLightComponent::SetShadowDistanceFadeoutFraction(float NewValue
 
 void UDirectionalLightComponent::SetEnableLightShaftOcclusion(bool bNewValue)
 {
-	if (!(IsRegistered() && Mobility == EComponentMobility::Static)
+	if ((IsRunningUserConstructionScript() || !(IsRegistered() && Mobility == EComponentMobility::Static))
 		&& bEnableLightShaftOcclusion != bNewValue)
 	{
 		bEnableLightShaftOcclusion = bNewValue;
@@ -807,7 +807,7 @@ void UDirectionalLightComponent::SetEnableLightShaftOcclusion(bool bNewValue)
 
 void UDirectionalLightComponent::SetOcclusionMaskDarkness(float NewValue)
 {
-	if (!(IsRegistered() && Mobility == EComponentMobility::Static)
+	if ((IsRunningUserConstructionScript() || !(IsRegistered() && Mobility == EComponentMobility::Static))
 		&& OcclusionMaskDarkness != NewValue)
 	{
 		OcclusionMaskDarkness = NewValue;
@@ -817,7 +817,7 @@ void UDirectionalLightComponent::SetOcclusionMaskDarkness(float NewValue)
 
 void UDirectionalLightComponent::SetLightShaftOverrideDirection(FVector NewValue)
 {
-	if (!(IsRegistered() && Mobility == EComponentMobility::Static)
+	if ((IsRunningUserConstructionScript() || !(IsRegistered() && Mobility == EComponentMobility::Static))
 		&& LightShaftOverrideDirection != NewValue)
 	{
 		LightShaftOverrideDirection = NewValue;

@@ -39,6 +39,8 @@
  */
 
 
+DECLARE_MULTICAST_DELEGATE_OneParam(FTargetingRejectedConfirmation, int32);
+
 /**
  *	The core ActorComponent for interfacing with the GameplayAbilities System
  */
@@ -141,7 +143,20 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	UPROPERTY(ReplicatedUsing=OnRep_PredictionKey)
 	FPredictionKey	ReplicatedPredictionKey;
 
-	FPredictionKey	ScopedPedictionKey;
+	FPredictionKey	ScopedPredictionKey;
+
+	FPredictionKey GetPredictionKeyForNewAction() const
+	{
+		return ScopedPredictionKey.IsValidForMorePrediction() ? ScopedPredictionKey : FPredictionKey();
+	}
+
+	/** Do we have a valid prediction key to do more predictive actions with */
+	bool CanPredict() const
+	{
+		return ScopedPredictionKey.IsValidForMorePrediction();
+	}
+
+	bool HasAuthorityOrPredictionKey(const FGameplayAbilityActivationInfo* ActivationInfo) const;	
 
 	UFUNCTION()
 	void OnRep_PredictionKey();
@@ -354,6 +369,9 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 
 	TArray<float> GetActiveEffectsDuration(const FActiveGameplayEffectQuery Query) const;
 
+	UFUNCTION(BlueprintCallable, Category = GameplayEffects)
+	void RemoveActiveEffectsWithTags(FGameplayTagContainer Tags);
+
 	/** Removes all active effects that match given query */
 	void RemoveActiveEffects(const FActiveGameplayEffectQuery Query);
 
@@ -377,11 +395,11 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 
 	// GameplayCues can also come on their own. These take an optional effect context to pass through hit result, etc
 
-	void ExecuteGameplayCue(const FGameplayTag GameplayCueTag, FPredictionKey PredictionKey, FGameplayEffectContextHandle EffectContext = FGameplayEffectContextHandle());
+	void ExecuteGameplayCue(const FGameplayTag GameplayCueTag, FGameplayEffectContextHandle EffectContext = FGameplayEffectContextHandle());
 
-	void AddGameplayCue(const FGameplayTag GameplayCueTag, FPredictionKey PredictionKey, FGameplayEffectContextHandle EffectContext = FGameplayEffectContextHandle());
+	void AddGameplayCue(const FGameplayTag GameplayCueTag, FGameplayEffectContextHandle EffectContext = FGameplayEffectContextHandle());
 	
-	void RemoveGameplayCue(const FGameplayTag GameplayCueTag, FPredictionKey PredictionKey);
+	void RemoveGameplayCue(const FGameplayTag GameplayCueTag);
 
 	UFUNCTION(NetMulticast, unreliable)
 	void NetMulticast_InvokeGameplayCueExecuted(const FGameplayTag GameplayCueTag, FPredictionKey PredictionKey, FGameplayEffectContextHandle EffectContext);
@@ -496,7 +514,11 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 
 	UFUNCTION(Client, Reliable)
 	void	ClientActivateAbilitySucceed(FGameplayAbilitySpecHandle AbilityToActivate,int16 PredictionKey);
-	
+
+	/** Attempted to confirm targeting, but the targeting actor rejected it. */
+	UFUNCTION(Client, Unreliable)
+	void	ClientAbilityNotifyRejected(int32 InputID);
+
 
 	// ----------------------------------------------------------------------------------------------------------------
 
@@ -721,6 +743,9 @@ public:
 
 	/** ReplicatedTargetData was 'cancelled' for this activation */
 	FAbilityConfirmOrCancel	ReplicatedTargetDataCancelledDelegate;
+
+	/** Targeting actor rejected a confirmation attempt */
+	FTargetingRejectedConfirmation TargetingRejectedConfirmationDelegate;
 
 	/** Tasks that run on simulated proxies */
 	UPROPERTY(ReplicatedUsing=OnRep_SimulatedTasks)

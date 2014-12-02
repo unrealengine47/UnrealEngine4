@@ -37,7 +37,7 @@ namespace
 	{
 		float uniScale = 5.8f;
 		FVector trans(5, 6, 7);
-		FQuat quat(FVector(1, 2, 3).SafeNormal(), 33.5f);
+		FQuat quat(FVector(1, 2, 3).GetSafeNormal(), 33.5f);
 		FRotator rot(7, 8, 9);
 		FMatrix mat = FRotationMatrix::Make(rot);
 
@@ -4378,17 +4378,14 @@ public:
 
 };
 
-namespace
+class SResponsiveGridPanelTestWidgetImpl : public SResponsiveGridPanelTestWidget
 {
-	class SResponsiveGridPanelTestWidgetImpl : public SResponsiveGridPanelTestWidget
-	{
-	public:
-		virtual void Construct(const FArguments& InArgs) override;
+public:
+	virtual void Construct(const FArguments& InArgs) override;
 
-	private:
-		TSharedRef<SWidget> ConstructBox(const FString& Text) const;
-	};
-}
+private:
+	TSharedRef<SWidget> ConstructBox(const FString& Text) const;
+};
 
 TSharedRef<SWidget> SResponsiveGridPanelTestWidgetImpl::ConstructBox(const FString& Text) const
 {
@@ -4734,29 +4731,29 @@ namespace
 	FShear2D Shear;
 	FQuat2D Rot;
 	FVector2D Offset(0,0);
-
-	class SRenderTransformManipulatorWidgetImpl : public SRenderTransformManipulatorWidget
-	{
-	public:
-		virtual void Construct(const FArguments& InArgs) override;
-
-		TSharedPtr<SImage> ImageWidget;
-	private:
-		static const ISlateStyle& GetStyle()
-		{
-			static FSlateStyleSet Style("RenderTransformManipulatorStyle");
-			static bool IsInit = false;
-			if (!IsInit)
-			{
-				check(IsInGameThread());
-				Style.SetContentRoot(FPaths::EngineContentDir() / TEXT("Slate"));
-				Style.Set("UE4Icon", new FSlateImageBrush(Style.RootToContentDir(TEXT("Testing/UE4Icon.png")), FVector2D(50, 50)));
-				IsInit = true;
-			}
-			return Style;
-		}
-	};
 }
+
+class SRenderTransformManipulatorWidgetImpl : public SRenderTransformManipulatorWidget
+{
+public:
+	virtual void Construct(const FArguments& InArgs) override;
+
+	TSharedPtr<SImage> ImageWidget;
+private:
+	static const ISlateStyle& GetStyle()
+	{
+		static FSlateStyleSet Style("RenderTransformManipulatorStyle");
+		static bool IsInit = false;
+		if (!IsInit)
+		{
+			check(IsInGameThread());
+			Style.SetContentRoot(FPaths::EngineContentDir() / TEXT("Slate"));
+			Style.Set("UE4Icon", new FSlateImageBrush(Style.RootToContentDir(TEXT("Testing/UE4Icon.png")), FVector2D(50, 50)));
+			IsInit = true;
+		}
+		return Style;
+	}
+};
 
 /**
  * Global access here because we need other translation units to access this function.

@@ -104,6 +104,19 @@ void UAttributeSet::PrintDebug()
 	
 }
 
+void UAttributeSet::PreNetReceive()
+{
+	// During the scope of this entire actor's network update, we need to lock our attribute aggregators.
+	FScopedAggregatorOnDirtyBatch::BeginNetReceiveLock();
+}
+	
+void UAttributeSet::PostNetReceive()
+{
+	// Once we are done receiving properties, we can unlock the attribute aggregators and flag them that the 
+	// current property values are from the server.
+	FScopedAggregatorOnDirtyBatch::EndNetReceiveLock();
+}
+
 FAttributeMetaData::FAttributeMetaData()
 	: MinValue(0.f)
 	, MaxValue(1.f)
@@ -315,7 +328,7 @@ void FAttributeSetInitter::InitAttributeSetDefaults(UAbilitySystemComponent* Abi
 		const FAttributeDefaultValueList* DefaultDataList = SetDefaults.DataMap.Find(Set->GetClass());
 		if (DefaultDataList)
 		{
-			ABILITY_LOG(Warning, TEXT("Initializing Set %s"), *Set->GetName());
+			ABILITY_LOG(Log, TEXT("Initializing Set %s"), *Set->GetName());
 
 			for (auto& DataPair : DefaultDataList->List)
 			{

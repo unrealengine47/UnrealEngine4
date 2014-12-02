@@ -30,6 +30,11 @@ FFriendsAndChatStyle& FFriendsAndChatStyle::SetAddFriendCloseButtonStyle(const F
 	return *this;
 }
 
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetAddFriendButtonStyle(const FButtonStyle& InButtonStyle)
+{
+	AddFriendButtonStyle = InButtonStyle;
+	return *this;
+}
 
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendsListActionButtonStyle(const FButtonStyle& ButtonStyle)
 {
@@ -195,6 +200,12 @@ FFriendsAndChatStyle& FFriendsAndChatStyle::SetFontStyleSmallBold(const FSlateFo
 	return *this;
 }
 
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetChatFontStyleEntry(const FSlateFontInfo& InFontStyle)
+{
+	ChatFontStyleEntry = InFontStyle;
+	return *this;
+}
+
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetDefaultFontColor(const FLinearColor& InFontColor)
 {
 	DefaultFontColor = InFontColor;
@@ -249,9 +260,51 @@ FFriendsAndChatStyle& FFriendsAndChatStyle::SetAddFriendEditableTextStyle(const 
 	return *this;
 }
 
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetChatEditableTextStyle(const FEditableTextBoxStyle& InEditableTextStyle)
+{
+	ChatEditableTextStyle = InEditableTextStyle;
+	return *this;
+}
+
 FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendCheckboxStyle(const FCheckBoxStyle& InFriendCheckboxStyle)
 {
 	FriendCheckboxStyle = InFriendCheckboxStyle;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetButtonPadding(const FVector2D& Padding)
+{
+	ButtonPadding = Padding;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetBorderPadding(const FMargin& Padding)
+{
+	BorderPadding = Padding;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetFriendsListWidth(const float InFriendsListWidth)
+{
+	FriendsListWidth = InFriendsListWidth;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetChatBackgroundBrush(const FSlateBrush& InChatBackgroundBrush)
+{
+	ChatBackgroundBrush = InChatBackgroundBrush;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetChatChannelsBackgroundBrush(const FSlateBrush& InChatChannelsBackgroundBrush)
+{
+	ChatChannelsBackgroundBrush = InChatChannelsBackgroundBrush;
+	return *this;
+}
+
+FFriendsAndChatStyle& FFriendsAndChatStyle::SetChatOptionsBackgroundBrush(const FSlateBrush& InChatOptionsBackgroundBrush)
+{
+	ChatOptionsBackgroundBrush = InChatOptionsBackgroundBrush;
 	return *this;
 }
 
@@ -260,3 +313,4 @@ const FFriendsAndChatStyle& FFriendsAndChatStyle::GetDefault()
 	static FFriendsAndChatStyle Default;
 	return Default;
 }
+
