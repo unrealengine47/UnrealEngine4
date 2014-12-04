@@ -62,7 +62,6 @@ void FFriendsAndChatManager::Login()
 			check( FriendsInterface.IsValid() )
 
 			// Create delegates for list refreshes
-			OnReadFriendsCompleteDelegate = FOnReadFriendsListCompleteDelegate::CreateSP( this, &FFriendsAndChatManager::OnReadFriendsListComplete );
 			OnQueryRecentPlayersCompleteDelegate = FOnQueryRecentPlayersCompleteDelegate::CreateRaw(this, &FFriendsAndChatManager::OnQueryRecentPlayersComplete);
 			OnFriendsListChangedDelegate = FOnFriendsChangeDelegate::CreateSP(this, &FFriendsAndChatManager::OnFriendsListChanged);
 			OnAcceptInviteCompleteDelegate = FOnAcceptInviteCompleteDelegate::CreateSP( this, &FFriendsAndChatManager::OnAcceptInviteComplete );
@@ -85,7 +84,6 @@ void FFriendsAndChatManager::Login()
 			FriendsInterface->AddOnFriendRemovedDelegate(OnFriendRemovedDelegate);
 			FriendsInterface->AddOnInviteRejectedDelegate(OnFriendInviteRejected);
 			FriendsInterface->AddOnInviteAcceptedDelegate(OnFriendInviteAccepted);
-			FriendsInterface->AddOnReadFriendsListCompleteDelegate( 0, OnReadFriendsCompleteDelegate );
 			FriendsInterface->AddOnAcceptInviteCompleteDelegate( 0, OnAcceptInviteCompleteDelegate );
 			FriendsInterface->AddOnDeleteFriendCompleteDelegate( 0, OnDeleteFriendCompleteDelegate );
 			FriendsInterface->AddOnSendInviteCompleteDelegate( 0, OnSendInviteCompleteDelegate );
@@ -137,7 +135,6 @@ void FFriendsAndChatManager::Logout()
 			OnlineSubMcp->GetFriendsInterface()->ClearOnFriendRemovedDelegate(OnFriendRemovedDelegate);
 			OnlineSubMcp->GetFriendsInterface()->ClearOnInviteRejectedDelegate(OnFriendInviteRejected);
 			OnlineSubMcp->GetFriendsInterface()->ClearOnInviteAcceptedDelegate(OnFriendInviteAccepted);
-			OnlineSubMcp->GetFriendsInterface()->ClearOnReadFriendsListCompleteDelegate(0, OnReadFriendsCompleteDelegate);
 			OnlineSubMcp->GetFriendsInterface()->ClearOnAcceptInviteCompleteDelegate(0, OnAcceptInviteCompleteDelegate);
 			OnlineSubMcp->GetFriendsInterface()->ClearOnDeleteFriendCompleteDelegate(0, OnDeleteFriendCompleteDelegate);
 			OnlineSubMcp->GetFriendsInterface()->ClearOnSendInviteCompleteDelegate(0, OnSendInviteCompleteDelegate);
@@ -240,6 +237,7 @@ void FFriendsAndChatManager::CreateFriendsListWindow(const FFriendsAndChatStyle*
 	const FVector2D DEFAULT_WINDOW_SIZE = FVector2D(350, 458);
 
 	Style = *InStyle;
+	FFriendsAndChatModuleStyle::Initialize(Style);
 
 	if (!FriendWindow.IsValid())
 	{
@@ -259,13 +257,15 @@ void FFriendsAndChatManager::CreateFriendsListWindow(const FFriendsAndChatStyle*
 		BuildFriendsUI();
 		FriendWindow = FSlateApplication::Get().AddWindow(FriendWindow.ToSharedRef());
 	}
-	else if(!FriendWindow->IsWindowMinimized())
+	else if(FriendWindow->IsWindowMinimized())
 	{
 		FriendWindow->Restore();
 		BuildFriendsUI();
 	}
 
 	GenerateChatWindow();
+
+	FriendWindow->BringToFront(true);
 
 	// Clear notifications
 	OnFriendsNotification().Broadcast(false);
@@ -323,6 +323,7 @@ TSharedPtr< SWidget > FFriendsAndChatManager::GenerateFriendsListWidget( const F
 	if ( !FriendListWidget.IsValid() )
 	{
 		Style = *InStyle;
+		FFriendsAndChatModuleStyle::Initialize(Style);
 		SAssignNew(FriendListWidget, SOverlay)
 		+SOverlay::Slot()
 		[
@@ -349,6 +350,8 @@ TSharedPtr< SWidget > FFriendsAndChatManager::GenerateChatWidget(const FFriendsA
 {
 	// todo - NDavies = find a better way to do this
 	TSharedRef<FChatViewModel> ChatViewModel = StaticCastSharedRef<FChatViewModel>(ViewModel);
+	ChatViewModel->SetInGameUI(true);
+	ChatViewModel->SetCaptureFocus(true);
 
 	TSharedPtr<SChatWindow> ChatWidget;
 	Style = *InStyle;
@@ -365,7 +368,7 @@ TSharedPtr<IChatViewModel> FFriendsAndChatManager::GetChatViewModel()
 
 void FFriendsAndChatManager::GenerateChatWindow()
 {
-	const FVector2D DEFAULT_WINDOW_SIZE = FVector2D(400, 300);
+	const FVector2D DEFAULT_WINDOW_SIZE = FVector2D(420, 500);
 
 	check(MessageManager.IsValid());
 	bCreateChatWindow = true;
@@ -392,6 +395,7 @@ void FFriendsAndChatManager::GenerateChatWindow()
 		ChatWindow->Restore();
 		SetChatWindowContents();
 	}
+	ChatWindow->BringToFront(true);
 }
 
 void FFriendsAndChatManager::SetChatFriend( TSharedPtr< IFriendItem > FriendItem )
@@ -727,7 +731,8 @@ void FFriendsAndChatManager::SetState( EFriendsAndManagerState::Type NewState )
 		break;
 	case EFriendsAndManagerState::RequestFriendsListRefresh:
 		{
-			if(FriendsInterface->ReadFriendsList( 0, EFriendsLists::ToString( EFriendsLists::Default ) ))
+			FOnReadFriendsListComplete Delegate = FOnReadFriendsListComplete::CreateSP(this, &FFriendsAndChatManager::OnReadFriendsListComplete);
+			if (FriendsInterface->ReadFriendsList(0, EFriendsLists::ToString(EFriendsLists::Default), Delegate))
 			{
 				SetState(EFriendsAndManagerState::RequestingFriendsList);
 			}
@@ -1365,7 +1370,7 @@ void FFriendsAndChatManager::AcceptGameInvite(const TSharedPtr<IFriendItem>& Fri
 
 	if(ApplicationViewModel.IsValid())
 	{
-		const FString AdditionalCommandline = TEXT("-invitesession=") + FriendItem->GetUniqueID()->ToString() + TEXT(" -invitefrom=") + FriendItem->GetGameSessionId();
+		const FString AdditionalCommandline = TEXT("-invitesession=") + FriendItem->GetGameSessionId() + TEXT(" -invitefrom=") + FriendItem->GetUniqueID()->ToString();
 		ApplicationViewModel->LaunchFriendApp(AdditionalCommandline);
 	}
 

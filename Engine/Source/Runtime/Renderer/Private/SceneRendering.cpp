@@ -488,7 +488,7 @@ TUniformBufferRef<FViewUniformShaderParameters> FViewInfo::CreateUniformBuffer(
 	ViewUniformShaderParameters.GameTime = Family->CurrentWorldTime;
 	ViewUniformShaderParameters.RealTime = Family->CurrentRealTime;
 	ViewUniformShaderParameters.Random = FMath::Rand();
-	ViewUniformShaderParameters.FrameNumber = FrameNumber;
+	ViewUniformShaderParameters.FrameNumber = Family->FrameNumber;
 
 	static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.DiffuseFromCaptures"));
 	const bool bUseLightmaps = CVar->GetInt() == 0;
@@ -687,9 +687,11 @@ FSceneRenderer::FSceneRenderer(const FSceneViewFamily* InViewFamily,FHitProxyCon
 :	Scene(InViewFamily->Scene ? InViewFamily->Scene->GetRenderScene() : NULL)
 ,	ViewFamily(*InViewFamily)
 ,	bUsedPrecomputedVisibility(false)
-,	FrameNumber(GFrameNumber)
 {
 	check(Scene != NULL);
+
+	check(IsInGameThread());
+	ViewFamily.FrameNumber = GFrameNumber;
 
 	// Copy the individual views.
 	bool bAnyViewIsLocked = false;
@@ -1060,7 +1062,7 @@ static void RenderViewFamily_RenderThread(FRHICommandListImmediate& RHICmdList, 
 
 	for( int ViewExt = 0; ViewExt < SceneRenderer->ViewFamily.ViewExtensions.Num(); ViewExt++ )
 	{
-		SceneRenderer->ViewFamily.ViewExtensions[ViewExt]->PreRenderViewFamily_RenderThread(SceneRenderer->ViewFamily, SceneRenderer->FrameNumber);
+		SceneRenderer->ViewFamily.ViewExtensions[ViewExt]->PreRenderViewFamily_RenderThread(SceneRenderer->ViewFamily);
 		for( int ViewIndex = 0; ViewIndex < SceneRenderer->ViewFamily.Views.Num(); ViewIndex++ )
 		{
 			SceneRenderer->ViewFamily.ViewExtensions[ViewExt]->PreRenderView_RenderThread(SceneRenderer->Views[ViewIndex]);
@@ -1123,7 +1125,7 @@ static void RenderViewFamily_RenderThread(FRHICommandListImmediate& RHICmdList, 
 #endif
 }
 
-void FRendererModule::BeginRenderingViewFamily(FCanvas* Canvas,const FSceneViewFamily* ViewFamily)
+void FRendererModule::BeginRenderingViewFamily(FCanvas* Canvas,FSceneViewFamily* ViewFamily)
 {
 	// Flush the canvas first.
 	Canvas->Flush_GameThread();
@@ -1131,6 +1133,9 @@ void FRendererModule::BeginRenderingViewFamily(FCanvas* Canvas,const FSceneViewF
 	// Increment FrameNumber before render the scene. Wrapping around is no problem.
 	// This is the only spot we change GFrameNumber, other places can only read.
 	++GFrameNumber;
+
+	// this is passes to the render thread, better access that than GFrameNumberRenderThread
+	ViewFamily->FrameNumber = GFrameNumber;
 
 	check(ViewFamily->Scene);
 	FScene* const Scene = ViewFamily->Scene->GetRenderScene();

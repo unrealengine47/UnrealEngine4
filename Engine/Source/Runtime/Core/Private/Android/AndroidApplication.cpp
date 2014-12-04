@@ -5,6 +5,8 @@
 #include "AndroidInputInterface.h"
 #include "AndroidWindow.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogAndroidApplication, Log, All);
+
 FAndroidApplication* FAndroidApplication::CreateAndroidApplication()
 {
 	return new FAndroidApplication();
@@ -35,6 +37,18 @@ FPlatformRect FAndroidApplication::GetWorkArea( const FPlatformRect& CurrentWind
 }
 
 IForceFeedbackSystem *FAndroidApplication::GetForceFeedbackSystem()
+{
+	// NOTE: This does not increase the reference count, so don't cache the result
+	return InputInterface.Get();
+}
+
+IForceFeedbackSystem *FAndroidApplication::DEPRECATED_GetForceFeedbackSystem()
+{
+	// NOTE: This does not increase the reference count, so don't cache the result
+	return InputInterface.Get();
+}
+
+IInputInterface* FAndroidApplication::GetInputInterface()
 {
 	// NOTE: This does not increase the reference count, so don't cache the result
 	return InputInterface.Get();
@@ -133,7 +147,8 @@ void FAndroidApplication::InitializeJavaEnv( JavaVM* VM, jint Version, jobject G
 		jclass classClass = Env->FindClass("java/lang/Class");
 		jclass classLoaderClass = Env->FindClass("java/lang/ClassLoader");
 		jmethodID getClassLoaderMethod = Env->GetMethodID(classClass, "getClassLoader", "()Ljava/lang/ClassLoader;");
-		ClassLoader = Env->CallObjectMethod(MainClass, getClassLoaderMethod);
+		jobject classLoader = Env->CallObjectMethod(MainClass, getClassLoaderMethod);
+		ClassLoader = Env->NewGlobalRef(classLoader);
 		FindClassMethod = Env->GetMethodID(classLoaderClass, "findClass", "(Ljava/lang/String;)Ljava/lang/Class;");
 	}
 	GlobalObjectRef = GlobalThis;
@@ -192,6 +207,7 @@ jclass FAndroidApplication::FindJavaClass( const char* name )
 	}
 	jstring ClassNameObj = Env->NewStringUTF(name);
 	jclass FoundClass = static_cast<jclass>(Env->CallObjectMethod(ClassLoader, FindClassMethod, ClassNameObj));
+	CheckJavaException();
 	Env->DeleteLocalRef(ClassNameObj);
 	return FoundClass;
 }
@@ -199,4 +215,21 @@ jclass FAndroidApplication::FindJavaClass( const char* name )
 void FAndroidApplication::DetachJavaEnv()
 {
 	CurrentJavaVM->DetachCurrentThread();
+}
+
+bool FAndroidApplication::CheckJavaException()
+{
+	JNIEnv* Env = GetJavaEnv();
+	if (!Env)
+	{
+		return true;
+	}
+	if (Env->ExceptionCheck())
+	{
+		Env->ExceptionDescribe();
+		Env->ExceptionClear();
+		verify(false && "Java JNI call failed with an exception.");
+		return true;
+	}
+	return false;
 }

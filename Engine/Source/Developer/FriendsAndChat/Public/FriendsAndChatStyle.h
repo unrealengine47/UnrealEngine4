@@ -50,6 +50,11 @@ struct FRIENDSANDCHAT_API FFriendsAndChatStyle
 	FButtonStyle FriendListOpenButtonStyle;
 	FFriendsAndChatStyle& SetFriendsListOpenButtonStyle(const FButtonStyle& ButtonStyle);
 
+	/** Friends List Online Status Button style */
+	UPROPERTY()
+	FButtonStyle FriendListStatusButtonStyle;
+	FFriendsAndChatStyle& SetFriendsListStatusButtonStyle(const FButtonStyle& ButtonStyle);
+
 	/** Friends List Action Button style */
 	UPROPERTY()
 	FButtonStyle FriendListActionButtonStyle;
@@ -92,6 +97,11 @@ struct FRIENDSANDCHAT_API FFriendsAndChatStyle
 	UPROPERTY()
 	FButtonStyle AddFriendButtonStyle;
 	FFriendsAndChatStyle& SetAddFriendButtonStyle(const FButtonStyle& ButtonStyle);
+
+	/** Optional content for the Add Friend button */
+	UPROPERTY()
+	FSlateBrush AddFriendButtonContentBrush;
+	FFriendsAndChatStyle& SetAddFriendButtonContentBrush(const FSlateBrush& BrushStyle);
 
 	/** Title Bar brush style */
 	UPROPERTY(EditAnywhere, Category = Appearance)
@@ -249,8 +259,8 @@ struct FRIENDSANDCHAT_API FFriendsAndChatStyle
 	FFriendsAndChatStyle& SetFriendCheckboxStyle(const FCheckBoxStyle& InFriendCheckboxStyle);
 
 	UPROPERTY(EditAnywhere, Category = Appearance)
-	FVector2D ButtonPadding;
-	FFriendsAndChatStyle& SetButtonPadding(const FVector2D& ButtonPadding);
+	FVector2D StatusButtonSize;
+	FFriendsAndChatStyle& SetStatusButtonSize(const FVector2D& InStatusButtonSize);
 
 	UPROPERTY(EditAnywhere, Category = Appearance)
 	FMargin BorderPadding;
@@ -259,6 +269,10 @@ struct FRIENDSANDCHAT_API FFriendsAndChatStyle
 	UPROPERTY(EditAnywhere, Category = Appearance)
 	float FriendsListWidth;
 	FFriendsAndChatStyle& SetFriendsListWidth(const float FriendsListLength);
+
+	UPROPERTY(EditAnywhere, Category = Appearance)
+	float ChatListWidth;
+	FFriendsAndChatStyle& SetChatListWidth(const float ChatListWidth);
 
 	UPROPERTY(EditAnywhere, Category = Appearance)
 	FSlateBrush ChatBackgroundBrush;
@@ -271,4 +285,30 @@ struct FRIENDSANDCHAT_API FFriendsAndChatStyle
 	UPROPERTY(EditAnywhere, Category = Appearance)
 	FSlateBrush ChatOptionsBackgroundBrush;
 	FFriendsAndChatStyle& SetChatOptionsBackgroundBrush(const FSlateBrush& InChatOptionsBackgroundBrush);
+};
+
+/** Manages the style which provides resources for the rich text widget. */
+class FRIENDSANDCHAT_API FFriendsAndChatModuleStyle
+{
+public:
+
+	static void Initialize(FFriendsAndChatStyle FriendStyle);
+
+	static void Shutdown();
+
+	/** reloads textures used by slate renderer */
+	static void ReloadTextures();
+
+	/** @return The Slate style set for the Shooter game */
+	static const ISlateStyle& Get();
+
+	static FName GetStyleSetName();
+
+private:
+
+	static TSharedRef< class FSlateStyleSet > Create(FFriendsAndChatStyle FriendStyle);
+
+private:
+
+	static TSharedPtr< class FSlateStyleSet > FriendsAndChatModuleStyleInstance;
 };

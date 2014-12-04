@@ -1112,11 +1112,14 @@ void FKismetCompilerContext::PrecompileFunction(FKismetFunctionContext& Context)
 		// Find the connected subgraph starting at the root node and prune out unused nodes
 		PruneIsolatedNodes(Context.RootSet, Context.SourceGraph->Nodes);
 
-		// Check if self pins are connected after PruneIsolatedNodes, to avoid errors from isolated nodes.
-		ValidateSelfPinsInGraph(Context.SourceGraph);
+		if (bIsFullCompile)
+		{
+			// Check if self pins are connected after PruneIsolatedNodes, to avoid errors from isolated nodes.
+			ValidateSelfPinsInGraph(Context.SourceGraph);
 
-		// Transforms
-		TransformNodes(Context);
+			// Transforms
+			TransformNodes(Context);
+		}
 
 		//Now we can safely remove automatically added WorldContext pin from static function.
 		Context.EntryPoint->RemoveUnnecessaryAutoWorldContext();
@@ -2313,9 +2316,19 @@ void FKismetCompilerContext::CreateFunctionStubForEvent(UK2Node_Event* SrcEventN
 		StubContext.MarkAsInternalOrCppUseOnly();
 	}
 
-	if ((SrcEventNode->FunctionFlags & FUNC_Net) > 0)
+	uint32 FunctionFlags = SrcEventNode->FunctionFlags;
+	if(SrcEventNode->bOverrideFunction && Blueprint->ParentClass != nullptr)
 	{
-		StubContext.MarkAsNetFunction(SrcEventNode->FunctionFlags);
+		const UFunction* ParentFunction = Blueprint->ParentClass->FindFunctionByName(SrcEventNode->GetFunctionName());
+		if(ParentFunction != nullptr)
+		{
+			FunctionFlags |= ParentFunction->FunctionFlags & FUNC_NetFuncFlags;
+		}
+	}
+
+	if ((FunctionFlags & FUNC_Net) > 0)
+	{
+		StubContext.MarkAsNetFunction(FunctionFlags);
 	}
 
 	// Create an entry point
@@ -2661,15 +2674,16 @@ void FKismetCompilerContext::CreateAndProcessUbergraph()
 			{
 				const UEdGraphNode* Node = ConsolidatedEventGraph->Nodes[ChildIndex];
 				const int32 SavedErrorCount = MessageLog.NumErrors;
-				ValidateNode(Node);
+				UK2Node_Event* SrcEventNode = Cast<UK2Node_Event>(ConsolidatedEventGraph->Nodes[ChildIndex]);
+				if (bIsFullCompile || SrcEventNode)
+				{
+					ValidateNode(Node);
+				}
 
 				// If the node didn't generate any errors then generate function stubs for event entry nodes etc.
-				if (SavedErrorCount == MessageLog.NumErrors)
+				if ((SavedErrorCount == MessageLog.NumErrors) && SrcEventNode)
 				{
-					if (UK2Node_Event* SrcEventNode = Cast<UK2Node_Event>(ConsolidatedEventGraph->Nodes[ChildIndex]))
-					{
-						CreateFunctionStubForEvent(SrcEventNode, Blueprint);
-					}
+					CreateFunctionStubForEvent(SrcEventNode, Blueprint);
 				}
 			}
 		}

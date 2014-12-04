@@ -5,21 +5,22 @@
 //////////////////////////////////////////////////////////////////////////
 // STileLayerItem
 
-class STileLayerItem : public SMultiColumnTableRow<class UPaperTileLayer*>
+class STileLayerItem : public SCompoundWidget
 {
 public:
 	SLATE_BEGIN_ARGS(STileLayerItem) {}
 	SLATE_END_ARGS()
 
-	void Construct(const FArguments& InArgs, class UPaperTileLayer* InItem, const TSharedRef<STableViewBase>& OwnerTable);
+	void Construct(const FArguments& InArgs, class UPaperTileLayer* InItem, FIsSelected InIsSelectedDelegate);
 
-	// SMultiColumnTableRow<> interface
-	virtual TSharedRef<SWidget> GenerateWidgetForColumn(const FName& ColumnName) override;
-	// End of SMultiColumnTableRow<> interface
 protected:
 	class UPaperTileLayer* MyLayer;
 
 	TSharedPtr<SButton> VisibilityButton;
+
+	const FSlateBrush* EyeClosed;
+	const FSlateBrush* EyeOpened;
+
 protected:
 	FText GetLayerDisplayName() const;
 	void OnLayerNameCommitted(const FText& NewText, ETextCommit::Type CommitInfo);

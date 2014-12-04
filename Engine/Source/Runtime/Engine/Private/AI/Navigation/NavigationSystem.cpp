@@ -207,6 +207,7 @@ UNavigationSystem::UNavigationSystem(const FObjectInitializer& ObjectInitializer
 	, bWholeWorldNavigable(false)
 	, bAddPlayersToGenerationSeeds(true)
 	, bSkipAgentHeightCheckWhenPickingNavData(false)
+	, bForceRebuildOnLoad(false)
 	, DirtyAreasUpdateFreq(60)
 	, OperationMode(FNavigationSystem::InvalidMode)
 	, NavOctree(NULL)
@@ -374,7 +375,14 @@ void UNavigationSystem::PostEditChangeProperty(FPropertyChangedEvent& PropertyCh
 			if (SupportedAgentIndex != INDEX_NONE)
 			{
 				// reflect the change to SupportedAgent's 
-				SupportedAgents[SupportedAgentIndex].NavigationDataClassName = FStringClassReference::GetOrCreateIDForClass(SupportedAgents[SupportedAgentIndex].NavigationDataClass);
+				if (SupportedAgents[SupportedAgentIndex].NavigationDataClass != nullptr)
+				{
+					SupportedAgents[SupportedAgentIndex].NavigationDataClassName = FStringClassReference::GetOrCreateIDForClass(SupportedAgents[SupportedAgentIndex].NavigationDataClass);
+				}
+				else
+				{
+					SupportedAgents[SupportedAgentIndex].NavigationDataClassName.Reset();
+				}
 			}
 		}
 	}
@@ -444,11 +452,11 @@ void UNavigationSystem::OnWorldInitDone(FNavigationSystem::EMode Mode)
 		{
 			// don't lock navigation building in editor
 			bInitialBuildingLockActive = false;
-
-			// don't mark dirty areas after loading a map when automatic rebuild is disabled
-			bSkipDirtyAreasOnce = !bNavigationAutoUpdateEnabled;
 		}
-		
+
+		// don't mark dirty areas after loading a map if navigation system doesn't want to rebuilt from scratch
+		bSkipDirtyAreasOnce = !bForceRebuildOnLoad;
+
 		if (bAutoCreateNavigationData == true)
 		{
 			SpawnMissingNavigationData();
@@ -2777,7 +2785,7 @@ void UNavigationSystem::SpawnMissingNavigationData()
 	{
 		for (int32 AgentIndex = 0; AgentIndex < SupportedAgentsCount; ++AgentIndex)
 		{
-			if (AlreadyInstantiated[AgentIndex] == false)
+			if (AlreadyInstantiated[AgentIndex] == false && SupportedAgents[AgentIndex].NavigationDataClass != nullptr)
 			{
 				bool bHandled = false;
 
@@ -3019,19 +3027,24 @@ void UNavigationSystem::OnLevelRemovedFromWorld(ULevel* InLevel, UWorld* InWorld
 void UNavigationSystem::AddLevelCollisionToOctree(ULevel* Level)
 {
 #if WITH_RECAST
-	const TArray<FVector>* LevelGeom = Level ? Level->GetStaticNavigableGeometry() : NULL;
-	if (LevelGeom && NavOctree)
+	if (Level && NavOctree)
 	{
-		FNavigationOctreeElement BSPElem;
-		FRecastNavMeshGenerator::ExportVertexSoupGeometry(*LevelGeom, BSPElem.Data);
+		const TArray<FVector>* LevelGeom = Level->GetStaticNavigableGeometry();
+		const FOctreeElementId* ElementId = GetObjectsNavOctreeId(Level);
 
-		const auto& Bounds = BSPElem.Data.Bounds;
-		if (!Bounds.GetExtent().IsNearlyZero())
+		if (LevelGeom && !ElementId)
 		{
-			NavOctree->AddNode(Level, NULL, Bounds, BSPElem);
-			AddDirtyArea(Bounds, ENavigationDirtyFlag::All);
+			FNavigationOctreeElement BSPElem;
+			FRecastNavMeshGenerator::ExportVertexSoupGeometry(*LevelGeom, BSPElem.Data);
 
-			UE_LOG(LogNavOctree, Log, TEXT("ADD %s"), *GetNameSafe(Level));
+			const auto& Bounds = BSPElem.Data.Bounds;
+			if (!Bounds.GetExtent().IsNearlyZero())
+			{
+				NavOctree->AddNode(Level, NULL, Bounds, BSPElem);
+				AddDirtyArea(Bounds, ENavigationDirtyFlag::All);
+
+				UE_LOG(LogNavOctree, Log, TEXT("ADD %s"), *GetNameSafe(Level));
+			}
 		}
 	}
 #endif// WITH_RECAST

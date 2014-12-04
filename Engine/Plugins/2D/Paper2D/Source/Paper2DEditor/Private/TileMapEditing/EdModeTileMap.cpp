@@ -273,7 +273,7 @@ void FEdModeTileMap::Render(const FSceneView* View, FViewport* Viewport, FPrimit
 		FVector Z = DrawPreviewSpace.GetScaledAxis(EAxis::Z);
 		FVector Base = DrawPreviewLocation;
 
-		DrawOrientedWireBox(PDI, Base, X, Y, Z, DrawPreviewDimensionsLS, FLinearColor::White, SDPG_Foreground);
+		DrawOrientedWireBox(PDI, Base, X, Y, Z, DrawPreviewDimensionsLS, FLinearColor::White, SDPG_Foreground, 0.0f, 0.0001f);
 	}
 }
 
@@ -337,46 +337,43 @@ UPaperTileLayer* FEdModeTileMap::GetSelectedLayerUnderCursor(const FViewportCurs
 		}
 	}
 
-	if (UPaperTileMap* TileMap = TileMapComponent->TileMap)
+	if (TileMapComponent != nullptr)
 	{
-		// Find the first visible layer
-		int32 LayerIndex = 0;
-		for (; LayerIndex < TileMap->TileLayers.Num(); ++LayerIndex)
+		if (UPaperTileMap* TileMap = TileMapComponent->TileMap)
 		{
-			UPaperTileLayer* Layer = TileMap->TileLayers[LayerIndex];
-			if (!Layer->bHiddenInEditor && Layer->bCollisionLayer == bCollisionPainting)
+			// Find the selected layer
+			int32 LayerIndex = TileMap->SelectedLayerIndex;
+
+			// If there was a selected layer, pick it
+			if (TileMap->TileLayers.IsValidIndex(LayerIndex))
 			{
-				break;
-			}
-		}
+				UPaperTileLayer* Layer = TileMap->TileLayers[LayerIndex];
 
-		// If there was a visible layer, pick it
-		if (LayerIndex < TileMap->TileLayers.Num())
-		{
-			UPaperTileLayer* Layer = TileMap->TileLayers[LayerIndex];
+				const float WX = TileMap->MapWidth * TileMap->TileWidth;
+				const float WY = TileMap->MapHeight * TileMap->TileHeight;
 
-			const float WX = TileMap->MapWidth * TileMap->TileWidth;
-			const float WY = TileMap->MapHeight * TileMap->TileHeight;
+				ComponentToWorld = (TileMapComponent != nullptr) ? TileMapComponent->ComponentToWorld : FTransform::Identity;
+				FVector LocalStart = ComponentToWorld.InverseTransformPosition(TraceStart);
+				FVector LocalDirection = ComponentToWorld.InverseTransformVector(TraceDir);
 
-			ComponentToWorld = (TileMapComponent != nullptr) ? TileMapComponent->ComponentToWorld : FTransform::Identity;
-			FVector LocalStart = ComponentToWorld.InverseTransformPosition(TraceStart);
-			FVector LocalDirection = ComponentToWorld.InverseTransformVector(TraceDir);
+				const FVector LSPlaneCorner = PaperAxisZ * TileMap->SeparationPerLayer;
 
-			FVector Intersection;
-			FPlane Plane(FVector(1, 0, 0), FVector::ZeroVector, FVector(0, 0, 1));
+				const FPlane LayerPlane(LSPlaneCorner + PaperAxisX, LSPlaneCorner, LSPlaneCorner + PaperAxisY);
 
-			if (FMath::SegmentPlaneIntersection(LocalStart, LocalDirection * HALF_WORLD_MAX, Plane, /*out*/ Intersection))
-			{
-				//@TODO: Ideally tile pivots weren't in the center!
-				const float NormalizedX = (Intersection.X + 0.5f * TileMap->TileWidth) / WX;
-				const float NormalizedY = (-Intersection.Z + 0.5f * TileMap->TileHeight) / WY;
-
-				OutTileX = FMath::FloorToInt(NormalizedX * TileMap->MapWidth);
-				OutTileY = FMath::FloorToInt(NormalizedY * TileMap->MapHeight);
-					
-				if ((OutTileX > -BrushWidth) && (OutTileX < TileMap->MapWidth) && (OutTileY > -BrushHeight) && (OutTileY < TileMap->MapHeight))
+				FVector Intersection;
+				if (FMath::SegmentPlaneIntersection(LocalStart, LocalDirection * HALF_WORLD_MAX, LayerPlane, /*out*/ Intersection))
 				{
-					return Layer;
+					//@TODO: Ideally tile pivots weren't in the center!
+					const float NormalizedX = (Intersection.X + 0.5f * TileMap->TileWidth) / WX;
+					const float NormalizedY = (-Intersection.Z + 0.5f * TileMap->TileHeight) / WY;
+
+					OutTileX = FMath::FloorToInt(NormalizedX * TileMap->MapWidth);
+					OutTileY = FMath::FloorToInt(NormalizedY * TileMap->MapHeight);
+
+					if ((OutTileX > -BrushWidth) && (OutTileX < TileMap->MapWidth) && (OutTileY > -BrushHeight) && (OutTileY < TileMap->MapHeight))
+					{
+						return Layer;
+					}
 				}
 			}
 		}
@@ -732,13 +729,16 @@ void FEdModeTileMap::UpdatePreviewCursor(const FViewportCursorLocation& Ray)
 			const int32 LocalTileY1 = LocalTileY0 + CursorHeight;
 
 			UPaperTileMap* TileMap = TileLayer->GetTileMap();
-			const FVector WorldPosition = ComponentToWorld.TransformPosition(TileMap->GetTilePositionInLocalSpace(LocalTileX0, LocalTileY0));
-			const FVector WorldPositionBR = ComponentToWorld.TransformPosition(TileMap->GetTilePositionInLocalSpace(LocalTileX1, LocalTileY1));
+			int32 LayerIndex;
+			ensure(TileMap->TileLayers.Find(TileLayer, LayerIndex));
+
+			const FVector WorldPosition = ComponentToWorld.TransformPosition(TileMap->GetTilePositionInLocalSpace(LocalTileX0, LocalTileY0, LayerIndex));
+			const FVector WorldPositionBR = ComponentToWorld.TransformPosition(TileMap->GetTilePositionInLocalSpace(LocalTileX1, LocalTileY1, LayerIndex));
 
 			DrawPreviewSpace = ComponentToWorld;
 			DrawPreviewLocation = (WorldPosition + WorldPositionBR) * 0.5f;
 
-			DrawPreviewDimensionsLS = 0.5f*FVector(CursorWidth * TileMap->TileWidth, 0.0f, -CursorHeight * TileMap->TileHeight);
+			DrawPreviewDimensionsLS = 0.5f*((PaperAxisX * CursorWidth * TileMap->TileWidth) + (PaperAxisY * -CursorHeight * TileMap->TileHeight));
 		}
 	}
 }

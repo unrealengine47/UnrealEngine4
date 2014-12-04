@@ -22,14 +22,20 @@ protected:
 	TWeakObjectPtr<class UPaperTileMap> TileMapPtr;
 
 protected:
-	TSharedRef<ITableRow> OnGenerateRowDefault(class UPaperTileLayer* Item, const TSharedRef<STableViewBase>& OwnerTable);
+	TSharedRef<ITableRow> OnGenerateLayerListRow(class UPaperTileLayer* Item, const TSharedRef<STableViewBase>& OwnerTable);
 
 	class UPaperTileLayer* GetSelectedLayer() const;
 
 	// Returns the selected index if anything is selected, or the top item otherwise (only returns INDEX_NONE if there are no layers)
 	int32 GetSelectionIndex() const;
 
-	class UPaperTileLayer* AddLayer(bool bCollisionLayer);
+	static FText GenerateNewLayerName(UPaperTileMap* TileMap);
+	static FText GenerateDuplicatedLayerName(const FString& InputNameRaw, UPaperTileMap* TileMap);
+
+	class UPaperTileLayer* AddLayer(bool bCollisionLayer, int32 InsertionIndex = INDEX_NONE);
+
+	// Moves a layer from OldIndex to NewIndex if both are valid, otherwise it does nothing silently
+	void ChangeLayerOrdering(int32 OldIndex, int32 NewIndex);
 
 	void AddNewLayerAbove();
 	void AddNewLayerBelow();
@@ -38,4 +44,14 @@ protected:
 	void MergeLayerDown();
 	void MoveLayerUp();
 	void MoveLayerDown();
+
+	int32 GetNumLayers() const;
+	bool CanExecuteActionNeedingLayerAbove() const;
+	bool CanExecuteActionNeedingLayerBelow() const;
+	bool CanExecuteActionNeedingSelectedLayer() const;
+
+	void SetSelectedLayer(UPaperTileLayer* SelectedLayer);
+
+	void OnSelectionChanged(UPaperTileLayer* ItemChangingState, ESelectInfo::Type SelectInfo);
+	TSharedPtr<SWidget> OnConstructContextMenu();
 };

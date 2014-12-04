@@ -13,7 +13,7 @@
 #include "SoundDefinitions.h"
 #include "OnlineSubsystemUtils.h"
 #include "IHeadMountedDisplay.h"
-#include "IForceFeedbackSystem.h"
+#include "IInputInterface.h"
 #include "SlateBasics.h"
 #include "GameFramework/TouchInterface.h"
 #include "DisplayDebugHelpers.h"
@@ -25,7 +25,6 @@
 #include "ContentStreaming.h"
 #include "GameFramework/PawnMovementComponent.h"
 #include "Camera/CameraActor.h"
-#include "GenericPlatform/IForceFeedbackSystem.h"
 #include "Engine/InputDelegateBinding.h"
 #include "SVirtualJoystick.h"
 #include "GameFramework/LocalMessage.h"
@@ -1337,10 +1336,10 @@ void APlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		}
 
 		// Stop any force feedback effects that may be active
-		IForceFeedbackSystem* ForceFeedbackSystem = FSlateApplication::Get().GetForceFeedbackSystem();
-		if (ForceFeedbackSystem)
+		IInputInterface* InputInterface = FSlateApplication::Get().GetInputInterface();
+		if (InputInterface)
 		{
-			ForceFeedbackSystem->SetChannelValues(LocalPlayer->GetControllerId(), FForceFeedbackValues());
+			InputInterface->SetForceFeedbackChannelValues(LocalPlayer->GetControllerId(), FForceFeedbackValues());
 		}
 	}
 
@@ -1604,14 +1603,17 @@ bool APlayerController::SetPause( bool bPause, FCanUnpause CanUnpauseDelegate)
 	if (GetNetMode() != NM_Client)
 	{
 		AGameMode* const GameMode = GetWorld()->GetAuthGameMode();
-		if (bPause)
+		if (GameMode != nullptr)
 		{
-			// Pause gamepad rumbling too if needed
-			bResult = GameMode->SetPause(this, CanUnpauseDelegate);
-		}
-		else
-		{
-			GameMode->ClearPause();
+			if (bPause)
+			{
+				// Pause gamepad rumbling too if needed
+				bResult = GameMode->SetPause(this, CanUnpauseDelegate);
+			}
+			else
+			{
+				GameMode->ClearPause();
+			}
 		}
 	}
 	return bResult;
@@ -2496,12 +2498,44 @@ void APlayerController::GetAudioListenerPosition(FVector& OutLocation, FVector& 
 {
 	FVector ViewLocation;
 	FRotator ViewRotation;
-	GetPlayerViewPoint(ViewLocation, ViewRotation);
+
+	if (bOverrideAudioListener)
+	{
+		if (AudioListenerComponent != nullptr)
+		{
+			ViewRotation = AudioListenerComponent->GetComponentRotation() + AudioListenerRotationOverride;
+			ViewLocation = AudioListenerComponent->GetComponentLocation() + ViewRotation.RotateVector(AudioListenerLocationOverride);
+		}
+		else
+		{
+			ViewLocation = AudioListenerLocationOverride;
+			ViewRotation = AudioListenerRotationOverride;
+		}
+	}
+	else
+	{
+		GetPlayerViewPoint(ViewLocation, ViewRotation);
+	}
+
 	const FRotationTranslationMatrix ViewRotationMatrix(ViewRotation, ViewLocation);
 
 	OutLocation = ViewLocation;
 	OutFrontDir = ViewRotationMatrix.GetUnitAxis( EAxis::X );
 	OutRightDir = ViewRotationMatrix.GetUnitAxis( EAxis::Y );
+}
+
+void APlayerController::SetAudioListenerOverride(USceneComponent* AttachedComponent, FVector Location, FRotator Rotation)
+{
+	bOverrideAudioListener = true;
+	AudioListenerComponent = AttachedComponent;
+	AudioListenerLocationOverride = Location;
+	AudioListenerRotationOverride = Rotation;
+}
+
+void APlayerController::ClearAudioListenerOverride()
+{
+	bOverrideAudioListener = false;
+	AudioListenerComponent = nullptr;
 }
 
 bool APlayerController::ServerCheckClientPossession_Validate()
@@ -3502,10 +3536,10 @@ void APlayerController::ProcessForceFeedback(const float DeltaTime, const bool b
 		}
 	}
 
-	IForceFeedbackSystem* ForceFeedbackSystem = FSlateApplication::Get().GetForceFeedbackSystem();
-	if (ForceFeedbackSystem)
+	IInputInterface* InputInterface = FSlateApplication::Get().GetInputInterface();
+	if (InputInterface)
 	{
-		ForceFeedbackSystem->SetChannelValues(CastChecked<ULocalPlayer>(Player)->GetControllerId(), (bForceFeedbackEnabled ? ForceFeedbackValues : FForceFeedbackValues()));
+		InputInterface->SetForceFeedbackChannelValues(CastChecked<ULocalPlayer>(Player)->GetControllerId(), (bForceFeedbackEnabled ? ForceFeedbackValues : FForceFeedbackValues()));
 	}
 }
 

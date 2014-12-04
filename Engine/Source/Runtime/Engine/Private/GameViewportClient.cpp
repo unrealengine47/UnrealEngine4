@@ -854,7 +854,7 @@ void UGameViewportClient::Draw(FViewport* InViewport, FCanvas* SceneCanvas)
 
 								FReverbSettings PlayerReverbSettings;
 								FInteriorSettings PlayerInteriorSettings;
-								class AAudioVolume* PlayerAudioVolume = GetWorld()->GetAudioSettings( ViewLocation, &PlayerReverbSettings, &PlayerInteriorSettings );
+								class AAudioVolume* PlayerAudioVolume = GetWorld()->GetAudioSettings( Location, &PlayerReverbSettings, &PlayerInteriorSettings );
 
 								if (AudioVolume == nullptr || (PlayerAudioVolume != nullptr && PlayerAudioVolume->Priority > AudioVolume->Priority))
 								{
@@ -1240,6 +1240,15 @@ void UGameViewportClient::Precache()
 		UE_LOG(LogPlayerManagement, Log, TEXT("%5.2f seconds passed since startup."),FPlatformTime::Seconds()-GStartTime);
 		bIsFirstCallOfFunction = false;
 	}
+}
+
+TOptional<bool> UGameViewportClient::QueryShowFocus(const EFocusCause InFocusCause) const
+{
+	if (InFocusCause == EFocusCause::Mouse)
+	{
+		return false;
+	}
+	return true;
 }
 
 void UGameViewportClient::LostFocus(FViewport* InViewport)

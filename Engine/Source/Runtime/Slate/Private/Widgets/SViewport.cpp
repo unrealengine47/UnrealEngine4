@@ -287,9 +287,22 @@ FReply SViewport::OnMotionDetected( const FGeometry& MyGeometry, const FMotionEv
 	return ViewportInterface.IsValid() ? ViewportInterface.Pin()->OnMotionDetected(MyGeometry, InMotionEvent) : FReply::Unhandled();
 }
 
+TOptional<bool> SViewport::OnQueryShowFocus(const EFocusCause InFocusCause) const
+{
+	return ViewportInterface.IsValid() ? ViewportInterface.Pin()->OnQueryShowFocus(InFocusCause) : TOptional<bool>();
+}
+
 TOptional<EPopupMethod> SViewport::OnQueryPopupMethod() const
 {
-	return EPopupMethod::CreateNewWindow;
+	TSharedPtr<ISlateViewport> PinnedInterface = ViewportInterface.Pin();
+	if (PinnedInterface.IsValid())
+	{
+		return PinnedInterface->OnQueryPopupMethod();
+	}
+	else
+	{
+		return EPopupMethod::CreateNewWindow;
+	}	
 }
 
 void SViewport::OnFinishedPointerInput()

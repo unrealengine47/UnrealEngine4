@@ -69,7 +69,7 @@ class PAPER2D_API UPaperTileMap : public UDataAsset //@TODO: Just to make it eas
 	UMaterialInterface* Material;
 
 	// The list of layers
-	UPROPERTY(Category=Debug, VisibleAnywhere, Instanced) //@TODO: Remove this
+	UPROPERTY(Instanced)
 	TArray<class UPaperTileLayer*> TileLayers;
 
 	// Collision domain (no collision, 2D, or 3D)
@@ -89,12 +89,22 @@ public:
 	/** Importing data and options used for this tile map */
 	UPROPERTY(Category=ImportSettings, VisibleAnywhere, Instanced)
 	class UAssetImportData* AssetImportData;
+
+	/** The currently selected layer index */
+	UPROPERTY()
+	int32 SelectedLayerIndex;
+
+	/** The naming index to start at when trying to create a new layer */
+	UPROPERTY()
+	int32 LayerNameIndex;
 #endif
 
 public:
 	// UObject interface
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+	virtual void PostLoad() override;
+	void ValidateSelectedLayerIndex();
 #endif
 	// End of UObject interface
 

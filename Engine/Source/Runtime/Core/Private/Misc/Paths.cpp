@@ -91,6 +91,12 @@ FString FPaths::GameUserDir()
 	}
 	else
 	{
+		FString UserDir;
+		if (FParse::Value(FCommandLine::Get(), TEXT("UserDir="), UserDir))
+		{
+			return FPaths::Combine(*FPaths::GameDir(), *UserDir) + TEXT("/");
+		}
+
 		return FPaths::GameDir();
 	}
 }
@@ -559,6 +565,7 @@ bool FPaths::IsRelative(const FString& InPath)
 							InPath.StartsWith(TEXT("//"))	||												// Equivalent to "\\", considering normalization replaces "\\" with "//".
 							InPath.StartsWith(TEXT("\\"))	||												// Root of the current directory on Windows
 							InPath.StartsWith(TEXT("/"))	||												// Root of the current directory on Windows, root on UNIX-likes.
+							InPath.StartsWith(TEXT("root:/")) ||											// Feature packs use this
 							(InPath.Len() >= 2 && FChar::IsAlpha(InPath[0]) && InPath[1] == TEXT(':'));	// Starts with "<DriveLetter>:"
 
 	return !IsRooted;

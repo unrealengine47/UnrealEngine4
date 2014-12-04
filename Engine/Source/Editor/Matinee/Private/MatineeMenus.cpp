@@ -2481,7 +2481,7 @@ void FMatinee::OnSetMoveKeyLookupGroup()
 
 		TSharedRef<STextComboPopup> TextEntryPopup = 
 			SNew(STextComboPopup)
-			.Label(NSLOCTEXT("Matinee.Popups", "SelectGroup", "Select Group").ToString())
+			.Label(NSLOCTEXT("Matinee.Popups", "SelectGroup", "Select Group"))
 			.TextOptions(GroupNames)
 			.OnTextChosen(this, &FMatinee::OnSetMoveKeyLookupGroupTextChosen, SelKey.KeyIndex, MoveTrack, MoveTrackAxis)
 			;
@@ -2878,7 +2878,7 @@ void FMatinee::OnContextSaveAsCameraAnimation()
 
 	TSharedRef<STextEntryPopup> TextEntry = 
 		SNew(STextEntryPopup)
-		.Label(NSLOCTEXT("Matinee.Popups", "ExportCameraAnim_Header", "Export To CameraAnim").ToString())
+		.Label(NSLOCTEXT("Matinee.Popups", "ExportCameraAnim_Header", "Export To CameraAnim"))
 		.DefaultText(  FText::FromString(PackageName) )
 		.OnTextCommitted(this, &FMatinee::ExportCameraAnimationNameCommitted)
 		.ClearKeyboardFocusOnCommit( false );

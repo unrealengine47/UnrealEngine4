@@ -84,3 +84,18 @@ void AGameplayCueNotify_Actor::OnOwnerDestroyed()
 	Destroy();
 	//MarkPendingKill();
 }
+
+bool AGameplayCueNotify_Actor::OnExecute_Implementation(AActor* MyTarget, FGameplayCueParameters Parameters)
+{
+	return false;
+}
+
+bool AGameplayCueNotify_Actor::OnActive_Implementation(AActor* MyTarget, FGameplayCueParameters Parameters)
+{
+	return false;
+}
+
+bool AGameplayCueNotify_Actor::OnRemove_Implementation(AActor* MyTarget, FGameplayCueParameters Parameters)
+{
+	return false;
+}

@@ -2,6 +2,7 @@
 
 #include "FriendsAndChatPrivatePCH.h"
 #include "ChatItemViewModel.h"
+#include "ChatViewModel.h"
 #include "SChatItem.h"
 
 #define LOCTEXT_NAMESPACE "SChatWindow"
@@ -10,11 +11,12 @@ class SChatItemImpl : public SChatItem
 {
 public:
 
-	void Construct(const FArguments& InArgs, const TSharedRef<FChatItemViewModel>& InViewModel)
+	void Construct(const FArguments& InArgs, const TSharedRef<FChatItemViewModel>& InViewModel, const TSharedRef<FChatViewModel>& InOwnerViewModel)
 	{
 		FriendStyle = *InArgs._FriendStyle;
 		MenuMethod = InArgs._Method;
 		this->ViewModel = InViewModel;
+		this->OwnerViewModel = InOwnerViewModel;
 
 		FText DisplayNameText = ViewModel->GetFriendNameDisplayText();
 		if(ViewModel->IsFromSelf())
@@ -26,6 +28,23 @@ public:
 				DisplayNameText = FText::Format(LOCTEXT("SChatItem_To", "To {Username}"), Args);
 			}
 		}
+
+		FText DisplayText;
+		if(ViewModel->GetMessageType() == EChatMessageType::Party)
+		{
+			DisplayText = ViewModel->GetMessage();
+		}
+		else
+		{
+			FFormatNamedArguments Args;
+			Args.Add(TEXT("DisplayName"), DisplayNameText);
+			Args.Add(TEXT("Message"), ViewModel->GetMessage());
+			Args.Add(TEXT("NameStyle"), FText::FromString(GetTextHyperlinkStyle()));
+			DisplayText = FText::Format(LOCTEXT("SChatItem_Message", "<a id=\"UserName\" style=\"{NameStyle}\">{DisplayName}</>{Message}"), Args);
+		}
+		
+		FTextBlockStyle TextStyle = FriendStyle.TextStyle;
+		TextStyle.ColorAndOpacity = GetChannelColor();
 
 		SUserWidget::Construct(SUserWidget::FArguments()
 		[
@@ -42,45 +61,18 @@ public:
 			+SHorizontalBox::Slot()
 			.AutoWidth()
 			.VAlign(VAlign_Center)
-			.Padding(FMargin(5,1))
-			.MaxWidth(150)
-			[
-				SNew(STextBlock)
-				.Visibility(ViewModel->IsFromSelf() && ViewModel->GetMessageType() != EChatMessageType::Party ? EVisibility::Visible : EVisibility::Collapsed)
-				.Text(DisplayNameText)
-				.ColorAndOpacity(this, &SChatItemImpl::GetChannelColor)
-				.Font(FriendStyle.FriendsFontStyleSmallBold)
-			]
-			+SHorizontalBox::Slot()
-			.AutoWidth()
-			.VAlign(VAlign_Center)
+			.HAlign(HAlign_Fill)
 			.Padding(FMargin(5, 1, 2, 1))
-			.MaxWidth(150)
+			.MaxWidth(FriendStyle.ChatListWidth)
 			[
-				SNew(SButton)
-				.Visibility(ViewModel->IsFromSelf() || ViewModel->GetMessageType() == EChatMessageType::Party ? EVisibility::Collapsed : EVisibility::Visible)
-				.ButtonStyle(&FriendStyle.FriendListItemButtonStyle)
-				.OnClicked(this, &SChatItemImpl::HandleNameClicked)
-				.ContentPadding(0)
-				[
-					SNew(STextBlock)
-					.Text(DisplayNameText)
-					.ColorAndOpacity(this, &SChatItemImpl::GetChannelColor)
-					.Font(FriendStyle.FriendsFontStyleSmallBold)
-				]
+				SNew( SRichTextBlock )
+				.Text(DisplayText)
+				.TextStyle(&TextStyle)
+				.DecoratorStyleSet(&FFriendsAndChatModuleStyle::Get())
+				.WrapTextAt(FriendStyle.ChatListWidth - 10)
+				+ SRichTextBlock::HyperlinkDecorator(TEXT( "UserName" ), this, &SChatItemImpl::HandleNameClicked)
 			]
 			+SHorizontalBox::Slot()
-			.Padding(FMargin(2, 1, 5, 1))
-			.VAlign(VAlign_Center)
-			[
-				SNew(STextBlock)
-				.Text(ViewModel->GetMessage())
-				.ColorAndOpacity(this, &SChatItemImpl::GetChannelColor)
-				.Font(FriendStyle.FriendsFontStyleSmall)
-				.AutoWrapText(true)
-			]
-			+SHorizontalBox::Slot()
-			.AutoWidth()
 			.HAlign(HAlign_Right)
 			.Padding(FMargin(5,1))
 			.VAlign(VAlign_Center)
@@ -89,7 +81,6 @@ public:
 				.Text(ViewModel->GetMessageTime())
 				.ColorAndOpacity(this, &SChatItemImpl::GetTimeDisplayColor)
 				.Font(FriendStyle.FriendsFontStyleSmall)
-				.AutoWrapText(true)
 			]
 		]);
 	}
@@ -97,17 +88,17 @@ private:
 
 	FSlateColor GetTimeDisplayColor() const
 	{
-		if(ViewModel->UseOverrideColor())
+		if(OwnerViewModel->GetOverrideColorSet())
 		{
-			return ViewModel->GetOverrideColor();
+			return OwnerViewModel->GetFontOverrideColor();
 		}
 		else
 		{
 			switch(ViewModel->GetMessageType())
 			{
-				case EChatMessageType::Global: return FriendStyle.DefaultChatColor.CopyWithNewOpacity(ViewModel->GetFadeAmountColor()); break;
-				case EChatMessageType::Whisper: return FriendStyle.WhisplerChatColor.CopyWithNewOpacity(ViewModel->GetFadeAmountColor()); break;
-				case EChatMessageType::Party: return FriendStyle.PartyChatColor.CopyWithNewOpacity(ViewModel->GetFadeAmountColor()); break;
+				case EChatMessageType::Global: return FriendStyle.DefaultChatColor.CopyWithNewOpacity(OwnerViewModel->GetTimeTransparency()); break;
+				case EChatMessageType::Whisper: return FriendStyle.WhisplerChatColor.CopyWithNewOpacity(OwnerViewModel->GetTimeTransparency()); break;
+				case EChatMessageType::Party: return FriendStyle.PartyChatColor.CopyWithNewOpacity(OwnerViewModel->GetTimeTransparency()); break;
 				default: return FLinearColor::Gray;
 			}
 		}
@@ -115,9 +106,9 @@ private:
 
 	FSlateColor GetChannelColor () const
 	{
-		if(ViewModel->UseOverrideColor())
+		if(OwnerViewModel->GetOverrideColorSet())
 		{
-			return ViewModel->GetOverrideColor();
+			return OwnerViewModel->GetFontOverrideColor();
 		}
 		else
 		{
@@ -135,7 +126,7 @@ private:
 
 	const FSlateBrush* GetChatIcon() const
 	{
-		if(ViewModel->UseOverrideColor())
+		if(OwnerViewModel->GetOverrideColorSet())
 		{
 			return nullptr;
 		}
@@ -152,16 +143,30 @@ private:
 		}
 	}
 
-	FReply HandleNameClicked()
+	const FString GetTextHyperlinkStyle() const
 	{
-		ViewModel->FriendNameSelected();
-		return FReply::Handled();
+		switch(ViewModel->GetMessageType())
+		{
+			case EChatMessageType::Global: return TEXT("UserNameTextStyle.GlobalHyperlink"); break;
+			case EChatMessageType::Whisper: return TEXT("UserNameTextStyle.Whisperlink"); break;
+			case EChatMessageType::Party: return TEXT("UserNameTextStyle.PartyHyperlink"); break;
+			default:
+			return FString();
+		}
+	}
+
+	void HandleNameClicked( const FSlateHyperlinkRun::FMetadata& Metadata )
+	{
+		OwnerViewModel->SetChannelUserClicked(ViewModel.ToSharedRef());
 	}
 
 private:
 
 	// Holds the Friends List view model
 	TSharedPtr<FChatItemViewModel> ViewModel;
+
+	// Holds the owner view model
+	TSharedPtr<FChatViewModel> OwnerViewModel;
 
 	TSharedPtr<SBorder> FriendItemBorder;
 

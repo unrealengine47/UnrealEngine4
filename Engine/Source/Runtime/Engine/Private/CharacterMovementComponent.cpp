@@ -816,7 +816,7 @@ void UCharacterMovementComponent::TickComponent(float DeltaTime, enum ELevelTick
 		}
 
 		// Allow root motion to move characters that have no controller.
-		if( CharacterOwner->IsLocallyControlled() || bRunPhysicsWithNoController || (!CharacterOwner->Controller && CharacterOwner->IsPlayingRootMotion()) )
+		if( CharacterOwner->IsLocallyControlled() || (!CharacterOwner->Controller && bRunPhysicsWithNoController) || (!CharacterOwner->Controller && CharacterOwner->IsPlayingRootMotion()) )
 		{
 			// We need to check the jump state before adjusting input acceleration, to minimize latency
 			// and to make sure acceleration respects our potentially new falling state.
@@ -1237,7 +1237,7 @@ void UCharacterMovementComponent::UpdateBasedMovement(float DeltaSeconds)
 		return;
 	}
 
-	if (!IsValid(MovementBase->GetOwner()))
+	if (!IsValid(MovementBase) || !IsValid(MovementBase->GetOwner()))
 	{
 		SetBase(NULL);
 		return;
@@ -1821,7 +1821,7 @@ void UCharacterMovementComponent::StartNewPhysics(float deltaTime, int32 Iterati
 	switch ( MovementMode )
 	{
 	case MOVE_None:
-		return;
+		break;
 	case MOVE_Walking:
 		PhysWalking(deltaTime, Iterations);
 		break;
@@ -3469,7 +3469,7 @@ void UCharacterMovementComponent::PhysWalking(float deltaTime, int32 Iterations)
 		return;
 	}
 
-	if( (!CharacterOwner || !CharacterOwner->Controller) && !bRunPhysicsWithNoController && !HasRootMotion() )
+	if (!CharacterOwner || (!CharacterOwner->Controller && !bRunPhysicsWithNoController && !HasRootMotion()))
 	{
 		Acceleration = FVector::ZeroVector;
 		Velocity = FVector::ZeroVector;
@@ -3490,7 +3490,7 @@ void UCharacterMovementComponent::PhysWalking(float deltaTime, int32 Iterations)
 	float remainingTime = deltaTime;
 
 	// Perform the move
-	while ( (remainingTime >= MIN_TICK_TIME) && (Iterations < MaxSimulationIterations) && (CharacterOwner->Controller || bRunPhysicsWithNoController || HasRootMotion()) )
+	while ( (remainingTime >= MIN_TICK_TIME) && (Iterations < MaxSimulationIterations) && CharacterOwner && (CharacterOwner->Controller || bRunPhysicsWithNoController || HasRootMotion()) )
 	{
 		Iterations++;
 		bJustTeleported = false;

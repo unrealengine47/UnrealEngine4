@@ -9,6 +9,7 @@
 #include "DebugDisplayProperty.h"
 #include "TitleSafeZone.h"
 #include "GameViewportDelegates.h"
+#include "SlateBasics.h"
 
 #include "GameViewportClient.generated.h"
 
@@ -146,6 +147,7 @@ public:
 	virtual void Precache() override;
 	virtual void Draw(FViewport* Viewport,FCanvas* SceneCanvas) override;
 	virtual void ProcessScreenShots(FViewport* Viewport) override;
+	virtual TOptional<bool> QueryShowFocus(const EFocusCause InFocusCause) const override;
 	virtual void LostFocus(FViewport* Viewport) override;
 	virtual void ReceivedFocus(FViewport* Viewport) override;
 	virtual bool IsFocused(FViewport* Viewport) override;
@@ -585,6 +587,11 @@ public:
 	virtual bool HideCursorDuringCapture() override
 	{
 		return bHideCursorDuringCapture;
+	}
+
+	virtual TOptional<EPopupMethod> OnQueryPopupMethod() const override
+	{
+		return EPopupMethod::UseCurrentWindow;
 	}
 
 private:

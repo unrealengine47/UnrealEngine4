@@ -13,6 +13,9 @@
 
 class FCanvas;
 class FViewportClient;
+enum class EPopupMethod : uint8;
+
+enum class EFocusCause;
 
 /**
  * A render target.
@@ -783,6 +786,13 @@ public:
 	 */
 	virtual EMouseCursor::Type GetCursor(FViewport* Viewport,int32 X,int32 Y) { return EMouseCursor::Default; }
 
+	/**
+	* Called to determine if we should render the focus brush.
+	*
+	* @param InFocusCause	The cause of focus
+	*/
+	virtual TOptional<bool> QueryShowFocus(const EFocusCause InFocusCause) const { return TOptional<bool>(); }
+
 	virtual void LostFocus(FViewport* Viewport) {}
 	virtual void ReceivedFocus(FViewport* Viewport) {}
 	virtual bool IsFocused(FViewport* Viewport) { return true; }
@@ -886,6 +896,9 @@ public:
 	 * Gets whether or not the cursor is hidden when the viewport captures the mouse
 	 */
 	virtual bool HideCursorDuringCapture() { return false; }
+
+	/** Should we make new windows for popups or create an overlay in the current window. */
+	virtual TOptional<EPopupMethod> OnQueryPopupMethod() const { return TOptional<EPopupMethod>(); }
 };
 
 /** Tracks the viewport client that should process the stat command, can be NULL */

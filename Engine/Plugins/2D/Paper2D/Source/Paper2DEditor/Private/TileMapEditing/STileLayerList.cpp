@@ -3,6 +3,7 @@
 #include "Paper2DEditorPrivatePCH.h"
 #include "STileLayerList.h"
 #include "STileLayerItem.h"
+#include "PaperStyle.h"
 
 #include "ScopedTransaction.h"
 
@@ -15,10 +16,6 @@
 
 void STileLayerList::Construct(const FArguments& InArgs, UPaperTileMap* TileMap)
 {
-	TSharedRef<SHeaderRow> HeaderRowWidget = SNew(SHeaderRow)
-		+SHeaderRow::Column("Name").DefaultLabel(NSLOCTEXT("TileLayerList", "TileLayerNameHeader", "Layer Name")).FillWidth(0.7);
-		//+SHeaderRow::Column("TileSet").DefaultLabel(NSLOCTEXT("TileLayerList", "TileLayerTileSetHeader", "Tile Set")).FillWidth(0.7);
-
 	TileMapPtr = TileMap;
 
 	FTileMapEditorCommands::Register();
@@ -36,24 +33,29 @@ void STileLayerList::Construct(const FArguments& InArgs, UPaperTileMap* TileMap)
 
 	CommandList->MapAction(
 		Commands.DeleteLayer,
-		FExecuteAction::CreateSP(this, &STileLayerList::DeleteLayer));
+		FExecuteAction::CreateSP(this, &STileLayerList::DeleteLayer),
+		FCanExecuteAction::CreateSP(this, &STileLayerList::CanExecuteActionNeedingSelectedLayer));
 
 	CommandList->MapAction(
 		Commands.DuplicateLayer,
-		FExecuteAction::CreateSP(this, &STileLayerList::DuplicateLayer));
+		FExecuteAction::CreateSP(this, &STileLayerList::DuplicateLayer),
+		FCanExecuteAction::CreateSP(this, &STileLayerList::CanExecuteActionNeedingSelectedLayer));
 
 	CommandList->MapAction(
 		Commands.MergeLayerDown,
-		FExecuteAction::CreateSP(this, &STileLayerList::MergeLayerDown));
+		FExecuteAction::CreateSP(this, &STileLayerList::MergeLayerDown),
+		FCanExecuteAction::CreateSP(this, &STileLayerList::CanExecuteActionNeedingLayerBelow));
 
 	CommandList->MapAction(
 		Commands.MoveLayerUp,
-		FExecuteAction::CreateSP(this, &STileLayerList::MoveLayerUp));
+		FExecuteAction::CreateSP(this, &STileLayerList::MoveLayerUp),
+		FCanExecuteAction::CreateSP(this, &STileLayerList::CanExecuteActionNeedingLayerAbove));
 
 	CommandList->MapAction(
 		Commands.MoveLayerDown,
-		FExecuteAction::CreateSP(this, &STileLayerList::MoveLayerDown));
-
+		FExecuteAction::CreateSP(this, &STileLayerList::MoveLayerDown),
+		FCanExecuteAction::CreateSP(this, &STileLayerList::CanExecuteActionNeedingLayerBelow));
+	
 	FToolBarBuilder ToolbarBuilder(CommandList, FMultiBoxCustomization("TileLayerBrowserToolbar"), TSharedPtr<FExtender>(), Orient_Horizontal, /*InForceSmallIcons=*/ true);
 	ToolbarBuilder.SetLabelVisibility(EVisibility::Collapsed);
 
@@ -67,36 +69,28 @@ void STileLayerList::Construct(const FArguments& InArgs, UPaperTileMap* TileMap)
 
 	ListViewWidget = SNew(SPaperLayerListView)
 		.SelectionMode(ESelectionMode::Single)
-
-		// Point the tree to our array of root-level items.  Whenever this changes, we'll call RequestTreeRefresh()
+		.ClearSelectionOnClick(false)
 		.ListItemsSource(&(TileMap->TileLayers))
-
-		// Find out when the user selects something in the tree
-		//.OnSelectionChanged( this, &SLevelsView::OnSelectionChanged )
-
-		// Called when the user double-clicks with LMB on an item in the list
-		//.OnMouseButtonDoubleClick( this, &SLevelsView::OnListViewMouseButtonDoubleClick )
-
-		// Generates the actual widget for a tree item
-		.OnGenerateRow(this, &STileLayerList::OnGenerateRowDefault)
-
-		// Use the level viewport context menu as the right click menu for list items
-		//.OnContextMenuOpening( InArgs._ConstructContextMenu )
-		.HeaderRow(HeaderRowWidget);
+		.OnSelectionChanged(this, &STileLayerList::OnSelectionChanged)
+		.OnGenerateRow(this, &STileLayerList::OnGenerateLayerListRow)
+		.OnContextMenuOpening(this, &STileLayerList::OnConstructContextMenu);
 
 	// Select the top item by default
-	if (TileMap->TileLayers.Num() == 0)
+	if (TileMap->TileLayers.Num() > 0)
 	{
-		ListViewWidget->SetSelection(TileMap->TileLayers[TileMap->TileLayers.Num() - 1]);
+		SetSelectedLayer(TileMap->TileLayers[TileMap->TileLayers.Num() - 1]);
 	}
 
 	ChildSlot
 	[
-		SNew( SVerticalBox )
+		SNew(SVerticalBox)
 		+SVerticalBox::Slot()
-		.FillHeight( 1.0f )
 		[
-			ListViewWidget.ToSharedRef()
+			SNew(SBox)
+			.HeightOverride(115.0f)
+			[
+				ListViewWidget.ToSharedRef()
+			]
 		]
 		+SVerticalBox::Slot()
 		.AutoHeight()
@@ -106,9 +100,17 @@ void STileLayerList::Construct(const FArguments& InArgs, UPaperTileMap* TileMap)
 	];
 }
 
-TSharedRef<ITableRow> STileLayerList::OnGenerateRowDefault(class UPaperTileLayer* Item, const TSharedRef<STableViewBase>& OwnerTable)
+TSharedRef<ITableRow> STileLayerList::OnGenerateLayerListRow(class UPaperTileLayer* Item, const TSharedRef<STableViewBase>& OwnerTable)
 {
-	return SNew(STileLayerItem, Item, OwnerTable);		
+	typedef STableRow<class UPaperTileLayer*> RowType;
+
+	TSharedRef<RowType> NewRow = SNew(RowType, OwnerTable)
+		.Style(&FPaperStyle::Get()->GetWidgetStyle<FTableRowStyle>("TileMapEditor.LayerBrowser.TableViewRow"));
+
+	FIsSelected IsSelectedDelegate = FIsSelected::CreateSP(NewRow, &RowType::IsSelectedExclusively);
+	NewRow->SetContent(SNew(STileLayerItem, Item, IsSelectedDelegate));
+
+	return NewRow;
 }
 
 UPaperTileLayer* STileLayerList::GetSelectedLayer() const
@@ -116,7 +118,85 @@ UPaperTileLayer* STileLayerList::GetSelectedLayer() const
 	return (ListViewWidget->GetNumItemsSelected() > 0) ? ListViewWidget->GetSelectedItems()[0] : nullptr;
 }
 
-UPaperTileLayer* STileLayerList::AddLayer(bool bCollisionLayer)
+FText STileLayerList::GenerateNewLayerName(UPaperTileMap* TileMap)
+{
+	// Create a set of existing names
+	TSet<FString> ExistingNames;
+	for (UPaperTileLayer* ExistingLayer : TileMap->TileLayers)
+	{
+		ExistingNames.Add(ExistingLayer->LayerName.ToString());
+	}
+
+	// Find a good name
+	FText TestLayerName;
+	do
+	{
+		TileMap->LayerNameIndex++;
+
+		FNumberFormattingOptions NoGroupingFormat;
+		NoGroupingFormat.SetUseGrouping(false);
+
+		TestLayerName = FText::Format(LOCTEXT("NewLayerNameFormatString", "Layer {0}"), FText::AsNumber(TileMap->LayerNameIndex, &NoGroupingFormat));
+	} while (ExistingNames.Contains(TestLayerName.ToString()));
+
+	return TestLayerName;
+}
+
+FText STileLayerList::GenerateDuplicatedLayerName(const FString& InputNameRaw, UPaperTileMap* TileMap)
+{
+	// Create a set of existing names
+	TSet<FString> ExistingNames;
+	for (UPaperTileLayer* ExistingLayer : TileMap->TileLayers)
+	{
+		ExistingNames.Add(ExistingLayer->LayerName.ToString());
+	}
+
+	FString BaseName = InputNameRaw;
+	int32 TestIndex = 0;
+	bool bAddNumber = false;
+
+	// See if this is the result of a previous duplication operation, and change the desired name accordingly
+	int32 SpaceIndex;
+	if (InputNameRaw.FindLastChar(' ', /*out*/ SpaceIndex))
+	{
+		FString PossibleDuplicationSuffix = InputNameRaw.Mid(SpaceIndex + 1);
+
+		if (PossibleDuplicationSuffix == TEXT("copy"))
+		{
+			bAddNumber = true;
+			BaseName = InputNameRaw.Left(SpaceIndex);
+			TestIndex = 2;
+		}
+		else
+		{
+			int32 ExistingIndex = FCString::Atoi(*PossibleDuplicationSuffix);
+
+			const FString TestSuffix = FString::Printf(TEXT(" copy %d"), ExistingIndex);
+
+			if (InputNameRaw.EndsWith(TestSuffix))
+			{
+				bAddNumber = true;
+				BaseName = InputNameRaw.Left(InputNameRaw.Len() - TestSuffix.Len());
+				TestIndex = ExistingIndex + 1;
+			}
+		}
+	}
+
+	// Find a good name
+	FString TestLayerName = BaseName + TEXT(" copy");
+
+	if (bAddNumber || ExistingNames.Contains(TestLayerName))
+	{
+		do
+		{
+			TestLayerName = FString::Printf(TEXT("%s copy %d"), *BaseName, TestIndex++);
+		} while (ExistingNames.Contains(TestLayerName));
+	}
+
+	return FText::FromString(TestLayerName);
+}
+
+UPaperTileLayer* STileLayerList::AddLayer(bool bCollisionLayer, int32 InsertionIndex)
 {
 	UPaperTileLayer* NewLayer = NULL;
 
@@ -126,31 +206,64 @@ UPaperTileLayer* STileLayerList::AddLayer(bool bCollisionLayer)
 		TileMap->SetFlags(RF_Transactional);
 		TileMap->Modify();
 
+		// Create the new layer
 		NewLayer = NewObject<UPaperTileLayer>(TileMap);
 		NewLayer->SetFlags(RF_Transactional);
 
 		NewLayer->LayerWidth = TileMap->MapWidth;
 		NewLayer->LayerHeight = TileMap->MapHeight;
 		NewLayer->DestructiveAllocateMap(NewLayer->LayerWidth, NewLayer->LayerHeight);
-		NewLayer->LayerName = LOCTEXT("DefaultNewLayerName", "New Layer");
+		NewLayer->LayerName = GenerateNewLayerName(TileMap);
 		NewLayer->bCollisionLayer = bCollisionLayer;
 
-		TileMap->TileLayers.Add(NewLayer);
+		// Insert the new layer
+		if (TileMap->TileLayers.IsValidIndex(InsertionIndex))
+		{
+			TileMap->TileLayers.Insert(NewLayer, InsertionIndex);
+		}
+		else
+		{
+			TileMap->TileLayers.Add(NewLayer);
+		}
+
+		ListViewWidget->RequestListRefresh();
+		TileMap->PostEditChange();
+
+		// Change the selection set to select it
+		SetSelectedLayer(NewLayer);
 	}
 
 	return NewLayer;
 }
 
+void STileLayerList::ChangeLayerOrdering(int32 OldIndex, int32 NewIndex)
+{
+	if (UPaperTileMap* TileMap = TileMapPtr.Get())
+	{
+		if (TileMap->TileLayers.IsValidIndex(OldIndex) && TileMap->TileLayers.IsValidIndex(NewIndex))
+		{
+			const FScopedTransaction Transaction(LOCTEXT("TileMapReorderLayer", "Reorder Layer"));
+			TileMap->SetFlags(RF_Transactional);
+			TileMap->Modify();
+
+			UPaperTileLayer* LayerToMove = TileMap->TileLayers[OldIndex];
+			TileMap->TileLayers.RemoveAt(OldIndex);
+			TileMap->TileLayers.Insert(LayerToMove, NewIndex);
+
+			ListViewWidget->RequestListRefresh();
+			TileMap->PostEditChange();
+		}
+	}
+}
+
 void STileLayerList::AddNewLayerAbove()
 {
-	//@TODO: TILEMAPS: Support adding layers above or below the selection, instead of always at the top
-	AddLayer(/*bCollisionLayer=*/ false);
+	AddLayer(/*bCollisionLayer=*/ false, GetSelectionIndex());
 }
 
 void STileLayerList::AddNewLayerBelow()
 {
-	//@TODO: TILEMAPS: Support adding layers above or below the selection, instead of always at the top
-	AddLayer(/*bCollisionLayer=*/ false);
+	AddLayer(/*bCollisionLayer=*/ false, GetSelectionIndex() + 1);
 }
 
 int32 STileLayerList::GetSelectionIndex() const
@@ -186,6 +299,14 @@ void STileLayerList::DeleteLayer()
 			TileMap->TileLayers.RemoveAt(DeleteIndex);
 
 			TileMap->PostEditChange();
+			ListViewWidget->RequestListRefresh();
+
+			// Select the item below the one that just got deleted
+			const int32 NewSelectionIndex = FMath::Min<int32>(DeleteIndex, TileMap->TileLayers.Num() - 1);
+			if (TileMap->TileLayers.IsValidIndex(NewSelectionIndex))
+			{
+				SetSelectedLayer(TileMap->TileLayers[NewSelectionIndex]);
+			}
 		}
 	}
 }
@@ -203,8 +324,13 @@ void STileLayerList::DuplicateLayer()
 
 			UPaperTileLayer* NewLayer = DuplicateObject<UPaperTileLayer>(TileMap->TileLayers[DuplicateIndex], TileMap);
 			TileMap->TileLayers.Insert(NewLayer, DuplicateIndex);
+			NewLayer->LayerName = GenerateDuplicatedLayerName(NewLayer->LayerName.ToString(), TileMap);
 
 			TileMap->PostEditChange();
+			ListViewWidget->RequestListRefresh();
+
+			// Select the duplicated layer
+			SetSelectedLayer(NewLayer);
 		}
 	}
 }
@@ -216,12 +342,72 @@ void STileLayerList::MergeLayerDown()
 
 void STileLayerList::MoveLayerUp()
 {
-	//@TODO: TILEMAPS: Support moving layers up
+	const int32 SelectedIndex = GetSelectionIndex();
+	const int32 NewIndex = SelectedIndex - 1;
+	ChangeLayerOrdering(SelectedIndex, NewIndex);
 }
 
 void STileLayerList::MoveLayerDown()
 {
-	//@TODO: TILEMAPS: Support moving layers down
+	const int32 SelectedIndex = GetSelectionIndex();
+	const int32 NewIndex = SelectedIndex + 1;
+	ChangeLayerOrdering(SelectedIndex, NewIndex);
+}
+
+int32 STileLayerList::GetNumLayers() const
+{
+	if (UPaperTileMap* TileMap = TileMapPtr.Get())
+	{
+		return TileMap->TileLayers.Num();
+	}
+	return 0;
+}
+
+bool STileLayerList::CanExecuteActionNeedingLayerAbove() const
+{
+	return GetSelectionIndex() > 0;
+}
+
+bool STileLayerList::CanExecuteActionNeedingLayerBelow() const
+{
+	const int32 SelectedLayer = GetSelectionIndex();
+	return (SelectedLayer != INDEX_NONE) && (SelectedLayer + 1 < GetNumLayers());
+}
+
+bool STileLayerList::CanExecuteActionNeedingSelectedLayer() const
+{
+	return GetSelectionIndex() != INDEX_NONE;
+}
+
+void STileLayerList::SetSelectedLayer(UPaperTileLayer* SelectedLayer)
+{
+	ListViewWidget->SetSelection(SelectedLayer);
+}
+
+void STileLayerList::OnSelectionChanged(UPaperTileLayer* ItemChangingState, ESelectInfo::Type SelectInfo)
+{
+	if (UPaperTileMap* TileMap = TileMapPtr.Get())
+	{
+		TileMap->SelectedLayerIndex = GetSelectionIndex();
+	}
+}
+
+TSharedPtr<SWidget> STileLayerList::OnConstructContextMenu()
+{
+	const bool bShouldCloseWindowAfterMenuSelection = true;
+	FMenuBuilder MenuBuilder(bShouldCloseWindowAfterMenuSelection, CommandList);
+
+	const FTileMapEditorCommands& Commands = FTileMapEditorCommands::Get();
+
+ 	MenuBuilder.BeginSection("BasicOperations");
+ 	{
+		MenuBuilder.AddMenuEntry(Commands.DuplicateLayer);
+		MenuBuilder.AddMenuEntry(Commands.DeleteLayer);
+		MenuBuilder.AddMenuEntry(Commands.MergeLayerDown);
+ 	}
+	MenuBuilder.EndSection();
+
+	return MenuBuilder.MakeWidget();
 }
 
 //////////////////////////////////////////////////////////////////////////

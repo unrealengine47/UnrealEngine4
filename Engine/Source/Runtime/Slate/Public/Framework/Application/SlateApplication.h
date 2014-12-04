@@ -192,7 +192,10 @@ public:
 	float GetSoundDuration(const FSlateSound& Sound) const;
 
 	/** @return The force feedback interface for this application */
-	IForceFeedbackSystem *GetForceFeedbackSystem() const { return PlatformApplication->GetForceFeedbackSystem(); }
+	DEPRECATED(4.7, "Please use GetInputInterface().")
+	IForceFeedbackSystem* GetForceFeedbackSystem() const { return PlatformApplication->DEPRECATED_GetForceFeedbackSystem(); }
+
+	IInputInterface* GetInputInterface() const { return PlatformApplication->GetInputInterface(); }
 
 	/** @return Whether or not the current platform supports system help */
 	bool SupportsSystemHelp() const { return PlatformApplication->SupportsSystemHelp(); }
@@ -676,6 +679,8 @@ protected:
 	virtual TOptional<EFocusCause> HasUserFocus(const TSharedPtr<const SWidget> Widget, int32 UserIndex) const override;
 
 	virtual TOptional<EFocusCause> HasAnyUserFocus(const TSharedPtr<const SWidget> Widget) const override;
+
+	virtual bool ShowUserFocus(const TSharedPtr<const SWidget> Widget) const override;
 
 	/** 
 	 * Ticks a slate window and all of its children
@@ -1261,11 +1266,19 @@ private:
 
 	TSharedPtr<FAnalogCursor> AnalogCursor;
 
-	/** A weak path to the widget currently focused by a user, if any. */
-	FWeakWidgetPath UserFocusedWidgetPaths[SlateApplicationDefs::MaxUsers];
-	
-	/** Reason a widget was focused by a user, if any. */
-	EFocusCause UserFocusCause[SlateApplicationDefs::MaxUsers];
+
+	struct FUserFocusEntry
+	{
+		/** A weak path to the widget currently focused by a user, if any. */
+		FWeakWidgetPath WidgetPath;
+		/** Reason a widget was focused by a user, if any. */
+		EFocusCause FocusCause;
+		/** If we should show this focus */
+		bool ShowFocus;
+	};
+
+	/** State of focus for all users */
+	FUserFocusEntry UserFocusEntries[SlateApplicationDefs::MaxUsers];
 
 	/**
 	 * Application throttling

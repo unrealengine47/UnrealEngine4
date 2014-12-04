@@ -4,6 +4,8 @@
 
 struct FVector2D;
 class FSlateRect;
+enum class EPopupMethod : uint8;
+
 
 #define SLATE_USE_32BIT_INDICES !PLATFORM_USES_ES2
 #define SLATE_USE_FLOAT16 !PLATFORM_USES_ES2
@@ -464,10 +466,30 @@ public:
 	}
 
 	/**
+	 * Called to determine if we should render the focus brush.
+	 *
+	 * @param InFocusCause	The cause of focus
+	 */
+	virtual TOptional<bool> OnQueryShowFocus(const EFocusCause InFocusCause) const
+	{
+		return TOptional<bool>();
+	}
+
+	/**
 	 * Called after all input for this frame is processed.
 	 */
 	virtual void OnFinishedPointerInput()
 	{
+	}
+
+	/**
+	 * Called to figure out whether we can make new windows for popups within this viewport.
+	 * Making windows allows us to have popups that go outside the parent window, but cannot
+	 * be used in fullscreen and do not have per-pixel alpha.
+	 */
+	virtual TOptional<EPopupMethod> OnQueryPopupMethod() const
+	{
+		return TOptional<EPopupMethod>();
 	}
 
 	/**
