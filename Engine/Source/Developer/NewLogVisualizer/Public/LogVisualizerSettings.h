@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 GameplayDebuggerSettings.h: Declares the UGameplayDebuggerSettings class.
@@ -43,6 +43,10 @@ public:
 
 	DECLARE_EVENT_OneParam(ULogVisualizerSettings, FSettingChangedEvent, FName /*PropertyName*/);
 	FSettingChangedEvent& OnSettingChanged() { return SettingChangedEvent; }
+
+	/**Whether to search/filter categories or to get text vlogs into account too */
+	UPROPERTY(EditAnywhere, config, Category = "VisualLogger")
+	bool bSearchInsideLogs;
 
 protected:
 

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "SlateViewerApp.h"
 #include "ExceptionHandling.h"
@@ -78,7 +78,6 @@ static FString GSavedCommandLine;
 
 - (void)sendEvent:(NSEvent*)event
 {
-	printf("sending event to CEF, type %d\n", (int32)[event type]);
 	CefScopedSendingEvent sendingEventScoper;
 	[super sendEvent:event];
 }

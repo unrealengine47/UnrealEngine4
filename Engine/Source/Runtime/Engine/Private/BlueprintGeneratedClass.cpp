@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
 #include "BlueprintUtilities.h"
@@ -584,4 +584,10 @@ bool UBlueprintGeneratedClass::UsePersistentUberGraphFrame()
 #else
 	return false;
 #endif
+}
+
+bool UBlueprintGeneratedClass::CompileSkeletonClassesInheritSkeletonClasses()
+{
+	static const FBoolConfigValueHelper SkeletonClassesInheritSkeletonClasses(TEXT("Kismet"), TEXT("bSkeletonInheritSkeletonClasses"), GEngineIni);
+	return SkeletonClassesInheritSkeletonClasses;
 }

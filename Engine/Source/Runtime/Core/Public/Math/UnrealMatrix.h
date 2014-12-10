@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	UnMath.inl: Unreal inlined math functions
@@ -602,7 +602,7 @@ inline void FMatrix::SetAxes(FVector* Axis0 /*= NULL*/, FVector* Axis1 /*= NULL*
 
 inline FVector FMatrix::GetColumn(int32 i) const
 {
-	checkSlow(i >= 0 && i <= 2);
+	checkSlow(i >= 0 && i <= 3);
 	return FVector(M[0][i], M[1][i], M[2][i]);
 }
 

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
 #include "../../../Renderer/Private/ScenePrivate.h"
@@ -100,7 +100,7 @@ UAtmosphericFogComponent::UAtmosphericFogComponent(const FObjectInitializer& Obj
 
 	// Default lighting
 	DefaultBrightness = 50.f;
-	DefaultLightColor = FColor(255, 255, 255);
+	DefaultLightColor = FColor::White;
 
 	bDisableSunDisk = false;
 	bDisableGroundScattering = false;
@@ -664,26 +664,23 @@ void UAtmosphericFogComponent::Serialize(FArchive& Ar)
 		IrradianceData.Serialize(Ar, this);
 	}
 
-	if (Ar.UE4Ver() >= VER_UE4_ATMOSPHERIC_FOG_CACHE_TEXTURE)
-	{
-		InscatterData.Serialize(Ar,this);
+	InscatterData.Serialize(Ar,this);
 
-		if (Ar.IsLoading())
+	if (Ar.IsLoading())
+	{
+		int32 CounterVal;
+		Ar << CounterVal;
+		// Precomputation was not successful, just ignore it
+		if (CounterVal < EValid)
 		{
-			int32 CounterVal;
-			Ar << CounterVal;
-			// Precomputation was not successful, just ignore it
-			if (CounterVal < EValid)
-			{
-				CounterVal = EInvalid;
-			}
-			PrecomputeCounter.Set(CounterVal);
+			CounterVal = EInvalid;
 		}
-		else
-		{
-			int32 CounterVal = PrecomputeCounter.GetValue();
-			Ar << CounterVal;
-		}
+		PrecomputeCounter.Set(CounterVal);
+	}
+	else
+	{
+		int32 CounterVal = PrecomputeCounter.GetValue();
+		Ar << CounterVal;
 	}
 
 	if (Ar.IsLoading() && Ar.UE4Ver() < VER_UE4_ATMOSPHERIC_FOG_CACHE_DATA && PrecomputeCounter.GetValue() == EValid) 

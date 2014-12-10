@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "Paper2DEditorPrivatePCH.h"
 #include "SPaperEditorViewport.h"
@@ -151,9 +151,16 @@ void SPaperEditorViewport::Tick(const FGeometry& AllottedGeometry, const double 
 	ViewportClient->SetZoomPos(ViewOffset, GetZoomAmount());
 	ViewportClient->bNeedsRedraw = true;
 
-	if (Marquee.IsValid() || FSlateThrottleManager::Get().IsAllowingExpensiveTasks())
+	bool bSelectionModified = false;
+	if (Marquee.IsValid())
 	{
+		bSelectionModified = true;
+
 		OnSelectionChanged.ExecuteIfBound(Marquee, true);
+	}
+
+	if (bSelectionModified || bIsPanning || FSlateThrottleManager::Get().IsAllowingExpensiveTasks())
+	{
 		// Setup the selection set for the viewport
 		ViewportClient->SelectionRectangles.Empty();
 

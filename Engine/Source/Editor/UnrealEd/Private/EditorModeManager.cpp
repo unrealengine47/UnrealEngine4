@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "UnrealEd.h"
 #include "Engine/BookMark.h"
@@ -38,7 +38,7 @@ FEditorModeTools::FEditorModeTools()
 	,	SnappedActor( 0 )
 	,	TranslateRotateXAxisAngle(0)
 	,	DefaultID(FBuiltinEditorModes::EM_Default)
-	,	WidgetMode( FWidget::WM_Translate )
+	,	WidgetMode( FWidget::WM_None )
 	,	OverrideWidgetMode( FWidget::WM_None )
 	,	bShowWidget( 1 )
 	,	bHideViewportUI(false)

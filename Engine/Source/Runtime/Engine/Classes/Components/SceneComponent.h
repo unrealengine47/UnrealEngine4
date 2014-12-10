@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 #include "Components/ActorComponent.h"
@@ -86,6 +86,8 @@ public:
 	 * Default UObject constructor.
 	 */
 	USceneComponent(const FObjectInitializer& ObjectInitializer);
+
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	/** Current transform of this component, relative to the world */
 	FTransform ComponentToWorld;
@@ -182,9 +184,6 @@ public:
 	TEnumAsByte<enum EDetailMode> DetailMode;
 
 private:
-
-	UPROPERTY()
-	float RelativeScale_DEPRECATED;
 
 	bool NetUpdateTransform;
 

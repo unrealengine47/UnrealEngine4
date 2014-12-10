@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 
 #include "BlueprintGraphPrivatePCH.h"
@@ -10,6 +10,7 @@
 #include "Kismet/KismetArrayLibrary.h"
 #include "K2Node_PureAssignmentStatement.h"
 #include "GraphEditorSettings.h"
+#include "BlueprintActionFilter.h"
 
 #define LOCTEXT_NAMESPACE "K2Node"
 
@@ -1013,8 +1014,12 @@ bool UK2Node_CallFunction::CanFunctionSupportMultipleTargets(UFunction const* Fu
 
 bool UK2Node_CallFunction::CanPasteHere(const UEdGraph* TargetGraph) const
 {
+	// Basic check for graph compatibility, etc.
 	bool bCanPaste = Super::CanPasteHere(TargetGraph);
-	if(bCanPaste)
+
+	// We check function context for placability only in the base class case; derived classes are typically bound to
+	// specific functions that should always be placeable, but may not always be explicitly callable (e.g. InternalUseOnly).
+	if(bCanPaste && GetClass() == StaticClass())
 	{
 		const UEdGraphSchema_K2* K2Schema = GetDefault<UEdGraphSchema_K2>();
 		uint32 AllowedFunctionTypes = UEdGraphSchema_K2::EFunctionType::FT_Pure | UEdGraphSchema_K2::EFunctionType::FT_Const | UEdGraphSchema_K2::EFunctionType::FT_Protected;

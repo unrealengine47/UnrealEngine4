@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 //  AActor  used to controll matinee's and to replicate activation, playback, and other relevant flags to net clients
 
@@ -40,9 +40,6 @@ USTRUCT()
 struct FInterpGroupActorInfo
 {
 	GENERATED_USTRUCT_BODY()
-
-	UPROPERTY()
-	FName GroupName_DEPRECATED;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpGroupActorInfo)
 	FName ObjectName;
@@ -328,7 +325,6 @@ public:
 	virtual void PostEditChangeProperty( FPropertyChangedEvent& PropertyChangedEvent ) override; 
 	virtual bool CanEditChange( const UProperty* Property ) const override;
 #endif // WITH_EDITOR
-	virtual void PostLoadSubobjects( FObjectInstancingGraph* OuterInstanceGraph ) override;
 	// End UObject Interface
 
 	/** Increment track forwards by given timestep and iterate over each track updating any properties. */

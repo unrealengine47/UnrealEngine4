@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "PaperJsonImporterPrivatePCH.h"
 #include "Paper2DClasses.h"
@@ -23,7 +23,7 @@ FText FPaperSpriteSheetAssetTypeActions::GetName() const
 
 FColor FPaperSpriteSheetAssetTypeActions::GetTypeColor() const
 {
-	return FColor(0, 255, 255);
+	return FColor::Cyan;
 }
 
 UClass* FPaperSpriteSheetAssetTypeActions::GetSupportedClass() const

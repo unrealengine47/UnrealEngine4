@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -153,6 +153,7 @@ private:
 	/** Checks if the filters should appear. Dependant on the current tool being used. */
 	EVisibility GetVisibility_Filters() const;
 
+
 	/**
 	 * Checks if a static mesh can be added to the list of Static Meshes available.
 	 *
@@ -187,4 +188,5 @@ private:
 
 	/** List of items currently being displayed. */
 	TArray<TSharedRef<SFoliageEditMeshDisplayItem>> DisplayItemList;
+
 };

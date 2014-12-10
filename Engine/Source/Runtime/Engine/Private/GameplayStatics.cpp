@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
 #include "ParticleDefinitions.h"
@@ -129,18 +129,10 @@ void UGameplayStatics::SetGlobalTimeDilation(UObject* WorldContextObject, float 
 bool UGameplayStatics::SetGamePaused(UObject* WorldContextObject, bool bPaused)
 {
 	UWorld* const World = GEngine->GetWorldFromContextObject( WorldContextObject );
-	if (bPaused)
-	{
-		APlayerController* const PC = World->GetFirstPlayerController();
-		check(PC); // Gathering some information for TTP #303973
+	APlayerController* const PC = World->GetFirstPlayerController();
+	check(PC); // Gathering some information for TTP #303973
 
-		return World->GetAuthGameMode()->SetPause(PC);
-	}
-	else
-	{
-		World->GetAuthGameMode()->ClearPause();
-		return true;
-	}
+	return PC->SetPause(bPaused);
 }
 
 bool UGameplayStatics::IsGamePaused(UObject* WorldContextObject)
@@ -794,34 +786,6 @@ class UAudioComponent* UGameplayStatics::PlayDialogueAttached(class UDialogueWav
 	return AudioComponent;
 }
 
-void UGameplayStatics::PlaySound(UObject* WorldContextObject, USoundCue* InSoundCue, USceneComponent* AttachComponent, FName AttachName, bool bFollow, float VolumeMultiplier, float PitchMultiplier)
-{
-	if (bFollow)
-	{
-		PlaySoundAttached(InSoundCue, AttachComponent, AttachName, FVector::ZeroVector, EAttachLocation::KeepRelativeOffset, false, VolumeMultiplier, PitchMultiplier);
-	}
-	else
-	{
-		if ( AttachComponent == NULL )
-		{
-			UE_LOG(LogScript, Warning, TEXT("UGameplayStatics::PlaySound: NULL AttachComponent specified!"));
-			return;
-		}
-		FVector SoundLocation;
-		if (AttachName == NAME_None)
-		{
-			SoundLocation = AttachComponent->GetComponentLocation();
-		}
-		else
-		{
-			FTransform const SocketTransform = AttachComponent->GetSocketTransform(AttachName,RTS_World);
-			SoundLocation = SocketTransform.GetTranslation();
-		}
-		UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject);
-		PlaySoundAtLocation(World, InSoundCue,SoundLocation, VolumeMultiplier, PitchMultiplier);
-	}
-}
-
 void UGameplayStatics::SetBaseSoundMix(USoundMix* InSoundMix)
 {
 	if (InSoundMix)
@@ -865,10 +829,6 @@ void UGameplayStatics::ClearSoundMixModifiers()
 	{
 		AudioDevice->ClearSoundMixModifiers();
 	}
-}
-
-void UGameplayStatics::SetSoundMode(FName InSoundModeName)
-{
 }
 
 void UGameplayStatics::ActivateReverbEffect(class UReverbEffect* ReverbEffect, FName TagName, float Priority, float Volume, float FadeTime)

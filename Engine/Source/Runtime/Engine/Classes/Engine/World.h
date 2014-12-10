@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -504,10 +504,6 @@ class ENGINE_API UWorld : public UObject, public FNetworkNotify
 	GENERATED_UCLASS_BODY()
 
 #if WITH_EDITORONLY_DATA
-	// List of the layer names which were checked when the level was last saved
-	UPROPERTY(config) 
-	FString VisibleLayers_DEPRECATED;
-	
 	/** List of all the layers referenced by the world's actors */
 	UPROPERTY()
 	TArray< class ULayer* > Layers; 
@@ -1850,14 +1846,6 @@ private:
 	 * @param ViewFamily		Optional collection of views to take into account
 	 */
 	void UpdateLevelStreamingInner( UWorld* PersistentWorld, FSceneViewFamily* ViewFamily );
-
-	/**
-	 * Evaluates current world origin location against provided view information
-	 * Might issue request for world origin shifting
-	 *
-	 * @param ViewFamily	Collection of views to take into account
-	 */
-	void EvaluateWorldOriginLocation( const FSceneViewFamily& ViewFamily );
 
 public:
 	/**

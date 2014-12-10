@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "SlatePrivatePCH.h"
 
@@ -21,8 +21,8 @@ void SComboButton::Construct( const FArguments& InArgs )
 	TSharedPtr<SHorizontalBox> HBox;
 
 	SMenuAnchor::Construct( SMenuAnchor::FArguments()
-		.Placement( InArgs._MenuPlacement )
-		.Method( InArgs._Method )
+		.Placement(InArgs._MenuPlacement)
+		.Method(InArgs._Method)
 		[
 			SNew( SButton )
 			.ContentPadding( FMargin( 1, 0 ) )

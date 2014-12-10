@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	SkeletalMesh.h: Unreal skeletal mesh objects.
@@ -1367,72 +1367,6 @@ private:
 	 */
 	void AllocateData();	
 };
-
-//////////////////////////////////////////////////////////////////////////
-// DEPRECATED (can remove when min ue4 version > VER_UE4_REMOVE_EXTRA_SKELMESH_VERTEX_INFLUENCES)
-
-struct FInfluenceWeights_DEPRECATED
-{
-	uint32 InfluenceWeightsDWORD; 
-
-	friend FArchive& operator<<( FArchive& Ar, FInfluenceWeights_DEPRECATED& W )
-	{
-		return Ar << W.InfluenceWeightsDWORD;
-	}
-};
-
-struct FInfluenceBones_DEPRECATED
-{
-	uint32 InfluenceBonesDWORD; 
-
-	friend FArchive& operator<<( FArchive& Ar, FInfluenceBones_DEPRECATED& W )
-	{
-		return Ar << W.InfluenceBonesDWORD;
-	}
-
-};
-
-struct FVertexInfluence_DEPRECATED
-{
-	FInfluenceWeights_DEPRECATED Weights;
-	FInfluenceBones_DEPRECATED Bones;
-
-	friend FArchive& operator<<( FArchive& Ar, FVertexInfluence_DEPRECATED& W )
-	{
-		return Ar << W.Weights << W.Bones;
-	}
-};
-
-class FSkeletalMeshVertexInfluences_DEPRECATED : public FVertexBuffer
-{
-public:
-	TResourceArray<FVertexInfluence_DEPRECATED, VERTEXBUFFER_ALIGNMENT> Influences;
-	TMap<struct FBoneIndexPair, TArray<uint32> > VertexInfluenceMapping;
-	TArray<FSkelMeshSection> Sections;
-	TArray<FSkelMeshChunk> Chunks;
-	TArray<FBoneIndexType> RequiredBones;
-	TArray<int32> CustomLeftRightSectionMap;
-
-	FSkeletalMeshVertexInfluences_DEPRECATED() : Influences(true) {}
-
-
-	friend FArchive& operator<<( FArchive& Ar, FSkeletalMeshVertexInfluences_DEPRECATED& W )
-	{
-		Ar << W.Influences;
-
-		Ar << W.VertexInfluenceMapping;
-		Ar << W.Sections;
-		Ar << W.Chunks;
-		Ar << W.RequiredBones;
-		uint8 Usage = 0;
-		Ar << Usage;
-
-		return Ar;
-	}
-};
-
-//////////////////////////////////////////////////////////////////////////
-
 
 struct FMultiSizeIndexContainerData
 {

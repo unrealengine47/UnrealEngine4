@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -291,9 +291,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Collision, meta=(ShowOnlyInnerProperties))
 	FBodyInstance BodyInstance;
 
-	UPROPERTY()
-	TArray<struct FLandscapeLayerStruct> LayerInfoObjs_DEPRECATED;
-
 #if WITH_EDITORONLY_DATA
 	UPROPERTY()
 	TArray<ULandscapeLayerInfoObject*> EditorCachedLayerInfos_DEPRECATED;
@@ -371,7 +368,6 @@ public:
 	virtual void PostEditImport() override;
 	// End UObject Interface
 
-	FLandscapeLayerStruct* GetLayerInfo_Deprecated(FName LayerName);
 	LANDSCAPE_API static TArray<FName> GetLayersFromMaterial(UMaterialInterface* Material);
 	LANDSCAPE_API TArray<FName> GetLayersFromMaterial() const;
 	LANDSCAPE_API static ULandscapeLayerInfoObject* CreateLayerInfo(const TCHAR* LayerName, ULevel* Level);

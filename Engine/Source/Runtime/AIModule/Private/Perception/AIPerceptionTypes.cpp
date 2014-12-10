@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "AIModulePrivate.h"
 
@@ -14,6 +14,7 @@ FAIStimulus::FAIStimulus(const UAISense& Sense, float StimulusStrength, const FV
 	: Age(0.f), Strength(Result == SensingSucceeded ? StimulusStrength : -1.f)
 	, StimulusLocation(InStimulusLocation)
 	, ReceiverLocation(InReceiverLocation), bLastSensingResult(Result == SensingSucceeded)
+	, bExpired(false)
 {
 	Type = Sense.GetSenseID();
 	ExpirationAge = Sense.GetDefaultExpirationAge();

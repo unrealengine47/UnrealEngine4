@@ -1,7 +1,8 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once 
 #include "AI/Navigation/NavLinkDefinition.h"
+#include "AI/Navigation/NavigationTypes.h"
 
 class UNavArea;
 class UNavLinkDefinition;
@@ -92,7 +93,7 @@ protected:
 	TSubclassOf<UNavArea> AreaClass;
 	TSubclassOf<UNavArea> ReplaceAreaClass;
 	FBox Bounds;
-
+	
 	TArray<FVector> Points;
 	TEnumAsByte<ENavigationShapeType::Type> ShapeType;
 
@@ -251,6 +252,14 @@ struct ENGINE_API FCompositeNavModifier : public FNavigationModifier
 	/** returns a copy of Modifier */
 	FCompositeNavModifier GetInstantiatedMetaModifier(const struct FNavAgentProperties* NavAgent, TWeakObjectPtr<UObject> WeakOwnerPtr) const;
 	uint32 GetAllocatedSize() const;
+
+	bool HasPerInstanceTransforms() const;
+	// Should be called only on game thread
+	void GetPerInstanceTransforms(const FBox& AreaBox, TArray<FTransform>& PerInstanceTransforms) const;
+
+public:
+	// Gathers per instance data for navigation area modifiers in a specified area box
+	FNavDataPerInstanceTransformDelegate NavDataPerInstanceTransformDelegate;
 
 private:
 	TArray<FAreaNavModifier> Areas;

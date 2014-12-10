@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -607,11 +607,6 @@ class UAnimSequenceBase : public UAnimationAsset
 	ENGINE_API uint8* FindNotifyPropertyData(int32 NotifyIndex, UArrayProperty*& ArrayProperty);
 
 #endif	//WITH_EDITORONLY_DATA
-
-	/**
-	 * Update Morph Target Data type to new Curve Type
-	 */
-	ENGINE_API virtual void UpgradeMorphTargetCurves();
 
 	// Begin UAnimationAsset interface
 	virtual void TickAssetPlayerInstance(const FAnimTickRecord& Instance, class UAnimInstance* InstanceOwner, FAnimAssetTickContext& Context) const override;

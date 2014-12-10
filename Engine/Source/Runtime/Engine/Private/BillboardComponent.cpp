@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
 #include "Engine/Light.h"
@@ -160,7 +160,7 @@ public:
 					// Sprites of locked actors draw in red.
 					if (bIsActorLocked)
 					{
-						ColorToUse = FColor(255,0,0);
+						ColorToUse = FColor::Red;
 					}
 					FLinearColor LevelColorToUse = IsSelected() ? ColorToUse : (FLinearColor)LevelColor;
 					FLinearColor PropertyColorToUse = PropertyColor;
@@ -246,7 +246,6 @@ UBillboardComponent::UBillboardComponent(const FObjectInitializer& ObjectInitial
 	};
 	static FConstructorStatics ConstructorStatics;
 
-	BodyInstance.bEnableCollision_DEPRECATED = false;
 	SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
 	Sprite = ConstructorStatics.SpriteTexture.Object;
 	bAbsoluteScale = true;

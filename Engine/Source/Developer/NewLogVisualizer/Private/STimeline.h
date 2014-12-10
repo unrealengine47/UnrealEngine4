@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -29,7 +29,10 @@ public:
 
 	void OnFiltersChanged();
 	void OnSearchChanged(const FText& Filter);
+	void OnFiltersSearchChanged(const FText& Filter);
 	void UpdateVisibility();
+	void UpdateVisibilityForItems();
+
 	void AddEntry(const FVisualLogDevice::FVisualLogEntryItem& Entry) { Entries.Add(Entry); }
 	const TArray<FVisualLogDevice::FVisualLogEntryItem>& GetEntries() { return Entries; }
 	FName GetName() { return Name; }
@@ -45,6 +48,7 @@ protected:
 
 	FName Name;
 	FString SearchFilter;
+	FString QuickSearchStrng;
 
 	/** Delegate to execute to get the menu content of this timeline */
 	FOnGetContent OnGetMenuContent;

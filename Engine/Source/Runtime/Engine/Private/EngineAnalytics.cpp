@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
 #include "EngineAnalytics.h"
@@ -214,7 +214,6 @@ void FEngineAnalytics::Initialize()
 
 void FEngineAnalytics::Shutdown()
 {
-	checkf(bIsInitialized, TEXT("FEngineAnalytics::Shutdown called outside of Initialize."));
 	Analytics.Reset();
 	bIsInitialized = false;
 }

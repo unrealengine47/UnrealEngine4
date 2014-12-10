@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -44,6 +44,7 @@ private:
 
 	void BuildPListSection(IDetailLayoutBuilder& DetailLayout);
 	void BuildIconSection(IDetailLayoutBuilder& DetailLayout);
+	void BuildRemoteBuildingSection(IDetailLayoutBuilder& DetailLayout);
 
 	// Navigates to the plist in explorer or finder
 	FReply OpenPlistFolder();

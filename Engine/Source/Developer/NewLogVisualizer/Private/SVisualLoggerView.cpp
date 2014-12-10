@@ -1,3 +1,5 @@
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
+
 #include "LogVisualizer.h"
 #include "SVisualLoggerView.h"
 #include "TimeSliderController.h"
@@ -36,6 +38,8 @@ void SVisualLoggerView::Construct(const FArguments& InArgs, const TSharedRef<FUI
 	TSharedRef<SScrollBar> ScrollBar =
 		SNew(SScrollBar)
 		.Thickness(FVector2D(5.0f, 5.0f));
+
+	ULogVisualizerSettings* Settings = ULogVisualizerSettings::StaticClass()->GetDefaultObject<ULogVisualizerSettings>();
 
 	ChildSlot
 		[
@@ -91,9 +95,9 @@ void SVisualLoggerView::Construct(const FArguments& InArgs, const TSharedRef<FUI
 								SNew(SBox)
 								.Padding(FMargin(0, 0, 4, 0))
 								[
-									SNew(SSearchBox)
+									SAssignNew(SearchBox, SSearchBox)
 									.OnTextChanged(InArgs._OnFiltersSearchChanged)
-									.HintText(LOCTEXT("FiltersSearchHint", "Log Category Search"))
+									.HintText_Lambda([Settings]()->FText{return Settings->bSearchInsideLogs ? LOCTEXT("FiltersSearchHint", "Log Data Search") : LOCTEXT("FiltersSearchHint", "Log Category Search"); })
 								]
 #endif
 							]
@@ -157,6 +161,14 @@ void SVisualLoggerView::Construct(const FArguments& InArgs, const TSharedRef<FUI
 
 }
 
+void SVisualLoggerView::SetSearchString(FText SearchString) 
+{ 
+	if (SearchBox.IsValid())
+	{
+		SearchBox->SetText(SearchString);
+	}
+}
+
 void SVisualLoggerView::OnObjectSelectionChanged(TSharedPtr<class STimeline> TimeLine)
 {
 	//FIXME: scroll to selected timeline (SebaK)
@@ -210,4 +222,10 @@ void SVisualLoggerView::OnFiltersChanged()
 {
 	TimelinesContainer->OnFiltersChanged();
 }
+
+void SVisualLoggerView::OnFiltersSearchChanged(const FText& Filter)
+{
+	TimelinesContainer->OnFiltersSearchChanged(Filter);
+}
+
 #undef LOCTEXT_NAMESPACE

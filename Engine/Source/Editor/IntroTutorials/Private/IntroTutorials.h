@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 #include "Curves/CurveFloat.h"
@@ -33,7 +33,7 @@ public:
 
 	void SummonTutorialBrowser();
 
-	static FString AnalyticsEventNameFromTutorial(const FString& BaseEventName, UEditorTutorial* Tutorial);
+	static FString AnalyticsEventNameFromTutorial(UEditorTutorial* Tutorial);
 
 private:
 

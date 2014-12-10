@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 using System;
 using System.Collections.Generic;
@@ -249,6 +249,7 @@ namespace UnrealBuildTool
 						bBuildShaderFormats = true;
                         InModule.AddDynamicallyLoadedModule("TextureFormatPVR");
 						InModule.AddDynamicallyLoadedModule("TextureFormatDXT");
+						InModule.AddDynamicallyLoadedModule("TextureFormatASTC");
                         InModule.AddPlatformSpecificDynamicallyLoadedModule("TextureFormatAndroid");    // ATITC, ETC1 and ETC2
                         if (UEBuildConfiguration.bBuildDeveloperTools)
 						{

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	UnObj.cpp: Unreal object manager.
@@ -54,7 +54,7 @@ UObject::UObject( EStaticConstructor, EObjectFlags InFlags )
 
 UObject* UObject::CreateDefaultSubobject(FName SubobjectFName, UClass* ReturnType, UClass* ClassToCreateByDefault, bool bIsRequired, bool bAbstract, bool bIsTransient)
 {
-	UE_CLOG(!GIsInConstructor, LogObj, Fatal, TEXT("CreateDefultSubobject can only be used inside of UObject constructors"));
+	UE_CLOG(!GIsInConstructor, LogObj, Fatal, TEXT("CreateDefultSubobject can only be used inside of UObject constructors. UObject constructing subobjects cannot be created using new or placement new operator."));
 	auto CurrentInitializer = FTlsObjectInitializers::Top();
 	UE_CLOG(!CurrentInitializer, LogObj, Fatal, TEXT("No object initializer found during construction."));
 	UE_CLOG(CurrentInitializer->Obj != this, LogObj, Fatal, TEXT("Using incorrect object initializer."));
@@ -827,12 +827,6 @@ void UObject::Serialize( FArchive& Ar )
 		}
 	}
 
-	if (Ar.UE4Ver() < VER_UE4_REMOVE_NET_INDEX && (!(Ar.GetPortFlags() & PPF_Duplicate)))
-	{
-		int32 OldNetIndex = 0;
-		Ar << OldNetIndex;
-	}
-
 	// Serialize object properties which are defined in the class.
 	if( !Class->IsChildOf(UClass::StaticClass()) )
 	{
@@ -843,10 +837,7 @@ void UObject::Serialize( FArchive& Ar )
 		// Handle derived UClass objects (exact UClass objects are native only and shouldn't be touched)
 		if (Class != UClass::StaticClass())
 		{
-			if (Ar.UE4Ver() >= VER_UE4_ADDED_SCRIPT_SERIALIZATION_FOR_BLUEPRINT_GENERATED_CLASSES)
-			{
-				SerializeScriptProperties(Ar);
-			}
+			SerializeScriptProperties(Ar);
 		}
 	}
 

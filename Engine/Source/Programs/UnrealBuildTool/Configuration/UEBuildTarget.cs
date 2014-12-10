@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 using System;
 using System.Collections.Generic;
@@ -230,6 +230,10 @@ namespace UnrealBuildTool
 				if (ParsedPlatform != UnrealTargetPlatform.Unknown)
 				{
 					Platform = ParsedPlatform;
+				}
+				else if (Arguments[ArgumentIndex].ToLowerInvariant().StartsWith("-overridetargetappname="))
+				{
+					AdditionalDefinitions.Add(Arguments[ArgumentIndex]);
 				}
 				else
 				{
@@ -755,7 +759,17 @@ namespace UnrealBuildTool
 			List<OnlyModule> InOnlyModules,
 			bool bInEditorRecompile)
 		{
-			AppName = InAppName;
+			string CmdlineAppName = null;
+			const string OverrideTargetAppNameSwitch = "-overridetargetappname=";
+			if ((CmdlineAppName = InAdditionalDefinitions.Find(x => x.StartsWith(OverrideTargetAppNameSwitch))) != null)
+			{
+				AppName = CmdlineAppName.Substring(OverrideTargetAppNameSwitch.Length);
+			}
+			else
+			{
+				AppName = InAppName;
+			}
+
 			GameName = InGameName;
 			Platform = InPlatform;
 			Configuration = InConfiguration;
@@ -2256,7 +2270,16 @@ namespace UnrealBuildTool
 		{
 			// Determine the binary extension for the platform and binary type.
 			var BuildPlatform = UEBuildPlatform.GetBuildPlatform(Platform);
-			string BinaryExtension = BuildPlatform.GetBinaryExtension(BinaryType);
+			string BinaryExtension;
+
+			if (!BuildConfiguration.bRunUnrealCodeAnalyzer)
+			{
+				BinaryExtension = BuildPlatform.GetBinaryExtension(BinaryType);
+			}
+			else
+			{
+				BinaryExtension = @"-" + BuildConfiguration.UCAModuleToAnalyze + @".analysis";
+			}
 
 			UnrealTargetConfiguration LocalConfig = Configuration;
 			if(Configuration == UnrealTargetConfiguration.DebugGame && !String.IsNullOrEmpty(ModuleName) && !RulesCompiler.IsGameModule(ModuleName))

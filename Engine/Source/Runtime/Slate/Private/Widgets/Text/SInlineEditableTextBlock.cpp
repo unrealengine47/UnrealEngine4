@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "SlatePrivatePCH.h"
 #include "SInlineEditableTextBlock.h"
@@ -118,6 +118,11 @@ void SInlineEditableTextBlock::SetText( const FString& InText )
 	Text = FText::FromString( InText );
 	TextBlock->SetText( Text );
 	TextBox->SetText( Text );
+}
+
+void SInlineEditableTextBlock::SetWrapTextAt( const TAttribute<float>& InWrapTextAt )
+{
+	TextBlock->SetWrapTextAt( InWrapTextAt );
 }
 
 FReply SInlineEditableTextBlock::OnMouseButtonDown( const FGeometry& MyGeometry, const FPointerEvent& MouseEvent )

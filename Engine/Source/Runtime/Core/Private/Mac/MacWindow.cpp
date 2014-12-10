@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "CorePrivatePCH.h"
 #include "MacWindow.h"
@@ -139,6 +139,9 @@ void FMacWindow::Initialize( FMacApplication* const Application, const TSharedRe
 			}
 
 			[WindowHandle setOpaque: NO];
+
+			[WindowHandle setMinSize:NSMakeSize(Definition->SizeLimits.GetMinWidth().Get(10.0f), Definition->SizeLimits.GetMinHeight().Get(10.0f))];
+			[WindowHandle setMaxSize:NSMakeSize(Definition->SizeLimits.GetMaxWidth().Get(10000.0f), Definition->SizeLimits.GetMaxHeight().Get(10000.0f))];
 
 			ReshapeWindow( X, Y, SizeX, SizeY );
 

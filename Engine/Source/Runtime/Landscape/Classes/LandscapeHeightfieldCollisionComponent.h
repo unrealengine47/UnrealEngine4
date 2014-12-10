@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 
 #pragma once
@@ -21,10 +21,6 @@ UCLASS(MinimalAPI)
 class ULandscapeHeightfieldCollisionComponent : public UPrimitiveComponent
 {
 	GENERATED_UCLASS_BODY()
-
-	/** DEPRECATED List of layers painted on this component. Matches the WeightmapLayerAllocations array in the LandscapeComponent. */
-	UPROPERTY()
-	TArray<FName> ComponentLayers_DEPRECATED;
 
 	/** List of layers painted on this component. Matches the WeightmapLayerAllocations array in the LandscapeComponent. */
 	UPROPERTY()
@@ -52,10 +48,6 @@ class ULandscapeHeightfieldCollisionComponent : public UPrimitiveComponent
 	/** Guid used to share PhysX heightfield objects in the editor */
 	UPROPERTY()
 	FGuid HeightfieldGuid;
-
-	/** Cached bounds, created at heightmap update time */
-	UPROPERTY()
-	FBoxSphereBounds CachedBoxSphereBounds_DEPRECATED;
 
 	/** Cached local-space bounding box, created at heightmap update time */
 	UPROPERTY()
@@ -112,8 +104,9 @@ class ULandscapeHeightfieldCollisionComponent : public UPrimitiveComponent
 	/** 
 	 *	Flag to indicate that the next time we cook data, we should save it to the DDC.
 	 *	Used to ensure DDC is populated when loading content for the first time. 
+	 *  For editor and full version of collision objects
 	 */
-	mutable bool								bShouldSaveCookedDataToDDC;
+	mutable bool								bShouldSaveCookedDataToDDC[2];
 #endif //WITH_EDITORONLY_DATA
 
 	/** 

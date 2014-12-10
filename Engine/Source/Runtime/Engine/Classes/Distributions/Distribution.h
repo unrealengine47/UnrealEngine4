@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 
 #pragma once
@@ -59,6 +59,9 @@ UCLASS(DefaultToInstanced, collapsecategories, hidecategories=Object, editinline
 class UDistribution : public UObject, public FCurveEdInterface
 {
 	GENERATED_UCLASS_BODY()
+
+	/** Default value for initializing and checking correct values on UDistributions. */
+	static const float DefaultValue;
 
 };
 

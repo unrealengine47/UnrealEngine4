@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	SceneComponent.cpp
@@ -27,7 +27,6 @@ USceneComponent::USceneComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
 	Mobility = EComponentMobility::Movable;
-	RelativeScale_DEPRECATED = 1.0f;
 	RelativeScale3D = FVector(1.0f,1.0f,1.0f);
 	// default behavior is visible
 	bVisible = true;

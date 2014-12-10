@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 
 #include "ContentBrowserPCH.h"
@@ -186,7 +186,7 @@ void SContentBrowser::Construct( const FArguments& InArgs, const FName& InInstan
 							.ButtonStyle(FEditorStyle::Get(), "ToggleButton")
 							.ToolTipText(LOCTEXT("AddContentTooltip", "Get more content."))
 							.ContentPadding(0)
-							.Visibility(EVisibility::Collapsed) // TODO: Make the button visible once there are actually content packs available.
+							.Visibility(UEditorExperimentalSettings::StaticClass()->GetDefaultObject<UEditorExperimentalSettings>()->bGetFeatureContent == false ? EVisibility::Collapsed : EVisibility::Visible)
 							.OnClicked(this, &SContentBrowser::OnAddContentClicked)
 							[
 								SNew(SHorizontalBox)

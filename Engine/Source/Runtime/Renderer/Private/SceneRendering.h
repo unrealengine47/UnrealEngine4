@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	SceneRendering.h: Scene rendering definitions.
@@ -720,6 +720,9 @@ protected:
 
 	/** Renders any necessary shadowmaps. */
 	void RenderShadowDepthMaps(FRHICommandListImmediate& RHICmdList);
+
+	/** Perform upscaling when post process is not used. */
+	void SimpleUpscale(FRHICommandListImmediate& RHICmdList, FViewInfo &View);
 
 	/**
 	  * Used by RenderShadowDepthMaps to render shadowmap for the given light.

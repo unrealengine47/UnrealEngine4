@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "DetailCustomizationsPrivatePCH.h"
 #include "AnimMontageSegmentDetails.h"
@@ -9,7 +9,7 @@
 
 /////////////////////////////////////////////////////////////////////////
 FAnimationSegmentViewportClient::FAnimationSegmentViewportClient(FPreviewScene& InPreviewScene)
-	: FEditorViewportClient(GLevelEditorModeTools(), &InPreviewScene)
+	: FEditorViewportClient(nullptr, &InPreviewScene)
 {
 	SetViewMode(VMI_Lit);
 

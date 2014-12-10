@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
 #include "Engine/AssetUserData.h"
@@ -57,15 +57,6 @@ AWorldSettings::AWorldSettings(const FObjectInitializer& ObjectInitializer)
 	VisibilityCellSize = 200;
 	VisibilityAggressiveness = VIS_LeastAggressive;
 	LevelLightingQuality = Quality_MAX;
-
-	UStaticMeshComponent* StaticMeshComponent = ObjectInitializer.CreateDefaultSubobject<UStaticMeshComponent>(this, TEXT("StaticMeshComponent0"));
-	StaticMeshComponent->bHiddenInGame = true;
-	StaticMeshComponent->BodyInstance.bEnableCollision_DEPRECATED = true;
-	StaticMeshComponent->SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
-	StaticMeshComponent->PostPhysicsComponentTick.bCanEverTick = false;
-	StaticMeshComponent->Mobility = EComponentMobility::Static;
-
-	RootComponent = StaticMeshComponent;
 
 #if WITH_EDITORONLY_DATA
 	bActorLabelEditable = false;

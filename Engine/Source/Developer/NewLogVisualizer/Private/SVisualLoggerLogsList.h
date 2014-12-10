@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -15,10 +15,13 @@ public:
 
 	void OnItemSelectionChanged(const FVisualLogDevice::FVisualLogEntryItem& EntryItem);
 	void OnFiltersChanged();
+	void OnFiltersSearchChanged(const FText& Filter);
+	FText GetFilterText() const;
 
 protected:
 	TSharedPtr<SListView<TSharedPtr<struct FLogEntryItem> > > LogsLinesWidget;
 	TArray<TSharedPtr<struct FLogEntryItem> > LogEntryLines;
 	TSharedPtr<IVisualLoggerInterface> VisualLoggerInterface;
 	FVisualLogDevice::FVisualLogEntryItem CurrentLogEntry;
+	FText FilterText;
 };

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 
 #include "UnrealEd.h"
@@ -3724,9 +3724,6 @@ namespace ThumbnailTools
 		
 		// Seek the the part of the file where the thumbnail table lives
 		FileReader->Seek( FileSummary.ThumbnailTableOffset );
-
-		//make sure the filereader gets the corect version number (it defaults to latest version)
-		FileReader->SetUE3Ver(FileSummary.GetFileVersionUE3());
 
 		int32 LastFileOffset = -1;
 		// Load the thumbnail table of contents

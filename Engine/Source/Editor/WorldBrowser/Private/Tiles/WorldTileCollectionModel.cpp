@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 #include "WorldBrowserPrivatePCH.h"
 
 #include "Engine/WorldComposition.h"
@@ -571,17 +571,43 @@ void FWorldTileCollectionModel::CustomizeFileMainMenu(FMenuBuilder& InMenuBuilde
 	InMenuBuilder.EndSection();
 }
 
-FMatrix FWorldTileCollectionModel::GetObserverViewMatrix() const
+bool FWorldTileCollectionModel::GetObserverView(FVector& Location, FRotator& Rotation) const
 {
-	UWorld*	SimulationWorld = GetSimulationWorld();
-	if (SimulationWorld && SimulationWorld->WorldComposition)
+	const UEditorEngine* EditorEngine = Editor.Get();
+
+	if (IsSimulating())
 	{
-		return SimulationWorld->WorldComposition->LastWorldToViewMatrix;
+		if (EditorEngine->bIsSimulatingInEditor && GCurrentLevelEditingViewportClient->IsSimulateInEditorViewport())
+		{
+			Rotation = GCurrentLevelEditingViewportClient->GetViewRotation();
+			Location = GCurrentLevelEditingViewportClient->GetViewLocation();
+			return true;
+		}
+		else
+		{
+			UWorld* SimulationWorld = GetSimulationWorld();
+			for (FConstPlayerControllerIterator Iterator = SimulationWorld->GetPlayerControllerIterator(); Iterator; ++Iterator)
+			{
+				APlayerController* PlayerActor = *Iterator;
+				PlayerActor->GetPlayerViewPoint(Location, Rotation);
+				return true;
+			}
+		}
 	}
 	else
 	{
-		return FMatrix::Identity;
+		for (const FLevelEditorViewportClient* ViewportClient : EditorEngine->LevelViewportClients)
+		{
+			if (ViewportClient && ViewportClient->IsPerspective())
+			{
+				Rotation = ViewportClient->GetViewRotation();
+				Location = ViewportClient->GetViewLocation();
+				return true;
+			}
+		}
 	}
+	
+	return false;
 }
 
 static double Area(FVector2D InRect)
@@ -1836,8 +1862,7 @@ bool FWorldTileCollectionModel::GenerateLODLevels(FLevelModelList InLevelList, i
 			TileModel->SetVisible(true);
 		}
 				
-		FWorldTileInfo TileInfo = TileModel->TileDetails->GetInfo();
-		FWorldTileLODInfo LODInfo = TileModel->TileDetails->GetInfo().LODList[TargetLODIndex];
+		FLevelSimplificationDetails SimplificationDetails = TileModel->GetLevelObject()->LevelSimplification[TargetLODIndex];
 		
 		// Source level package name
 		FString SourceLongPackageName = TileModel->TileDetails->PackageName.ToString();
@@ -1865,7 +1890,7 @@ bool FWorldTileCollectionModel::GenerateLODLevels(FLevelModelList InLevelList, i
 		TArray<FTransform>			AssetsToSpawnTransform;
 		TArray<AActor*>				Actors;
 		TArray<ALandscapeProxy*>	LandscapeActors;
-		// Separate flies from cutlets
+		// Separate landscape actors from all others
 		for (AActor* Actor : TileModel->GetLevelObject()->Actors)
 		{
 			if (Actor)
@@ -1888,7 +1913,7 @@ bool FWorldTileCollectionModel::GenerateLODLevels(FLevelModelList InLevelList, i
 			GWarn->StatusUpdate(0, 10, LOCTEXT("GeneratingProxyMesh", "Generating Proxy Mesh"));
 
 			FMeshProxySettings ProxySettings;
-			ProxySettings.ScreenSize = ProxySettings.ScreenSize*(LODInfo.GenDetailsPercentage/100.f);
+			ProxySettings.ScreenSize = ProxySettings.ScreenSize*(SimplificationDetails.DetailsPercentage/100.f);
 			TArray<UObject*> OutAssets;
 			FVector OutProxyLocation;
 			FString ProxyPackageName = TEXT("PROXY_") + FPackageName::GetShortName(TileModel->TileDetails->PackageName);
@@ -1908,7 +1933,7 @@ bool FWorldTileCollectionModel::GenerateLODLevels(FLevelModelList InLevelList, i
 
 		using namespace MaterialExportUtils;
 
-		// Convert landscape actors into static meshes and apply mesh reduction 
+		// Convert landscape actors into static meshes
 		int32 LandscapeActorIndex = 0;
 		for (ALandscapeProxy* Landscape : LandscapeActors)
 		{
@@ -1918,36 +1943,33 @@ bool FWorldTileCollectionModel::GenerateLODLevels(FLevelModelList InLevelList, i
 			FFlattenMaterial LandscapeFlattenMaterial;
 			FVector LandscapeWorldLocation = Landscape->GetActorLocation();
 		
-			Landscape->ExportToRawMesh(MAX_int32, LandscapeRawMesh);
+			Landscape->ExportToRawMesh(SimplificationDetails.LandscapeExportLOD, LandscapeRawMesh);
 		
 			for (FVector& VertexPos : LandscapeRawMesh.VertexPositions)
 			{
 				VertexPos-= LandscapeWorldLocation;
 			}
 								
-			// This is texture resolution for a landscape, probably need to be calculated using landscape size
-			LandscapeFlattenMaterial.DiffuseSize	= FIntPoint(1024, 1024);
-			LandscapeFlattenMaterial.NormalSize		= FIntPoint(1024, 1024);
+			// This is texture resolution for a landscape, probably needs to be calculated using landscape size
+			LandscapeFlattenMaterial.DiffuseSize = FIntPoint(1024, 1024);
+			
+			if (SimplificationDetails.bGenerateLandscapeNormalMap)
+			{
+				LandscapeFlattenMaterial.NormalSize = FIntPoint(1024, 1024);
+			}
+
+			if (SimplificationDetails.bGenerateLandscapeRoughnessMap)
+			{
+				LandscapeFlattenMaterial.RoughnessSize = FIntPoint(1024, 1024);
+			}
+
+			if (SimplificationDetails.bGenerateLandscapeSpecularMap)
+			{
+				LandscapeFlattenMaterial.SpecularSize = FIntPoint(1024, 1024);
+			}
+			
 			ExportMaterial(Landscape, LandscapeFlattenMaterial);
 		
-			// TODO: Disabled landscape mesh simplification, does not really needed since exporting highest landscape LOD already provide low triangle count
-			// Reduce landscape mesh
-			//if (LODInfo.GenDetailsPercentage != 100.f)
-			//{
-			//	FMeshReductionSettings Settings;
-			//	Settings.PercentTriangles = LODInfo.GenDetailsPercentage/100.f;
-			//	float OutMaxDeviation = 0.f;
-			//	FRawMesh LandscapeReducedMesh;
-
-			//	MeshUtilities.GetMeshReductionInterface()->Reduce(
-			//		LandscapeReducedMesh,
-			//		OutMaxDeviation,
-			//		LandscapeRawMesh,
-			//		Settings);
-
-			//	LandscapeRawMesh = LandscapeReducedMesh;
-			//}
-
 			FString LandscapeBaseAssetName = Landscape->GetName();
 			// Construct landscape material
 			UMaterial* StaticLandscapeMaterial = MaterialExportUtils::CreateMaterial(

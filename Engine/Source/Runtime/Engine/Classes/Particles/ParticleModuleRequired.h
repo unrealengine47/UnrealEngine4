@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 
 #pragma once
@@ -117,10 +117,6 @@ class UParticleModuleRequired : public UParticleModule
 	/** If true, kill the emitter when it completes										*/
 	UPROPERTY(EditAnywhere, Category=Emitter)
 	uint32 bKillOnCompleted:1;
-
-	/** Whether this emitter requires sorting as specified by artist.					*/
-	UPROPERTY()
-	uint32 bRequiresSorting_DEPRECATED:1;
 
 	/**
 	 *	The sorting mode to use for this emitter.
@@ -344,7 +340,6 @@ class UParticleModuleRequired : public UParticleModule
 #endif // WITH_EDITOR
 	virtual void	PostLoad() override;
 	virtual void	PostInitProperties() override;
-	virtual void	Serialize(FArchive& Ar) override;
 	// End UObject Interface
 
 	// Begin UParticleModule Interface

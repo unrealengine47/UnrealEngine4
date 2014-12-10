@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /**
  * Movement component updates position of associated PrimitiveComponent during its tick.
@@ -52,7 +52,7 @@ class ENGINE_API UMovementComponent : public UActorComponent
 	 * If this is null at startup and bAutoRegisterUpdatedComponent is true, the owning Actor's root component will automatically be set as our UpdatedComponent at startup.
 	 * @see bAutoRegisterUpdatedComponent, SetUpdatedComponent()
 	 */
-	UPROPERTY(BlueprintReadOnly, Category=MovementComponent)
+	UPROPERTY(BlueprintReadOnly, DuplicateTransient, Category=MovementComponent)
 	UPrimitiveComponent* UpdatedComponent;
 
 	/**

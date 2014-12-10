@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "WorldBrowserPrivatePCH.h"
 #include "SourceControlWindows.h"
@@ -686,9 +686,9 @@ void FLevelCollectionModel::CustomizeFileMainMenu(FMenuBuilder& InMenuBuilder) c
 	}
 }
 
-FMatrix FLevelCollectionModel::GetObserverViewMatrix() const
+bool FLevelCollectionModel::GetObserverView(FVector& Location, FRotator& Rotation) const
 {
-	return FMatrix::Identity;
+	return false;
 }
 
 bool FLevelCollectionModel::CompareLevelsZOrder(TSharedPtr<FLevelModel> InA, TSharedPtr<FLevelModel> InB) const

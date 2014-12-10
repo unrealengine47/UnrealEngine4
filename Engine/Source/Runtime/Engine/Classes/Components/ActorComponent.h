@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 #include "Engine/EngineBaseTypes.h"
@@ -26,6 +26,8 @@ public:
 	 * Default UObject constructor.
 	 */
 	UActorComponent(const FObjectInitializer& ObjectInitializer);
+
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	/** Main tick function for the Actor */
 	UPROPERTY()
@@ -111,7 +113,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Components")
 	class AActor* GetOwner() const;
 
-	UFUNCTION(BlueprintCallable, Category="Components", meta=(DeprecatedFunction))
 	virtual class UWorld* GetWorld() const override;
 
 	/** See if this component contains the supplied tag */

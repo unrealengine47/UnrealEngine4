@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "LogVisualizer.h"
 #include "SDockTab.h"
@@ -675,7 +675,7 @@ void SVisualLogger::OnObjectSelectionChanged(TSharedPtr<class STimeline> TimeLin
 void SVisualLogger::OnFiltersSearchChanged(const FText& Filter)
 {
 	VisualLoggerFilters->OnFiltersSearchChanged(Filter);
-	LogsList->OnFiltersChanged();
-	MainView->OnFiltersChanged();
+	LogsList->OnFiltersSearchChanged(Filter);
+	MainView->OnFiltersSearchChanged(Filter);
 }
 #undef LOCTEXT_NAMESPACE

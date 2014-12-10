@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "AIModulePrivate.h"
 #include "Perception/AIPerceptionComponent.h"
@@ -455,7 +455,10 @@ bool UAIPerceptionComponent::AgeStimuli(const float ConstPerceptionAgingRate)
 
 		for (FAIStimulus& Stimulus : ActorPerceptionInfo.LastSensedStimuli)
 		{
-			if (Stimulus.AgeStimulus(ConstPerceptionAgingRate) == false)
+			// Age the stimulus. If it is active but has just expired, mark it as such
+			if (Stimulus.AgeStimulus(ConstPerceptionAgingRate) == false && 
+				Stimulus.IsActive() && 
+				!Stimulus.IsExpired())
 			{
 				AActor* TargetActor = ActorPerceptionInfo.Target.Get();
 				if (TargetActor)

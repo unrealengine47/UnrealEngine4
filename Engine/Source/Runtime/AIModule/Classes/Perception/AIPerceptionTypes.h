@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -101,13 +101,13 @@ public:
 		: Age(0.f), ExpirationAge(NeverHappenedAge)
 		, Strength(Result == SensingSucceeded ? StimulusStrength : -1.f)
 		, StimulusLocation(InStimulusLocation)
-		, ReceiverLocation(InReceiverLocation), Type(SenseType), bLastSensingResult(Result == SensingSucceeded)
+		, ReceiverLocation(InReceiverLocation), Type(SenseType), bLastSensingResult(Result == SensingSucceeded), bExpired(false)
 	{}
 
 	// default constructor
 	FAIStimulus()
-		: Age(NeverHappenedAge), Strength(-1.f), StimulusLocation(FAISystem::InvalidLocation)
-		, ReceiverLocation(FAISystem::InvalidLocation), Type(FAISenseID::InvalidID()), bLastSensingResult(false)
+		: Age(NeverHappenedAge), ExpirationAge(NeverHappenedAge), Strength(-1.f), StimulusLocation(FAISystem::InvalidLocation)
+		, ReceiverLocation(FAISystem::InvalidLocation), Type(FAISenseID::InvalidID()), bLastSensingResult(false), bExpired(false)
 	{}
 
 	FAIStimulus& SetExpirationAge(float InExpirationAge) { ExpirationAge = InExpirationAge; return *this; }
@@ -118,7 +118,7 @@ public:
 	FORCEINLINE bool AgeStimulus(float ConstPerceptionAgingRate) 
 	{ 
 		Age += ConstPerceptionAgingRate; 
-		return Age > ExpirationAge;
+		return Age < ExpirationAge;
 	}
 	FORCEINLINE bool WasSuccessfullySensed() const { return bLastSensingResult; }
 	FORCEINLINE bool IsExpired() const { return bExpired; }

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	Volume.cpp: AVolume and subclasses
@@ -19,7 +19,6 @@ AVolume::AVolume(const FObjectInitializer& ObjectInitializer)
 {
 	GetBrushComponent()->AlwaysLoadOnClient = true;
 	GetBrushComponent()->AlwaysLoadOnServer = true;
-	GetBrushComponent()->BodyInstance.bEnableCollision_DEPRECATED = true;
 	static FName CollisionProfileName(TEXT("OverlapAll"));
 	GetBrushComponent()->SetCollisionProfileName(CollisionProfileName);
 	GetBrushComponent()->bGenerateOverlapEvents = true;

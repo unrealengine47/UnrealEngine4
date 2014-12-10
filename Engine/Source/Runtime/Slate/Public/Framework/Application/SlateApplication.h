@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -949,6 +949,12 @@ public:
 	/** Set the analog cursor to be enabled or disabled. */
 	void SetAnalogCursorEnable(bool bEnable, TSharedPtr<class FAnalogCursor> OptionalNewAnalogCursor = nullptr);
 
+	/** Sets the hit detection radius of the cursor */
+	void SetCursorRadius(float NewRadius);
+
+	/** Getter for the cursor radius */
+	float GetCursorRadius() const;
+
 public:
 
 	// Begin FSlateApplicationBase interface
@@ -1076,6 +1082,8 @@ public:
 	virtual bool OnSizeChanged( const TSharedRef< FGenericWindow >& PlatformWindow, const int32 Width, const int32 Height, bool bWasMinimized = false ) override;
 
 	virtual void OnOSPaint( const TSharedRef< FGenericWindow >& PlatformWindow ) override;
+
+	virtual FWindowSizeLimits GetSizeLimitsForWindow(const TSharedRef<FGenericWindow>& Window) const override;
 
 	virtual void OnResizingWindow( const TSharedRef< FGenericWindow >& PlatformWindow ) override;
 
@@ -1266,6 +1274,8 @@ private:
 
 	TSharedPtr<FAnalogCursor> AnalogCursor;
 
+	/** The hit-test radius of the cursor. Default value is 0. */
+	float CursorRadius;
 
 	struct FUserFocusEntry
 	{

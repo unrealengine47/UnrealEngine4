@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "UnrealEd.h"
 #include "SoundDefinitions.h"
@@ -979,7 +979,8 @@ public:
 					const FString WorldAssetPackageName = StreamingLevel->GetWorldAssetPackageName();
 					const FName WorldAssetPackageFName = StreamingLevel->GetWorldAssetPackageFName();
 					PreviousStreamingPackageNames.Add( WorldAssetPackageFName );
-					const FString StreamingLevelPackageName = FString::Printf(TEXT("%s%s/%s%s"), *AutosavePackagePrefix, *FPackageName::GetLongPackagePath( WorldAssetPackageName ), *MapnamePrefix, *FPackageName::GetLongPackageAssetName( WorldAssetPackageName ));
+					FString StreamingLevelPackageName = FString::Printf(TEXT("%s%s/%s%s"), *AutosavePackagePrefix, *FPackageName::GetLongPackagePath( WorldAssetPackageName ), *MapnamePrefix, *FPackageName::GetLongPackageAssetName( WorldAssetPackageName ));
+					StreamingLevelPackageName.ReplaceInline(TEXT("//"), TEXT("/"));
 					StreamingLevel->SetWorldAssetByPackageName(FName(*StreamingLevelPackageName));
 				}
 			}

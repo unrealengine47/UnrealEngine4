@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 
 #include "LevelEditor.h"
@@ -581,6 +581,12 @@ void FLevelEditorModule::BindGlobalLevelEditorCommands()
 		FGlobalEditorCommonCommands::Get().ViewReferences, 
 		FExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::ViewReferences_Execute ),
 		FCanExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::CanViewReferences )
+		);
+
+	const FVector* NullVector = nullptr;
+	ActionList.MapAction(
+		Commands.GoHere,
+		FExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::GoHere_Clicked, NullVector )
 		);
 
 	ActionList.MapAction( 

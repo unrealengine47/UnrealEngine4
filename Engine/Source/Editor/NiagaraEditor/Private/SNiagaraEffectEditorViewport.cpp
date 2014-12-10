@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "NiagaraEditorPrivatePCH.h"
 #include "NiagaraEditorModule.h"
@@ -35,7 +35,7 @@ private:
 };
 
 FNiagaraEffectEditorViewportClient::FNiagaraEffectEditorViewportClient(TWeakPtr<INiagaraEffectEditor> InEffectEditor, FPreviewScene& InPreviewScene)
-: FEditorViewportClient( GLevelEditorModeTools(), &InPreviewScene )
+: FEditorViewportClient( nullptr, &InPreviewScene )
 , EffectEditorPtr(InEffectEditor)
 {
 	// Setup defaults for the common draw helper.

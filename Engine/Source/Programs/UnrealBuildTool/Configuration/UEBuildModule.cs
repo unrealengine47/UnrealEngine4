@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 using System;
 using System.Collections.Generic;
@@ -612,6 +612,12 @@ namespace UnrealBuildTool
 
 				// Add the additional frameworks so that the compiler can know about their #include paths
 				AdditionalFrameworks.AddRange(PublicAdditionalFrameworks);
+				
+				// Remember the module so we can refer to it when needed
+				foreach (var Framework in PublicAdditionalFrameworks)
+				{
+					Framework.OwningModule = this;
+				}
 			}
 		}
 
@@ -987,6 +993,8 @@ namespace UnrealBuildTool
 		/** Path to this module's redist static library */
 		public string[] RedistStaticLibraryPaths = null;
 
+		public List<string> IncludeSearchPaths = new List<string>();
+
 		/** Whether we're building the redist static library (as well as using it). */
 		public bool bBuildingRedistStaticLibrary = false;
 
@@ -1142,6 +1150,8 @@ namespace UnrealBuildTool
 			}
 
 			var ModuleCompileEnvironment = CreateModuleCompileEnvironment(CompileEnvironment);
+			IncludeSearchPaths = ModuleCompileEnvironment.Config.CPPIncludeInfo.IncludePaths.ToList();
+			IncludeSearchPaths.AddRange(ModuleCompileEnvironment.Config.CPPIncludeInfo.SystemIncludePaths.ToList());
 
 			if( IntelliSenseGatherer != null )
 			{

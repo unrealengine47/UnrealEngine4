@@ -1,4 +1,4 @@
-﻿// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+﻿// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 using System;
 using System.IO;
@@ -253,6 +253,19 @@ namespace UnrealBuildTool
 				&& Directory.Exists(UEBuildConfiguration.UEThirdPartySourceDirectory + "NotForLicensees/Simplygon") == true
 				&& Directory.Exists("Developer/SimplygonMeshReduction") == true
 				&& !(ProjectFileGenerator.bGenerateProjectFiles && ProjectFileGenerator.bGeneratingRocketProjectFiles);
+
+			if (UnrealBuildTool.CommandLineContains(@"UnrealCodeAnalyzer") || UnrealBuildTool.CommandLineContains(@"UnrealHeaderTool"))
+			{
+				BuildConfiguration.bRunUnrealCodeAnalyzer = false;
+			}
+
+			if (BuildConfiguration.bRunUnrealCodeAnalyzer)
+			{
+				BuildConfiguration.bUsePCHFiles = false;
+				BuildConfiguration.bUseUnityBuild = false;
+				BuildConfiguration.bUseSharedPCHs = false;
+				BuildConfiguration.bAllowXGE = false;
+			}
 		}
 
 		/**

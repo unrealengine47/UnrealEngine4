@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -133,10 +133,6 @@ struct ENGINE_API FBodyInstance
 
 	/////////
 	// COLLISION SETTINGS
-
-	/** Enable any collision for this body */
-	UPROPERTY()
-	uint32 bEnableCollision_DEPRECATED:1;
 
 	/** Types of objects that this physics objects will collide with. */
 	// @todo : make this to be transient, so that it doesn't have to save anymore
@@ -338,11 +334,6 @@ public:
 
 	/** Constructor **/
 	FBodyInstance();
-
-	// BodyInstance interface
-
-	/** Update CollisionEnabled in old assets (before VER_UE4_CHANGE_BENABLECOLLISION_TO_COLLISIONENABLED) using bEnableCollision_DEPRECATED */ 
-	void UpdateFromDeprecatedEnableCollision();
 
 	/**  
 	 * Update profile data if required

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 #include "KismetWidgetsPrivatePCH.h"
 #include "UnrealEd.h"
 #include "ClassIconFinder.h"
@@ -28,27 +28,6 @@ void SPinTypeSelector::Construct(const FArguments& InArgs, FGetPinTypeTree GetPi
 	TreeViewHeight = InArgs._TreeViewHeight;
 
 	TargetPinType = InArgs._TargetPinType;
-
-	GetPinTypeTree.Execute(TypeTreeRoot, bAllowExec, bAllowWildcard);
-
-	// Remove read-only root items if they have no children; there will be no subtree to select non read-only items from in that case
-	int32 RootItemIndex = 0;
-	while(RootItemIndex < TypeTreeRoot.Num())
-	{
-		FPinTypeTreeItem TypeTreeItemPtr = TypeTreeRoot[RootItemIndex];
-		if(TypeTreeItemPtr.IsValid()
-			&& TypeTreeItemPtr->bReadOnly
-			&& TypeTreeItemPtr->Children.Num() == 0)
-		{
-			TypeTreeRoot.RemoveAt(RootItemIndex);
-		}
-		else
-		{
-			++RootItemIndex;
-		}
-	}
-
-	FilteredTypeTreeRoot = TypeTreeRoot;
 
 	this->ChildSlot
 	[
@@ -249,8 +228,26 @@ void SPinTypeSelector::GetTypeChildren(FPinTypeTreeItem InItem, TArray<FPinTypeT
 
 TSharedRef<SWidget>	SPinTypeSelector::GetMenuContent()
 {
-	// Refresh the type tree, in case we've gotten any new valid types from other blueprints
 	GetPinTypeTree.Execute(TypeTreeRoot, bAllowExec, bAllowWildcard);
+
+	// Remove read-only root items if they have no children; there will be no subtree to select non read-only items from in that case
+	int32 RootItemIndex = 0;
+	while(RootItemIndex < TypeTreeRoot.Num())
+	{
+		FPinTypeTreeItem TypeTreeItemPtr = TypeTreeRoot[RootItemIndex];
+		if(TypeTreeItemPtr.IsValid()
+			&& TypeTreeItemPtr->bReadOnly
+			&& TypeTreeItemPtr->Children.Num() == 0)
+		{
+			TypeTreeRoot.RemoveAt(RootItemIndex);
+		}
+		else
+		{
+			++RootItemIndex;
+		}
+	}
+
+	FilteredTypeTreeRoot = TypeTreeRoot;
 
 	if( !MenuContent.IsValid() )
 	{

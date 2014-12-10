@@ -1,3 +1,5 @@
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
+
 #include "LogVisualizer.h"
 #include "STimeline.h"
 #include "STimelineBar.h"
@@ -52,27 +54,71 @@ void STimeline::UpdateVisibility()
 {
 	ULogVisualizerSettings* Settings = ULogVisualizerSettings::StaticClass()->GetDefaultObject<ULogVisualizerSettings>();
 	const bool bJustIgnore = Settings->bIgnoreTrivialLogs && Entries.Num() <= Settings->TrivialLogsThreshold;
-	SetVisibility(bJustIgnore || HiddenEntries.Num() == Entries.Num() || (SearchFilter.Len() > 0 && Name.ToString().Find(SearchFilter) == INDEX_NONE) ? EVisibility::Collapsed : EVisibility::Visible);
-	if (GetVisibility() != EVisibility::Visible)
+	const bool bIsCollapsed = bJustIgnore || HiddenEntries.Num() == Entries.Num() || (SearchFilter.Len() > 0 && Name.ToString().Find(SearchFilter) == INDEX_NONE);
+	SetVisibility(bIsCollapsed ? EVisibility::Collapsed : EVisibility::Visible);
+	if (bIsCollapsed)
 	{
 		Owner->SetSelectionState(SharedThis(this), false, false);
 	}
 }
 
-void STimeline::OnFiltersChanged()
+void STimeline::UpdateVisibilityForItems()
 {
 	HiddenEntries.Reset();
-
 	for (auto& CurrentEntry : Entries)
 	{
 		TArray<FVisualLoggerCategoryVerbosityPair> OutCategories;
 		FVisualLoggerHelpers::GetCategories(CurrentEntry.Entry, OutCategories);
-		if (VisualLoggerInterface->HasValidCategories(OutCategories) == false)
+		bool bHasValidCategories = VisualLoggerInterface->HasValidCategories(OutCategories);
+
+		const ULogVisualizerSettings* Settings = ULogVisualizerSettings::StaticClass()->GetDefaultObject<ULogVisualizerSettings>();
+		if (Settings->bSearchInsideLogs && bHasValidCategories && QuickSearchStrng.Len() > 0)
 		{
-			HiddenEntries.AddUnique(&CurrentEntry);
+			bool bMatchSearchString = false;
+			for (const FVisualLogLine& CurrentLine : CurrentEntry.Entry.LogLines)
+			{
+				if (CurrentLine.Line.Find(QuickSearchStrng) != INDEX_NONE || CurrentLine.Category.ToString().Find(QuickSearchStrng) != INDEX_NONE)
+				{
+					bMatchSearchString = true;
+					break;
+				}
+			}
+			if (!bMatchSearchString)
+			{
+				for (const FVisualLogEvent& CurrentEvent : CurrentEntry.Entry.Events)
+				{
+					if (CurrentEvent.Name.Find(QuickSearchStrng) != INDEX_NONE)
+					{
+						bMatchSearchString = true;
+						break;
+					}
+				}
+			}
+
+			if (!bMatchSearchString)
+			{
+				HiddenEntries.AddUnique(&CurrentEntry);
+			}
+		}
+		else
+		{
+			if (bHasValidCategories == false)
+			{
+				HiddenEntries.AddUnique(&CurrentEntry);
+			}
 		}
 	}
+}
 
+void STimeline::OnFiltersSearchChanged(const FText& Filter)
+{
+	QuickSearchStrng = Filter.ToString();
+	OnFiltersChanged();
+}
+
+void STimeline::OnFiltersChanged()
+{
+	UpdateVisibilityForItems();
 	UpdateVisibility();
 }
 

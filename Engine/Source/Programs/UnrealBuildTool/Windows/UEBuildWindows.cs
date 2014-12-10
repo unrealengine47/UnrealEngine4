@@ -1,4 +1,4 @@
-﻿// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+﻿// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 using System;
 using System.Collections.Generic;
@@ -215,7 +215,14 @@ namespace UnrealBuildTool
                 case UEBuildBinaryType.StaticLibrary:
                     return ".lib";
                 case UEBuildBinaryType.Object:
-                    return ".obj";
+					if (!BuildConfiguration.bRunUnrealCodeAnalyzer)
+					{
+						return ".obj";
+					}
+					else
+					{
+						return @".includes";
+					}
                 case UEBuildBinaryType.PrecompiledHeader:
                     return ".pch";
             }

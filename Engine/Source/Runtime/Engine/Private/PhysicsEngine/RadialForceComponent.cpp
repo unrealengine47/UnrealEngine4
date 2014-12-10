@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
 #include "GameFramework/MovementComponent.h"
@@ -76,11 +76,6 @@ void URadialForceComponent::TickComponent(float DeltaTime, enum ELevelTick TickT
 void URadialForceComponent::PostLoad()
 {
 	Super::PostLoad();
-
-	if (GetLinkerUE4Version() < VER_UE4_CONFORM_COMPONENT_ACTIVATE_FLAG)
-	{
-		bAutoActivate = bForceEnabled_DEPRECATED;
-	}
 
 	UpdateCollisionObjectQueryParams();
 }

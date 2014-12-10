@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "BlueprintEditorPrivatePCH.h"
 #include "PreviewScene.h"
@@ -106,7 +106,7 @@ namespace
 // FSCSEditorViewportClient
 
 FSCSEditorViewportClient::FSCSEditorViewportClient(TWeakPtr<FBlueprintEditor>& InBlueprintEditorPtr, FPreviewScene& InPreviewScene)
-	: FEditorViewportClient(GLevelEditorModeTools(), &InPreviewScene)
+	: FEditorViewportClient(nullptr, &InPreviewScene)
 	,BlueprintEditorPtr(InBlueprintEditorPtr)
 	,PreviewBlueprint(NULL)
 	,PreviewActorBounds(ForceInitToZero)

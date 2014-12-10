@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -14,14 +14,8 @@
 	const FString SubsystemName;
 	/** The online interface to use for testing */
 	IOnlineSubsystem* OnlineSub;
-	/** Delegate when invites accepted */
-	FOnAcceptInviteCompleteDelegate OnAcceptInviteCompleteDelegate;
-	/** Delegate when invites have been sent */
-	FOnSendInviteCompleteDelegate OnSendInviteCompleteDelegate;
 	/** Delegate to use for deleting a friend entry */
 	FOnDeleteFriendCompleteDelegate OnDeleteFriendCompleteDelegate;
-	/** Delegate to use for deleting the friends list */
-	FOnDeleteFriendsListCompleteDelegate OnDeleteFriendsListCompleteDelegate;
 	/** Delegate to use for querying for recent players */
 	FOnQueryRecentPlayersCompleteDelegate OnQueryRecentPlayersCompleteDelegate;
 

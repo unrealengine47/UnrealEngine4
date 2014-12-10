@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 #include "Components/SlateWrapperTypes.h"
@@ -117,6 +117,7 @@ public:
 	virtual class UWorld* GetWorld() const override;
 	virtual void PostEditImport() override;
 	virtual void PostDuplicate(bool bDuplicateForPIE) override;
+	virtual void BeginDestroy() override;
 	// End of UObject interface
 
 	void Initialize();

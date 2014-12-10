@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	CurveFloat.cpp
@@ -43,16 +43,6 @@ UCurveFloat::UCurveFloat(const FObjectInitializer& ObjectInitializer)
 float UCurveFloat::GetFloatValue( float InTime ) const
 {
 	return FloatCurve.Eval(InTime);
-}
-
-void UCurveFloat::PostLoad()
-{
-	Super::PostLoad();
-
-	if(GetLinkerUE4Version() < VER_UE4_UCURVE_USING_RICHCURVES)
-	{
-		FRichCurve::ConvertInterpCurveFloat(FloatKeys_DEPRECATED, FloatCurve);
-	}
 }
 
 TArray<FRichCurveEditInfoConst> UCurveFloat::GetCurves() const

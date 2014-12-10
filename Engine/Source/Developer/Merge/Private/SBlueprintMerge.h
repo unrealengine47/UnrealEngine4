@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 #pragma once
 
 #include "BlueprintMergeData.h"
@@ -35,9 +35,13 @@ private:
 	void OnFinishMerge();
 	void OnCancelClicked();
 	void OnModeChanged(FName NewMode);
+	void OnAcceptRemote();
+	void OnAcceptLocal();
+	void ResolveMerge(UBlueprint* Result);
 
 	FBlueprintMergeData		Data; 
 	FString					BackupSubDir;
+	FString					LocalBackupPath;
 
 	TSharedPtr<SBorder>		MainView;
 

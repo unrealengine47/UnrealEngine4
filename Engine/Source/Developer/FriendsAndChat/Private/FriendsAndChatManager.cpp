@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "FriendsAndChatPrivatePCH.h"
 #include "SFriendsContainer.h"
@@ -64,8 +64,6 @@ void FFriendsAndChatManager::Login()
 			// Create delegates for list refreshes
 			OnQueryRecentPlayersCompleteDelegate = FOnQueryRecentPlayersCompleteDelegate::CreateRaw(this, &FFriendsAndChatManager::OnQueryRecentPlayersComplete);
 			OnFriendsListChangedDelegate = FOnFriendsChangeDelegate::CreateSP(this, &FFriendsAndChatManager::OnFriendsListChanged);
-			OnAcceptInviteCompleteDelegate = FOnAcceptInviteCompleteDelegate::CreateSP( this, &FFriendsAndChatManager::OnAcceptInviteComplete );
-			OnSendInviteCompleteDelegate = FOnSendInviteCompleteDelegate::CreateSP( this, &FFriendsAndChatManager::OnSendInviteComplete );
 			OnDeleteFriendCompleteDelegate = FOnDeleteFriendCompleteDelegate::CreateSP( this, &FFriendsAndChatManager::OnDeleteFriendComplete );
 			OnQueryUserIdMappingCompleteDelegate = FOnQueryUserIdMappingCompleteDelegate::CreateSP( this, &FFriendsAndChatManager::OnQueryUserIdMappingComplete );
 			OnQueryUserInfoCompleteDelegate = FOnQueryUserInfoCompleteDelegate::CreateSP( this, &FFriendsAndChatManager::OnQueryUserInfoComplete );
@@ -84,9 +82,7 @@ void FFriendsAndChatManager::Login()
 			FriendsInterface->AddOnFriendRemovedDelegate(OnFriendRemovedDelegate);
 			FriendsInterface->AddOnInviteRejectedDelegate(OnFriendInviteRejected);
 			FriendsInterface->AddOnInviteAcceptedDelegate(OnFriendInviteAccepted);
-			FriendsInterface->AddOnAcceptInviteCompleteDelegate( 0, OnAcceptInviteCompleteDelegate );
 			FriendsInterface->AddOnDeleteFriendCompleteDelegate( 0, OnDeleteFriendCompleteDelegate );
-			FriendsInterface->AddOnSendInviteCompleteDelegate( 0, OnSendInviteCompleteDelegate );
 			UserInterface->AddOnQueryUserInfoCompleteDelegate(0, OnQueryUserInfoCompleteDelegate);
 			OnlineSubMcp->GetPresenceInterface()->AddOnPresenceReceivedDelegate(OnPresenceReceivedCompleteDelegate);
 			OnlineSubMcp->GetSessionInterface()->AddOnSessionInviteReceivedDelegate(OnGameInviteReceivedDelegate);
@@ -135,9 +131,7 @@ void FFriendsAndChatManager::Logout()
 			OnlineSubMcp->GetFriendsInterface()->ClearOnFriendRemovedDelegate(OnFriendRemovedDelegate);
 			OnlineSubMcp->GetFriendsInterface()->ClearOnInviteRejectedDelegate(OnFriendInviteRejected);
 			OnlineSubMcp->GetFriendsInterface()->ClearOnInviteAcceptedDelegate(OnFriendInviteAccepted);
-			OnlineSubMcp->GetFriendsInterface()->ClearOnAcceptInviteCompleteDelegate(0, OnAcceptInviteCompleteDelegate);
 			OnlineSubMcp->GetFriendsInterface()->ClearOnDeleteFriendCompleteDelegate(0, OnDeleteFriendCompleteDelegate);
-			OnlineSubMcp->GetFriendsInterface()->ClearOnSendInviteCompleteDelegate(0, OnSendInviteCompleteDelegate);
 		}
 		if (OnlineSubMcp->GetPresenceInterface().IsValid())
 		{
@@ -357,7 +351,7 @@ TSharedPtr< SWidget > FFriendsAndChatManager::GenerateChatWidget(const FFriendsA
 	Style = *InStyle;
 	SAssignNew(ChatWidget, SChatWindow, ChatViewModel)
 	.FriendStyle(&Style)
-	.Method(SMenuAnchor::UseCurrentWindow);
+	.Method(EPopupMethod::UseCurrentWindow);
 	return ChatWidget;
 }
 
@@ -533,8 +527,7 @@ FReply FFriendsAndChatManager::HandleMessageAccepted( TSharedPtr< FFriendsAndCha
 			TSharedPtr< IFriendItem > User = FindUser(ChatMessage->GetUniqueID().Get());
 			if ( User.IsValid() )
 			{
-				User->SetPendingAccept();
-				RefreshList();
+				AcceptFriend(User);
 			}
 		}
 		break;
@@ -544,10 +537,8 @@ FReply FFriendsAndChatManager::HandleMessageAccepted( TSharedPtr< FFriendsAndCha
 			TSharedPtr< IFriendItem > User = FindUser( ChatMessage->GetUniqueID().Get());
 			if ( User.IsValid() )
 			{
-				FriendsList.Remove( User );
-				RefreshList();
+				RejectFriend(User);
 			}
-			PendingOutgoingDeleteFriendRequests.Add(FUniqueNetIdString(ChatMessage->GetUniqueID().Get().ToString()));
 		}
 		break;
 	}
@@ -785,7 +776,8 @@ void FFriendsAndChatManager::SetState( EFriendsAndManagerState::Type NewState )
 		break;
 	case EFriendsAndManagerState::AcceptingFriendRequest:
 		{
-			FriendsInterface->AcceptInvite( 0, PendingOutgoingAcceptFriendRequests[0], EFriendsLists::ToString( EFriendsLists::Default ) );
+			FOnAcceptInviteComplete Delegate = FOnAcceptInviteComplete::CreateSP(this, &FFriendsAndChatManager::OnAcceptInviteComplete);
+			FriendsInterface->AcceptInvite( 0, PendingOutgoingAcceptFriendRequests[0], EFriendsLists::ToString( EFriendsLists::Default ), Delegate );
 		}
 		break;
 	case EFriendsAndManagerState::RequestGameInviteRefresh:
@@ -1111,7 +1103,7 @@ void FFriendsAndChatManager::SendFriendInviteNotification()
 {
 	for( const auto& FriendRequest : PendingIncomingInvitesList)
 	{
-		if(FriendsListActionNotificationDelegate.IsBound())
+		if(OnFriendsActionNotification().IsBound())
 		{
 			FFormatNamedArguments Args;
 			Args.Add(TEXT("Username"), FText::FromString(FriendRequest->GetName()));
@@ -1119,8 +1111,11 @@ void FFriendsAndChatManager::SendFriendInviteNotification()
 
 			TSharedPtr< FFriendsAndChatMessage > NotificationMessage = MakeShareable(new FFriendsAndChatMessage(FriendRequestMessage.ToString(), FriendRequest->GetUniqueID()));
 			NotificationMessage->SetButtonCallback( FOnClicked::CreateSP(this, &FFriendsAndChatManager::HandleMessageAccepted, NotificationMessage, EFriendsResponseType::Response_Accept));
+			NotificationMessage->SetButtonCallback( FOnClicked::CreateSP(this, &FFriendsAndChatManager::HandleMessageAccepted, NotificationMessage, EFriendsResponseType::Response_Reject));
+			NotificationMessage->SetButtonDescription(LOCTEXT("FFriendsAndChatManager_Accept", "Accept"));
+			NotificationMessage->SetButtonDescription(LOCTEXT("FFriendsAndChatManager_Reject", "Reject"));
 			NotificationMessage->SetMessageType(EFriendsRequestType::FriendInvite);
-			FriendsListActionNotificationDelegate.Broadcast(NotificationMessage.ToSharedRef());
+			OnFriendsActionNotification().Broadcast(NotificationMessage.ToSharedRef());
 		}
 	}
 
@@ -1130,7 +1125,7 @@ void FFriendsAndChatManager::SendFriendInviteNotification()
 
 void FFriendsAndChatManager::SendInviteAcceptedNotification(const TSharedPtr< IFriendItem > Friend)
 {
-	if(FriendsListActionNotificationDelegate.IsBound())
+	if(OnFriendsActionNotification().IsBound())
 	{
 		FFormatNamedArguments Args;
 		Args.Add(TEXT("Username"), FText::FromString(Friend->GetName()));
@@ -1201,7 +1196,8 @@ void FFriendsAndChatManager::OnQueryUserIdMappingComplete(bool bWasSuccessful, c
 		{
 			for ( int32 Index = 0; Index < PendingOutgoingFriendRequests.Num(); Index++ )
 			{
-				FriendsInterface->SendInvite( 0, PendingOutgoingFriendRequests[Index].Get(), EFriendsLists::ToString( EFriendsLists::Default ) );
+				FOnSendInviteComplete Delegate = FOnSendInviteComplete::CreateSP(this, &FFriendsAndChatManager::OnSendInviteComplete);
+				FriendsInterface->SendInvite(0, PendingOutgoingFriendRequests[Index].Get(), EFriendsLists::ToString( EFriendsLists::Default ), Delegate);
 				AddFriendsToast(FText::FromString("Request Sent"));
 			}
 		}

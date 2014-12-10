@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	DataChannel.cpp: Unreal datachannel implementation.
@@ -1115,6 +1115,12 @@ void FObjectReplicator::UpdateUnmappedObjects( bool & bOutHasMoreUnmapped )
 	if ( Object == NULL || Object->IsPendingKill() )
 	{
 		bOutHasMoreUnmapped = false;
+		return;
+	}
+
+	if ( Connection->State == USOCK_Closed )
+	{
+		UE_LOG( LogNet, Warning, TEXT( "FObjectReplicator::UpdateUnmappedObjects: Connection->State == USOCK_Closed" ) );
 		return;
 	}
 

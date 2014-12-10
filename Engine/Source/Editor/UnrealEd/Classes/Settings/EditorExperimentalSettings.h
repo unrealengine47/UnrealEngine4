@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	EditorExperimentalSettings.h: Declares the UEditorExperimentalSettings class.
@@ -92,6 +92,10 @@ public:
 	/** Enables Gameplay Debugger */
 	UPROPERTY(EditAnywhere, config, Category = Tools, meta = (DisplayName = "Gameplay Debugger"))
 	bool bGameplayDebugger;
+
+	/** Enables GetContent button in asset browser */
+	UPROPERTY(EditAnywhere, config, Category = Tools, meta = (DisplayName = "Get Feature Content (Requires content browser reopening)"))
+	bool bGetFeatureContent;
 
 	/**
 	 * Returns an event delegate that is executed when a setting has changed.

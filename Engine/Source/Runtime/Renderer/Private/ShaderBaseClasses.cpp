@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	ShaderBaseClasses.cpp: Shader base classes
@@ -240,7 +240,7 @@ bool FMaterialShader::Serialize(FArchive& Ar)
 		Ar << DebugUniformExpressionSet;
 		Ar << DebugDescription;
 	}
-	else if (Ar.IsLoading() && Ar.UE4Ver() >= VER_DEBUG_MATERIALSHADER_UNIFORM_EXPRESSIONS)
+	else if (Ar.IsLoading())
 	{
 		FUniformExpressionSet TempExpressionSet;
 		TempExpressionSet.Serialize(Ar);

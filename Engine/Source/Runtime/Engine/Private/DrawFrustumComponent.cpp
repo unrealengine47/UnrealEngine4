@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	DrawFrsutumComponent.cpp: UDrawFrsutumComponent implementation.
@@ -124,7 +124,6 @@ UDrawFrustumComponent::UDrawFrustumComponent(const FObjectInitializer& ObjectIni
 	FrustumEndDist = 1000.0f;
 	bUseEditorCompositing = true;
 	bHiddenInGame = true;
-	BodyInstance.bEnableCollision_DEPRECATED = false;
 	SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
 	bGenerateOverlapEvents = false;
 }

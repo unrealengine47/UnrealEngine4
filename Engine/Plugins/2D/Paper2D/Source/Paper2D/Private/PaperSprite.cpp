@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "Paper2DPrivatePCH.h"
 #include "PaperSprite.h"
@@ -269,6 +269,8 @@ UPaperSprite::UPaperSprite(const FObjectInitializer& ObjectInitializer)
 
 	bTrimmedInSourceImage = false;
 	bRotatedInSourceImage = false;
+
+	SourceTextureDimension.Set(0, 0);
 #endif
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> MaskedMaterialRef(TEXT("/Paper2D/MaskedUnlitSpriteMaterial"));
@@ -403,14 +405,26 @@ void UPaperSprite::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 
 	if (PropertyName == GET_MEMBER_NAME_CHECKED(UPaperSprite, SourceTexture))
 	{
-		// If this is a brand new sprite that didn't have a texture set previously, act like we were factoried with the texture
 		if ((SourceTexture != nullptr) && SourceDimension.IsNearlyZero())
 		{
+			// If this is a brand new sprite that didn't have a texture set previously, act like we were factoried with the texture
 			SourceUV = FVector2D::ZeroVector;
 			SourceDimension = FVector2D(SourceTexture->GetSizeX(), SourceTexture->GetSizeY());
+			SourceTextureDimension = FVector2D(SourceTexture->GetSizeX(), SourceTexture->GetSizeY());
 		}
 		bBothModified = true;
 	}
+
+	// The texture dimensions have changed
+	if (SourceTexture != nullptr && (SourceTextureDimension.X != SourceTexture->GetSizeX() || SourceTextureDimension.Y != SourceTexture->GetSizeY()))
+	{
+		FVector2D PreviousTextureDimension = SourceTextureDimension;
+		SourceTextureDimension = FVector2D(SourceTexture->GetSizeX(), SourceTexture->GetSizeY());
+		// Tmp - disabled, not sure if we want it on here or not
+		// RescaleSpriteData(PreviousTextureDimension, SourceTextureDimension);
+		bBothModified = true;
+	}
+
 
 	if (bCollisionDataModified || bBothModified)
 	{
@@ -423,6 +437,89 @@ void UPaperSprite::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 	}
 
 	Super::PostEditChangeProperty(PropertyChangedEvent);
+}
+
+void UPaperSprite::RescaleSpriteData(const FVector2D& PreviousTextureDimension, const FVector2D& CurrentTextureDimension)
+{
+	// Don't ever divby0 (no previously stored texture dimensions)
+	// or scale to 0
+	if (CurrentTextureDimension.X == 0 || CurrentTextureDimension.Y == 0 ||
+		PreviousTextureDimension.X == 0 || PreviousTextureDimension.Y == 0)
+	{
+		return;
+	}
+
+	const FVector2D& S = CurrentTextureDimension;
+	const FVector2D& D = PreviousTextureDimension;
+	struct Local
+	{
+		static float NoSnap(const float Value, const float Scale, const float Divisor)
+		{
+			return (Value * Scale) / Divisor;
+		}
+
+		static FVector2D RescaleNeverSnap(const FVector2D& Value, const FVector2D& Scale, const FVector2D& Divisor)
+		{
+			return FVector2D(NoSnap(Value.X, Scale.X, Divisor.X), NoSnap(Value.Y, Scale.Y, Divisor.Y));
+		}
+
+		static FVector2D Rescale(const FVector2D& Value, const FVector2D& Scale, const FVector2D& Divisor)
+		{
+			// Never snap, want to be able to return to original values when rescaled back
+			return RescaleNeverSnap(Value, Scale, Divisor);
+			//return FVector2D(FMath::FloorToFloat(NoSnap(Value.X, Scale.X, Divisor.X)), FMath::FloorToFloat(NoSnap(Value.Y, Scale.Y, Divisor.Y)));
+		}
+	};
+
+	// Sockets are in pivot space, convert these to texture space to apply later
+	TArray<FVector2D> RescaledTextureSpaceSocketPositions;
+	for (int32 SocketIndex = 0; SocketIndex < Sockets.Num(); ++SocketIndex)
+	{
+		FPaperSpriteSocket& Socket = Sockets[SocketIndex];
+		FVector Translation = Socket.LocalTransform.GetTranslation();
+		FVector2D TextureSpaceSocketPosition = ConvertPivotSpaceToTextureSpace(FVector2D(Translation.X, Translation.Z));
+		RescaledTextureSpaceSocketPositions.Add(Local::RescaleNeverSnap(TextureSpaceSocketPosition, S, D));
+	}
+
+	SourceUV = Local::Rescale(SourceUV, S, D);
+	SourceDimension = Local::Rescale(SourceDimension, S, D);
+	SourceImageDimensionBeforeTrimming = Local::Rescale(SourceImageDimensionBeforeTrimming, S, D);
+
+	if (bSnapPivotToPixelGrid)
+	{
+		CustomPivotPoint = Local::Rescale(CustomPivotPoint, S, D);
+	}
+	else
+	{
+		CustomPivotPoint = Local::RescaleNeverSnap(CustomPivotPoint, S, D);
+	}
+
+	for (int32 GeomtryIndex = 0; GeomtryIndex < 2; ++GeomtryIndex)
+	{
+		FSpritePolygonCollection& Geometry = (GeomtryIndex == 0) ? CollisionGeometry : RenderGeometry;
+		for (int32 PolygonIndex = 0; PolygonIndex < Geometry.Polygons.Num(); ++PolygonIndex)
+		{
+			FSpritePolygon& Polygon = Geometry.Polygons[PolygonIndex];
+			Polygon.BoxPosition = Local::Rescale(Polygon.BoxPosition, S, D);
+			Polygon.BoxSize = Local::Rescale(Polygon.BoxSize, S, D);
+
+			for (int32 VertexIndex = 0; VertexIndex < Polygon.Vertices.Num(); ++VertexIndex)
+			{
+				Polygon.Vertices[VertexIndex] = Local::Rescale(Polygon.Vertices[VertexIndex], S, D);
+			}
+		}
+	}
+
+	// Apply texture space pivot positions now that pivot space is correctly defined
+	for (int32 SocketIndex = 0; SocketIndex < Sockets.Num(); ++SocketIndex)
+	{
+		FPaperSpriteSocket& Socket = Sockets[SocketIndex];
+		FVector2D PivotSpaceSocketPosition = ConvertTextureSpaceToPivotSpace(RescaledTextureSpaceSocketPositions[SocketIndex]);
+		FVector Translation = Socket.LocalTransform.GetTranslation();
+		Translation.X = PivotSpaceSocketPosition.X;
+		Translation.Z = PivotSpaceSocketPosition.Y;
+		Socket.LocalTransform.SetTranslation(Translation);
+	}
 }
 
 void UPaperSprite::RebuildCollisionData()
@@ -1033,38 +1130,49 @@ void UPaperSprite::Triangulate(const FSpritePolygonCollection& Source, TArray<FV
 {
 	Target.Empty();
 	TArray<FVector2D> AllGeneratedTriangles;
+	
+	// AOS -> Validate -> SOA
+	TArray<bool> PolygonsNegativeWinding; // do these polygons have negative winding?
+	TArray<TArray<FVector2D> > ValidPolygonTriangles;
+	PolygonsNegativeWinding.Empty(Source.Polygons.Num());
+	ValidPolygonTriangles.Empty(Source.Polygons.Num());
+	bool bSourcePolygonHasHoles = false;
 
 	// Correct polygon winding for additive and subtractive polygons
 	// Invalid polygons (< 3 verts) removed from this list
-	TArray<FSpritePolygon> ValidPolygons = PaperGeomTools::CorrectPolygonWinding(Source.Polygons);
-	
+	TArray<FSpritePolygon> ValidPolygons;
+	for (int32 PolygonIndex = 0; PolygonIndex < Source.Polygons.Num(); ++PolygonIndex)
+	{
+		const FSpritePolygon& SourcePolygon = Source.Polygons[PolygonIndex];
+		if (SourcePolygon.Vertices.Num() >= 3)
+		{
+			TArray<FVector2D>* FixedVertices = new (ValidPolygonTriangles)TArray<FVector2D>();
+			PaperGeomTools::CorrectPolygonWinding(*FixedVertices, SourcePolygon.Vertices, SourcePolygon.bNegativeWinding);
+			PolygonsNegativeWinding.Add(SourcePolygon.bNegativeWinding);
+		}
+
+		if (Source.Polygons[PolygonIndex].bNegativeWinding)
+		{
+			bSourcePolygonHasHoles = true;
+		}
+	}
+
 	// Check if polygons overlap, or have inconsistent winding, or edges overlap
-	if (!PaperGeomTools::ArePolygonsValid(ValidPolygons))
+	if (!PaperGeomTools::ArePolygonsValid(ValidPolygonTriangles))
 	{
 		return;
 	}
 
 	// Merge each additive and associated subtractive polygons to form a list of polygons in CCW winding
-	ValidPolygons = PaperGeomTools::ReducePolygons(ValidPolygons);
+	ValidPolygonTriangles = PaperGeomTools::ReducePolygons(ValidPolygonTriangles, PolygonsNegativeWinding);
 
 	// Triangulate the polygons
-	for (int32 PolygonIndex = 0; PolygonIndex < ValidPolygons.Num(); ++PolygonIndex)
+	for (int32 PolygonIndex = 0; PolygonIndex < ValidPolygonTriangles.Num(); ++PolygonIndex)
 	{
-		const FSpritePolygon& SourcePoly = ValidPolygons[PolygonIndex];
 		TArray<FVector2D> Generated2DTriangles;
-		if (PaperGeomTools::TriangulatePoly(Generated2DTriangles, SourcePoly.Vertices, Source.bAvoidVertexMerging))
+		if (PaperGeomTools::TriangulatePoly(Generated2DTriangles, ValidPolygonTriangles[PolygonIndex], Source.bAvoidVertexMerging))
 		{
 			AllGeneratedTriangles.Append(Generated2DTriangles);
-		}
-	}
-
-	bool bSourcePolygonHasHoles = false;
-	for (int32 PolygonIndex = 0; PolygonIndex < Source.Polygons.Num(); ++PolygonIndex)
-	{
-		if (Source.Polygons[PolygonIndex].bNegativeWinding)
-		{
-			bSourcePolygonHasHoles = true;
-			break;
 		}
 	}
 
@@ -1104,8 +1212,17 @@ void UPaperSprite::InitializeSprite(const FSpriteAssetInitParameters& InitParams
 	}
 
 	SourceTexture = InitParams.Texture;
+	if (SourceTexture != nullptr)
+	{
+		SourceTextureDimension.Set(SourceTexture->GetSizeX(), SourceTexture->GetSizeY());
+	}
+	else
+	{
+		SourceTextureDimension.Set(0, 0);
+	}
 	SourceUV = InitParams.Offset;
 	SourceDimension = InitParams.Dimension;
+
 	RebuildCollisionData();
 	RebuildRenderData();
 }

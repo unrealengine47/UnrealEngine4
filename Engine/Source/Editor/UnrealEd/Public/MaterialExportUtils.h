@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 #pragma once
 
 // Forward declarations
@@ -11,14 +11,21 @@ namespace MaterialExportUtils
 		FFlattenMaterial()
 			: DiffuseSize(512, 512)
 			, NormalSize(512, 512)
+			, RoughnessSize(0, 0)
+			, SpecularSize(0, 0)
 		{}
 		
 		FGuid			MaterialId;
+		
 		FIntPoint		DiffuseSize;
-		FIntPoint		NormalSize;	
+		FIntPoint		NormalSize;
+		FIntPoint		RoughnessSize;	
+		FIntPoint		SpecularSize;	
 			
 		TArray<FColor>	DiffuseSamples;
 		TArray<FColor>	NormalSamples;
+		TArray<FColor>	RoughnessSamples;
+		TArray<FColor>	SpecularSamples;
 	};
 	
 	/**

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "UnrealEd.h"
 #include "Engine/Breakpoint.h"
@@ -698,12 +698,21 @@ bool FKismetDebugUtilities::HasDebuggingData(const UBlueprint* Blueprint)
 // Looks thru the debugging data for any class variables associated with the node
 UProperty* FKismetDebugUtilities::FindClassPropertyForPin(UBlueprint* Blueprint, const UEdGraphPin* Pin)
 {
-	if (UBlueprintGeneratedClass* Class = Cast<UBlueprintGeneratedClass>(*Blueprint->GeneratedClass))
+	UProperty* FoundProperty = nullptr;
+
+	UClass* Class = Blueprint->GeneratedClass;
+	while (UBlueprintGeneratedClass* BlueprintClass = Cast<UBlueprintGeneratedClass>(Class))
 	{
-		return Class->GetDebugData().FindClassPropertyForPin(Pin);
+		FoundProperty = BlueprintClass->GetDebugData().FindClassPropertyForPin(Pin);
+		if (FoundProperty != nullptr)
+		{
+			break;
+		}
+
+		Class = BlueprintClass->GetSuperClass();
 	}
 
-	return NULL;
+	return FoundProperty;
 }
 
 // Looks thru the debugging data for any class variables associated with the node (e.g., temporary variables or timelines)

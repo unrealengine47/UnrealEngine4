@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	UnMathFpu.h: Fallback FPU vector intrinsics
@@ -984,7 +984,7 @@ FORCEINLINE VectorRegister VectorLog(const VectorRegister& X)
 //TODO: Vectorize
 FORCEINLINE VectorRegister VectorLog2(const VectorRegister& X)
 {
-	return MakeVectorRegister((float)log2(VectorGetComponent(X, 0)), (float)log2(VectorGetComponent(X, 1)), (float)log2(VectorGetComponent(X, 2)), (float)log2(VectorGetComponent(X, 3)));
+	return MakeVectorRegister((float)FMath::Log2(VectorGetComponent(X, 0)), (float)FMath::Log2(VectorGetComponent(X, 1)), (float)FMath::Log2(VectorGetComponent(X, 2)), (float)FMath::Log2(VectorGetComponent(X, 3)));
 }
 
 //TODO: Vectorize

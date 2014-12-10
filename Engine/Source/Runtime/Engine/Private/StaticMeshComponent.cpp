@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
 #include "StaticMeshResources.h"
@@ -138,7 +138,6 @@ UStaticMeshComponent::UStaticMeshComponent(const FObjectInitializer& ObjectIniti
 {
 	PrimaryComponentTick.bCanEverTick = false;
 
-	BodyInstance.bEnableCollision_DEPRECATED = true;
 	// check BaseEngine.ini for profile setup
 	SetCollisionProfileName(UCollisionProfile::BlockAllDynamic_ProfileName);
 
@@ -459,7 +458,7 @@ void UStaticMeshComponent::OnRegister()
 		}
 	}
 
-	if (StaticMesh != NULL && StaticMesh->SpeedTreeWind.IsValid())
+	if (StaticMesh != NULL && StaticMesh->SpeedTreeWind.IsValid() && GetScene())
 	{
 		for (int32 LODIndex = 0; LODIndex < StaticMesh->RenderData->LODResources.Num(); ++LODIndex)
 		{
@@ -472,7 +471,7 @@ void UStaticMeshComponent::OnRegister()
 
 void UStaticMeshComponent::OnUnregister()
 {
-	if (StaticMesh != NULL && StaticMesh->SpeedTreeWind.IsValid())
+	if (StaticMesh != NULL && StaticMesh->SpeedTreeWind.IsValid() && GetScene())
 	{
 		for (int32 LODIndex = 0; LODIndex < StaticMesh->RenderData->LODResources.Num(); ++LODIndex)
 		{
@@ -1902,11 +1901,7 @@ FArchive& operator<<(FArchive& Ar,FStaticMeshComponentLODInfo& I)
 	if( !StripFlags.IsDataStrippedForServer() )
 	{
 		Ar << I.LightMap;
-
-		if (Ar.UE4Ver() >= VER_UE4_PRECOMPUTED_SHADOW_MAPS)
-		{
-			Ar << I.ShadowMap;
-		}
+		Ar << I.ShadowMap;
 	}
 
 	if( !StripFlags.IsClassDataStripped( OverrideColorsStripFlag ) )

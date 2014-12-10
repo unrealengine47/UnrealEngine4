@@ -1,3 +1,5 @@
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
+
 #include "SQLiteSupportPrivatePCH.h"
 #include "SQLiteResultSet.h"
 #include "sqlite3.h"
@@ -85,7 +87,7 @@ float FSQLiteResultSet::GetFloat(const TCHAR* Column) const
 	}
 	else
 	{
-		return FCString::Atof((const wchar_t *)sqlite3_column_text16(PreparedQuery, ColumnIndex));
+		return FCString::Atof(UTF8_TO_TCHAR(sqlite3_column_text(PreparedQuery, ColumnIndex)));
 	}
 
 
@@ -101,7 +103,7 @@ int32 FSQLiteResultSet::GetInt(const TCHAR* Column) const
 	}
 	else
 	{
-		return FCString::Atoi((const wchar_t *)sqlite3_column_text16(PreparedQuery, ColumnIndex));
+		return FCString::Atoi(UTF8_TO_TCHAR(sqlite3_column_text(PreparedQuery, ColumnIndex)));
 	}
 
 
@@ -117,7 +119,7 @@ FString FSQLiteResultSet::GetString(const TCHAR* Column) const
 	}
 	else
 	{
-		return FString((const wchar_t *)sqlite3_column_text16(PreparedQuery, ColumnIndex));
+		return FString(UTF8_TO_TCHAR(sqlite3_column_text(PreparedQuery, ColumnIndex)));
 	}
 
 }
@@ -142,3 +144,4 @@ void FSQLiteResultSet::MoveToFirst()
 	sqlite3_reset(PreparedQuery);
 	StepStatus = sqlite3_step(PreparedQuery);
 }
+

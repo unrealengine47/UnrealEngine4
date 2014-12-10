@@ -1,4 +1,4 @@
-﻿// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+﻿// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -362,7 +362,8 @@ namespace AutomationTool
 			bool? Distribution = null,
             bool? OBBinAPK = null,
             bool? Prebuilt = null,
-            int? RunTimeoutSeconds = null
+            int? RunTimeoutSeconds = null,
+			string OverrideMinimumOS = null
 			)
 		{
 			//
@@ -504,6 +505,7 @@ namespace AutomationTool
 			this.DeviceUsername = ParseParamValueIfNotSpecified(Command, DeviceUsername, "deviceuser", String.Empty);
 			this.DevicePassword = ParseParamValueIfNotSpecified(Command, DevicePassword, "devicepass", String.Empty);
 			this.CrashReporter = GetParamValueIfNotSpecified(Command, CrashReporter, this.CrashReporter, "crashreporter");
+			this.OverrideMinimumOS = ParseParamValueIfNotSpecified(Command, OverrideMinimumOS, "OverrideMinimumOS", String.Empty);
 			if (ClientConfigsToBuild == null)
 			{
 				if (Command != null)
@@ -1153,6 +1155,8 @@ namespace AutomationTool
         [Help("RunTimeoutSeconds", "timeout to wait after we lunch the game")]
         public int RunTimeoutSeconds;
 
+		[Help("OverrideMinimumOS", "Determine a specific Minimum OS")]
+		public string OverrideMinimumOS;
 
 		#endregion
 

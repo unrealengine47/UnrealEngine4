@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	AudioVolume.cpp: Used to affect audio settings in the game and editor.
@@ -137,8 +137,6 @@ bool FInteriorSettings::operator!=(const FInteriorSettings& Other) const
 AAudioVolume::AAudioVolume(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	GetBrushComponent()->BodyInstance.bEnableCollision_DEPRECATED = false;
-
 	GetBrushComponent()->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
 	GetBrushComponent()->bAlwaysCreatePhysicsState = true;
 

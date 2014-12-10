@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 using UnrealBuildTool;
 using System.IO;
@@ -40,6 +40,7 @@ public class TargetPlatform : ModuleRules
 				{
                     DynamicallyLoadedModuleNames.Add("TextureFormatDXT");
                     DynamicallyLoadedModuleNames.Add("TextureFormatPVR");
+					DynamicallyLoadedModuleNames.Add("TextureFormatASTC");
 				}
 
 				DynamicallyLoadedModuleNames.Add("TextureFormatUncompressed");
@@ -73,6 +74,7 @@ public class TargetPlatform : ModuleRules
 				{
 					DynamicallyLoadedModuleNames.Add("TextureFormatDXT");
                     DynamicallyLoadedModuleNames.Add("TextureFormatPVR");
+					DynamicallyLoadedModuleNames.Add("TextureFormatASTC");
 				}
 
 				DynamicallyLoadedModuleNames.Add("TextureFormatUncompressed");
@@ -103,6 +105,7 @@ public class TargetPlatform : ModuleRules
                 {
                     DynamicallyLoadedModuleNames.Add("TextureFormatDXT");
                     DynamicallyLoadedModuleNames.Add("TextureFormatPVR");
+					DynamicallyLoadedModuleNames.Add("TextureFormatASTC");
                 }
 
                 DynamicallyLoadedModuleNames.Add("TextureFormatUncompressed");

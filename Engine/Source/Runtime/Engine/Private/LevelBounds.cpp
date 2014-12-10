@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
 #include "Engine/LevelBounds.h"
@@ -20,7 +20,6 @@ ALevelBounds::ALevelBounds(const FObjectInitializer& ObjectInitializer)
 	BoxComponent->bDrawOnlyIfSelected = true;
 	BoxComponent->bUseAttachParentBound = false;
 	BoxComponent->bUseEditorCompositing = true;
-	BoxComponent->BodyInstance.bEnableCollision_DEPRECATED = false;
 	BoxComponent->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
 	BoxComponent->InitBoxExtent(FVector(0.5f, 0.5f, 0.5f));
 	

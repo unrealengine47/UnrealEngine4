@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	NetConnection.cpp: Unreal connection base class.
@@ -203,7 +203,7 @@ void UNetConnection::Close()
 			*LowLevelGetRemoteAddress(true),
 			*FDateTime::UtcNow().ToString(TEXT("%Y.%m.%d-%H.%M.%S")));
 
-		if (Channels[0] != NULL && Channels[0]->OpenedLocally)
+		if (Channels[0] != NULL)
 		{
 			Channels[0]->Close();
 		}
@@ -477,7 +477,7 @@ void UNetConnection::FlushNet(bool bIgnoreSimulation)
 	TimeSensitive = 0;
 
 	// If there is any pending data to send, send it.
-	if ( SendBuffer.GetNumBits() || ( Driver->Time-LastSendTime > Driver->KeepAliveTime && !InternalAck ) )
+	if ( SendBuffer.GetNumBits() || ( Driver->Time-LastSendTime > Driver->KeepAliveTime && !InternalAck && State != USOCK_Closed ) )
 	{
 		// If sending keepalive packet, still write the packet id
 		if ( SendBuffer.GetNumBits() == 0 )

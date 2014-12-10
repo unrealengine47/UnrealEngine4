@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -53,6 +53,7 @@ namespace physx
 { 
 	namespace apex 
 	{
+		class NxClothingAsset;
 		class NxClothingActor;
 		class NxClothingCollision;
 	}
@@ -88,7 +89,7 @@ public:
 	 * to check whether this actor is valid or not 
 	 * because clothing asset can be changed by editing 
 	 */
-	TSharedPtr<class FClothingAssetWrapper>	ParentClothingAsset;
+	physx::apex::NxClothingAsset*	ParentClothingAsset;
 	/** APEX clothing actor is created from APEX clothing asset for cloth simulation */
 	physx::apex::NxClothingActor*		ApexClothingActor;
 	FPhysScene * PhysScene;
@@ -444,10 +445,6 @@ public:
 	/** Skips Ticking and Bone Refresh. */
 	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category=SkeletalMesh)
 	uint32 bNoSkeletonUpdate:1;
-
-	/** If true, tick anim nodes even when our Owner has not been rendered recently  */
-	UPROPERTY()
-	uint32 bTickAnimationWhenNotRendered_DEPRECATED:1;
 
 	/** pauses this component's animations (doesn't tick them, but still refreshes bones) */
 	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category=Animation)
@@ -1056,7 +1053,7 @@ public:
 	* create only if became invalid
 	* BlendedData : added for cloth morph target but not used commonly
 	*/
-	bool CreateClothingActor(int32 AssetIndex, TSharedPtr<FClothingAssetWrapper> ClothingAsset, TArray<FVector>* BlendedDelta=NULL);
+	bool CreateClothingActor(int32 AssetIndex, physx::apex::NxClothingAsset* ClothingAsset, TArray<FVector>* BlendedDelta = NULL);
 	/** should call this method if occurred any changes in clothing assets */
 	void ValidateClothingActors();
 	/** add bounding box for cloth */

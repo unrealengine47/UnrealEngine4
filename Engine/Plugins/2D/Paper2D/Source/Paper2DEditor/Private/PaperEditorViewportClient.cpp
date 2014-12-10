@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "Paper2DEditorPrivatePCH.h"
 #include "TileSetEditor.h"
@@ -41,9 +41,10 @@ USelection* FAssetEditorModeTools::GetSelectedObjects() const
 // FPaperEditorViewportClient
 
 FPaperEditorViewportClient::FPaperEditorViewportClient()
-	: FEditorViewportClient(*( new FAssetEditorModeTools() ))
+	: FEditorViewportClient(new FAssetEditorModeTools())
 	, CheckerboardTexture(NULL)
 {
+	bOwnsModeTools = true;
 	ZoomPos = FVector2D::ZeroVector;
 	ZoomAmount = 1.0f;
 
@@ -152,11 +153,11 @@ void FPaperEditorViewportClient::SetupCheckerboardTexture(const FColor& ColorOne
 
 				if (ColNum < HalfPixelNum)
 				{
-					CurColor = (RowNum < HalfPixelNum)? ColorOne: ColorTwo;
+					CurColor = (RowNum < HalfPixelNum) ? ColorOne: ColorTwo;
 				}
 				else
 				{
-					CurColor = (RowNum < HalfPixelNum)? ColorTwo: ColorOne;
+					CurColor = (RowNum < HalfPixelNum) ? ColorTwo: ColorOne;
 				}
 			}
 		}

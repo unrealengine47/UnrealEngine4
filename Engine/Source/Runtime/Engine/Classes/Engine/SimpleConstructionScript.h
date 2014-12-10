@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 
 #pragma once
@@ -57,6 +57,9 @@ class USimpleConstructionScript : public UObject
 
 	/** Find the parent node of this one. Returns NULL if node is not in tree or if is root */
 	ENGINE_API USCS_Node* FindParentNode(USCS_Node* InNode) const;
+
+	/** Find the SCS_Node node by name and return it if found */
+	ENGINE_API USCS_Node* FindSCSNode(FName InName);
 
 protected:
 	/** Checks the root node set for scene components and ensures that it is valid (e.g. after a removal) */

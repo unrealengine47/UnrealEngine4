@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	DestructibleComponent.cpp: UDestructibleComponent methods.
@@ -34,7 +34,6 @@ UDestructibleComponent::UDestructibleComponent(const FObjectInitializer& ObjectI
 	bHasCustomNavigableGeometry = EHasCustomNavigableGeometry::EvenIfNotCollidable;
 
 	BodyInstance.SetUseAsyncScene(true);
-	BodyInstance.bEnableCollision_DEPRECATED = true;
 	static FName CollisionProfileName(TEXT("Destructible"));
 	SetCollisionProfileName(CollisionProfileName);
 

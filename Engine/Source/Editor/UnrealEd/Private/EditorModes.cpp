@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "UnrealEd.h"
 #include "Engine/BookMark.h"
@@ -50,6 +50,10 @@ const FEditorModeID FBuiltinEditorModes::EM_ActorPicker(TEXT("EM_ActorPicker"));
 
 FEdModeDefault::FEdModeDefault()
 {
-	bDrawKillZ = true;
+	bDrawGrid = false;
+	bDrawPivot = false;
+	bDrawBaseInfo = false;
+	bDrawWorldBox = false;
+	bDrawKillZ = false;
 }
 

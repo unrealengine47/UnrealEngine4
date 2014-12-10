@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "AbilitySystemEditorPrivatePCH.h"
 #include "AssetTypeActions_GameplayEffect.h"
@@ -13,6 +13,7 @@ DEFINE_LOG_CATEGORY(LogAssetTypeActions_GameplayEffect);
 
 void CopyInfoFromDataGE(const UGameplayEffect& InGE, UGameplayEffect& OutGE)
 {
+	OutGE.DurationMagnitude = InGE.DurationMagnitude;
 	OutGE.Duration = InGE.Duration;
 	OutGE.Period = InGE.Period;
 

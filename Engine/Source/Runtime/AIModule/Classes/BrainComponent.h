@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -126,9 +126,14 @@ public:
 	 *	On subsequent ResumeLogic instead RestartLogic will be called. 
 	 *	@note this call does nothing if logic is not locked at the moment of call */
 	void RequestLogicRestartOnUnlock();
-	virtual void RestartLogic() {}
+
+	UFUNCTION(BlueprintCallable, Category = "AI|Logic")
+	virtual void RestartLogic();
+
+	UFUNCTION(BlueprintCallable, Category = "AI|Logic")
+	virtual void StopLogic(const FString& Reason);
+
 protected:
-	virtual void StopLogic(const FString& Reason) {}
 	virtual void PauseLogic(const FString& Reason) {}
 	/** MUST be called by child implementations!
 	 *	@return indicates whether child class' ResumeLogic should be called (true) or has it been 

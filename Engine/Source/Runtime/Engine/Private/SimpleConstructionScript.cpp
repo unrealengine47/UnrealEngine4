@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
 #include "Engine/SCS_Node.h"
@@ -580,6 +580,22 @@ USCS_Node* USimpleConstructionScript::FindParentNode(USCS_Node* InNode) const
 		}
 	}
 	return NULL;
+}
+
+USCS_Node* USimpleConstructionScript::FindSCSNode(FName InName)
+{
+	TArray<USCS_Node*> AllNodes = GetAllNodes();
+	USCS_Node* ReturnSCSNode = nullptr;
+
+	for( USCS_Node* SCSNode : AllNodes )
+	{
+		if (SCSNode->GetVariableName() == InName)
+		{
+			ReturnSCSNode = SCSNode;
+			break;
+		}
+	}
+	return ReturnSCSNode;
 }
 
 void USimpleConstructionScript::ValidateSceneRootNodes()

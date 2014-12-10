@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
 #include "UnrealNetwork.h"
@@ -683,7 +683,7 @@ void UCheatManager::TickCollisionDebug()
 	for (int32 TraceIdx=0; TraceIdx < DebugTraceInfoList.Num(); ++TraceIdx)
 	{
 		FDebugTraceInfo & TraceInfo = DebugTraceInfoList[TraceIdx];
-		DrawDebugDirectionalArrow(GetWorld(), TraceInfo.LineTraceStart, TraceInfo.LineTraceEnd, 10.f, FColor(255,255,255), SDPG_World);
+		DrawDebugDirectionalArrow(GetWorld(), TraceInfo.LineTraceStart, TraceInfo.LineTraceEnd, 10.f, FColor::White, SDPG_World);
 		// if it's current trace index, use highlight color
 		if (CurrentTraceIndex == TraceIdx)
 		{

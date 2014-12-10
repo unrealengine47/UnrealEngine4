@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "UnrealEd.h"
 #include "Animation/AnimSet.h"
@@ -1069,7 +1069,7 @@ class FBasePoseViewportClient: public FEditorViewportClient
 {
 public:
 	FBasePoseViewportClient(FPreviewScene& InPreviewScene)
-			: FEditorViewportClient(GLevelEditorModeTools(), &InPreviewScene)
+			: FEditorViewportClient(nullptr, &InPreviewScene)
 	{
 		SetViewMode(VMI_Lit);
 

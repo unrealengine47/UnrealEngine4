@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
 #include "MessageLog.h"
@@ -207,7 +207,6 @@ UNavigationSystem::UNavigationSystem(const FObjectInitializer& ObjectInitializer
 	, bWholeWorldNavigable(false)
 	, bAddPlayersToGenerationSeeds(true)
 	, bSkipAgentHeightCheckWhenPickingNavData(false)
-	, bForceRebuildOnLoad(false)
 	, DirtyAreasUpdateFreq(60)
 	, OperationMode(FNavigationSystem::InvalidMode)
 	, NavOctree(NULL)
@@ -454,9 +453,6 @@ void UNavigationSystem::OnWorldInitDone(FNavigationSystem::EMode Mode)
 			bInitialBuildingLockActive = false;
 		}
 
-		// don't mark dirty areas after loading a map if navigation system doesn't want to rebuilt from scratch
-		bSkipDirtyAreasOnce = !bForceRebuildOnLoad;
-
 		if (bAutoCreateNavigationData == true)
 		{
 			SpawnMissingNavigationData();
@@ -583,12 +579,6 @@ void UNavigationSystem::Tick(float DeltaSeconds)
 
 		if (DirtyAreas.Num() > 0 && bCanRebuildNow)
 		{
-			if (bSkipDirtyAreasOnce)
-			{
-				bSkipDirtyAreasOnce = false;
-				DirtyAreas.Reset();
-			}
-
 			for (int32 NavDataIndex = 0; NavDataIndex < NavDataSet.Num(); ++NavDataIndex)
 			{
 				ANavigationData* NavData = NavDataSet[NavDataIndex];
@@ -2347,6 +2337,30 @@ void UNavigationSystem::UpdateNavOctreeParentChain(UObject* ElementOwner)
 			RegisterNavOctreeElement(ChildNodes[Idx].Get(), ChildNavInterfaces[Idx], UpdateFlags);
 		}
 	}
+}
+
+bool UNavigationSystem::UpdateNavOctreeElementBounds(UActorComponent* Comp, const FBox& NewBounds, const FBox& DirtyArea)
+{
+	const FOctreeElementId* ElementId = GetObjectsNavOctreeId(Comp);
+	if (ElementId && ElementId->IsValidId())
+	{
+		NavOctree->UpdateNode(*ElementId, NewBounds);
+		
+		// Add dirty area
+		if (DirtyArea.IsValid)
+		{
+			ElementId = GetObjectsNavOctreeId(Comp);
+			if (ElementId && ElementId->IsValidId())
+			{
+				FNavigationOctreeElement& ElementData = NavOctree->GetElementById(*ElementId);
+				AddDirtyArea(DirtyArea, ElementData.Data.GetDirtyFlag());
+			}
+		}
+
+		return true;
+	}
+	
+	return false;
 }
 
 void UNavigationSystem::OnComponentRegistered(UActorComponent* Comp)

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	World.cpp: UWorld implementation
@@ -176,12 +176,6 @@ void UWorld::Serialize( FArchive& Ar )
 	Ar << ExtraReferencedObjects;
 	Ar << StreamingLevels;
 		
-	if (Ar.UE4Ver() < VER_UE4_REMOVE_CLIENTDESTROYEDACTORCONTENT)
-	{
-		TArray<class UObject*>	TempClientDestroyedActorContent;
-		Ar << TempClientDestroyedActorContent;
-	}
-
 	// Mark archive and package as containing a map if we're serializing to disk.
 	if( !HasAnyFlags( RF_ClassDefaultObject ) && Ar.IsPersistent() )
 	{
@@ -457,14 +451,6 @@ void UWorld::PostLoad()
 	Super::PostLoad();
 	CurrentLevel = PersistentLevel;
 
-	// copy StreamingLevels from WorldSettings to this if exists
-	AWorldSettings * WorldSettings = GetWorldSettings(false, false);
-	if ( WorldSettings && WorldSettings->StreamingLevels_DEPRECATED.Num() > 0 )
-	{
-		StreamingLevels = WorldSettings->StreamingLevels_DEPRECATED;
-		WorldSettings->StreamingLevels_DEPRECATED.Empty();
-	}
-	
 	// Remove null streaming level entries (could be if level was saved with transient level streaming objects)
 	StreamingLevels.Remove(nullptr);
 	
@@ -487,48 +473,6 @@ void UWorld::PostLoad()
 			}
 		}
 	}
-
-#if WITH_EDITORONLY_DATA
-	if( GIsEditor && !VisibleLayers_DEPRECATED.IsEmpty() )
-	{
-		TArray< FString > OldVisibleLayerArray; 
-		VisibleLayers_DEPRECATED.ParseIntoArray( &OldVisibleLayerArray, TEXT(","), 0 );
-
-		for( auto VisibleLayerIt = OldVisibleLayerArray.CreateConstIterator(); VisibleLayerIt; ++VisibleLayerIt )
-		{
-			FName VisibleLayerName = FName( *( *VisibleLayerIt ) );
-
-			if( VisibleLayerName == TEXT("None") )
-			{
-				continue;
-			}
-
-			bool bFoundExistingLayer = false;
-			for( auto LayerIt = Layers.CreateConstIterator(); LayerIt; ++LayerIt )
-			{
-				TWeakObjectPtr< ULayer > Layer = *LayerIt;
-				if( VisibleLayerName == Layer->LayerName )
-				{
-					bFoundExistingLayer = true;
-					break;
-				}
-			}
-
-			if( !bFoundExistingLayer )
-			{
-				ULayer* NewLayer = ConstructObject< ULayer >( ULayer::StaticClass(), this, NAME_None, RF_Transactional );
-				check( NewLayer != NULL );
-
-				NewLayer->LayerName = VisibleLayerName;
-				NewLayer->bIsVisible = true;
-
-				Layers.Add( NewLayer );
-			}
-		}
-
-		VisibleLayers_DEPRECATED.Empty();
-	}
-#endif // WITH_EDITORONLY_DATA
 
 	// Add the garbage collection callbacks
 	FLevelStreamingGCHelper::AddGarbageCollectorCallback();
@@ -2332,17 +2276,6 @@ void UWorld::UpdateLevelStreaming( FSceneViewFamily* ViewFamily )
 		return;
 	}
 
-	if (WorldComposition)
-	{
-		// May issue the world origin shift request depending on view location
-		if (ViewFamily)
-		{
-			EvaluateWorldOriginLocation(*ViewFamily);
-		}
-		// May add/remove streaming objects to persistent world depending on view location
-		WorldComposition->UpdateStreamingState(ViewFamily);
-	}
-
 	// Store current count of pending unload levels
 	const int32 NumLevelsPendingPurge = FLevelStreamingGCHelper::GetNumLevelsPendingPurge();
 	// Store current count of async loading packages
@@ -2363,28 +2296,6 @@ void UWorld::UpdateLevelStreaming( FSceneViewFamily* ViewFamily )
 	if (NumLevelsPendingPurge < FLevelStreamingGCHelper::GetNumLevelsPendingPurge())
 	{
 		ForceGarbageCollection(true); 
-	}
-}
-
-void UWorld::EvaluateWorldOriginLocation(const FSceneViewFamily& ViewFamily)
-{
-	if (IsGameWorld() && GetWorldSettings()->bEnableWorldOriginRebasing)
-	{
-		FVector CentroidLocation(0,0,0);
-		for (int32 ViewIndex = 0; ViewIndex < ViewFamily.Views.Num(); ViewIndex++)
-		{
-			CentroidLocation+= ViewFamily.Views[ViewIndex]->ViewMatrices.ViewOrigin;
-		}
-
-		CentroidLocation/= ViewFamily.Views.Num();
-		// Consider only XY plane
-		CentroidLocation.Z = 0.f;
-	
-		// Request to shift world in case current view is quite far from current origin
-		if (CentroidLocation.Size() > HALF_WORLD_MAX1*0.5f)
-		{
-			RequestNewWorldOrigin(FIntVector(CentroidLocation.X, CentroidLocation.Y, CentroidLocation.Z) + OriginLocation);
-		}
 	}
 }
 
@@ -4682,11 +4593,25 @@ UWorld* FSeamlessTravelHandler::Tick()
 			GWorld = NULL;
 
 			// mark everything else contained in the world to be deleted
+			TArray<UWorld*> CurrentWorlds;
+			for (auto LevelIt(CurrentWorld->GetLevelIterator()); LevelIt; ++LevelIt)
+			{
+				const ULevel* Level = *LevelIt;
+				if (Level)
+				{
+					CurrentWorlds.Add(CastChecked<UWorld>(Level->GetOuter()));
+				}
+			}
+
 			for (TObjectIterator<UObject> It; It; ++It)
 			{
-				if (It->IsIn(CurrentWorld))
+				for (const UWorld* World : CurrentWorlds)
 				{
-					It->MarkPendingKill();
+					if (It->IsIn(World))
+					{
+						It->MarkPendingKill();
+						break;
+					}
 				}
 			}
 

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	AnimMontage.cpp: Montage classes that contains slots
@@ -338,23 +338,9 @@ void UAnimMontage::PostLoad()
 	for ( auto SlotIter = SlotAnimTracks.CreateIterator() ; SlotIter ; ++SlotIter)
 	{
 		FAnimTrack & Track = (*SlotIter).AnimTrack;
-		for ( auto SegIter = Track.AnimSegments.CreateIterator() ; SegIter ; ++SegIter )
-		{
-			FAnimSegment & Segment = (*SegIter);
-			if ( Segment.AnimStartOffset_DEPRECATED!=0.f )
-			{
-				Segment.AnimStartTime = Segment.AnimStartOffset_DEPRECATED;
-				Segment.AnimStartOffset_DEPRECATED = 0.f;
-			}
-			if ( Segment.AnimEndOffset_DEPRECATED!=0.f )
-			{
-				Segment.AnimEndTime = Segment.AnimEndOffset_DEPRECATED;
-				Segment.AnimEndOffset_DEPRECATED = 0.f;
-			}
-		}
 		Track.ValidateSegmentTimes();
 
-		float CurrentCalculatedLength = CalculateSequenceLength();
+		const float CurrentCalculatedLength = CalculateSequenceLength();
 
 		if(CurrentCalculatedLength != SequenceLength)
 		{
@@ -365,21 +351,15 @@ void UAnimMontage::PostLoad()
 
 	int32 Ver = GetLinker()->UE4Ver();
 
-	for (auto& Composite : CompositeSections)
+	for(auto& Composite : CompositeSections)
 	{
-		if (Composite.StarTime_DEPRECATED != 0.0f)
-		{
-			Composite.SetTime(Composite.StarTime_DEPRECATED);
-			Composite.StarTime_DEPRECATED = 0.0f;
-		}
-
 		if(Composite.StartTime_DEPRECATED != 0.0f)
 		{
 			Composite.Clear();
 			Composite.LinkMontage(this, Composite.StartTime_DEPRECATED);
 		}
 		else
-	{
+		{
 			Composite.LinkMontage(this, Composite.GetTime());
 		}
 	}

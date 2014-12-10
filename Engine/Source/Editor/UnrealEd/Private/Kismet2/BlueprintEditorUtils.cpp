@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "UnrealEd.h"
 
@@ -3735,8 +3735,18 @@ void FBlueprintEditorUtils::ChangeMemberVariableType(UBlueprint* Blueprint, cons
 				{
 					Variable.VarType = NewPinType;
 
-					// Compile the Blueprint even if no loaded BPs are using the variable, this ensures that BPs refresh correctly when they are loaded
-					FKismetEditorUtilities::CompileBlueprint(Blueprint, false, true);
+					UClass* ParentClass = nullptr;
+					// When compiling so that skeleton classes inherit skeleton classes, marking the Blueprint structurally modified is enough
+					// when the children skeleton classes are rebuilt, they will receive the modified variables.
+					if(UBlueprintGeneratedClass::CompileSkeletonClassesInheritSkeletonClasses())
+					{
+						FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+					}
+					else
+					{
+						// Compile the Blueprint even if no loaded BPs are using the variable, this ensures that BPs refresh correctly when they are loaded
+						FKismetEditorUtilities::CompileBlueprint(Blueprint, false, true);
+					}
 
 					if(bBreakingVariableConnections)
 					{

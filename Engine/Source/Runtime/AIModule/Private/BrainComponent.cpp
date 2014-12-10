@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "AIModulePrivate.h"
 #include "BrainComponent.h"
@@ -313,4 +313,14 @@ EAILogicResuming::Type UBrainComponent::ResumeLogic(const FString& Reason)
 	}
 
 	return EAILogicResuming::Continue;
+}
+
+void UBrainComponent::RestartLogic()
+{
+
+}
+
+void UBrainComponent::StopLogic(const FString& Reason)
+{
+
 }

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 
 #include "LevelEditor.h"
@@ -233,6 +233,14 @@ void FLevelEditorContextMenu::FillMenu( FMenuBuilder& MenuBuilder, TWeakPtr<SLev
 	MenuBuilder.BeginSection( "ActorControl", LOCTEXT("ActorHeading", "Actor") );
 	{
 		MenuBuilder.AddMenuEntry( FEditorViewportCommands::Get().FocusViewportToSelection );
+
+		
+		const FVector* ClickLocation = &GEditor->ClickLocation;
+
+		FUIAction GoHereAction;
+		GoHereAction.ExecuteAction = FExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::GoHere_Clicked, ClickLocation );
+
+		MenuBuilder.AddMenuEntry( FLevelEditorCommands::Get().GoHere );
 		MenuBuilder.AddMenuEntry( FLevelEditorCommands::Get().SnapCameraToActor );
 	}
 	MenuBuilder.EndSection();

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "DistCurveEditorModule.h"
 #include "SDistributionCurveEditor.h"
@@ -25,7 +25,7 @@ FCurveEditorSharedData::FCurveEditorSharedData(UInterpCurveEdSetup* InEdSetup)
 
 	bShowPositionMarker = false;
 	MarkerPosition = 0.f;
-	MarkerColor = FColor(255,255,255);
+	MarkerColor = FColor::White;
 
 	bShowEndMarker = false;
 	EndMarkerPosition = 0.f;

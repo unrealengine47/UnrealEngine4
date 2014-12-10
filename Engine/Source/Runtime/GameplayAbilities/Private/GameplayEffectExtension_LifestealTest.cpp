@@ -1,4 +1,4 @@
-// Copyright 1998-2013 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "AbilitySystemPrivatePCH.h"
 #include "GameplayEffectExtension_LifestealTest.h"
@@ -41,7 +41,7 @@ void UGameplayEffectExtension_LifestealTest::PostGameplayEffectExecute(const FGa
 			LocalHealthRestore->Modifiers[0].Magnitude.SetValue(HealthToRestore);
 			LocalHealthRestore->Modifiers[0].ModifierOp = EGameplayModOp::Additive;
 			LocalHealthRestore->Modifiers[0].Attribute.SetUProperty(HealthProperty);
-			LocalHealthRestore->Duration.Value = UGameplayEffect::INSTANT_APPLICATION;
+			LocalHealthRestore->DurationPolicy = EGameplayEffectDurationType::Instant;
 			LocalHealthRestore->Period.Value = UGameplayEffect::NO_PERIOD;
 		}
 

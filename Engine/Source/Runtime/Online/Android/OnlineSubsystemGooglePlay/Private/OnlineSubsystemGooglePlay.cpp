@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 //Google Play Services
 
@@ -248,7 +248,7 @@ std::string FOnlineSubsystemGooglePlay::ConvertFStringToStdString(const FString&
 	TArray<ANSICHAR> Converted;
 	Converted.AddUninitialized(DestLen);
 	
-	FPlatformString::Convert(Converted.GetTypedData(), DestLen, *InString, SrcLen);
+	FPlatformString::Convert(Converted.GetData(), DestLen, *InString, SrcLen);
 
-	return std::string(Converted.GetTypedData());
+	return std::string(Converted.GetData());
 }

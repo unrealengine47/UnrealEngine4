@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -109,6 +109,9 @@ class SLATE_API SInlineEditableTextBlock: public SCompoundWidget
 
 	void SetText( const TAttribute< FText >& InText );
 	void SetText( const FString& InText );
+
+	/** Sets the wrap text at attribute.  See WrapTextAt attribute */
+	void SetWrapTextAt(const TAttribute<float>& InWrapTextAt);
 
 protected:
 	/** Callback for the text box's OnTextChanged event */

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "UnrealEd.h"
 #include "ISourceControlModule.h"
@@ -40,10 +40,10 @@ UDestructableMeshEditorSettings::UDestructableMeshEditorSettings( const FObjectI
 	: Super(ObjectInitializer)
 {
 	AnimPreviewLightingDirection = FRotator(-45.0f, 45.0f, 0);
-	AnimPreviewSkyColor = FColor(0, 0, 255);
+	AnimPreviewSkyColor = FColor::Blue;
 	AnimPreviewFloorColor = FColor(51, 51, 51);
 	AnimPreviewSkyBrightness = 0.2f * PI;
-	AnimPreviewDirectionalColor = FColor(255, 255, 255);
+	AnimPreviewDirectionalColor = FColor::White;
 	AnimPreviewLightBrightness = 1.0f * PI;
 }
 

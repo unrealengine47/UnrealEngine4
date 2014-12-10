@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 
 #include "MainFramePrivatePCH.h"
@@ -661,6 +661,15 @@ void FMainFrameActionCallbacks::PackageProject( const FName InPlatformInfoName )
 	else if (PlatformInfo->TargetPlatformName == FName("LinuxNoEditor"))
 	{
 		OptionalParams += TEXT(" -targetplatform=Linux");
+	}
+	else if (PlatformInfo->TargetPlatformName == FName("WindowsNoEditor") && PlatformInfo->PlatformFlavor == TEXT("Win32"))
+	{
+		FString MinumumSupportedWindowsOS;
+		GConfig->GetString(TEXT("/Script/WindowsTargetPlatform.WindowsTargetSettings"), TEXT("MinimumOSVersion"), MinumumSupportedWindowsOS, GEngineIni);
+		if (MinumumSupportedWindowsOS == TEXT("MSOS_XP"))
+		{
+			OptionalParams += TEXT(" -OverrideMinimumOS=WinXP");
+		}
 	}
 
 	// Append any extra UAT flags specified for this platform flavor

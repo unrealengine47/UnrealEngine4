@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 #include "EdGraph/EdGraphNode.h"
@@ -36,6 +36,10 @@ class UEdGraphNode_Comment : public UEdGraphNode
 	/** Whether the comment should move any fully enclosed nodes around when it is moved */
 	UPROPERTY(EditAnywhere, Category=Comment)
 	TEnumAsByte<ECommentBoxMode::Type> MoveMode;
+
+	/** comment Depth */
+	UPROPERTY(EditAnywhere, Category=Comment, meta=(DisplayName="CommentDepth"))
+	int32 CommentDepth;
 
 public:
 

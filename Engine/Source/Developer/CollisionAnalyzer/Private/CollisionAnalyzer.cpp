@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "CollisionAnalyzerPCH.h"
 #include "CollisionDebugDrawingPublic.h"
@@ -107,7 +107,7 @@ void FCollisionAnalyzer::TickAnalyzer(UWorld* World)
 	// Draw debug box if desired
 	if(DrawBox.IsValid)
 	{
-		DrawDebugBox(World, DrawBox.GetCenter(), DrawBox.GetExtent(), FColor(255,255,255));
+		DrawDebugBox(World, DrawBox.GetCenter(), DrawBox.GetExtent(), FColor::White);
 	}
 }
 

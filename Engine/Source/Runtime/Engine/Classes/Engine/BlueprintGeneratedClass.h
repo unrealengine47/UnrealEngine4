@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 #include "MeshBatch.h"
@@ -478,6 +478,8 @@ public:
 
 	static FName GetUberGraphFrameName();
 	static bool UsePersistentUberGraphFrame();
+
+	static bool CompileSkeletonClassesInheritSkeletonClasses();
 
 #if WITH_EDITORONLY_DATA
 	FBlueprintDebugData DebugData;

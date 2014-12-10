@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
 #include "Components/SplineMeshComponent.h"
@@ -222,7 +222,6 @@ USplineMeshComponent::USplineMeshComponent(const FObjectInitializer& ObjectIniti
 {
 	Mobility = EComponentMobility::Static;
 
-	BodyInstance.bEnableCollision_DEPRECATED = false;
 	SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
 	bHasCustomNavigableGeometry = EHasCustomNavigableGeometry::Yes;
 

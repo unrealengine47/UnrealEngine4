@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -359,13 +359,6 @@ public:
 
 	/** Auto set tangents for any 'auto' keys in curve */
 	void AutoSetTangents(float Tension = 0.f);
-
-	// Legacy conversion
-
-	/** Util to convert from legacy FInterpCurveFloat */
-	static void ConvertInterpCurveFloat(const FInterpCurveFloat& InCurve, FRichCurve& OutCurve);
-	/** Util to convert from legacy FInterpCurveVector */
-	static void ConvertInterpCurveVector(const FInterpCurveVector& InCurve, FRichCurve OutCurves[3]);
 
 	/** Determine if two RichCurves are the same */
 	bool operator == (const FRichCurve& Curve) const;

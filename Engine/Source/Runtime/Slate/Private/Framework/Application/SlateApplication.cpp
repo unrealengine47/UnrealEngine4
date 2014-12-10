@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 
 #include "SlatePrivatePCH.h"
@@ -653,6 +653,7 @@ FSlateApplication::FSlateApplication()
 	, bSlateWindowActive(true)
 	, Scale( 1.0f )
 	, DragTriggerDistnace( 5.0f )
+	, CursorRadius(0.0f)
 	, LastUserInteractionTime( 0.0 )
 	, LastUserInteractionTimeForThrottling( 0.0 )
 	, SlateSoundDevice( MakeShareable(new FNullSlateSoundDevice()) )
@@ -812,7 +813,7 @@ FWidgetPath FSlateApplication::LocateWindowUnderMouse( FVector2D ScreenspaceMous
 
 		if ( Window->IsVisible() && AcceptsInput && Window->IsScreenspaceMouseWithin(ScreenspaceMouseCoordinate) && !bPrevWindowWasModal )
 		{
-			const TArray<FWidgetAndPointer> WidgetsAndCursors = Window->GetHittestGrid()->GetBubblePath(ScreenspaceMouseCoordinate, bIgnoreEnabledStatus);
+			const TArray<FWidgetAndPointer> WidgetsAndCursors = Window->GetHittestGrid()->GetBubblePath(ScreenspaceMouseCoordinate, GetCursorRadius(), bIgnoreEnabledStatus);
 			return FWidgetPath( WidgetsAndCursors );
 		}
 	}
@@ -1437,6 +1438,8 @@ TSharedRef< FGenericWindow > FSlateApplication::MakeWindow( TSharedRef<SWindow> 
 	Definition->Title = InSlateWindow->GetTitle().ToString();
 	Definition->Opacity = InSlateWindow->GetOpacity();
 	Definition->CornerRadius = InSlateWindow->GetCornerRadius();
+
+	Definition->SizeLimits = InSlateWindow->GetSizeLimits();
 
 	TSharedRef< FGenericWindow > NewWindow = PlatformApplication->MakeWindow();
 
@@ -3009,6 +3012,16 @@ void FSlateApplication::SetAnalogCursorEnable(bool bEnable, TSharedPtr<class FAn
 	}
 }
 
+void FSlateApplication::SetCursorRadius(float NewRadius)
+{
+	CursorRadius = FMath::Max<float>(0.0f, NewRadius);
+}
+
+float FSlateApplication::GetCursorRadius() const
+{
+	return CursorRadius;
+}
+
 FVector2D FSlateApplication::CalculatePopupWindowPosition( const FSlateRect& InAnchor, const FVector2D& InSize, const EOrientation Orientation ) const
 {
 	// Do nothing if this window has no size
@@ -3045,86 +3058,18 @@ FVector2D FSlateApplication::CalculatePopupWindowPosition( const FSlateRect& InA
 		AnchorRect.Top = InAnchor.Top + 1;
 		const FPlatformRect PlatformWorkArea = PlatformApplication->GetWorkArea( AnchorRect );
 
-		FSlateRect WorkAreaRect( 
+		const FSlateRect WorkAreaRect( 
 			PlatformWorkArea.Left, 
 			PlatformWorkArea.Top, 
 			PlatformWorkArea.Left+(PlatformWorkArea.Right - PlatformWorkArea.Left), 
 			PlatformWorkArea.Top+(PlatformWorkArea.Bottom - PlatformWorkArea.Top) );
 
-		// In the direction we are opening, see if there is enough room. If there is not, flip the opening direction along the same axis.
-		FVector2D NewPosition = FVector2D::ZeroVector;
-		if ( Orientation == Orient_Horizontal )
-		{
-			const bool bFitsRight = InAnchor.Right + InSize.X < WorkAreaRect.Right;
-			const bool bFitsLeft = InAnchor.Left - InSize.X >= WorkAreaRect.Left;
+		// Assume natural left-to-right, top-to-bottom flow; position popup below and to the right.
+		const FVector2D ProposedPlacement(
+			Orientation == Orient_Horizontal ? AnchorRect.Right : AnchorRect.Left,
+			Orientation == Orient_Horizontal ? AnchorRect.Top : AnchorRect.Bottom);
 
-			if ( bFitsRight || !bFitsLeft )
-			{
-				// The menu fits to the right of the anchor or it does not fit to the left, display to the right
-				NewPosition = FVector2D(InAnchor.Right, InAnchor.Top);
-			}
-			else
-			{
-				// The menu does not fit to the right of the anchor but it does fit to the left, display to the left
-				NewPosition = FVector2D(InAnchor.Left - InSize.X, InAnchor.Top);
-			}
-		}
-		else
-		{
-			const bool bFitsDown = InAnchor.Bottom + InSize.Y < WorkAreaRect.Bottom;
-			const bool bFitsUp = InAnchor.Top - InSize.Y >= WorkAreaRect.Top;
-
-			if ( bFitsDown || !bFitsUp )
-			{
-				// The menu fits below the anchor or it does not fit above, display below
-				NewPosition = FVector2D(InAnchor.Left, InAnchor.Bottom);
-			}
-			else
-			{
-				// The menu does not fit below the anchor but it does fit above, display above
-				NewPosition = FVector2D(InAnchor.Left, InAnchor.Top - InSize.Y);
-			}
-
-			if ( !bFitsDown && !bFitsUp )
-			{
-				NewPosition.X = InAnchor.Right;
-			}
-		}
-
-		// Adjust the position of popup windows so they do not go out of the visible area of the monitor(s)
-		// This can happen along the opposite axis that we are opening with
-		// Assumes this window has a valid size
-		// Adjust any menus that my not fit on the screen where they are opened
-		FVector2D StartPos = NewPosition;
-		FVector2D EndPos = NewPosition+InSize;
-		FVector2D Adjust = FVector2D::ZeroVector;
-		if (StartPos.X < WorkAreaRect.Left)
-		{
-			// Window is clipped by the left side of the work area
-			Adjust.X = WorkAreaRect.Left - StartPos.X;
-		}
-
-		if (StartPos.Y < WorkAreaRect.Top)
-		{
-			// Window is clipped by the top of the work area
-			Adjust.Y = WorkAreaRect.Top - StartPos.Y;
-		}
-
-		if (EndPos.X > WorkAreaRect.Right)
-		{
-			// Window is clipped by the right side of the work area
-			Adjust.X = WorkAreaRect.Right - EndPos.X;
-		}
-
-		if (EndPos.Y > WorkAreaRect.Bottom)
-		{
-			// Window is clipped by the bottom of the work area
-			Adjust.Y = WorkAreaRect.Bottom - EndPos.Y;
-		}
-
-		NewPosition += Adjust;
-
-		return NewPosition;
+		return ComputePopupFitInRect(InAnchor, FSlateRect(ProposedPlacement, ProposedPlacement+InSize), Orientation, WorkAreaRect);
 	}
 }
 
@@ -4698,6 +4643,20 @@ void FSlateApplication::OnOSPaint( const TSharedRef< FGenericWindow >& PlatformW
 	Renderer->FlushCommands();
 }
 
+FWindowSizeLimits FSlateApplication::GetSizeLimitsForWindow(const TSharedRef<FGenericWindow>& Window) const
+{
+	TSharedPtr<SWindow> SlateWindow = FSlateWindowHelper::FindWindowByPlatformWindow(SlateWindows, Window);
+	if (SlateWindow.IsValid())
+	{
+		return SlateWindow->GetSizeLimits();
+	}
+	else
+	{
+		return FWindowSizeLimits();
+	}
+
+}
+
 void FSlateApplication::OnResizingWindow( const TSharedRef< FGenericWindow >& PlatformWindow )
 {
 	// Flush the rendering command queue to ensure that there aren't pending viewport draw commands for the old viewport size.
@@ -5189,3 +5148,5 @@ void FSlateApplication::SetWidgetReflector(const TSharedRef<IWidgetReflector>& W
 
 	WidgetReflectorPtr = WidgetReflector;
 }
+
+

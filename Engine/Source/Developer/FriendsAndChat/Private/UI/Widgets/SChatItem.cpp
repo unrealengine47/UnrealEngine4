@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "FriendsAndChatPrivatePCH.h"
 #include "ChatItemViewModel.h"
@@ -66,6 +66,7 @@ public:
 			.MaxWidth(FriendStyle.ChatListWidth)
 			[
 				SNew( SRichTextBlock )
+				.Visibility(this, &SChatItemImpl::GetTextVisibility)
 				.Text(DisplayText)
 				.TextStyle(&TextStyle)
 				.DecoratorStyleSet(&FFriendsAndChatModuleStyle::Get())
@@ -102,6 +103,11 @@ private:
 				default: return FLinearColor::Gray;
 			}
 		}
+	}
+
+	EVisibility GetTextVisibility() const
+	{
+		return OwnerViewModel->GetOverrideColorSet() ? EVisibility::Hidden : EVisibility::Visible;
 	}
 
 	FSlateColor GetChannelColor () const

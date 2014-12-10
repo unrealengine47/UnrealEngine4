@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 #include "ComponentInstanceDataCache.h"
@@ -74,6 +74,8 @@ public:
 	 * Default UObject constructor.
 	 */
 	AActor(const FObjectInitializer& ObjectInitializer);
+
+	void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	/**
 	 * Primary Actor tick function, which calls TickActor().
@@ -912,10 +914,6 @@ public:
 	//==============================================================================
 	// Misc Blueprint support
 
-	/** Get the World in which this Actor exists. */
-	UFUNCTION(BlueprintCallable, meta=(DeprecatedFunction))
-	UWorld* K2_GetWorld() const;
-
 	/** 
 	 * Get CustomTimeDilation - this can be used for input control or speed control for slomo.
 	 * We don't want to scale input globally because input can be used for UI, which do not care for TimeDilation.
@@ -953,12 +951,10 @@ public:
 	//=============================================================================
 	// Sound functions.
 	
-	/* DEPRECATED - Use UGameplayStatics::PlaySoundAttached */
-	UFUNCTION(BlueprintCallable, Category="Audio", meta=(DeprecatedFunction))
+	DEPRECATED(4.0, "Actor::PlaySoundOnActor will be removed. Use UGameplayStatics::PlaySoundAttached instead.")
 	void PlaySoundOnActor(class USoundCue* InSoundCue, float VolumeMultiplier=1.f, float PitchMultiplier=1.f);
 
-	/* DEPRECATED - Use UGameplayStatics::PlaySoundAtLocation */
-	UFUNCTION(BlueprintCallable, Category="Audio", meta=(DeprecatedFunction))
+	DEPRECATED(4.0, "Actor::PlaySoundOnActor will be removed. Use UGameplayStatics::PlaySoundAtLocation instead.")
 	void PlaySoundAtLocation(class USoundCue* InSoundCue, FVector SoundLocation, float VolumeMultiplier=1.f, float PitchMultiplier=1.f);
 
 	//=============================================================================
@@ -1567,6 +1563,12 @@ public:
 	//--------------------------------------------------------------------------------------
 	// Actor overlap tracking
 	
+	/**
+	 * Dispatch all EndOverlap for all of the Actor's PrimitiveComponents. 
+	 * Generally used when removing the Actor from the world.
+	 */
+	void ClearComponentOverlaps();
+
 	/** 
 	 * Queries world and updates overlap detection state for this actor.
 	 * @param bDoNotifies		True to dispatch being/end overlap notifications when these events occur.

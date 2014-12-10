@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	CurveVector.cpp
@@ -20,16 +20,6 @@ FVector UCurveVector::GetVectorValue( float InTime ) const
 	Result.Y = FloatCurves[1].Eval(InTime);
 	Result.Z = FloatCurves[2].Eval(InTime);
 	return Result;
-}
-
-void UCurveVector::PostLoad()
-{
-	Super::PostLoad();
-
-	if(GetLinkerUE4Version() < VER_UE4_UCURVE_USING_RICHCURVES)
-	{
-		FRichCurve::ConvertInterpCurveVector(VectorKeys_DEPRECATED, FloatCurves);
-	}
 }
 
 static const FName XCurveName(TEXT("X"));

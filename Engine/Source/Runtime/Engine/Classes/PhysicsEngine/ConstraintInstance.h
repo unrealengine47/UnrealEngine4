@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 #pragma once
 
 #include "ConstraintInstance.generated.h"
@@ -178,13 +178,6 @@ struct ENGINE_API FConstraintInstance
 	/** Force needed to break the joint. */
 	UPROPERTY(EditAnywhere, AdvancedDisplay, Category=Linear, meta=(editcondition = "bLinearBreakable", ClampMin = "0.0"))
 	float LinearBreakThreshold;
-
-	// ANGULAR DOF
-	UPROPERTY()
-	uint32 bSwingLimited_DEPRECATED:1;
-
-	UPROPERTY()
-	uint32 bTwistLimited_DEPRECATED:1;
 
 	/** Indicates whether rotation about the Z axis is allowed, blocked, or limited. If limited, the 
 		AngularLimit property will be used to determine the range of motion. See EAngularConstraintMotion. */

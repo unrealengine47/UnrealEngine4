@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 LandscapeEdit.cpp: Landscape editing
@@ -1602,20 +1602,6 @@ struct FHeightmapInfo
 	UTexture2D* HeightmapTexture;
 	TArray<FColor*> HeightmapTextureMipData;
 };
-
-FLandscapeLayerStruct* ALandscapeProxy::GetLayerInfo_Deprecated(FName LayerName)
-{
-	for (auto It = LayerInfoObjs_DEPRECATED.CreateIterator(); It; It++)
-	{
-		ULandscapeLayerInfoObject* LayerInfo = It->LayerInfoObj;
-		if (LayerInfo && LayerInfo->LayerName == LayerName)
-		{
-			return &*It;
-		}
-	}
-
-	return NULL;
-}
 
 TArray<FName> ALandscapeProxy::GetLayersFromMaterial(UMaterialInterface* Material)
 {
@@ -3780,7 +3766,7 @@ void ALandscape::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEv
 	}
 	else if (GIsEditor && PropertyName == FName(TEXT("MaxLODLevel")))
 	{
-		MaxLODLevel = FMath::Min<int32>(MaxLODLevel, FMath::CeilLogTwo(SubsectionSizeQuads + 1) - 1);
+		MaxLODLevel = FMath::Clamp<int32>(MaxLODLevel, 0, FMath::CeilLogTwo(SubsectionSizeQuads + 1) - 1);
 		bPropagateToProxies = true;
 	}
 	else if (PropertyName == FName(TEXT("LODDistanceFactor")))
@@ -5127,15 +5113,11 @@ void ULandscapeComponent::GeneratePlatformVertexData()
 		{
 			int32 MipSizeX = HeightmapTexture->Source.GetSizeX() >> Mip;
 
-			int32 MipSubsectionSizeVerts = (SubsectionSizeVerts >> Mip);
-			int32 MipSubsectionSizeQuads = MipSubsectionSizeVerts - 1;
-
 			int32 CurrentMipOfsX = BaseMipOfsX >> Mip;
 			int32 CurrentMipOfsY = BaseMipOfsY >> Mip;
 
-			float MipRatio = (float)MipSubsectionSizeQuads / (float)SubsectionSizeQuads; // Morph Base to current MIP
-			int32 MipX = FMath::RoundToInt((float)X * MipRatio);
-			int32 MipY = FMath::RoundToInt((float)Y * MipRatio);
+			int32 MipX = X >> Mip;
+			int32 MipY = Y >> Mip;
 
 			FColor* CurrentMipSrcRow = HeightmapMipData[Mip] + (CurrentMipOfsY + MipY) * MipSizeX + CurrentMipOfsX;
 			uint16 Height = CurrentMipSrcRow[MipX].R << 8 | CurrentMipSrcRow[MipX].G;

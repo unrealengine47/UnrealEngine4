@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -129,13 +129,6 @@ public:
 	 * @param	bShouldOpenInDefaultsMode	If true, the editor will open in defaults editing mode
 	 */
 	void InitBlueprintEditor(const EToolkitMode::Type Mode, const TSharedPtr< class IToolkitHost >& InitToolkitHost, const TArray<class UBlueprint*>& InBlueprints, bool bShouldOpenInDefaultsMode);
-
-	/**
-	 * Set transactional flag on SCSNodes and its children.
-	 *
-	 * @param: Node reference to set transactional flag.
-	 */
-	static void SetSCSNodesTransactional(USCS_Node* Node);
 
 public:
 	// FAssetEditorToolkit interface

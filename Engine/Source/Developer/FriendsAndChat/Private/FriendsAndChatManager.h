@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -667,10 +667,6 @@ private:
 	FTickerDelegate UpdateFriendsTickerDelegate;
 	// Delegate to use for querying for recent players 
 	FOnQueryRecentPlayersCompleteDelegate OnQueryRecentPlayersCompleteDelegate;
-	// Delegate when invites accepted
-	FOnAcceptInviteCompleteDelegate OnAcceptInviteCompleteDelegate;
-	// Delegate when invites have been sent
-	FOnSendInviteCompleteDelegate OnSendInviteCompleteDelegate;
 	// Delegate to use for deleting a friend
 	FOnDeleteFriendCompleteDelegate OnDeleteFriendCompleteDelegate;
 	// Delegate for querying user id from a name string

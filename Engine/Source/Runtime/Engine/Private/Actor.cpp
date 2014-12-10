@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 
 #include "EnginePrivate.h"
@@ -430,45 +430,6 @@ void AActor::PostLoad()
 	{
 		checkSlow(!Owner->Children.Contains(this));
 		Owner->Children.Add(this);
-	}
-
-	// For components created before we added the bCreatedByConstructionScript flag, we assume if you are not a default subobject, you can from a construction script
-	if(GetLinkerUE4Version() < VER_UE4_ADD_CREATEDBYCONSTRUCTIONSCRIPT)
-	{
-		TArray<UActorComponent*> Components;
-		GetComponents(Components);
-
-		for(int32 i=0; i<Components.Num(); i++)
-		{
-			UActorComponent* Component = Components[i];
-			if (!Component->IsDefaultSubobject())
-			{
-				Component->bCreatedByConstructionScript = true;
-			}
-		}
-	}
-
-	// For actors created before SimpleConstructionScript's default RootComponent, and the default BadBlueprintSprite are flagged as RF_Transactional and bCreatedByConstructionScript
-	if(GetLinkerUE4Version() < VER_UE4_DEFAULT_ROOT_COMP_TRANSACTIONAL)
-	{
-		if(RootComponent != NULL && !RootComponent->IsDefaultSubobject())
-		{
-			if(RootComponent->GetClass()==USceneComponent::StaticClass())
-			{
-				RootComponent->SetFlags(RF_Transactional);
-				RootComponent->bCreatedByConstructionScript = true;
-			}
-			else if(RootComponent->GetClass()==UBillboardComponent::StaticClass())
-			{
-				static const FName BadSpriteName(TEXT("BadBlueprintSprite"));
-				UBillboardComponent* SpriteRootComponent = static_cast<UBillboardComponent*>(RootComponent);
-				if(SpriteRootComponent->Sprite->GetFName() == BadSpriteName)
-				{
-					SpriteRootComponent->SetFlags(RF_Transactional);
-					SpriteRootComponent->bCreatedByConstructionScript = true;
-				}
-			}
-		}
 	}
 
 	if (GetLinkerUE4Version() < VER_UE4_CONSUME_INPUT_PER_BIND)
@@ -934,6 +895,34 @@ bool AActor::CheckStillInWorld()
 void AActor::SetTickGroup(ETickingGroup NewTickGroup)
 {
 	PrimaryActorTick.TickGroup = NewTickGroup;
+}
+
+void AActor::ClearComponentOverlaps()
+{
+	TArray<UPrimitiveComponent*> PrimitiveComponents;
+	GetComponents(PrimitiveComponents);
+
+	// Remove owned components from overlap tracking
+	// We don't traverse the RootComponent attachment tree since that might contain
+	// components owned by other actors.
+	for (UPrimitiveComponent* const PrimComp : PrimitiveComponents)
+	{
+		TArray<UPrimitiveComponent*> OverlappingComponents;
+		PrimComp->GetOverlappingComponents(OverlappingComponents);
+
+		for (UPrimitiveComponent* const OverlapComp : OverlappingComponents)
+		{
+			if (OverlapComp)
+			{
+				PrimComp->EndComponentOverlap(OverlapComp, true, true);
+
+				if (IsPendingKill())
+				{
+					return;
+				}
+			}
+		}
+	}
 }
 
 void AActor::UpdateOverlaps(bool bDoNotifies)
@@ -1545,6 +1534,8 @@ void AActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	// Behaviors specific to an actor being unloaded due to a streaming level removal
 	if (EndPlayReason == EEndPlayReason::RemovedFromWorld)
 	{
+		ClearComponentOverlaps();
+
 		bActorInitialized = false;
 		GetWorld()->RemoveNetworkActor(this);
 
@@ -3454,12 +3445,6 @@ void AActor::PreInitializeComponents()
 			GetWorld()->PersistentLevel->RegisterActorForAutoReceiveInput(this, PlayerIndex);
 		}
 	}
-}
-
-UWorld* AActor::K2_GetWorld() const
-{
-	// If an actor is pending kill we don't consider it to be in a world
-	return (!IsPendingKill() ? GetLevel()->OwningWorld : NULL);
 }
 
 float AActor::GetActorTimeDilation() const

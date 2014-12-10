@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	Engine.h: Unreal engine public header file.
@@ -215,7 +215,6 @@
 #include "Distributions/DistributionFloatConstant.h"
 #include "Distributions/DistributionFloatParameterBase.h"
 #include "Distributions/DistributionFloatParticleParameter.h"
-#include "Distributions/DistributionFloatSoundParameter.h"
 #include "Distributions/DistributionFloatConstantCurve.h"
 #include "Distributions/DistributionFloatUniform.h"
 #include "Distributions/DistributionFloatUniformCurve.h"

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
 #include "Components/BrushComponent.h"
@@ -10,7 +10,6 @@ ABlockingVolume::ABlockingVolume(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
 	GetBrushComponent()->bCanEverAffectNavigation = true;
-	GetBrushComponent()->BodyInstance.bEnableCollision_DEPRECATED = true;
 	GetBrushComponent()->SetCollisionProfileName(InvisibleWall_NAME);
 }
 

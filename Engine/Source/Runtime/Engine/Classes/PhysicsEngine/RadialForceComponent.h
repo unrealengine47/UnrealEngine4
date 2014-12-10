@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 
 #pragma once
@@ -39,10 +39,6 @@ class URadialForceComponent : public USceneComponent
 	/** If > 0.f, will cause damage to destructible meshes as well  */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Destructible)
 	float DestructibleDamage;
-
-	/** Is the force currently enabled */
-	UPROPERTY()
-	uint32 bForceEnabled_DEPRECATED:1;
 
 	/** Fire a single impulse */
 	UFUNCTION(BlueprintCallable, Category="Physics|Components|RadialForce")

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -170,11 +170,6 @@ class ENGINE_API UNavigationSystem : public UBlueprintFunctionLibrary
 	 *	when trying to match navigation data to passed in nav agent */
 	UPROPERTY(config, EditAnywhere, Category=NavigationSystem)
 	uint32 bSkipAgentHeightCheckWhenPickingNavData:1;
-
-	/** If set to true, navigation data will be always rebuilt from scratch after loading
-	 *  otherwise navigation system will reuse data saved with map */
-	UPROPERTY(config, EditAnywhere, Category = NavigationSystem)
-	uint32 bForceRebuildOnLoad : 1;
 
 	UPROPERTY(config, EditAnywhere, Category = Agents)
 	TArray<FNavDataConfig> SupportedAgents;
@@ -515,6 +510,9 @@ public:
 	/** force updating parent node and all its children */
 	void UpdateNavOctreeParentChain(UObject* ElementOwner);
 
+	/** update component bounds in navigation octree and mark only specified area as dirty, doesn't re-export component geometry */
+	bool UpdateNavOctreeElementBounds(UActorComponent* Comp, const FBox& NewBounds, const FBox& DirtyArea);
+
 	//----------------------------------------------------------------------//
 	// Custom navigation links
 	//----------------------------------------------------------------------//
@@ -697,7 +695,6 @@ protected:
 	uint32 bInitialBuildingLockActive:1;
 	uint32 bInitialSetupHasBeenPerformed:1;
 	uint32 bInitialLevelsAdded:1;
-	uint32 bSkipDirtyAreasOnce:1;
 	uint32 bAsyncBuildPaused:1;
 
 	/** cached navigable world bounding box*/

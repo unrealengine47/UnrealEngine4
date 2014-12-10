@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -299,10 +299,6 @@ struct FSkeletalMeshLODInfo
 	UPROPERTY()
 	TArray<bool> bEnableShadowCasting_DEPRECATED;
 
-	/** Per-section sorting options */
-	UPROPERTY()
-	TArray<TEnumAsByte<enum ETriangleSortOption> > TriangleSorting_DEPRECATED;
-
 	UPROPERTY(EditAnywhere, editfixedsize, Category=SkeletalMeshLODInfo)
 	TArray<struct FTriangleSortSettings> TriangleSortSettings;
 
@@ -354,43 +350,6 @@ struct FMorphTargetMap
 		return (Name==Other.Name && MorphTarget == Other.MorphTarget);
 	}
 };
-
-#if WITH_APEX_CLOTHING
-class FClothingAssetWrapper
-{
-public:
-
-	FClothingAssetWrapper(physx::apex::NxClothingAsset* InApexClothingAsset)
-	:	ApexClothingAsset(InApexClothingAsset),bValid(true)
-	{}
-
-	ENGINE_API ~FClothingAssetWrapper();
-
-	physx::apex::NxClothingAsset* GetAsset()
-	{
-		return ApexClothingAsset;
-	}
-
-	//returns bone name converted to fbx style
-	FName GetConvertedBoneName(int32 BoneIndex);
-
-
-	bool	IsValid()
-	{ 
-		return bValid;
-	}
-
-	void	SetValid(bool valid)
-	{
-		bValid = valid;
-	}
-
-private:
-	physx::apex::NxClothingAsset* ApexClothingAsset;
-	bool						  bValid;
-};
-#endif // #if WITH_APEX_CLOTHING
-
 
 /** 
  * constrain Coefficients - max distance, collisionSphere radius, collision sphere distance 
@@ -501,7 +460,7 @@ struct FClothingAssetData
 	FClothPhysicsProperties PhysicsProperties;
 
 #if WITH_APEX_CLOTHING
-	TSharedPtr<FClothingAssetWrapper> ApexClothingAsset;
+	physx::apex::NxClothingAsset* ApexClothingAsset;
 
 	/** Collision volume data for showing to the users whether collision shape is correct or not */
 	TArray<FApexClothCollisionVolumeData> ClothCollisionVolumes;
@@ -517,6 +476,11 @@ struct FClothingAssetData
 	TArray<FClothVisualizationInfo> ClothVisualizationInfos;
 	/** currently mapped morph target name */
 	FName PreparedMorphTargetName;
+
+	FClothingAssetData()
+		:ApexClothingAsset(NULL)
+	{
+	}
 #endif// #if WITH_APEX_CLOTHING
 
 	// serialization
@@ -634,11 +598,6 @@ public:
 	class UPhysicsAsset* PhysicsAsset;
 
 #if WITH_EDITORONLY_DATA
-	/** Asset used for previewing bounds in AnimSetViewer. Makes setting up LOD distance factors more reliable. 
-	 *  Removing this and use PhysicsAsset for preview from now on, but meanwhile, we will copy this info to PhysicsAsset (below)
-	 */
-	UPROPERTY()
-	class UPhysicsAsset* BoundsPreviewAsset_DEPRECATED;
 
 	/** Importing data and options used for this mesh */
 	UPROPERTY(EditAnywhere, Instanced, Category = Reimport)
@@ -671,12 +630,6 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=TextureStreaming)
 	float StreamingDistanceMultiplier;
-
-	/** This is serialized right now with strong pointer to Morph Target
-	 * Later on when memory is concerned, this can be transient array that is built based on MorphTarget loaded 
-	 */
-	UPROPERTY()
-	TArray<FMorphTargetMap> MorphTargetTable_DEPRECATED;
 
 	UPROPERTY(Category=Mesh, BlueprintReadWrite)
 	TArray<UMorphTarget*> MorphTargets;

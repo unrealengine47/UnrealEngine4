@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	Polygon.cpp: FPoly implementation (Editor polygons).
@@ -42,12 +42,6 @@ FArchive& operator<<(FArchive& Ar, FLightmassPrimitiveSettings& Settings)
 	
 	Ar << Settings.EmissiveBoost;
 	Ar << Settings.DiffuseBoost;
-
-	if( Ar.UE4Ver() < VER_UE4_REMOVED_SPECULAR_BOOST )
-	{
-		float SpecularBoost;
-		Ar << SpecularBoost;
-	}
 
 	return Ar;
 }

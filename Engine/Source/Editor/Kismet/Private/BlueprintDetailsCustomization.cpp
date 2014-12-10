@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 
 #include "BlueprintEditorPrivatePCH.h"
@@ -676,15 +676,9 @@ bool FBlueprintVarActionDetails::GetVariableNameChangeEnabled() const
 		}
 		else if(IsAComponentVariable(VariableProperty) && Blueprint->SimpleConstructionScript != NULL)
 		{
-			TArray<USCS_Node*> Nodes = Blueprint->SimpleConstructionScript->GetAllNodes();
-			for (TArray<USCS_Node*>::TConstIterator NodeIt(Nodes); NodeIt; ++NodeIt)
+			if (USCS_Node* Node = Blueprint->SimpleConstructionScript->FindSCSNode(GetVariableName()))
 			{
-				USCS_Node* Node = *NodeIt;
-				if (Node->VariableName == GetVariableName())
-				{
-					bIsReadOnly = !Node->IsValidVariableNameString(Node->VariableName.ToString());
-					break;
-				}
+				bIsReadOnly = !Node->IsValidVariableNameString(Node->VariableName.ToString());
 			}
 		}
 		else if(IsALocalVariable(VariableProperty))
@@ -796,9 +790,17 @@ void FBlueprintVarActionDetails::OnVarNameCommitted(const FText& InNewText, ETex
 bool FBlueprintVarActionDetails::GetVariableTypeChangeEnabled() const
 {
 	UProperty* VariableProperty = SelectionAsProperty();
-	if(VariableProperty)
+	if(VariableProperty && !IsALocalVariable(VariableProperty))
 	{
-		return GetBlueprintObj()->SkeletonGeneratedClass->GetAuthoritativeClass() == VariableProperty->GetOwnerClass()->GetAuthoritativeClass();
+		if(GetBlueprintObj()->SkeletonGeneratedClass->GetAuthoritativeClass() != VariableProperty->GetOwnerClass()->GetAuthoritativeClass())
+		{
+			return false;
+		}
+		// If the variable belongs to this class and cannot be found in the member variable list, it is not editable (it may be a component)
+		if (FBlueprintEditorUtils::FindNewVariableIndex(GetBlueprintObj(), GetVariableName()) == INDEX_NONE)
+		{
+			return false;
+		}
 	}
 	return true;
 }
@@ -3895,6 +3897,8 @@ void FBlueprintInterfaceLayout::OnRemoveInterface(FInterfaceName InterfaceName)
 	FBlueprintEditorUtils::RemoveInterface(Blueprint, InterfaceFName, bPreserveInterfaceFunctions);
 
 	RegenerateChildrenDelegate.ExecuteIfBound();
+
+	OnRefreshInDetailsView();
 }
 
 void FBlueprintInterfaceLayout::OnClassPicked(UClass* PickedClass)
@@ -3910,6 +3914,8 @@ void FBlueprintInterfaceLayout::OnClassPicked(UClass* PickedClass)
 	FBlueprintEditorUtils::ImplementNewInterface( Blueprint, PickedClass->GetFName() );
 
 	RegenerateChildrenDelegate.ExecuteIfBound();
+
+	OnRefreshInDetailsView();
 }
 
 TSharedRef<SWidget> FBlueprintInterfaceLayout::OnGetAddInterfaceMenuContent()
@@ -3936,6 +3942,16 @@ TSharedRef<SWidget> FBlueprintInterfaceLayout::OnGetAddInterfaceMenuContent()
 				]
 			]
 		];
+}
+
+void FBlueprintInterfaceLayout::OnRefreshInDetailsView()
+{
+	TSharedPtr<SKismetInspector> Inspector = GlobalOptionsDetailsPtr.Pin()->GetBlueprintEditorPtr().Pin()->GetInspector();
+	UBlueprint* Blueprint = GlobalOptionsDetailsPtr.Pin()->GetBlueprintObj();
+	check(Blueprint);
+
+	// Show details for the Blueprint instance we're editing
+	Inspector->ShowDetailsForSingleObject(Blueprint);
 }
 
 UBlueprint* FBlueprintGlobalOptionsDetails::GetBlueprintObj() const
@@ -3992,6 +4008,11 @@ void FBlueprintGlobalOptionsDetails::OnClassPicked(UClass* PickedClass)
 	{
 		BlueprintEditorPtr.Pin()->ReparentBlueprint_NewParentChosen(PickedClass);
 	}
+
+	check(BlueprintEditorPtr.IsValid());
+	TSharedPtr<SKismetInspector> Inspector = BlueprintEditorPtr.Pin()->GetInspector();
+	// Show details for the Blueprint instance we're editing
+	Inspector->ShowDetailsForSingleObject(GetBlueprintObj());
 }
 
 bool FBlueprintGlobalOptionsDetails::CanDeprecateBlueprint() const

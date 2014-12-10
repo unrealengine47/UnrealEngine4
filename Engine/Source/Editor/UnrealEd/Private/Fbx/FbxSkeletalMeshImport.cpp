@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*
 * Copyright 2009 - 2010 Autodesk, Inc.  All Rights Reserved.
@@ -2161,7 +2161,7 @@ bool UnFbx::FFbxImporter::FillSkelMeshImporterFromFbx( FSkeletalMeshImportData& 
 			TmpWedges[UnrealVertexIndex].MatIndex = Triangle.MatIndex;
 			TmpWedges[UnrealVertexIndex].VertexIndex = ExistPointNum + Mesh->GetPolygonVertex(LocalIndex,VertexIndex);
 			// Initialize all colors to white.
-			TmpWedges[UnrealVertexIndex].Color = FColor(255,255,255);
+			TmpWedges[UnrealVertexIndex].Color = FColor::White;
 		}
 
 		//

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 
 #include "BehaviorTreeEditorPrivatePCH.h"
@@ -1280,6 +1280,7 @@ void SGraphNode_BehaviorTree::SetOwner( const TSharedRef<SGraphPanel>& OwnerPane
 		if(DecoratorWidget.IsValid())
 		{
 			DecoratorWidget->SetOwner(OwnerPanel);
+			OwnerPanel->AttachGraphEvents(DecoratorWidget);
 		}
 	}
 
@@ -1288,6 +1289,7 @@ void SGraphNode_BehaviorTree::SetOwner( const TSharedRef<SGraphPanel>& OwnerPane
 		if(ServicesWidget.IsValid())
 		{
 			ServicesWidget->SetOwner(OwnerPanel);
+			OwnerPanel->AttachGraphEvents(ServicesWidget);
 		}
 	}
 }

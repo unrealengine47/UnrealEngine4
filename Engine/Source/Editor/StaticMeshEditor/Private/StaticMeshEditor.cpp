@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "StaticMeshEditorModule.h"
 #include "AssetRegistryModule.h"
@@ -1546,6 +1546,10 @@ void FStaticMeshEditor::OnChangeMesh()
 		AddEditingObject(SelectedMesh);
 
 		SetEditorMesh(SelectedMesh);
+
+		// Clear selections made on previous mesh
+		ClearSelectedPrims();
+		GetSelectedEdges().Empty();
 
 		if(SocketManager.IsValid())
 		{

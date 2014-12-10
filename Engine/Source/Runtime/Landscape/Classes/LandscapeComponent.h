@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -71,9 +71,6 @@ USTRUCT()
 struct FWeightmapLayerAllocationInfo
 {
 	GENERATED_USTRUCT_BODY()
-
-	UPROPERTY()
-	FName LayerName_DEPRECATED;
 
 	UPROPERTY()
 	ULandscapeLayerInfoObject* LayerInfo;
@@ -161,10 +158,6 @@ class ULandscapeComponent : public UPrimitiveComponent
 	/** Heightmap texture reference */
 	UPROPERTY(TextExportTransient)
 	class UTexture2D* HeightmapTexture;
-
-	/** Cached bounds, created at heightmap update time */
-	UPROPERTY()
-	FBoxSphereBounds CachedBoxSphereBounds_DEPRECATED;
 
 	/** Cached local-space bounding box, created at heightmap update time */
 	UPROPERTY()

@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -591,6 +591,12 @@ public:
 	bool IsEnabled() const 
 	{
 		return EnabledState.Get();
+	}
+
+	/** @return Is this widget interactable or not? Defaults to false */
+	virtual bool IsInteractable() const
+	{
+		return false;
 	}
 
 	/** @return The tool tip associated with this widget; Invalid reference if there is not one */

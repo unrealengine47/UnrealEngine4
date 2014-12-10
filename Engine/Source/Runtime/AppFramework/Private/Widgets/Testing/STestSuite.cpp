@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "AppFrameworkPrivatePCH.h"
 #include "STableViewTesting.h"
@@ -548,10 +548,10 @@ private:
 	{
 		TArray<FSlateGradientStop> GradientStops;
 
-		GradientStops.Add( FSlateGradientStop( FVector2D(InParams.Geometry.Size.X*.1f,0), FColor(255,255,0) ) );
-		GradientStops.Add( FSlateGradientStop( FVector2D(InParams.Geometry.Size.X*.25f,0), FColor(255,0,255) ) );
-		GradientStops.Add( FSlateGradientStop( FVector2D(InParams.Geometry.Size.X*.75f,0), FColor(0,0,255) ) );
-		GradientStops.Add( FSlateGradientStop( FVector2D(InParams.Geometry.Size.X*0.9f,0), FColor(0,255,0) ) );
+		GradientStops.Add( FSlateGradientStop(FVector2D(InParams.Geometry.Size.X*.1f, 0), FColor::Yellow) );
+		GradientStops.Add( FSlateGradientStop( FVector2D(InParams.Geometry.Size.X*.25f,0), FColor::Magenta ) );
+		GradientStops.Add( FSlateGradientStop( FVector2D(InParams.Geometry.Size.X*.75f,0), FColor::Blue ) );
+		GradientStops.Add( FSlateGradientStop( FVector2D(InParams.Geometry.Size.X*0.9f,0), FColor::Green) );
 
 		FSlateDrawElement::MakeGradient(
 			InParams.OutDrawElements,
@@ -582,7 +582,7 @@ private:
 			InParams.ClippingRect,
 			4.0f,
 			InParams.bEnabled ? ESlateDrawEffect::None : ESlateDrawEffect::DisabledEffect,
-			FColor(255,255,255)
+			FColor::White
 		);
 
 	
@@ -602,7 +602,7 @@ private:
 			LinePoints,
 			InParams.ClippingRect,
 			InParams.bEnabled ? ESlateDrawEffect::None : ESlateDrawEffect::DisabledEffect,
-			FColor(255,0,255)
+			FColor::Magenta
 			);
 			
 
@@ -3901,6 +3901,12 @@ public:
 						SNew(STextBlock)
 						.Text(LOCTEXT("TestingBigTextBigMargin", "Big notififcation text!"))
 						.Font(FSlateFontInfo(FPaths::EngineContentDir() / TEXT("Slate/Fonts/Roboto-Bold.ttf"), 30))
+					]
+					+ SHorizontalBox::Slot()
+					.Padding(FMargin(15.0f, 0.0f, 0.0f, 0.0f))
+					[
+						SNew(SButton)
+						.Text(LOCTEXT("TestButtonInNotificaiton", "Button Test"))
 					]
 				]
 			];

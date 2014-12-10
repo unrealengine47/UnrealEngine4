@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -550,6 +550,9 @@ private:
 
 	/** Callback function when an interface class is picked */
 	void OnClassPicked(UClass* PickedClass);
+
+	/** Helper function to set the Blueprint back into the KismetInspector's details view */
+	void OnRefreshInDetailsView();
 
 private:
 	/** The parent graph action details customization */
