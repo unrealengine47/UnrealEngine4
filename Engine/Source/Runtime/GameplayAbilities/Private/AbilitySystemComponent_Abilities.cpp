@@ -142,9 +142,20 @@ void UAbilitySystemComponent::TickComponent(float DeltaTime, enum ELevelTick Tic
 void UAbilitySystemComponent::InitAbilityActorInfo(AActor* InOwnerActor, AActor* InAvatarActor)
 {
 	check(AbilityActorInfo.IsValid());
+	bool AvatarChanged = (InAvatarActor != AbilityActorInfo->AvatarActor);
+
 	AbilityActorInfo->InitFromActor(InOwnerActor, InAvatarActor, this);
+
 	OwnerActor = InOwnerActor;
 	AvatarActor = InAvatarActor;
+
+	if (AvatarChanged)
+	{
+		for (FGameplayAbilitySpec& Spec : ActivatableAbilities)
+		{
+			Spec.Ability->OnAvatarSet(AbilityActorInfo.Get(), Spec);
+		}
+	}
 }
 
 void UAbilitySystemComponent::UpdateShouldTick()
@@ -274,6 +285,8 @@ void UAbilitySystemComponent::OnGiveAbility(const FGameplayAbilitySpec Spec)
 			GameplayEventTriggeredAbilities.Add(EventTag, Triggers);
 		}
 	}
+
+	Spec.Ability->OnGiveAbility(AbilityActorInfo.Get(), Spec);
 }
 
 void UAbilitySystemComponent::CheckForClearedAbilities()
@@ -423,12 +436,12 @@ void UAbilitySystemComponent::CancelAbilities(const FGameplayTagContainer* WithT
 
 void UAbilitySystemComponent::BlockAbilitiesWithTags(const FGameplayTagContainer Tags)
 {
-	BlockedAbilityTags.UpdateTagMap(Tags, 1);
+	BlockedAbilityTags.UpdateTagCount(Tags, 1);
 }
 
 void UAbilitySystemComponent::UnBlockAbilitiesWithTags(const FGameplayTagContainer Tags)
 {
-	BlockedAbilityTags.UpdateTagMap(Tags, -1);
+	BlockedAbilityTags.UpdateTagCount(Tags, -1);
 }
 
 void UAbilitySystemComponent::BlockAbilityByInputID(int32 InputID)
@@ -538,7 +551,7 @@ bool UAbilitySystemComponent::TryActivateAbility(FGameplayAbilitySpecHandle Hand
 	}
 
 	// Check if any of this ability's tags are currently blocked
-	if (BlockedAbilityTags.HasAnyMatchingGameplayTags(Ability->AbilityTags, EGameplayTagMatchType::IncludeParentTags, false))
+	if (Ability->AbilityTags.MatchesAny(BlockedAbilityTags.GetExplicitGameplayTags(), false))
 	{
 		return false;
 	}
@@ -570,6 +583,7 @@ bool UAbilitySystemComponent::TryActivateAbility(FGameplayAbilitySpecHandle Hand
 		if (Ability->GetInstancingPolicy() == EGameplayAbilityInstancingPolicy::InstancedPerExecution)
 		{
 			InstancedAbility = CreateNewInstanceOfAbility(*Spec, Ability);
+			ActivationInfo.bCanBeEndedByOtherInstance = Ability->bServerRespectsRemoteAbilityCancelation;
 			InstancedAbility->CallActivateAbility(Handle, ActorInfo, ActivationInfo, OnGameplayAbilityEndedDelegate);
 			if (OutInstancedAbility)
 			{
@@ -821,7 +835,7 @@ void UAbilitySystemComponent::ClientActivateAbilitySucceed_Implementation(FGamep
 
 			if (!found)
 			{
-				ABILITY_LOG(Warning, TEXT("Ability %s was confirmed by server but no longer exists on client (replication key: %d"), *AbilityToActivate->GetName(), PredictionKey);
+				ABILITY_LOG(Verbose, TEXT("Ability %s was confirmed by server but no longer exists on client (replication key: %d"), *AbilityToActivate->GetName(), PredictionKey);
 			}
 		}
 	}
@@ -951,7 +965,6 @@ void UAbilitySystemComponent::HandleGameplayEvent(FGameplayTag EventTag, FGamepl
 		for (auto AbilityHandle : TriggeredAbilityHandles)
 		{
 			TriggerAbilityFromGameplayEvent(AbilityHandle, AbilityActorInfo.Get(), EventTag, Payload, *this);
-						
 		}
 	}
 }

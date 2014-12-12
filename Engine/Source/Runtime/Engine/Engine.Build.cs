@@ -66,12 +66,14 @@ public class Engine : ModuleRules
 				"SlateCore",
 				"SlateReflector",
 				"VectorVM",
-				"Landscape"
+				"Landscape",
+                "UMG",
 			}
         );
 
         CircularlyReferencedDependentModules.Add("AIModule");
 		CircularlyReferencedDependentModules.Add("Landscape");
+        CircularlyReferencedDependentModules.Add("UMG");
 
 		DynamicallyLoadedModuleNames.AddRange(
 			new string[]
@@ -80,7 +82,6 @@ public class Engine : ModuleRules
 				"MovieSceneCoreTypes",
 				"HeadMountedDisplay",
 				"StreamingPauseRendering",
-                "UMG",
 			}
 		);
 
@@ -124,9 +125,6 @@ public class Engine : ModuleRules
 
                 PrivateDependencyModuleNames.Add("LogVisualizer");
                 CircularlyReferencedDependentModules.Add("LogVisualizer");
-            
-                PrivateDependencyModuleNames.Add("NewLogVisualizer");
-                CircularlyReferencedDependentModules.Add("NewLogVisualizer");
             }
 
 			if (Target.Platform == UnrealTargetPlatform.Win64)
@@ -173,7 +171,7 @@ public class Engine : ModuleRules
 			}
 		);
 
-		if (!UEBuildConfiguration.bBuildDedicatedServer)
+		if (Target.Type.Value != TargetRules.TargetType.Server)
         {
 		    DynamicallyLoadedModuleNames.AddRange(
 			    new string[] {

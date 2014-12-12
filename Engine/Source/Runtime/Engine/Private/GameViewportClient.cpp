@@ -28,7 +28,9 @@
 #include "Debug/DebugDrawService.h"
 #include "Components/BrushComponent.h"
 #include "Engine/GameEngine.h"
+#include "UserWidget.h"
 #include "GameFramework/GameUserSettings.h"
+#include "Runtime/Engine/Classes/Engine/UserInterfaceSettings.h"
 
 /** This variable allows forcing full screen of the first player controller viewport, even if there are multiple controllers plugged in and no cinematic playing. */
 bool GForceFullscreen = false;
@@ -223,6 +225,24 @@ void UGameViewportClient::Init(struct FWorldContext& WorldContext, UGameInstance
 
 	// remember our game instance
 	GameInstance = OwningGameInstance;
+
+	// Create the cursor Widgets
+	UUserInterfaceSettings* UISettings = GetMutableDefault<UUserInterfaceSettings>(UUserInterfaceSettings::StaticClass());
+
+#define ADD_CURSOR(enumeration, variable) \
+	if (UISettings->variable.IsValid()) { \
+	UClass* Class = LoadObject<UClass>(NULL, *UISettings->variable.ToString()); \
+	UUserWidget * UserWidget = CreateWidget<UUserWidget>(GetWorld(), Class); \
+	CursorWidgets.Add(enumeration, UserWidget->TakeWidget()); }
+
+	ADD_CURSOR(EMouseCursor::Default, DefaultCursor);
+	ADD_CURSOR(EMouseCursor::TextEditBeam, TextEditBeamCursor);
+	ADD_CURSOR(EMouseCursor::Crosshairs, CrosshairsCursor);
+	ADD_CURSOR(EMouseCursor::GrabHand, GrabHandCursor);
+	ADD_CURSOR(EMouseCursor::GrabHandClosed, GrabHandClosedCursor);
+	ADD_CURSOR(EMouseCursor::SlashedCircle, SlashedCircleCursor);
+
+#undef ADD_CURSOR
 }
 
 UWorld* UGameViewportClient::GetWorld() const
@@ -492,7 +512,7 @@ bool UGameViewportClient::RequiresUncapturedAxisInput() const
 }
 
 
-EMouseCursor::Type UGameViewportClient::GetCursor(FViewport* InViewport, int32 X, int32 Y )
+EMouseCursor::Type UGameViewportClient::GetCursor(FViewport* InViewport, int32 X, int32 Y)
 {
 	bool bIsPlayingMovie = false;//GetMoviePlayer()->IsMovieCurrentlyPlaying();
 
@@ -519,7 +539,7 @@ EMouseCursor::Type UGameViewportClient::GetCursor(FViewport* InViewport, int32 X
 
 #endif
 
-	if (!InViewport->HasMouseCapture() || !InViewport->HasFocus() || (ViewportConsole && ViewportConsole->ConsoleActive()))
+	if ((!InViewport->HasMouseCapture() && !InViewport->HasFocus()) || (ViewportConsole && ViewportConsole->ConsoleActive()))
 	{
 		return EMouseCursor::Default;
 	}
@@ -536,6 +556,15 @@ EMouseCursor::Type UGameViewportClient::GetCursor(FViewport* InViewport, int32 X
 	return FViewportClient::GetCursor(InViewport, X, Y);
 }
 
+TOptional<TSharedRef<SWidget>> UGameViewportClient::MapCursor(FViewport* Viewport, const FCursorReply& CursorReply)
+{
+	const TSharedRef<SWidget>* CursorWidgetPtr = CursorWidgets.Find(CursorReply.GetCursorType());
+	if (CursorWidgetPtr != nullptr)
+	{
+		return *CursorWidgetPtr;
+	}
+	return TOptional<TSharedRef<SWidget>>();
+}
 
 void UGameViewportClient::SetDropDetail(float DeltaSeconds)
 {
@@ -689,7 +718,7 @@ void UGameViewportClient::Draw(FViewport* InViewport, FCanvas* SceneCanvas)
 	DebugCanvasObject->Canvas = DebugCanvas;	
 	DebugCanvasObject->Init(InViewport->GetSizeXY().X, InViewport->GetSizeXY().Y, NULL);
 
-	const bool bScaledToRenderTarget = GEngine->HMDDevice.IsValid() && GEngine->IsStereoscopic3D();
+	const bool bScaledToRenderTarget = GEngine->HMDDevice.IsValid() && GEngine->IsStereoscopic3D(InViewport);
 	if (bScaledToRenderTarget)
 	{
 		// Allow HMD to modify screen settings
@@ -752,7 +781,7 @@ void UGameViewportClient::Draw(FViewport* InViewport, FCanvas* SceneCanvas)
 		.SetRealtimeUpdate(true));
 
 	// Allow HMD to modify the view later, just before rendering
-	if (GEngine->HMDDevice.IsValid() && GEngine->IsStereoscopic3D())
+	if (GEngine->HMDDevice.IsValid() && GEngine->IsStereoscopic3D(InViewport))
 	{
 		ISceneViewExtension* HmdViewExt = GEngine->HMDDevice->GetViewExtension();
 		if (HmdViewExt)
@@ -781,7 +810,7 @@ void UGameViewportClient::Draw(FViewport* InViewport, FCanvas* SceneCanvas)
 			ULocalPlayer* LocalPlayer = Cast<ULocalPlayer>(PlayerController->Player);
 			if (LocalPlayer)
 			{
-				const bool bEnableStereo = GEngine->IsStereoscopic3D();
+				const bool bEnableStereo = GEngine->IsStereoscopic3D(InViewport);
 				int32 NumViews = bEnableStereo ? 2 : 1;
 
 				for( int i = 0; i < NumViews; ++i )
@@ -1003,7 +1032,7 @@ void UGameViewportClient::Draw(FViewport* InViewport, FCanvas* SceneCanvas)
 
 							DebugCanvasObject->SceneView = View;
 							PlayerController->MyHUD->SetCanvas(CanvasObject, DebugCanvasObject);
-							if (GEngine->IsStereoscopic3D())
+							if (GEngine->IsStereoscopic3D(InViewport))
 							{
 								check(GEngine->StereoRenderingDevice.IsValid());
 								GEngine->StereoRenderingDevice->PushViewportCanvas(eSSP_LEFT_EYE, SceneCanvas, CanvasObject, Viewport);
@@ -1078,7 +1107,7 @@ void UGameViewportClient::Draw(FViewport* InViewport, FCanvas* SceneCanvas)
 		// Render the console.
 		if (ViewportConsole)
 		{
-			if (GEngine->IsStereoscopic3D())
+			if (GEngine->IsStereoscopic3D(InViewport))
 			{
 				GEngine->StereoRenderingDevice->PushViewportCanvas(eSSP_LEFT_EYE, DebugCanvas, DebugCanvasObject, Viewport);
 				ViewportConsole->PostRender_Console(DebugCanvasObject);
@@ -1125,7 +1154,7 @@ void UGameViewportClient::Draw(FViewport* InViewport, FCanvas* SceneCanvas)
 		}
 	}
 
-	if (GEngine->IsStereoscopic3D())
+	if (GEngine->IsStereoscopic3D(InViewport))
 	{
 		GEngine->StereoRenderingDevice->PushViewportCanvas(eSSP_LEFT_EYE, DebugCanvas, DebugCanvasObject, InViewport);
 		DrawStatsHUD(GetWorld(), InViewport, DebugCanvas, DebugCanvasObject, DebugProperties, PlayerCameraLocation, PlayerCameraRotation);
@@ -1244,7 +1273,9 @@ void UGameViewportClient::Precache()
 
 TOptional<bool> UGameViewportClient::QueryShowFocus(const EFocusCause InFocusCause) const
 {
-	if (InFocusCause == EFocusCause::Mouse)
+	UUserInterfaceSettings* UISettings = GetMutableDefault<UUserInterfaceSettings>(UUserInterfaceSettings::StaticClass());
+	if ((UISettings->RenderFocusRule == ERenderFocusRule::NonPointer && InFocusCause == EFocusCause::Mouse) ||
+		(UISettings->RenderFocusRule == ERenderFocusRule::NavigationOnly && InFocusCause != EFocusCause::Navigation))
 	{
 		return false;
 	}
@@ -1259,14 +1290,14 @@ void UGameViewportClient::LostFocus(FViewport* InViewport)
 	if (World)
 	{
 		for (FConstPlayerControllerIterator Iterator = World->GetPlayerControllerIterator(); Iterator; ++Iterator)
-	{
-			APlayerController* const PlayerController = *Iterator;
-		if (PlayerController)
 		{
-			PlayerController->FlushPressedKeys();
+			APlayerController* const PlayerController = *Iterator;
+			if (PlayerController)
+			{
+				PlayerController->FlushPressedKeys();
+			}
 		}
 	}
-}
 }
 
 void UGameViewportClient::ReceivedFocus(FViewport* InViewport)
@@ -2203,12 +2234,13 @@ void UGameViewportClient::ToggleShowCollision()
 			UPrimitiveComponent* PrimitiveComponent = *It;
 			if (!PrimitiveComponent->IsVisible() && PrimitiveComponent->IsCollisionEnabled() && PrimitiveComponent->GetScene() == GetWorld()->Scene)
 			{
-				check(PrimitiveComponent->GetOwner() && PrimitiveComponent->GetOwner()->GetWorld() && PrimitiveComponent->GetOwner()->GetWorld()->IsGameWorld());
-
-				// Save state before modifying the collision visibility
-				Mapping.Add(PrimitiveComponent, CollVisibilityState(PrimitiveComponent->bHiddenInGame, PrimitiveComponent->bVisible));
-				PrimitiveComponent->SetHiddenInGame(false);
-				PrimitiveComponent->SetVisibility(true);
+				if (PrimitiveComponent->GetOwner() && PrimitiveComponent->GetOwner()->GetWorld() && PrimitiveComponent->GetOwner()->GetWorld()->IsGameWorld())
+				{
+					// Save state before modifying the collision visibility
+					Mapping.Add(PrimitiveComponent, CollVisibilityState(PrimitiveComponent->bHiddenInGame, PrimitiveComponent->bVisible));
+					PrimitiveComponent->SetHiddenInGame(false);
+					PrimitiveComponent->SetVisibility(true);
+				}
 			}
 		}
 	}

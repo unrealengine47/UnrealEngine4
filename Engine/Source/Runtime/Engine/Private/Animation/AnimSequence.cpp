@@ -575,6 +575,17 @@ void UAnimSequence::PostEditChangeProperty(FPropertyChangedEvent& PropertyChange
 		PostProcessSequence();
 	}
 }
+
+void UAnimSequence::PostDuplicate(bool bDuplicateForPIE)
+{
+	// if transform curve exists, mark as bake
+	if (DoesContainTransformCurves())
+	{
+		bNeedsRebake = true;
+	}
+
+	Super::PostDuplicate(bDuplicateForPIE);
+}
 #endif // WITH_EDITOR
 
 // @todo DB: Optimize!
@@ -3246,10 +3257,20 @@ void UAnimSequence::RefreshTrackMapFromAnimTrackNames()
 	const FReferenceSkeleton& RefSkeleton = MySkeleton->GetReferenceSkeleton();
 	const int32 NumBones = AnimationTrackNames.Num();
 	TrackToSkeletonMapTable.AddUninitialized(NumBones);
-	for(int32 BoneIndex=0; BoneIndex<AnimationTrackNames.Num(); ++BoneIndex)
+
+	bool bNeedsFixing = false;
+	const int32 NumTracks = AnimationTrackNames.Num();
+	for(int32 I=NumTracks-1; I>=0; --I)
 	{
-		int32 BoneTreeIndex = RefSkeleton.FindBoneIndex(AnimationTrackNames[BoneIndex]);
-		TrackToSkeletonMapTable[BoneIndex] = FTrackToSkeletonMap(BoneTreeIndex);
+		int32 BoneTreeIndex = RefSkeleton.FindBoneIndex(AnimationTrackNames[I]);
+		if(BoneTreeIndex == INDEX_NONE)
+		{
+			RemoveTrack(I);
+		}
+		else
+		{
+			TrackToSkeletonMapTable[I].BoneTreeIndex = BoneTreeIndex;
+		}
 	}
 }
 
@@ -3351,6 +3372,11 @@ bool UAnimSequence::CreateAnimation(UAnimSequence * Sequence)
 		Notifies = Sequence->Notifies;
 		AnimNotifyTracks = Sequence->AnimNotifyTracks;
 		RawCurveData = Sequence->RawCurveData;
+
+		if (DoesContainTransformCurves())
+		{
+			bNeedsRebake = true;
+		}
 
 		// refresh TrackToskeletonMapIndex
 		RefreshTrackMapFromAnimTrackNames();

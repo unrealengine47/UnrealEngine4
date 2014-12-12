@@ -559,7 +559,7 @@ EPathFollowingRequestResult::Type AAIController::MoveToLocation(const FVector& D
 		GoalLocation = ProjectedLocation.Location;
 	}
 
-	if (bCanRequestMove && PathFollowingComponent && PathFollowingComponent->HasReached(GoalLocation, AcceptanceRadius, bStopOnOverlap))
+	if (bCanRequestMove && PathFollowingComponent && PathFollowingComponent->HasReached(GoalLocation, AcceptanceRadius, !bStopOnOverlap))
 	{
 		UE_VLOG(this, LogAINavigation, Log, TEXT("MoveToLocation: already at goal!"));
 
@@ -654,6 +654,10 @@ bool AAIController::PreparePathfinding(FPathFindingQuery& Query, const FVector& 
 				const FVector Offset = NavGoal->GetMoveGoalOffset(this);
 				GoalLocation = FRotationTranslationMatrix(Goal->GetActorRotation(), NavGoal->GetNavAgentLocation()).TransformPosition(Offset);
 			}
+			else
+			{
+				GoalLocation = Goal->GetActorLocation();
+			}
 		}
 
 		Query = FPathFindingQuery(this, NavData, GetNavAgentLocation(), GoalLocation, UNavigationQueryFilter::GetQueryFilter(NavData, FilterClass));
@@ -677,17 +681,24 @@ FAIRequestID AAIController::RequestPathAndMove(FPathFindingQuery& Query, AActor*
 	if (NavSys)
 	{
 		FPathFindingResult PathResult = NavSys->FindPathSync(Query);
-		if (PathResult.IsSuccessful() && PathResult.Path.IsValid())
+		if (PathResult.Result != ENavigationQueryResult::Error)
 		{
-			if (Goal)
+			if (PathResult.IsSuccessful() && PathResult.Path.IsValid())
 			{
-				PathResult.Path->SetGoalActorObservation(*Goal, 100.0f);
+				if (Goal)
+				{
+					PathResult.Path->SetGoalActorObservation(*Goal, 100.0f);
+				}
+
+				PathResult.Path->EnableRecalculationOnInvalidation(true);
 			}
 
-			PathResult.Path->EnableRecalculationOnInvalidation(true);
+			RequestID = RequestMove(PathResult.Path, Goal, AcceptanceRadius, bStopOnOverlap, CustomData);
 		}
-
-		RequestID = RequestMove(PathResult.Path, Goal, AcceptanceRadius, bStopOnOverlap, CustomData);
+		else
+		{
+			UE_VLOG(this, LogBehaviorTree, Error, TEXT("Trying to find path to %s resulted in Error"), *GetNameSafe(Goal));
+		}
 	}
 
 	return RequestID;
@@ -766,7 +777,7 @@ bool AAIController::RunBehaviorTree(UBehaviorTree* BTAsset)
 bool AAIController::InitializeBlackboard(UBlackboardComponent& BlackboardComp, UBlackboardData& BlackboardAsset)
 {
 	check(BlackboardComp.GetOwner() == this);
-	if (BlackboardComp.InitializeBlackboard(&BlackboardAsset))
+	if (BlackboardComp.InitializeBlackboard(BlackboardAsset))
 	{
 		OnUsingBlackBoard(&BlackboardComp, &BlackboardAsset);
 		return true;

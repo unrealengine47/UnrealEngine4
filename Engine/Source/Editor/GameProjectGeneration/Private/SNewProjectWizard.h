@@ -163,10 +163,10 @@ private:
 	void CreateAndOpenProject();
 
 	/** Opens the specified project file */
-	bool OpenProject(const FString& ProjectFile, bool bPromptForConfirmation);
+	bool OpenProject(const FString& ProjectFile);
 
 	/** Opens the solution for the specified project */
-	bool OpenCodeIDE(const FString& ProjectFile, bool bPromptForConfirmation);
+	bool OpenCodeIDE(const FString& ProjectFile);
 
 	/** Creates a project with the supplied project filename */
 	bool CreateProject(const FString& ProjectFile);
@@ -195,10 +195,10 @@ private:
 	void HandleTemplateListViewSelectionChanged( TSharedPtr<FTemplateItem> TemplateItem, ESelectInfo::Type SelectInfo );
 
 	/** Handle choosing a different category tab */
-	void HandleCategoryChanged(ESlateCheckBoxState::Type Checked, FName Category);
+	void HandleCategoryChanged(ECheckBoxState Checked, FName Category);
 
 	/** Get the check state for the specified categories tab */
-	ESlateCheckBoxState::Type GetCategoryTabCheckState(FName Category) const;
+	ECheckBoxState GetCategoryTabCheckState(FName Category) const;
 
 private:
 

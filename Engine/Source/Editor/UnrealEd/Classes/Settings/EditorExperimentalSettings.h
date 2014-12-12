@@ -29,10 +29,6 @@ public:
 	UPROPERTY(EditAnywhere, config, Category=Tools, meta=(DisplayName="Editor Utility Blueprints (Blutility)"))
 	bool bEnableEditorUtilityBlueprints;
 
-	/** The Project Launcher provides advanced workflows for packaging, deploying and launching your projects. */
-	UPROPERTY(EditAnywhere, config, Category=Tools, meta=(DisplayName="Project Launcher"))
-	bool bProjectLauncher;
-
 	/** The Messaging Debugger provides a visual utility for debugging the messaging system. */
 	UPROPERTY(EditAnywhere, config, Category=Tools, meta=(DisplayName="Messaging Debugger"))
 	bool bMessagingDebugger;
@@ -84,18 +80,6 @@ public:
 	/** Enables the Blueprint merge tool */
 	UPROPERTY(EditAnywhere, config, Category = Blueprints, meta = (DisplayName = "Enable Blueprint Merge Tool"))
 	bool bEnableBlueprintMergeTool;
-
-	/** Enables Visual Logger visualizer/viewer */
-	UPROPERTY(EditAnywhere, config, Category = Tools, meta = (DisplayName = "Visual Logger"))
-	bool bVisualLogger;
-
-	/** Enables Gameplay Debugger */
-	UPROPERTY(EditAnywhere, config, Category = Tools, meta = (DisplayName = "Gameplay Debugger"))
-	bool bGameplayDebugger;
-
-	/** Enables GetContent button in asset browser */
-	UPROPERTY(EditAnywhere, config, Category = Tools, meta = (DisplayName = "Get Feature Content (Requires content browser reopening)"))
-	bool bGetFeatureContent;
 
 	/**
 	 * Returns an event delegate that is executed when a setting has changed.

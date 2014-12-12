@@ -237,6 +237,10 @@ struct ENGINE_API FLevelSimplificationDetails
 	// Percentage of details relative to main tile details
 	UPROPERTY(Category=ReductionSettings, EditAnywhere, meta=(ClampMin = "0", ClampMax = "100", UIMin = "0", UIMax = "100"))	
 	float DetailsPercentage;
+
+	// Whether to create separate packages for each generated asset. All in map package otherwise
+	UPROPERTY(Category=Landscape, EditAnywhere)
+	bool bCreatePackagePerAsset;
 	
 	// Landscape LOD to use for static mesh generation
 	UPROPERTY(Category=Landscape, EditAnywhere, meta=(ClampMin = "0", ClampMax = "7", UIMin = "0", UIMax = "7"))
@@ -245,6 +249,10 @@ struct ENGINE_API FLevelSimplificationDetails
 	// Whether to generate normal map for landscape static mesh
 	UPROPERTY(Category=Landscape, EditAnywhere)
 	bool bGenerateLandscapeNormalMap;
+
+	// Whether to generate metallic map for landscape static mesh
+	UPROPERTY(Category=Landscape, EditAnywhere)
+	bool bGenerateLandscapeMetallicMap;
 
 	// Whether to generate roughness map for landscape static mesh
 	UPROPERTY(Category=Landscape, EditAnywhere)

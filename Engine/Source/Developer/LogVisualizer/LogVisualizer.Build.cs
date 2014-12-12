@@ -6,10 +6,11 @@ public class LogVisualizer : ModuleRules
 {
 	public LogVisualizer(TargetInfo Target)
 	{
-		PrivateIncludePathModuleNames.AddRange(
+        PrivateIncludePathModuleNames.AddRange(
 			new string[] {
 				"DesktopPlatform",
 				"MainFrame",
+                "SequencerWidgets",
 			}
 		);
 
@@ -17,6 +18,8 @@ public class LogVisualizer : ModuleRules
 			new string[] {
 				"Developer/TaskGraph/Public",
 				"Runtime/Engine/Classes",
+                "Editor/GeometryMode/Public",
+                "Editor/WorkspaceMenuStructure/Public"
 			}
 		);
 
@@ -32,7 +35,7 @@ public class LogVisualizer : ModuleRules
 				"Engine",
 				"TaskGraph",
 				"UnrealEd",
-                "GameplayDebugger",
+                "SequencerWidgets",
 			}
 		);
 

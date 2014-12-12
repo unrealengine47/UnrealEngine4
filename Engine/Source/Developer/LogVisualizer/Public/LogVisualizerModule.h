@@ -3,8 +3,12 @@
 #pragma once
 
 #include "ILogVisualizer.h"
+#include "Runtime/Core/Public/Features/IModularFeatures.h"
 
-class FLogVisualizerModule : public IModuleInterface
+class SDockTab;
+class ISlateStyle;
+class FSpawnTabArgs;
+class FNewLogVisualizerModule : public IModuleInterface, public IModularFeature
 {
 public:
 	// Begin IModuleInterface
@@ -12,18 +16,7 @@ public:
 	virtual void ShutdownModule() override;
 	// End IModuleInterface
 
-	/** Gets the debugger singleton or returns NULL */
-	static ILogVisualizer* Get()
-	{
-		FLogVisualizerModule& VisLogModule = FModuleManager::Get().LoadModuleChecked<FLogVisualizerModule>("LogVisualizer");
-		return VisLogModule.GetSingleton();
-	}
-
 private:
-	virtual ILogVisualizer* GetSingleton() const 
-	{ 
-		return LogVisualizer; 
-	}
-
-	ILogVisualizer* LogVisualizer;
+	TSharedRef<SDockTab> SpawnLogVisualizerTab(const FSpawnTabArgs& SpawnTabArgs);
+	void OnTabClosed(TSharedRef<SDockTab>);
 };

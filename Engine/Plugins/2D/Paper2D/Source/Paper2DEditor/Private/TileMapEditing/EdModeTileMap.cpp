@@ -80,12 +80,14 @@ const FEditorModeID FEdModeTileMap::EM_TileMap(TEXT("EM_TileMap"));
 
 FEdModeTileMap::FEdModeTileMap()
 	: bIsPainting(false)
-	, PaintSourceTileSet(NULL)
+	, PaintSourceTileSet(nullptr)
 	, PaintSourceTopLeft(0, 0)
 	, PaintSourceDimensions(0, 0)
 	, DrawPreviewDimensionsLS(0.0f, 0.0f, 0.0f)
 	, EraseBrushSize(1)
 {
+	bDrawPivot = false;
+
 	SetActiveTool(ETileMapEditorTool::Paintbrush);
 	SetActiveLayerPaintingMode(ETileMapLayerPaintingMode::VisualLayers);
 }
@@ -117,11 +119,22 @@ void FEdModeTileMap::Enter()
 
 void FEdModeTileMap::Exit()
 {
-	FToolkitManager::Get().CloseToolkit(Toolkit.ToSharedRef());
-	Toolkit.Reset();
+	if (Toolkit.IsValid())
+	{
+		FToolkitManager::Get().CloseToolkit(Toolkit.ToSharedRef());
+		Toolkit.Reset();
+	}
 
 	// Call base Exit method to ensure proper cleanup
 	FEdMode::Exit();
+}
+
+void FEdModeTileMap::ActorSelectionChangeNotify()
+{
+	if (FindSelectedComponent() == nullptr)
+	{
+		Owner->DeactivateMode(FEdModeTileMap::EM_TileMap);
+	}
 }
 
 bool FEdModeTileMap::MouseMove(FEditorViewportClient* InViewportClient, FViewport* InViewport, int32 x, int32 y)
@@ -252,7 +265,7 @@ void FEdModeTileMap::Render(const FSceneView* View, FViewport* Viewport, FPrimit
 
 	// If this viewport does not support Mode widgets we will not draw it here.
 	FEditorViewportClient* ViewportClient = (FEditorViewportClient*)Viewport->GetClient();
-	if ((ViewportClient != NULL) && !ViewportClient->EngineShowFlags.ModeWidgets)
+	if ((ViewportClient != nullptr) && !ViewportClient->EngineShowFlags.ModeWidgets)
 	{
 		return;
 	}
@@ -280,7 +293,7 @@ void FEdModeTileMap::Render(const FSceneView* View, FViewport* Viewport, FPrimit
 void FEdModeTileMap::DrawHUD(FEditorViewportClient* ViewportClient, FViewport* Viewport, const FSceneView* View, FCanvas* Canvas)
 {
 	FString InkInfo = FString::Printf(TEXT("Ink: (%d, %d)  %dx%d  %s"), PaintSourceTopLeft.X, PaintSourceTopLeft.Y, PaintSourceDimensions.X, PaintSourceDimensions.Y, 
-		(PaintSourceTileSet.Get() != NULL) ? (*PaintSourceTileSet.Get()->GetName()) : TEXT("(null)"));
+		(PaintSourceTileSet.Get() != nullptr) ? (*PaintSourceTileSet.Get()->GetName()) : TEXT("(no tile ink selected)"));
 
 	FCanvasTextItem Msg(FVector2D(10, 30), FText::FromString(InkInfo), GEngine->GetMediumFont(), FLinearColor::White);
 	Canvas->DrawItem(Msg);
@@ -301,21 +314,16 @@ bool FEdModeTileMap::UsesTransformWidget() const
 	return false;
 }
 
-UPaperTileLayer* FEdModeTileMap::GetSelectedLayerUnderCursor(const FViewportCursorLocation& Ray, int32& OutTileX, int32& OutTileY) const
+UPaperTileMapComponent* FEdModeTileMap::FindSelectedComponent() const
 {
-	const FVector TraceStart = Ray.GetOrigin();
-	const FVector TraceDir = Ray.GetDirection();
-
-	const bool bCollisionPainting = (GetActiveLayerPaintingMode() == ETileMapLayerPaintingMode::CollisionLayers);
-
-	UPaperTileMapRenderComponent* TileMapComponent = nullptr;
+	UPaperTileMapComponent* TileMapComponent = nullptr;
 
 	USelection* SelectedActors = Owner->GetSelectedActors();
 	for (FSelectionIterator Iter(*SelectedActors); Iter; ++Iter)
 	{
 		AActor* Actor = CastChecked<AActor>(*Iter);
 
-		TileMapComponent = Actor->FindComponentByClass<UPaperTileMapRenderComponent>();
+		TileMapComponent = Actor->FindComponentByClass<UPaperTileMapComponent>();
 		if (TileMapComponent != nullptr)
 		{
 			break;
@@ -328,7 +336,7 @@ UPaperTileLayer* FEdModeTileMap::GetSelectedLayerUnderCursor(const FViewportCurs
 		for (FSelectionIterator Iter(*SelectedObjects); Iter; ++Iter)
 		{
 			UObject* Foo = *Iter;
-			TileMapComponent = Cast<UPaperTileMapRenderComponent>(Foo);
+			TileMapComponent = Cast<UPaperTileMapComponent>(Foo);
 
 			if (TileMapComponent != nullptr)
 			{
@@ -336,6 +344,18 @@ UPaperTileLayer* FEdModeTileMap::GetSelectedLayerUnderCursor(const FViewportCurs
 			}
 		}
 	}
+
+	return TileMapComponent;
+}
+
+UPaperTileLayer* FEdModeTileMap::GetSelectedLayerUnderCursor(const FViewportCursorLocation& Ray, int32& OutTileX, int32& OutTileY) const
+{
+	const FVector TraceStart = Ray.GetOrigin();
+	const FVector TraceDir = Ray.GetDirection();
+
+	const bool bCollisionPainting = (GetActiveLayerPaintingMode() == ETileMapLayerPaintingMode::CollisionLayers);
+
+	UPaperTileMapComponent* TileMapComponent = FindSelectedComponent();
 
 	if (TileMapComponent != nullptr)
 	{
@@ -353,19 +373,19 @@ UPaperTileLayer* FEdModeTileMap::GetSelectedLayerUnderCursor(const FViewportCurs
 				const float WY = TileMap->MapHeight * TileMap->TileHeight;
 
 				ComponentToWorld = (TileMapComponent != nullptr) ? TileMapComponent->ComponentToWorld : FTransform::Identity;
-				FVector LocalStart = ComponentToWorld.InverseTransformPosition(TraceStart);
-				FVector LocalDirection = ComponentToWorld.InverseTransformVector(TraceDir);
-
+				const FVector LocalStart = ComponentToWorld.InverseTransformPosition(TraceStart);
+				const FVector LocalDirection = ComponentToWorld.InverseTransformVector(TraceDir);
+				const FVector LocalEnd = LocalStart + (LocalDirection * HALF_WORLD_MAX);
+					 
 				const FVector LSPlaneCorner = PaperAxisZ * TileMap->SeparationPerLayer;
 
 				const FPlane LayerPlane(LSPlaneCorner + PaperAxisX, LSPlaneCorner, LSPlaneCorner + PaperAxisY);
 
 				FVector Intersection;
-				if (FMath::SegmentPlaneIntersection(LocalStart, LocalDirection * HALF_WORLD_MAX, LayerPlane, /*out*/ Intersection))
+				if (FMath::SegmentPlaneIntersection(LocalStart, LocalEnd, LayerPlane, /*out*/ Intersection))
 				{
-					//@TODO: Ideally tile pivots weren't in the center!
-					const float NormalizedX = (Intersection.X + 0.5f * TileMap->TileWidth) / WX;
-					const float NormalizedY = (-Intersection.Z + 0.5f * TileMap->TileHeight) / WY;
+					const float NormalizedX = (FVector::DotProduct(Intersection, PaperAxisX) + 0.5f * TileMap->TileWidth) / WX;
+					const float NormalizedY = (-FVector::DotProduct(Intersection, PaperAxisY) + 0.5f * TileMap->TileHeight) / WY;
 
 					OutTileX = FMath::FloorToInt(NormalizedX * TileMap->MapWidth);
 					OutTileY = FMath::FloorToInt(NormalizedY * TileMap->MapHeight);
@@ -381,7 +401,7 @@ UPaperTileLayer* FEdModeTileMap::GetSelectedLayerUnderCursor(const FViewportCurs
 
 	OutTileX = 0;
 	OutTileY = 0;
-	return NULL;
+	return nullptr;
 }
 
 
@@ -414,7 +434,7 @@ bool FEdModeTileMap::PaintTiles(const FViewportCursorLocation& Ray)
 	}
 
 	// If we are using an ink source, validate that it exists
-	UPaperTileSet* InkSource = NULL;
+	UPaperTileSet* InkSource = nullptr;
 	if ( GetActiveLayerPaintingMode() != ETileMapLayerPaintingMode::CollisionLayers )
 	{
 		InkSource = PaintSourceTileSet.Get();
@@ -580,7 +600,7 @@ bool FEdModeTileMap::FloodFillTiles(const FViewportCursorLocation& Ray)
 	}
 
 	// If we are using an ink source, validate that it exists
-	UPaperTileSet* InkSource = NULL;
+	UPaperTileSet* InkSource = nullptr;
 	if ( GetActiveLayerPaintingMode() != ETileMapLayerPaintingMode::CollisionLayers )
 	{
 		InkSource = PaintSourceTileSet.Get();
@@ -752,7 +772,7 @@ FViewportCursorLocation FEdModeTileMap::CalculateViewRay(FEditorViewportClient* 
 		.SetRealtimeUpdate( InViewportClient->IsRealtime() ));
 
 	FSceneView* View = InViewportClient->CalcSceneView( &ViewFamily );
-	FViewportCursorLocation MouseViewportRay( View, (FEditorViewportClient*)InViewport->GetClient(), InViewport->GetMouseX(), InViewport->GetMouseY() );
+	FViewportCursorLocation MouseViewportRay( View, InViewportClient, InViewport->GetMouseX(), InViewport->GetMouseY() );
 
 	return MouseViewportRay;
 }

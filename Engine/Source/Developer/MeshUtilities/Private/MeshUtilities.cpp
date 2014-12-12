@@ -18,6 +18,7 @@
 #include "mikktspace.h"
 #include "DistanceFieldAtlas.h"
 #include "FbxErrors.h"
+#include "Components/SplineMeshComponent.h"
 
 //@todo - implement required vector intrinsics for other implementations
 #if PLATFORM_ENABLE_VECTORINTRINSICS
@@ -3531,6 +3532,17 @@ void FMeshUtilities::CreateProxyMesh(
 		return;
 	}
 
+	// Base asset name for a new assets
+	// In case outer is null ProxyBasePackageName has to be long package name
+	if (InOuter == nullptr && FPackageName::IsShortPackageName(ProxyBasePackageName))
+	{
+		UE_LOG(LogMeshUtilities, Warning, TEXT("Invalid long package name: '%s'."), *ProxyBasePackageName);
+		return;
+	}
+	
+	const FString AssetBaseName = FPackageName::GetShortName(ProxyBasePackageName);
+	const FString AssetBasePath = InOuter ? TEXT("") : FPackageName::GetLongPackagePath(ProxyBasePackageName) + TEXT("/");
+	
 	TArray<ALandscapeProxy*>		LandscapesToMerge;
 	TArray<UStaticMeshComponent*>	ComponentsToMerge;
 	
@@ -3604,7 +3616,20 @@ void FMeshUtilities::CreateProxyMesh(
 			UniqueMaterials.Last().DiffuseSize = FIntPoint(1024, 1024);
 			// FIXME: Landscape material exporter currently renders world space normal map, so it can't be merged with other meshes normal maps
 			UniqueMaterials.Last().NormalSize = FIntPoint::ZeroValue;
-			MaterialExportUtils::ExportMaterial(Landscape, UniqueMaterials.Last());
+
+			// Use only landscape primitives for texture flattening
+			TSet<FPrimitiveComponentId> PrimitivesToHide;
+			for (TObjectIterator<UPrimitiveComponent> It; It; ++It)
+			{
+				UPrimitiveComponent* PrimitiveComp = *It;
+				const bool bTargetPrim = PrimitiveComp->GetOuter() == Landscape;
+				if (!bTargetPrim && PrimitiveComp->IsRegistered() && PrimitiveComp->SceneProxy)
+				{
+					PrimitivesToHide.Add(PrimitiveComp->SceneProxy->GetPrimitiveComponentId());
+				}
+			}
+			
+			MaterialExportUtils::ExportMaterial(Landscape, PrimitivesToHide, UniqueMaterials.Last());
 			
 			//Store the bounds for each component
 			ProxyBounds+= Landscape->GetComponentsBoundingBox(true);
@@ -3652,26 +3677,20 @@ void FMeshUtilities::CreateProxyMesh(
 		Vertex-= OutProxyLocation;
 	}
 	
-	//
-	// Base asset name for a new assets
-	//
-	const FString AssetBaseName = FPackageName::GetShortName(ProxyBasePackageName);
-	const FString AssetBasePath = FPackageName::IsShortPackageName(ProxyBasePackageName) ? 
-		FPackageName::FilenameToLongPackageName(FPaths::GameContentDir()) : (FPackageName::GetLongPackagePath(ProxyBasePackageName) + TEXT("/"));
-
 	// Construct proxy material
-	UMaterial* ProxyMaterial = MaterialExportUtils::CreateMaterial(ProxyFlattenMaterial, InOuter, ProxyBasePackageName, RF_Public|RF_Standalone);
+	UMaterial* ProxyMaterial = MaterialExportUtils::CreateMaterial(ProxyFlattenMaterial, InOuter, ProxyBasePackageName, RF_Public|RF_Standalone, OutAssetsToSync);
 	
 	// Construct proxy static mesh
 	UPackage* MeshPackage = InOuter;
+	FString MeshAssetName = TEXT("SM_") + AssetBaseName;
 	if (MeshPackage == nullptr)
 	{
-		MeshPackage = CreatePackage(NULL, *(AssetBasePath + TEXT("SM_") + AssetBaseName));
+		MeshPackage = CreatePackage(NULL, *(AssetBasePath + MeshAssetName));
 		MeshPackage->FullyLoad();
 		MeshPackage->Modify();
 	}
 
-	UStaticMesh* StaticMesh = new(MeshPackage, FName(*(TEXT("SM_") + AssetBaseName)), RF_Public|RF_Standalone) UStaticMesh(FObjectInitializer());
+	UStaticMesh* StaticMesh = new(MeshPackage, FName(*MeshAssetName), RF_Public|RF_Standalone) UStaticMesh(FObjectInitializer());
 	StaticMesh->InitResources();
 	{
 		FString OutputPath = StaticMesh->GetPathName();
@@ -3696,41 +3715,9 @@ void FMeshUtilities::CreateProxyMesh(
 
 		StaticMesh->Build();
 		StaticMesh->PostEditChange();
+
+		OutAssetsToSync.Add(StaticMesh);
 	}
-
-	OutAssetsToSync.Add(ProxyMaterial);
-	OutAssetsToSync.Add(StaticMesh);
-
-#if 0 // dump flattened materials as texture assets
-	for (const auto& FlatMat : UniqueMaterials)
-	{
-		if (FlatMat.DiffuseSamples.Num() > 1)
-		{
-			FString DiffuseTextureName = MakeUniqueObjectName(Package, UTexture2D::StaticClass(), *(TEXT("T_FLATTEN_") + AssetBaseName + TEXT("_D"))).ToString();
-			
-			UPackage* TexPackage = CreatePackage(NULL, *(AssetBasePath + DiffuseTextureName));
-			TexPackage->FullyLoad();
-			TexPackage->Modify();
-					
-			FCreateTexture2DParameters TexParams;
-			TexParams.bUseAlpha = false;
-			TexParams.CompressionSettings = TC_Default;
-			TexParams.bDeferCompression = false;
-			TexParams.bSRGB = false;
-
-			UTexture2D* DiffuseTexture = FImageUtils::CreateTexture2D(
-				FlatMat.DiffuseSize.X, 
-				FlatMat.DiffuseSize.Y,
-				FlatMat.DiffuseSamples,
-				TexPackage,
-				DiffuseTextureName,
-				RF_Public|RF_Standalone, 
-				TexParams);
-
-			OutAssetsToSync.Add(DiffuseTexture);
-		}
-	}
-#endif
 }
 
 bool FMeshUtilities::ConstructRawMesh(
@@ -3768,15 +3755,28 @@ bool FMeshUtilities::ConstructRawMesh(
 		UE_LOG(LogMeshUtilities, Error, TEXT("Raw mesh (%s) is corrupt for LOD%d."), *SrcMesh->GetName(), 1);
 		return false;
 	}
+	
+	// Handle spline mesh deformation
+	if (InMeshComponent->IsA<USplineMeshComponent>())
+	{
+		USplineMeshComponent* SplineMeshComponent = Cast<USplineMeshComponent>(InMeshComponent);
+		for (int32 iVert = 0; iVert < OutRawMesh.VertexPositions.Num(); ++iVert)
+		{
+			float& Z = USplineMeshComponent::GetAxisValue(OutRawMesh.VertexPositions[iVert], SplineMeshComponent->ForwardAxis);
+			FTransform SliceTransform = SplineMeshComponent->CalcSliceTransform(Z);
+			Z = 0.0f;
+			OutRawMesh.VertexPositions[iVert] = SliceTransform.TransformPosition(OutRawMesh.VertexPositions[iVert]);
+		}
+	}
 
-	//Transform the raw mesh to world space
+	// Transform raw mesh to world space
 	FTransform CtoM = InMeshComponent->ComponentToWorld;
-	const bool bIsMirrored = CtoM.GetDeterminant() < 0.f;
 	for (FVector& Vertex : OutRawMesh.VertexPositions)
 	{
 		Vertex = CtoM.TransformFVector4(Vertex);
 	}
 
+	const bool bIsMirrored = CtoM.GetDeterminant() < 0.f;
 	if (bIsMirrored)
 	{
 		// Flip faces
@@ -3801,7 +3801,7 @@ bool FMeshUtilities::ConstructRawMesh(
 			}
 		}
 	}
-
+		
 	int32 NumWedges = OutRawMesh.WedgeIndices.Num();
 	/* Always Recalculate normals, tangents and bitangents */
 	OutRawMesh.WedgeTangentZ.Empty(NumWedges);

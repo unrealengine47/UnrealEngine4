@@ -185,6 +185,7 @@ public:
 	virtual FSlateShaderResource* GetViewportRenderTargetTexture() const override;
 	virtual void OnDrawViewport( const FGeometry& AllottedGeometry, const FSlateRect& MyClippingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled ) override;
 	virtual FCursorReply OnCursorQuery( const FGeometry& MyGeometry, const FPointerEvent& CursorEvent ) override;
+	virtual TOptional<TSharedRef<SWidget>> OnMapCursor(const FCursorReply& CursorReply) override;
 	virtual FReply OnMouseButtonDown( const FGeometry& InGeometry, const FPointerEvent& MouseEvent ) override;
 	virtual FReply OnMouseButtonUp( const FGeometry& InGeometry, const FPointerEvent& MouseEvent ) override;
 	virtual void OnMouseEnter( const FGeometry& MyGeometry, const FPointerEvent& MouseEvent ) override;
@@ -211,6 +212,10 @@ public:
 	
 	void SetViewportSize(uint32 NewSizeX,uint32 NewSizeY);
 	TSharedPtr<SWindow> FindWindow();
+
+	/** Should return true, if stereo rendering is allowed in this viewport */
+	virtual bool IsStereoRenderingAllowed() const;
+
 private:
 	/**
 	 * Called when this viewport is destroyed

@@ -444,11 +444,21 @@ void FBlueprintVarActionDetails::CustomizeDetails( IDetailLayoutBuilder& DetailL
 
 	// Add in default value editing for properties that can be edited, local properties cannot be edited
 	UBlueprint* Blueprint = GetBlueprintObj();
-	if ((Blueprint != NULL) && (Blueprint->GeneratedClass != NULL) && !IsALocalVariable(VariableProperty))
+	if ((Blueprint != NULL) && (Blueprint->GeneratedClass != NULL))
 	{
 		if (VariableProperty != NULL)
 		{
-			const UProperty* OriginalProperty = FindField<UProperty>(Blueprint->GeneratedClass, VariableProperty->GetFName());
+			const UProperty* OriginalProperty = nullptr;
+			
+			if(!IsALocalVariable(VariableProperty))
+			{
+				OriginalProperty = FindField<UProperty>(Blueprint->GeneratedClass, VariableProperty->GetFName());
+			}
+			else
+			{
+				OriginalProperty = VariableProperty;
+			}
+
 			if (OriginalProperty == NULL)
 			{
 				// Prevent editing the default value of a skeleton property
@@ -518,10 +528,54 @@ void FBlueprintVarActionDetails::CustomizeDetails( IDetailLayoutBuilder& DetailL
 		}
 		else 
 		{
-			// Things are in order, show the property and allow it to be edited
-			TArray<UObject*> ObjectList;
-			ObjectList.Add(Blueprint->GeneratedClass->GetDefaultObject());
-			IDetailPropertyRow* Row = DefaultValueCategory.AddExternalProperty(ObjectList, VariableProperty->GetFName());
+			if(IsALocalVariable(VariableProperty))
+			{
+				UFunction* StructScope = Cast<UFunction>(VariableProperty->GetOuter());
+				check(StructScope);
+
+				TSharedPtr<FStructOnScope> StructData = MakeShareable(new FStructOnScope((UFunction*)StructScope));
+				UEdGraph* Graph = FBlueprintEditorUtils::FindScopeGraph(GetBlueprintObj(), (UFunction*)StructScope);
+				TWeakObjectPtr<UK2Node_EditablePinBase> EntryNode;
+				TWeakObjectPtr<UK2Node_EditablePinBase> ResultNode;
+				FBlueprintEditorUtils::GetEntryAndResultNodes(Graph, EntryNode, ResultNode);
+
+				UK2Node_FunctionEntry* FuncEntry = Cast<UK2Node_FunctionEntry>(EntryNode.Get());
+
+				UClass* ActorClass = FindObject<UClass>(ANY_PACKAGE, TEXT("Actor"));
+				UClass* BPActorClass = FindObject<UClass>(ANY_PACKAGE, TEXT("BP_Actor_C"));
+				for(auto& LocalVar : FuncEntry->LocalVariables)
+				{
+					if(LocalVar.VarName == VariableProperty->GetFName()) //Property->GetFName())
+					{
+						// Only set the default value if there is one
+						if(!LocalVar.DefaultValue.IsEmpty())
+						{
+							FBlueprintEditorUtils::PropertyValueFromString(VariableProperty, LocalVar.DefaultValue, StructData->GetStructMemory());
+						}
+						break;
+					}
+				}
+
+				TWeakPtr<FBlueprintEditor> BlueprintEditor = MyBlueprint.Pin()->GetBlueprintEditor();
+				if(BlueprintEditor.IsValid())
+				{
+					TSharedPtr< IDetailsView > DetailsView  = BlueprintEditor.Pin()->GetInspector()->GetPropertyView();
+
+					if(DetailsView.IsValid())
+					{
+						DetailsView->OnFinishedChangingProperties().AddSP(this, &FBlueprintVarActionDetails::OnFinishedChangingProperties, StructData, EntryNode);
+					}
+				}
+
+				IDetailPropertyRow* Row = DefaultValueCategory.AddExternalProperty(StructData, VariableProperty->GetFName());
+			}
+			else
+			{
+				// Things are in order, show the property and allow it to be edited
+				TArray<UObject*> ObjectList;
+				ObjectList.Add(Blueprint->GeneratedClass->GetDefaultObject());
+				IDetailPropertyRow* Row = DefaultValueCategory.AddExternalProperty(ObjectList, VariableProperty->GetFName());
+			}
 		}
 
 		TSharedPtr<SToolTip> TransientTooltip = IDocumentation::Get()->CreateToolTip(LOCTEXT("VariableTransient_Tooltip", "Should this variable not serialize and be zero-filled at load?"), NULL, DocLink, TEXT("Transient"));
@@ -619,7 +673,7 @@ TSharedRef<ITableRow> FBlueprintVarActionDetails::OnGenerateWidgetForPropertyLis
 				.AutoWidth()
 			[
 				SNew(SCheckBox)
-					.IsChecked(true ? ESlateCheckBoxState::Checked : ESlateCheckBoxState::Unchecked)
+					.IsChecked(true ? ECheckBoxState::Checked : ECheckBoxState::Unchecked)
 					.IsEnabled(false)
 			]
 		];
@@ -1150,45 +1204,45 @@ EVisibility FBlueprintVarActionDetails::ShowEditableCheckboxVisibilty() const
 	return EVisibility::Collapsed;
 }
 
-ESlateCheckBoxState::Type FBlueprintVarActionDetails::OnEditableCheckboxState() const
+ECheckBoxState FBlueprintVarActionDetails::OnEditableCheckboxState() const
 {
 	UProperty* VariableProperty = SelectionAsProperty();
 	if (VariableProperty)
 	{
-		return VariableProperty->HasAnyPropertyFlags(CPF_DisableEditOnInstance) ? ESlateCheckBoxState::Unchecked : ESlateCheckBoxState::Checked;
+		return VariableProperty->HasAnyPropertyFlags(CPF_DisableEditOnInstance) ? ECheckBoxState::Unchecked : ECheckBoxState::Checked;
 	}
-	return ESlateCheckBoxState::Unchecked;
+	return ECheckBoxState::Unchecked;
 }
 
-void FBlueprintVarActionDetails::OnEditableChanged(ESlateCheckBoxState::Type InNewState)
+void FBlueprintVarActionDetails::OnEditableChanged(ECheckBoxState InNewState)
 {
 	FName VarName = GetVariableName();
 
 	// Toggle the flag on the blueprint's version of the variable description, based on state
-	const bool bVariableIsExposed = InNewState == ESlateCheckBoxState::Checked;
+	const bool bVariableIsExposed = InNewState == ECheckBoxState::Checked;
 
 	UBlueprint* Blueprint = MyBlueprint.Pin()->GetBlueprintObj();
 	FBlueprintEditorUtils::SetBlueprintOnlyEditableFlag(Blueprint, VarName, !bVariableIsExposed);
 }
 
-ESlateCheckBoxState::Type FBlueprintVarActionDetails::OnCreateWidgetCheckboxState() const
+ECheckBoxState FBlueprintVarActionDetails::OnCreateWidgetCheckboxState() const
 {
 	UProperty* Property = SelectionAsProperty();
 	if (Property)
 	{
 		bool bMakingWidget = FEdMode::ShouldCreateWidgetForProperty(Property);
 
-		return bMakingWidget ? ESlateCheckBoxState::Checked : ESlateCheckBoxState::Unchecked;
+		return bMakingWidget ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 	}
-	return ESlateCheckBoxState::Unchecked;
+	return ECheckBoxState::Unchecked;
 }
 
-void FBlueprintVarActionDetails::OnCreateWidgetChanged(ESlateCheckBoxState::Type InNewState)
+void FBlueprintVarActionDetails::OnCreateWidgetChanged(ECheckBoxState InNewState)
 {
 	const FName VarName = GetVariableName();
 	if (VarName != NAME_None)
 	{
-		if (InNewState == ESlateCheckBoxState::Checked)
+		if (InNewState == ECheckBoxState::Checked)
 		{
 			FBlueprintEditorUtils::SetBlueprintVariableMetaData(GetBlueprintObj(), VarName, GetLocalVariableScope(SelectionAsProperty()), FEdMode::MD_MakeEditWidget, TEXT("true"));
 		}
@@ -1222,22 +1276,22 @@ bool FBlueprintVarActionDetails::Is3DWidgetEnabled()
 	return false;
 }
 
-ESlateCheckBoxState::Type FBlueprintVarActionDetails::OnGetExposedToSpawnCheckboxState() const
+ECheckBoxState FBlueprintVarActionDetails::OnGetExposedToSpawnCheckboxState() const
 {
 	UProperty* Property = SelectionAsProperty();
 	if (Property)
 	{
-		return (Property && Property->GetBoolMetaData(FBlueprintMetadata::MD_ExposeOnSpawn) != false) ? ESlateCheckBoxState::Checked : ESlateCheckBoxState::Unchecked;
+		return (Property && Property->GetBoolMetaData(FBlueprintMetadata::MD_ExposeOnSpawn) != false) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 	}
-	return ESlateCheckBoxState::Unchecked;
+	return ECheckBoxState::Unchecked;
 }
 
-void FBlueprintVarActionDetails::OnExposedToSpawnChanged(ESlateCheckBoxState::Type InNewState)
+void FBlueprintVarActionDetails::OnExposedToSpawnChanged(ECheckBoxState InNewState)
 {
 	const FName VarName = GetVariableName();
 	if (VarName != NAME_None)
 	{
-		const bool bExposeOnSpawn = (InNewState == ESlateCheckBoxState::Checked);
+		const bool bExposeOnSpawn = (InNewState == ECheckBoxState::Checked);
 		if(bExposeOnSpawn)
 		{
 			FBlueprintEditorUtils::SetBlueprintVariableMetaData(GetBlueprintObj(), VarName, NULL, FBlueprintMetadata::MD_ExposeOnSpawn, TEXT("true"));
@@ -1267,22 +1321,22 @@ EVisibility FBlueprintVarActionDetails::ExposeOnSpawnVisibility() const
 	return EVisibility::Collapsed;
 }
 
-ESlateCheckBoxState::Type FBlueprintVarActionDetails::OnGetPrivateCheckboxState() const
+ECheckBoxState FBlueprintVarActionDetails::OnGetPrivateCheckboxState() const
 {
 	UProperty* Property = SelectionAsProperty();
 	if (Property)
 	{
-		return (Property && Property->GetBoolMetaData(FBlueprintMetadata::MD_Private) != false) ? ESlateCheckBoxState::Checked : ESlateCheckBoxState::Unchecked;
+		return (Property && Property->GetBoolMetaData(FBlueprintMetadata::MD_Private) != false) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 	}
-	return ESlateCheckBoxState::Unchecked;
+	return ECheckBoxState::Unchecked;
 }
 
-void FBlueprintVarActionDetails::OnPrivateChanged(ESlateCheckBoxState::Type InNewState)
+void FBlueprintVarActionDetails::OnPrivateChanged(ECheckBoxState InNewState)
 {
 	const FName VarName = GetVariableName();
 	if (VarName != NAME_None)
 	{
-		const bool bExposeOnSpawn = (InNewState == ESlateCheckBoxState::Checked);
+		const bool bExposeOnSpawn = (InNewState == ECheckBoxState::Checked);
 		if(bExposeOnSpawn)
 		{
 			FBlueprintEditorUtils::SetBlueprintVariableMetaData(GetBlueprintObj(), VarName, NULL, FBlueprintMetadata::MD_Private, TEXT("true"));
@@ -1307,20 +1361,20 @@ EVisibility FBlueprintVarActionDetails::ExposePrivateVisibility() const
 	return EVisibility::Collapsed;
 }
 
-ESlateCheckBoxState::Type FBlueprintVarActionDetails::OnGetExposedToMatineeCheckboxState() const
+ECheckBoxState FBlueprintVarActionDetails::OnGetExposedToMatineeCheckboxState() const
 {
 	UProperty* Property = SelectionAsProperty();
 	if (Property)
 	{
-		return Property && Property->HasAnyPropertyFlags(CPF_Interp) ? ESlateCheckBoxState::Checked : ESlateCheckBoxState::Unchecked;
+		return Property && Property->HasAnyPropertyFlags(CPF_Interp) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 	}
-	return ESlateCheckBoxState::Unchecked;
+	return ECheckBoxState::Unchecked;
 }
 
-void FBlueprintVarActionDetails::OnExposedToMatineeChanged(ESlateCheckBoxState::Type InNewState)
+void FBlueprintVarActionDetails::OnExposedToMatineeChanged(ECheckBoxState InNewState)
 {
 	// Toggle the flag on the blueprint's version of the variable description, based on state
-	const bool bExposeToMatinee = (InNewState == ESlateCheckBoxState::Checked);
+	const bool bExposeToMatinee = (InNewState == ECheckBoxState::Checked);
 	
 	const FName VarName = GetVariableName();
 	if (VarName != NAME_None)
@@ -1547,22 +1601,22 @@ EVisibility FBlueprintVarActionDetails::GetTransientVisibility() const
 	return EVisibility::Collapsed;
 }
 
-ESlateCheckBoxState::Type FBlueprintVarActionDetails::OnGetTransientCheckboxState() const
+ECheckBoxState FBlueprintVarActionDetails::OnGetTransientCheckboxState() const
 {
 	UProperty* Property = SelectionAsProperty();
 	if (Property)
 	{
-		return (Property && Property->HasAnyPropertyFlags(CPF_Transient)) ? ESlateCheckBoxState::Checked : ESlateCheckBoxState::Unchecked;
+		return (Property && Property->HasAnyPropertyFlags(CPF_Transient)) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 	}
-	return ESlateCheckBoxState::Unchecked;
+	return ECheckBoxState::Unchecked;
 }
 
-void FBlueprintVarActionDetails::OnTransientChanged(ESlateCheckBoxState::Type InNewState)
+void FBlueprintVarActionDetails::OnTransientChanged(ECheckBoxState InNewState)
 {
 	UProperty* Property = SelectionAsProperty();
 	if (Property)
 	{
-		const bool bTransientFlag = (InNewState == ESlateCheckBoxState::Checked);
+		const bool bTransientFlag = (InNewState == ECheckBoxState::Checked);
 		FBlueprintEditorUtils::SetVariableTransientFlag(GetBlueprintObj(), Property->GetFName(), bTransientFlag);
 	}
 }
@@ -1580,22 +1634,22 @@ EVisibility FBlueprintVarActionDetails::GetSaveGameVisibility() const
 	return EVisibility::Collapsed;
 }
 
-ESlateCheckBoxState::Type FBlueprintVarActionDetails::OnGetSaveGameCheckboxState() const
+ECheckBoxState FBlueprintVarActionDetails::OnGetSaveGameCheckboxState() const
 {
 	UProperty* Property = SelectionAsProperty();
 	if (Property)
 	{
-		return (Property && Property->HasAnyPropertyFlags(CPF_SaveGame)) ? ESlateCheckBoxState::Checked : ESlateCheckBoxState::Unchecked;
+		return (Property && Property->HasAnyPropertyFlags(CPF_SaveGame)) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 	}
-	return ESlateCheckBoxState::Unchecked;
+	return ECheckBoxState::Unchecked;
 }
 
-void FBlueprintVarActionDetails::OnSaveGameChanged(ESlateCheckBoxState::Type InNewState)
+void FBlueprintVarActionDetails::OnSaveGameChanged(ECheckBoxState InNewState)
 {
 	UProperty* Property = SelectionAsProperty();
 	if (Property)
 	{
-		const bool bSaveGameFlag = (InNewState == ESlateCheckBoxState::Checked);
+		const bool bSaveGameFlag = (InNewState == ECheckBoxState::Checked);
 		FBlueprintEditorUtils::SetVariableSaveGameFlag(GetBlueprintObj(), Property->GetFName(), bSaveGameFlag);
 	}
 }
@@ -1611,6 +1665,44 @@ EVisibility FBlueprintVarActionDetails::IsTooltipEditVisible() const
 		}
 	}
 	return EVisibility::Collapsed;
+}
+
+void FBlueprintVarActionDetails::OnFinishedChangingProperties(const FPropertyChangedEvent& InPropertyChangedEvent, TSharedPtr<FStructOnScope> InStructData, TWeakObjectPtr<UK2Node_EditablePinBase> InEntryNode)
+{
+	check(InPropertyChangedEvent.MemberProperty
+		&& InPropertyChangedEvent.MemberProperty->GetOwnerStruct()
+		&& InPropertyChangedEvent.MemberProperty->GetOwnerStruct()->IsA<UFunction>());
+
+	// Find the top level property that was modified within the UFunction
+	const UProperty* DirectProperty = InPropertyChangedEvent.MemberProperty;
+	while (!Cast<const UFunction>(DirectProperty->GetOuter()))
+	{
+		DirectProperty = CastChecked<const UProperty>(DirectProperty->GetOuter());
+	}
+
+	FString DefaultValueString;
+	bool bDefaultValueSet = false;
+
+	if (InStructData.IsValid())
+	{
+		bDefaultValueSet = FBlueprintEditorUtils::PropertyValueToString(DirectProperty, InStructData->GetStructMemory(), DefaultValueString);
+
+		if(bDefaultValueSet)
+		{
+			UK2Node_FunctionEntry* FuncEntry = Cast<UK2Node_FunctionEntry>(InEntryNode.Get());
+
+			// Search out the correct local variable in the Function Entry Node and set the default value
+			for(auto& LocalVar : FuncEntry->LocalVariables)
+			{
+				if(LocalVar.VarName == DirectProperty->GetFName())
+				{
+					LocalVar.DefaultValue = DefaultValueString;
+					FBlueprintEditorUtils::MarkBlueprintAsModified(GetBlueprintObj());
+					break;
+				}
+			}
+		}
+	}
 }
 
 static FDetailWidgetRow& AddRow( TArray<TSharedRef<FDetailWidgetRow> >& OutChildRows )
@@ -1928,16 +2020,16 @@ FEdGraphPinType FBlueprintGraphArgumentLayout::OnGetPinInfo() const
 	return FEdGraphPinType();
 }
 
-ESlateCheckBoxState::Type FBlueprintGraphArgumentLayout::IsRefChecked() const
+ECheckBoxState FBlueprintGraphArgumentLayout::IsRefChecked() const
 {
 	FEdGraphPinType PinType = OnGetPinInfo();
-	return PinType.bIsReference? ESlateCheckBoxState::Checked : ESlateCheckBoxState::Unchecked;
+	return PinType.bIsReference? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 }
 
-void FBlueprintGraphArgumentLayout::OnRefCheckStateChanged(ESlateCheckBoxState::Type InState)
+void FBlueprintGraphArgumentLayout::OnRefCheckStateChanged(ECheckBoxState InState)
 {
 	FEdGraphPinType PinType = OnGetPinInfo();
-	PinType.bIsReference = (InState == ESlateCheckBoxState::Checked)? true : false;
+	PinType.bIsReference = (InState == ECheckBoxState::Checked)? true : false;
 	PinInfoChanged(PinType);
 }
 
@@ -2482,9 +2574,9 @@ void FBaseBlueprintGraphActionDetails::SetRefreshDelegate(FSimpleDelegate Refres
 	((bForInputs) ? RegenerateInputsChildrenDelegate : RegenerateOutputsChildrenDelegate) = RefreshDelegate;
 }
 
-ESlateCheckBoxState::Type FBlueprintGraphActionDetails::GetIsEditorCallableEvent() const
+ECheckBoxState FBlueprintGraphActionDetails::GetIsEditorCallableEvent() const
 {
-	ESlateCheckBoxState::Type Result = ESlateCheckBoxState::Unchecked;
+	ECheckBoxState Result = ECheckBoxState::Unchecked;
 
 	if( FunctionEntryNodePtr.IsValid() )
 	{
@@ -2492,13 +2584,13 @@ ESlateCheckBoxState::Type FBlueprintGraphActionDetails::GetIsEditorCallableEvent
 
 		if( CustomEventNode && CustomEventNode->bCallInEditor )
 		{
-			Result = ESlateCheckBoxState::Checked;
+			Result = ECheckBoxState::Checked;
 		}
 	}
 	return Result;
 }
 
-void FBlueprintGraphActionDetails::OnEditorCallableEventModified( const ESlateCheckBoxState::Type NewCheckedState ) const
+void FBlueprintGraphActionDetails::OnEditorCallableEventModified( const ECheckBoxState NewCheckedState ) const
 {
 	if( FunctionEntryNodePtr.IsValid() )
 	{
@@ -2506,7 +2598,7 @@ void FBlueprintGraphActionDetails::OnEditorCallableEventModified( const ESlateCh
 		{
 			if( UBlueprint* Blueprint = FunctionEntryNodePtr->GetBlueprint() )
 			{
-				const bool bCallInEditor = NewCheckedState == ESlateCheckBoxState::Checked;
+				const bool bCallInEditor = NewCheckedState == ECheckBoxState::Checked;
 				const FText TransactionType = bCallInEditor ?	LOCTEXT( "DisableCallInEditor", "Disable Call In Editor " ) : 
 																LOCTEXT( "EnableCallInEditor", "Enable Call In Editor" );
 				const FScopedTransaction Transaction( TransactionType );
@@ -3513,13 +3605,13 @@ bool FBlueprintGraphActionDetails::IsCustomEvent() const
 	return (NULL != Cast<UK2Node_CustomEvent>(FunctionEntryNodePtr.Get()));
 }
 
-void FBlueprintGraphActionDetails::OnIsReliableReplicationFunctionModified(const ESlateCheckBoxState::Type NewCheckedState)
+void FBlueprintGraphActionDetails::OnIsReliableReplicationFunctionModified(const ECheckBoxState NewCheckedState)
 {
 	UK2Node_EditablePinBase * FunctionEntryNode = FunctionEntryNodePtr.Get();
 	UK2Node_CustomEvent* CustomEvent = Cast<UK2Node_CustomEvent>(FunctionEntryNode);
 	if( CustomEvent )
 	{
-		if (NewCheckedState == ESlateCheckBoxState::Checked)
+		if (NewCheckedState == ECheckBoxState::Checked)
 		{
 			if (UK2Node_FunctionEntry* TypedEntryNode = Cast<UK2Node_FunctionEntry>(FunctionEntryNode))
 			{
@@ -3546,22 +3638,22 @@ void FBlueprintGraphActionDetails::OnIsReliableReplicationFunctionModified(const
 	}
 }
 
-ESlateCheckBoxState::Type FBlueprintGraphActionDetails::GetIsReliableReplicatedFunction() const
+ECheckBoxState FBlueprintGraphActionDetails::GetIsReliableReplicatedFunction() const
 {
 	const UK2Node_EditablePinBase * FunctionEntryNode = FunctionEntryNodePtr.Get();
 	const UK2Node_CustomEvent* CustomEvent = Cast<const UK2Node_CustomEvent>(FunctionEntryNode);
 	if(!CustomEvent)
 	{
-		return ESlateCheckBoxState::Undetermined;
+		return ECheckBoxState::Undetermined;
 	}
 
 	uint32 const NetReliableMask = (FUNC_Net | FUNC_NetReliable);
 	if ((CustomEvent->GetNetFlags() & NetReliableMask) == NetReliableMask)
 	{
-		return ESlateCheckBoxState::Checked;
+		return ECheckBoxState::Checked;
 	}
 	
-	return ESlateCheckBoxState::Unchecked;
+	return ECheckBoxState::Unchecked;
 }
 
 bool FBlueprintGraphActionDetails::IsPureFunctionVisible() const
@@ -3580,7 +3672,7 @@ bool FBlueprintGraphActionDetails::IsPureFunctionVisible() const
 	return bSupportedType && bIsEditable;
 }
 
-void FBlueprintGraphActionDetails::OnIsPureFunctionModified( const ESlateCheckBoxState::Type NewCheckedState )
+void FBlueprintGraphActionDetails::OnIsPureFunctionModified( const ECheckBoxState NewCheckedState )
 {
 	UK2Node_EditablePinBase * FunctionEntryNode = FunctionEntryNodePtr.Get();
 	auto Function = FindFunction();
@@ -3598,15 +3690,15 @@ void FBlueprintGraphActionDetails::OnIsPureFunctionModified( const ESlateCheckBo
 	}
 }
 
-ESlateCheckBoxState::Type FBlueprintGraphActionDetails::GetIsPureFunction() const
+ECheckBoxState FBlueprintGraphActionDetails::GetIsPureFunction() const
 {
 	UK2Node_EditablePinBase * FunctionEntryNode = FunctionEntryNodePtr.Get();
 	auto EntryNode = Cast<UK2Node_FunctionEntry>(FunctionEntryNode);
 	if(!EntryNode)
 	{
-		return ESlateCheckBoxState::Undetermined;
+		return ECheckBoxState::Undetermined;
 	}
-	return (EntryNode->ExtraFlags & FUNC_BlueprintPure) ? ESlateCheckBoxState::Checked :  ESlateCheckBoxState::Unchecked;
+	return (EntryNode->ExtraFlags & FUNC_BlueprintPure) ? ECheckBoxState::Checked :  ECheckBoxState::Unchecked;
 }
 
 bool FBaseBlueprintGraphActionDetails::IsPinNameUnique(const FString& TestName) const
@@ -4026,15 +4118,15 @@ bool FBlueprintGlobalOptionsDetails::CanDeprecateBlueprint() const
 	return true;
 }
 
-void FBlueprintGlobalOptionsDetails::OnDeprecateBlueprint(ESlateCheckBoxState::Type InCheckState)
+void FBlueprintGlobalOptionsDetails::OnDeprecateBlueprint(ECheckBoxState InCheckState)
 {
-	GetBlueprintObj()->bDeprecate = InCheckState == ESlateCheckBoxState::Checked? true : false;
+	GetBlueprintObj()->bDeprecate = InCheckState == ECheckBoxState::Checked? true : false;
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(GetBlueprintObj());
 }
 
-ESlateCheckBoxState::Type FBlueprintGlobalOptionsDetails::IsDeprecatedBlueprint() const
+ECheckBoxState FBlueprintGlobalOptionsDetails::IsDeprecatedBlueprint() const
 {
-	return GetBlueprintObj()->bDeprecate? ESlateCheckBoxState::Checked : ESlateCheckBoxState::Unchecked;
+	return GetBlueprintObj()->bDeprecate? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 }
 
 FText FBlueprintGlobalOptionsDetails::GetDeprecatedTooltip() const

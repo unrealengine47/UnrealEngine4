@@ -104,6 +104,7 @@ namespace EPawnActionEventType
 	{
 		Invalid,
 		FailedToStart,
+		InstantAbort,
 		FinishedAborting,
 		FinishedExecution,
 		Push,
@@ -416,11 +417,4 @@ public:
 	static const FAIRequestID AnyRequest;
 	static const FAIRequestID CurrentRequest;
 	static const FAIRequestID InvalidRequest;
-};
-
-// used in BT nodes' memory for nodes spawning actions
-enum class EBTActionMemoryHelper : uint8
-{
-	ActionAbortingDone = 0,
-	WaitingForActionToFinishAborting = 1
 };

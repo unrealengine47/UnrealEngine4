@@ -4,10 +4,12 @@
 #include "EngineUtils.h"
 #include "StringClassReference.h"
 #include "BehaviorTree/BehaviorTreeManager.h"
+#include "BehaviorTree/BlackboardComponent.h"
 #include "EnvironmentQuery/EnvQueryManager.h"
 #include "Perception/AIPerceptionSystem.h"
 #include "GameFramework/PlayerController.h"
 #include "HotSpots/AIHotSpotManager.h"
+#include "BehaviorTree/BlackboardData.h"
 #include "AISystem.h"
 
 
@@ -113,4 +115,50 @@ void UAISystem::RunEQS(const FString& QueryName, UObject* Target)
 		MyPC->ClientMessage(TEXT("No debugging target"));
 	}
 #endif
+}
+
+UAISystem::FBlackboardDataToComponentsIterator::FBlackboardDataToComponentsIterator(FBlackboardDataToComponentsMap& BlackboardDataToComponentsMap, UBlackboardData* BlackboardAsset)
+	: CurrentIteratorIndex(0)
+	, Iterators()
+{
+	while (BlackboardAsset)
+	{
+		Iterators.Add(BlackboardDataToComponentsMap.CreateConstKeyIterator(BlackboardAsset));
+		BlackboardAsset = BlackboardAsset->Parent;
+	}
+	TryMoveIteratorToParentBlackboard();
+}
+
+void UAISystem::RegisterBlackboardComponent(UBlackboardData& BlackboardData, UBlackboardComponent& BlackboardComp)
+{
+	// mismatch of register/unregister.
+	ensure(BlackboardDataToComponentsMap.FindPair(&BlackboardData, &BlackboardComp) == nullptr);
+
+	BlackboardDataToComponentsMap.Add(&BlackboardData, &BlackboardComp);
+	if (BlackboardData.Parent)
+	{
+		RegisterBlackboardComponent(*BlackboardData.Parent, BlackboardComp);
+	}
+}
+
+void UAISystem::UnregisterBlackboardComponent(UBlackboardData& BlackboardData, UBlackboardComponent& BlackboardComp)
+{
+	// this is actually possible, we can end up unregistering before UBlackboardComponent cached its BrainComponent
+	// which currently is tied to the whole process. 
+	// @todo remove this dependency
+	ensure(BlackboardDataToComponentsMap.FindPair(&BlackboardData, &BlackboardComp) != nullptr);
+
+	if (BlackboardData.Parent)
+	{
+		UnregisterBlackboardComponent(*BlackboardData.Parent, BlackboardComp);
+	}
+	BlackboardDataToComponentsMap.RemoveSingle(&BlackboardData, &BlackboardComp);
+
+	// mismatch of Register/Unregister.
+	check(BlackboardDataToComponentsMap.FindPair(&BlackboardData, &BlackboardComp) == nullptr);
+}
+
+UAISystem::FBlackboardDataToComponentsIterator UAISystem::CreateBlackboardDataToComponentsIterator(UBlackboardData& BlackboardAsset)
+{
+	return UAISystem::FBlackboardDataToComponentsIterator(BlackboardDataToComponentsMap, &BlackboardAsset);
 }

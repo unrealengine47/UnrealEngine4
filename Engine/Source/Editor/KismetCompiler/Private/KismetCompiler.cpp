@@ -49,6 +49,7 @@ DEFINE_STAT(EKismetCompilerStats_CleanAndSanitizeClass);
 DEFINE_STAT(EKismetCompilerStats_CreateClassVariables);
 DEFINE_STAT(EKismetCompilerStats_BindAndLinkClass);
 DEFINE_STAT(EKismetCompilerStats_ChecksumCDO);
+DEFINE_STAT(EKismetCompilerStats_ResolveCompiledStatements);
 		
 //////////////////////////////////////////////////////////////////////////
 // FKismetCompilerContext
@@ -817,6 +818,7 @@ void FKismetCompilerContext::CreateUserDefinedLocalVariablesForFunction(FKismetF
 			NewProperty->SetMetaData(TEXT("FriendlyName"), *Variable.FriendlyName);
 			NewProperty->SetMetaData(TEXT("Category"), *Variable.Category.ToString());
 			NewProperty->RepNotifyFunc = Variable.RepNotifyFunc;
+			NewProperty->SetPropertyFlags(Variable.PropertyFlags);
 
 			if(!Variable.DefaultValue.IsEmpty())
 			{
@@ -1475,11 +1477,8 @@ void FKismetCompilerContext::PostcompileFunction(FKismetFunctionContext& Context
 {
 	BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_PostcompileFunction);
 
-	// Sort the 'linear execution list' again by likely execution order.
-	Context.FinalSortLinearExecList();
-
-	// Resolve goto links
-	Context.ResolveGotoFixups();
+	// The function links gotos, sorts statments, and merges adjacent ones. 
+	Context.ResolveStatements();
 
 	//@TODO: Code generation (should probably call backend here, not later)
 

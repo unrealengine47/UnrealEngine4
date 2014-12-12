@@ -9,6 +9,7 @@
 
 #include "STileLayerList.h"
 #include "ScopedTransaction.h"
+#include "IPropertyUtilities.h"
 
 #define LOCTEXT_NAMESPACE "Paper2D"
 
@@ -24,20 +25,27 @@ void FPaperTileMapDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& D
 {
 	const TArray< TWeakObjectPtr<UObject> >& SelectedObjects = DetailLayout.GetDetailsView().GetSelectedObjects();
 	
+	FNotifyHook* NotifyHook = DetailLayout.GetPropertyUtilities()->GetNotifyHook();
+
 	bool bEditingActor = false;
 
-	UPaperTileMap* TileMap = NULL;
+	UPaperTileMap* TileMap = nullptr;
 	for (int32 ObjectIndex = 0; ObjectIndex < SelectedObjects.Num(); ++ObjectIndex)
 	{
 		UObject* TestObject = SelectedObjects[ObjectIndex].Get();
 		if (AActor* CurrentActor = Cast<AActor>(TestObject))
 		{
-			if (UPaperTileMapRenderComponent* CurrentTileMap = CurrentActor->FindComponentByClass<UPaperTileMapRenderComponent>())
+			if (UPaperTileMapComponent* CurrentComponent = CurrentActor->FindComponentByClass<UPaperTileMapComponent>())
 			{
 				bEditingActor = true;
-				TileMap = CurrentTileMap->TileMap;
+				TileMap = CurrentComponent->TileMap;
 				break;
 			}
+		}
+		else if (UPaperTileMapComponent* TestComponent = Cast<UPaperTileMapComponent>(TestObject))
+		{
+			TileMap = TestComponent->TileMap;
+			break;
 		}
 		else if (UPaperTileMap* TestTileMap = Cast<UPaperTileMap>(TestObject))
 		{
@@ -69,13 +77,13 @@ void FPaperTileMapDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& D
 	}
 
 	//@TODO: Handle showing layers when multiple tile maps are selected
-	if (TileMap != NULL)
+	if (TileMap != nullptr)
 	{
 		IDetailCategoryBuilder& LayersCategory = DetailLayout.EditCategory("Tile Layers");
 
 		LayersCategory.AddCustomRow(LOCTEXT("TileLayerList", "Tile layer list"))
 		[
-			SNew(STileLayerList, TileMap)
+			SNew(STileLayerList, TileMap, NotifyHook)
 		];
 	}
 

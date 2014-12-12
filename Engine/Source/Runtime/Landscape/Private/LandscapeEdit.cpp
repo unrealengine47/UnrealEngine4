@@ -3320,6 +3320,29 @@ void ALandscapeProxy::EditorApplyScale(const FVector& DeltaScale, const FVector*
 	}
 
 	Super::EditorApplyScale(ModifiedScale, PivotLocation, bAltDown, bShiftDown, bCtrlDown);
+
+	// We need to regenerate collision objects, they depend on scale value 
+	for (ULandscapeHeightfieldCollisionComponent* Comp : CollisionComponents)
+	{
+		if (Comp)
+		{
+			Comp->RecreateCollision(false);
+		}
+	}
+}
+
+void ALandscapeProxy::EditorApplyMirror(const FVector& MirrorScale, const FVector& PivotLocation)
+{
+	Super::EditorApplyMirror(MirrorScale, PivotLocation);
+
+	// We need to regenerate collision objects, they depend on scale value 
+	for (ULandscapeHeightfieldCollisionComponent* Comp : CollisionComponents)
+	{
+		if (Comp)
+		{
+			Comp->RecreateCollision(false);
+		}
+	}
 }
 
 void ALandscapeProxy::PostEditMove(bool bFinished)
@@ -3368,7 +3391,7 @@ void ALandscapeProxy::PostEditImport()
 		}
 	}
 
-	ULandscapeInfo::RecreateLandscapeInfo(GetWorld(), true);
+	GEngine->DeferredCommands.AddUnique(TEXT("UpdateLandscapeEditorData"));
 }
 
 void ALandscape::PostEditMove(bool bFinished)

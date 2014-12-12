@@ -11,7 +11,7 @@ public:
 	SLATE_BEGIN_ARGS(STileLayerList) {}
 	SLATE_END_ARGS()
 
-	void Construct(const FArguments& InArgs, UPaperTileMap* TileMap);
+	void Construct(const FArguments& InArgs, UPaperTileMap* TileMap, FNotifyHook* InNotifyHook);
 
 protected:
 	typedef SListView<class UPaperTileLayer*> SPaperLayerListView;
@@ -20,7 +20,7 @@ protected:
 	TSharedPtr<SPaperLayerListView> ListViewWidget;
 	TSharedPtr<class FUICommandList> CommandList;
 	TWeakObjectPtr<class UPaperTileMap> TileMapPtr;
-
+	FNotifyHook* NotifyHook;
 protected:
 	TSharedRef<ITableRow> OnGenerateLayerListRow(class UPaperTileLayer* Item, const TSharedRef<STableViewBase>& OwnerTable);
 
@@ -29,7 +29,6 @@ protected:
 	// Returns the selected index if anything is selected, or the top item otherwise (only returns INDEX_NONE if there are no layers)
 	int32 GetSelectionIndex() const;
 
-	static FText GenerateNewLayerName(UPaperTileMap* TileMap);
 	static FText GenerateDuplicatedLayerName(const FString& InputNameRaw, UPaperTileMap* TileMap);
 
 	class UPaperTileLayer* AddLayer(bool bCollisionLayer, int32 InsertionIndex = INDEX_NONE);
@@ -54,4 +53,7 @@ protected:
 
 	void OnSelectionChanged(UPaperTileLayer* ItemChangingState, ESelectInfo::Type SelectInfo);
 	TSharedPtr<SWidget> OnConstructContextMenu();
+
+	// Called after edits are finished
+	void PostEditNotfications();
 };

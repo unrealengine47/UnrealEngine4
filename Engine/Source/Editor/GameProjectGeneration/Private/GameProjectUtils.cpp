@@ -21,6 +21,8 @@
 #include "SNotificationList.h"
 #include "NotificationManager.h"
 #include "GameFramework/GameMode.h"
+#include "HotReloadInterface.h"
+#include "SVerbChoiceDialog.h"
 
 #define LOCTEXT_NAMESPACE "GameProjectUtils"
 
@@ -1800,6 +1802,41 @@ bool GameProjectUtils::GenerateGameFrameworkSourceCode(const FString& NewProject
 	return true;
 }
 
+bool GameProjectUtils::BuildCodeProject(const FString& ProjectFilename)
+{
+	// Build the project while capturing the log output. Passing GWarn to CompileGameProject will allow Slate to display the progress bar.
+	FStringOutputDevice OutputLog;
+	OutputLog.SetAutoEmitLineTerminator(true);
+	GLog->AddOutputDevice(&OutputLog);
+	bool bCompileSucceeded = FDesktopPlatformModule::Get()->CompileGameProject(FPaths::RootDir(), ProjectFilename, GWarn);
+	GLog->RemoveOutputDevice(&OutputLog);
+
+	// Try to compile the modules
+	if(!bCompileSucceeded)
+	{
+		FText DevEnvName = FSourceCodeNavigation::GetSuggestedSourceCodeIDE( true );
+
+		TArray<FText> CompileFailedButtons;
+		int32 OpenIDEButton = CompileFailedButtons.Add(FText::Format(LOCTEXT("CompileFailedOpenIDE", "Open with {0}"), DevEnvName));
+		int32 ViewLogButton = CompileFailedButtons.Add(LOCTEXT("CompileFailedViewLog", "View build log"));
+		CompileFailedButtons.Add(LOCTEXT("CompileFailedCancel", "Cancel"));
+
+		int32 CompileFailedChoice = SVerbChoiceDialog::ShowModal(LOCTEXT("ProjectUpgradeTitle", "Project Conversion Failed"), FText::Format(LOCTEXT("ProjectUpgradeCompileFailed", "The project failed to compile with this version of the engine. Would you like to open the project in {0}?"), DevEnvName), CompileFailedButtons);
+		if(CompileFailedChoice == ViewLogButton)
+		{
+			CompileFailedButtons.RemoveAt(ViewLogButton);
+			CompileFailedChoice = SVerbChoiceDialog::ShowModal(LOCTEXT("ProjectUpgradeTitle", "Project Conversion Failed"), FText::Format(LOCTEXT("ProjectUpgradeCompileFailed", "The project failed to compile with this version of the engine. Build output is as follows:\n\n{0}"), FText::FromString(OutputLog)), CompileFailedButtons);
+		}
+
+		FText FailReason;
+		if(CompileFailedChoice == OpenIDEButton && !GameProjectUtils::OpenCodeIDE(ProjectFilename, FailReason))
+		{
+			FMessageDialog::Open(EAppMsgType::Ok, FailReason);
+		}
+	}
+	return bCompileSucceeded;
+}
+
 bool GameProjectUtils::GenerateCodeProjectFiles(const FString& ProjectFilename, FText& OutFailReason)
 {
 	FStringOutputDevice OutputLog;
@@ -2844,10 +2881,11 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 	SlowTask.MakeDialog();
 
 	SlowTask.EnterProgressFrame();
-
+	
 	// If the project does not already contain code, add the primary game module
 	TArray<FString> CreatedFiles;
-	if ( !ProjectHasCodeFiles() )
+	bool bDidNotHaveAnyCodeFiles = !ProjectHasCodeFiles();
+	if (bDidNotHaveAnyCodeFiles)
 	{
 		// We always add the basic source code to the root directory, not the potential sub-directory provided by NewClassPath
 		const FString SourceDir = FPaths::GameSourceDir().LeftChop(1); // Trim the trailing /
@@ -2926,6 +2964,21 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 
 	OutHeaderFilePath = NewHeaderFilename;
 	OutCppFilePath = NewCppFilename;
+
+	if (bDidNotHaveAnyCodeFiles)
+	{
+		// This is the first time we add code to this project so compile its game DLL
+		const FString GameModuleName = FApp::GetGameName();
+		IHotReloadInterface& HotReloadSupport = FModuleManager::LoadModuleChecked<IHotReloadInterface>("HotReload");
+		const bool bReloadAfterCompiling = true;
+		const bool bForceCodeProject = true;
+		const bool bFailIfGeneratedCodeChanges = false;
+		if (!HotReloadSupport.RecompileModule(*GameModuleName, bReloadAfterCompiling, *GWarn, bFailIfGeneratedCodeChanges, bForceCodeProject))
+		{
+			OutFailReason = LOCTEXT("FailedToCompileNewGameModule", "Failed to compile newly created game module.");
+			return false;
+		}
+	}
 
 	return true;
 }

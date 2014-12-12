@@ -3076,6 +3076,11 @@ FConstPawnIterator UWorld::GetPawnIterator() const
 	return PawnList.CreateConstIterator();
 }
 
+int32 UWorld::GetNumPawns() const
+{
+	return PawnList.Num();
+}
+
 void UWorld::AddPawn( APawn* Pawn )
 {
 	check( Pawn );
@@ -3238,6 +3243,28 @@ APhysicsVolume* UWorld::GetDefaultPhysicsVolume() const
 	return DefaultPhysicsVolume;
 }
 
+void UWorld::AddPhysicsVolume(APhysicsVolume* Volume)
+{
+	if (!Cast<ADefaultPhysicsVolume>(Volume))
+	{
+		NonDefaultPhysicsVolumeList.Add(Volume);
+	}
+}
+
+void UWorld::RemovePhysicsVolume(APhysicsVolume* Volume)
+{
+	NonDefaultPhysicsVolumeList.Remove(Volume);
+}
+
+FConstPhysicsVolumeIterator UWorld::GetNonDefaultPhysicsVolumeIterator() const
+{
+	return NonDefaultPhysicsVolumeList.CreateConstIterator();
+}
+
+int32 UWorld::GetNonDefaultPhysicsVolumeCount() const
+{
+	return NonDefaultPhysicsVolumeList.Num();
+}
 
 ALevelScriptActor* UWorld::GetLevelScriptActor( ULevel* OwnerLevel ) const
 {
@@ -3563,35 +3590,24 @@ void UWorld::NotifyControlMessage(UNetConnection* Connection, uint8 MessageType,
 		{
 			case NMT_Hello:
 			{
-				uint8 IsLittleEndian;
-				int32 RemoteMinVer, RemoteVer;
-				FGuid RemoteGameGUID;
-				FNetControlMessage<NMT_Hello>::Receive(Bunch, IsLittleEndian, RemoteMinVer, RemoteVer, RemoteGameGUID);
+				uint8 IsLittleEndian = 0;
+				uint32 RemoteNetworkVersion = 0;
+				uint32 LocalNetworkVersion = FNetworkVersion::GetLocalNetworkVersion();
 
-				if (!IsNetworkCompatible(Connection->Driver->RequireEngineVersionMatch, RemoteVer, RemoteMinVer))
+				FNetControlMessage<NMT_Hello>::Receive(Bunch, IsLittleEndian, RemoteNetworkVersion);
+
+				if (!FNetworkVersion::IsNetworkCompatible(LocalNetworkVersion, RemoteNetworkVersion))
 				{
-					UE_LOG(LogNet, Log, TEXT("Requesting client to upgrade or downgrade to GEngineMinNetVersion=%d, GEngineNetVersion=%d"), GEngineMinNetVersion, GEngineNetVersion);
-					FNetControlMessage<NMT_Upgrade>::Send(Connection, GEngineMinNetVersion, GEngineNetVersion);
+					UE_LOG(LogNet, Log, TEXT("NotifyControlMessage: Client connecting with invalid version. LocalNetworkVersion: %i, RemoteNetworkVersion: %i"), LocalNetworkVersion, RemoteNetworkVersion);
+					FNetControlMessage<NMT_Upgrade>::Send(Connection, LocalNetworkVersion);
 					Connection->FlushNet(true);
 					Connection->Close();
 				}
 				else
 				{
-					Connection->NegotiatedVer = FMath::Min(RemoteVer, GEngineNetVersion);
-
-					// Make sure the server has the same GameGUID as we do
-					if( RemoteGameGUID != GetDefault<UGeneralProjectSettings>()->ProjectID )
-					{
-						FString ErrorMsg = NSLOCTEXT("NetworkErrors", "ServerHostingDifferentGame", "Incompatible game connection.").ToString();
-						FNetControlMessage<NMT_Failure>::Send(Connection, ErrorMsg);
-						Connection->FlushNet(true);
-						Connection->Close();
-						break;
-					}
-
 					Connection->Challenge = FString::Printf(TEXT("%08X"), FPlatformTime::Cycles());
 					Connection->SetExpectedClientLoginMsgType( NMT_Login );
-					FNetControlMessage<NMT_Challenge>::Send(Connection, Connection->NegotiatedVer, Connection->Challenge);
+					FNetControlMessage<NMT_Challenge>::Send(Connection, Connection->Challenge);
 					Connection->FlushNet();
 				}
 				break;
@@ -5284,53 +5300,67 @@ void UWorld::ChangeFeatureLevel(ERHIFeatureLevel::Type InFeatureLevel)
 {
 	if (InFeatureLevel != FeatureLevel)
 	{
-		FlushRenderingCommands();
+        FScopedSlowTask SlowTask(100.f, NSLOCTEXT("Engine", "ChangingPreviewRenderingLevelMessage", "Changing Preview Rendering Level"));
+        SlowTask.MakeDialog();
+        {
+            FlushRenderingCommands();
 
-		// Give all scene components the opportunity to prepare for pending feature level change.
-		for (TObjectIterator<USceneComponent> It; It; ++It)
-		{
-			USceneComponent* SceneComponent = *It;
-			if (SceneComponent->GetWorld() == this)
-			{
-				SceneComponent->PreFeatureLevelChange(InFeatureLevel);
-			}
-		}
+            SlowTask.EnterProgressFrame(10.0f);
+            // Give all scene components the opportunity to prepare for pending feature level change.
+            for (TObjectIterator<USceneComponent> It; It; ++It)
+            {
+                USceneComponent* SceneComponent = *It;
+                if (SceneComponent->GetWorld() == this)
+                {
+                    SceneComponent->PreFeatureLevelChange(InFeatureLevel);
+                }
+            }
 
-		FGlobalComponentReregisterContext RecreateComponents;
+            SlowTask.EnterProgressFrame(10.0f);
+            FGlobalComponentReregisterContext RecreateComponents;
 
-		// Decrement refcount on old feature level
-		UMaterialInterface::SetGlobalRequiredFeatureLevel(InFeatureLevel, true);
+            // Decrement refcount on old feature level
+            UMaterialInterface::SetGlobalRequiredFeatureLevel(InFeatureLevel, true);
 
-		UMaterial::AllMaterialsCacheResourceShadersForRendering();
-		UMaterialInstance::AllMaterialsCacheResourceShadersForRendering();
-		GetGlobalShaderMap(InFeatureLevel, false);
-		GShaderCompilingManager->ProcessAsyncResults(false, true);
+            SlowTask.EnterProgressFrame(10.0f);
+            UMaterial::AllMaterialsCacheResourceShadersForRendering();
+            SlowTask.EnterProgressFrame(10.0f);
+            UMaterialInstance::AllMaterialsCacheResourceShadersForRendering();
+            SlowTask.EnterProgressFrame(10.0f);
+            GetGlobalShaderMap(InFeatureLevel, false);
+            SlowTask.EnterProgressFrame(10.0f);
+            GShaderCompilingManager->ProcessAsyncResults(false, true);
 
-		//invalidate global bound shader states so they will be created with the new shaders the next time they are set (in SetGlobalBoundShaderState)
-		for (TLinkedList<FGlobalBoundShaderStateResource*>::TIterator It(FGlobalBoundShaderStateResource::GetGlobalBoundShaderStateList()); It; It.Next())
-		{
-			BeginUpdateResourceRHI(*It);
-		}
+            SlowTask.EnterProgressFrame(10.0f);
+            //invalidate global bound shader states so they will be created with the new shaders the next time they are set (in SetGlobalBoundShaderState)
+            for (TLinkedList<FGlobalBoundShaderStateResource*>::TIterator It(FGlobalBoundShaderStateResource::GetGlobalBoundShaderStateList()); It; It.Next())
+            {
+                BeginUpdateResourceRHI(*It);
+            }
 
-		FeatureLevel = InFeatureLevel;
+            FeatureLevel = InFeatureLevel;
 
-		if (Scene)
-		{
-			PersistentLevel->ReleaseRenderingResources();
-			Scene->Release();
-			GetRendererModule().RemoveScene(Scene);
+            SlowTask.EnterProgressFrame(10.0f);
+            if (Scene)
+            {
+                PersistentLevel->ReleaseRenderingResources();
+                Scene->Release();
+                GetRendererModule().RemoveScene(Scene);
 
-			GetRendererModule().AllocateScene(this, bRequiresHitProxies, FXSystem != nullptr, InFeatureLevel );
+                GetRendererModule().AllocateScene(this, bRequiresHitProxies, FXSystem != nullptr, InFeatureLevel );
 
-			PersistentLevel->InitializeRenderingResources();
-			PersistentLevel->PrecomputedVisibilityHandler.UpdateScene(Scene);
-			PersistentLevel->PrecomputedVolumeDistanceField.UpdateScene(Scene);
-		}
+                PersistentLevel->InitializeRenderingResources();
+                PersistentLevel->PrecomputedVisibilityHandler.UpdateScene(Scene);
+                PersistentLevel->PrecomputedVolumeDistanceField.UpdateScene(Scene);
+            }
 
-		TriggerStreamingDataRebuild();
+            SlowTask.EnterProgressFrame(10.0f);
+            TriggerStreamingDataRebuild();
 
-		FOutputDeviceNull Ar;
-		RecompileShaders(TEXT("CHANGED"), Ar);
+            SlowTask.EnterProgressFrame(10.0f);
+            FOutputDeviceNull Ar;
+            RecompileShaders(TEXT("CHANGED"), Ar);
+        }
 	}
 }
 #endif // WITH_EDITOR

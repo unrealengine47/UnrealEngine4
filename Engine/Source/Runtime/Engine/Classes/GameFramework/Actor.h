@@ -114,10 +114,6 @@ public:
 	UPROPERTY(Category=Replication, EditDefaultsOnly, BlueprintReadWrite)
 	uint32 bAlwaysRelevant:1;    
 
-	/** Replicate instigator to client. */
-	UPROPERTY()
-	uint32 bReplicateInstigator:1;    
-
 	/**
 	 * If true, replicate movement/location related properties.
 	 * Actor must also be set to replicate.
@@ -685,7 +681,7 @@ public:
 
 	/** Set the Actor's world-space scale. */
 	UFUNCTION(BlueprintCallable, Category="Utilities|Transformation")
-	void SetActorScale3D(const FVector& NewScale3D);
+	void SetActorScale3D(FVector NewScale3D);
 
 	/** Returns the Actor's world-space scale. */
 	UFUNCTION(BlueprintCallable, Category="Utilities|Orientation")

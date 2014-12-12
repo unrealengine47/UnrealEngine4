@@ -26,7 +26,7 @@ namespace ETileMapProjectionMode
 
 
 UCLASS()
-class PAPER2D_API UPaperTileMap : public UDataAsset //@TODO: Just to make it easy to spawn for now
+class PAPER2D_API UPaperTileMap : public UObject
 {
 	GENERATED_UCLASS_BODY()
 
@@ -60,9 +60,9 @@ class PAPER2D_API UPaperTileMap : public UDataAsset //@TODO: Just to make it eas
 	UPROPERTY(Category=Setup, EditAnywhere)
 	float SeparationPerLayer;
 
-	// Default tile set to use for new layers
-	UPROPERTY(Category=Setup, EditAnywhere)
-	class UPaperTileSet* DefaultLayerTileSet;
+	// Last tile set that was selected when editing the tile map
+	UPROPERTY()
+	TAssetPtr<class UPaperTileSet> SelectedTileSet;
 
 	// Test material
 	UPROPERTY(Category=Setup, EditAnywhere)
@@ -93,11 +93,11 @@ public:
 	/** The currently selected layer index */
 	UPROPERTY()
 	int32 SelectedLayerIndex;
+#endif
 
 	/** The naming index to start at when trying to create a new layer */
 	UPROPERTY()
 	int32 LayerNameIndex;
-#endif
 
 public:
 	// UObject interface
@@ -112,6 +112,13 @@ public:
 	FVector GetTilePositionInLocalSpace(int32 TileX, int32 TileY, int32 LayerIndex = 0) const;
 
 	FBoxSphereBounds GetRenderBounds() const;
+
+	// Creates and adds a new layer and returns it
+	class UPaperTileLayer* AddNewLayer(bool bCollisionLayer = false, int32 InsertionIndex = INDEX_NONE);
+
+	// Creates a reasonable new layer name
+	static FText GenerateNewLayerName(UPaperTileMap* TileMap);
+
 protected:
 	virtual void UpdateBodySetup();
 };

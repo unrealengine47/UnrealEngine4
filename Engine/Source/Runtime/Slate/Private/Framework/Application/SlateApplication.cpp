@@ -8,7 +8,7 @@
 #include "IWidgetReflector.h"
 #include "GenericCommands.h"
 #include "NotificationManager.h"
-#include "AnalogCursor.h"
+#include "IInputProcessor.h"
 
 
 class FEventRouter
@@ -914,6 +914,30 @@ void FSlateApplication::DrawWindowAndChildren( const TSharedRef<SWindow>& Window
 				0,
 				FWidgetStyle(),
 				WindowToDraw->IsEnabled() );
+
+			// Draw Software Cursor
+			TSharedPtr<SWindow> CursorWindow = CursorWindowPtr.Pin();
+			if (CursorWindow.IsValid() && WindowToDraw == CursorWindow)
+			{
+				TSharedPtr<SWidget> CursorWidget = CursorWidgetPtr.Pin();
+				
+				if (CursorWidget.IsValid())
+				{
+					CursorWidget->SlatePrepass();
+
+					FVector2D CursorPosInWindowSpace = WindowToDraw->GetWindowGeometryInScreen().AbsoluteToLocal(GetCursorPos());
+					CursorPosInWindowSpace += (CursorWidget->GetDesiredSize() * -0.5);
+					const FGeometry CursorGeometry = FGeometry::MakeRoot(CursorWidget->GetDesiredSize(), FSlateLayoutTransform(CursorPosInWindowSpace));
+
+					CursorWidget->Paint(
+						FPaintArgs(WindowToDraw, *WindowToDraw->GetHittestGrid(), WindowToDraw->GetPositionInScreen(), GetCurrentTime(), GetDeltaTime()),
+						CursorGeometry, WindowToDraw->GetClippingRectangleInWindow(),
+						WindowElementList,
+						++MaxLayerId,
+						FWidgetStyle(),
+						WindowToDraw->IsEnabled());
+				}
+			}
 		}
 
 		// The widget reflector may want to paint some additional stuff as part of the Widget introspection that it performs.
@@ -1101,9 +1125,9 @@ void FSlateApplication::FinishedInputThisFrame()
 {
 	const float DeltaTime = GetDeltaTime();
 
-	if (AnalogCursor.IsValid() && PlatformApplication->Cursor.IsValid())
+	if (InputPreProcessor.IsValid() && PlatformApplication->Cursor.IsValid())
 	{
-		AnalogCursor->Tick(DeltaTime, *this, PlatformApplication->Cursor.ToSharedRef());
+		InputPreProcessor->Tick(DeltaTime, *this, PlatformApplication->Cursor.ToSharedRef());
 	}
 
 	// All the input events have been processed.
@@ -1184,6 +1208,8 @@ void FSlateApplication::Tick()
 
 		PlatformApplication->ProcessDeferredEvents( DeltaTime );
 	}
+
+	UpdateCursorLockRegion();
 
 	// When Slate captures the mouse, it is up to us to set the cursor 
 	// because the OS assumes that we own the mouse.
@@ -1929,9 +1955,9 @@ bool FSlateApplication::SetKeyboardFocus(const FWidgetPath& InFocusPath, const E
 
 bool FSlateApplication::SetUserFocus(const uint32 InUserIndex, const FWidgetPath& InFocusPath, const EFocusCause InCause)
 {
-	FUserFocusEntry& UserFocusEntry = UserFocusEntries[InUserIndex];
-
 	check(InUserIndex >= 0 && InUserIndex < SlateApplicationDefs::MaxUsers);
+
+	FUserFocusEntry& UserFocusEntry = UserFocusEntries[InUserIndex];
 
 	TSharedPtr<IWidgetReflector> WidgetReflector = WidgetReflectorPtr.Pin();
 	const bool bReflectorShowingFocus = WidgetReflector.IsValid() && WidgetReflector->IsShowingFocus();
@@ -2226,7 +2252,7 @@ void FSlateApplication::ProcessReply( const FWidgetPath& CurrentEventPath, const
 
 	if (TheReply.ShouldEndDragDrop())
 	{
-		EndDragDrop();
+		CancelDragDrop();
 	}
 
 	if ( bStartingDragDrop )
@@ -2349,51 +2375,71 @@ void FSlateApplication::ProcessReply( const FWidgetPath& CurrentEventPath, const
 	}
 }
 
-void FSlateApplication::LockCursor( const TSharedPtr<SWidget>& Widget )
+void FSlateApplication::LockCursor(const TSharedPtr<SWidget>& Widget)
 {
-	if ( PlatformApplication->Cursor.IsValid() )
+	if (PlatformApplication->Cursor.IsValid())
 	{
-		if( Widget.IsValid() )
+		if (Widget.IsValid())
 		{
 			// Get a path to this widget so we know the position and size of its geometry
 			FWidgetPath WidgetPath;
-			const bool bFoundWidthToLockTo = GeneratePathToWidgetUnchecked( Widget.ToSharedRef(), WidgetPath );
-			if ( bFoundWidthToLockTo )
+			const bool bFoundWidget = GeneratePathToWidgetUnchecked(Widget.ToSharedRef(), WidgetPath);
+			if ( ensureMsgf(bFoundWidget, TEXT("Attempting to LockCursor() to widget but could not find widget %s"), *Widget->ToString()) )
 			{
-				// The last widget in the path should be the widget we are locking the cursor to
-				FArrangedWidget& WidgetGeom = WidgetPath.Widgets[WidgetPath.Widgets.Num() - 1];
-
-				TSharedRef<SWindow> Window = WidgetPath.GetWindow();
-				// Do not attempt to lock the cursor to the window if its not in the foreground.  It would cause annoying side effects
-				if (Window->GetNativeWindow()->IsForegroundWindow())
-				{
-					check(WidgetGeom.Widget == Widget);
-
-					FSlateRect SlateClipRect = WidgetGeom.Geometry.GetClippingRect();
-
-					// Generate a screen space clip rect based on the widgets geometry
-
-					// Note: We round the upper left coordinate of the clip rect so we guarantee the rect is inside the geometry of the widget.  If we truncated when there is a half pixel we would cause the clip
-					// rect to be half a pixel larger than the geometry and cause the mouse to go outside of the geometry.
-					RECT ClipRect;
-					ClipRect.left = FMath::RoundToInt(SlateClipRect.Left);
-					ClipRect.top = FMath::RoundToInt(SlateClipRect.Top);
-					ClipRect.right = FMath::TruncToInt(SlateClipRect.Right);
-					ClipRect.bottom = FMath::TruncToInt(SlateClipRect.Bottom);
-
-					// Lock the mouse to the widget
-					PlatformApplication->Cursor->Lock(&ClipRect);
-				}
-			}
-			else
-			{
-				ensureMsgf( false, TEXT("Attempting to LockCursor() to widget but could not find widget %s"), *Widget->ToString() );
+				LockCursorToPath(WidgetPath);
 			}
 		}
 		else
 		{
-			// Unlock the mouse
-			PlatformApplication->Cursor->Lock( NULL );
+			UnlockCursor();
+		}
+	}
+}
+
+void FSlateApplication::LockCursorToPath(const FWidgetPath& WidgetPath)
+{
+	// The last widget in the path should be the widget we are locking the cursor to
+	const FArrangedWidget& WidgetGeom = WidgetPath.Widgets[WidgetPath.Widgets.Num() - 1];
+
+	TSharedRef<SWindow> Window = WidgetPath.GetWindow();
+	// Do not attempt to lock the cursor to the window if its not in the foreground.  It would cause annoying side effects
+	if (Window->GetNativeWindow()->IsForegroundWindow())
+	{
+		const FSlateRect SlateClipRect = WidgetGeom.Geometry.GetClippingRect();
+		CursorLock.LastComputedBounds = SlateClipRect;
+		CursorLock.PathToLockingWidget = WidgetPath;
+			
+		// Generate a screen space clip rect based on the widgets geometry
+
+		// Note: We round the upper left coordinate of the clip rect so we guarantee the rect is inside the geometry of the widget.  If we truncated when there is a half pixel we would cause the clip
+		// rect to be half a pixel larger than the geometry and cause the mouse to go outside of the geometry.
+		RECT ClipRect;
+		ClipRect.left = FMath::RoundToInt(SlateClipRect.Left);
+		ClipRect.top = FMath::RoundToInt(SlateClipRect.Top);
+		ClipRect.right = FMath::TruncToInt(SlateClipRect.Right);
+		ClipRect.bottom = FMath::TruncToInt(SlateClipRect.Bottom);
+
+		// Lock the mouse to the widget
+		PlatformApplication->Cursor->Lock(&ClipRect);
+	}
+}
+
+void FSlateApplication::UnlockCursor()
+{
+	// Unlock the mouse
+	PlatformApplication->Cursor->Lock(NULL);
+	CursorLock.PathToLockingWidget = FWeakWidgetPath();
+}
+
+void FSlateApplication::UpdateCursorLockRegion()
+{
+	const FWidgetPath PathToWidget = CursorLock.PathToLockingWidget.ToWidgetPath(FWeakWidgetPath::EInterruptedPathHandling::ReturnInvalid);
+	if (PathToWidget.IsValid())
+	{
+		const FSlateRect ComputedClipRect = PathToWidget.Widgets.Last().Geometry.GetClippingRect();
+		if (ComputedClipRect != CursorLock.LastComputedBounds)
+		{
+			LockCursorToPath(PathToWidget);
 		}
 	}
 }
@@ -2403,19 +2449,13 @@ void FSlateApplication::QueryCursor()
 	if ( PlatformApplication->Cursor.IsValid() )
 	{
 		// drag-drop overrides cursor
-		FCursorReply CursorResult = FCursorReply::Unhandled();
-
+		FCursorReply CursorReply = FCursorReply::Unhandled();
 		if(IsDragDropping())
 		{
-			CursorResult = DragDropContent->OnCursorQuery();
-			if (CursorResult.IsEventHandled())
-			{
-				// Query was handled, so we should set the cursor.
-				PlatformApplication->Cursor->SetType( CursorResult.GetCursor() );
-			}
+			CursorReply = DragDropContent->OnCursorQuery();
 		}
 		
-		if(!CursorResult.IsEventHandled())
+		if (!CursorReply.IsEventHandled())
 		{
 			FWidgetPath WidgetsToQueryForCursor;
 			const TSharedPtr<SWindow> ActiveModalWindow = GetActiveModalWindow();
@@ -2456,39 +2496,65 @@ void FSlateApplication::QueryCursor()
 				// Switch worlds for widgets in the current path
 				FScopedSwitchWorldHack SwitchWorld( WidgetsToQueryForCursor );
 
-				const FVector2D CurrentCursorPosition = GetCursorPos();
-				const FVector2D LastCursorPosition = GetLastCursorPos();
-				const FPointerEvent CursorEvent(
-					CursorPointerIndex,
-					CurrentCursorPosition,
-					LastCursorPosition,
-					CurrentCursorPosition - LastCursorPosition,
-					PressedMouseButtons,
-					PlatformApplication->GetModifierKeys()
-				);
-
-				CursorResult = FEventRouter::Route<FCursorReply>(this, FEventRouter::FBubblePolicy(WidgetsToQueryForCursor), CursorEvent, [](const FArrangedWidget& WidgetToQuery, const FPointerEvent& PointerEvent)
+				for (int32 WidgetIndex = WidgetsToQueryForCursor.Widgets.Num() - 1; WidgetIndex >= 0; --WidgetIndex)
 				{
-					return WidgetToQuery.Widget->OnCursorQuery( WidgetToQuery.Geometry, PointerEvent );
-				});
-
-				if (CursorResult.IsEventHandled())
-				{
-					// Query was handled, so we should set the cursor.
-					PlatformApplication->Cursor->SetType( CursorResult.GetCursor() );
+					const FArrangedWidget& ArrangedWidget = WidgetsToQueryForCursor.Widgets[WidgetIndex];
+					CursorReply = ArrangedWidget.Widget->OnCursorQuery(ArrangedWidget.Geometry, CursorEvent);
+					if (CursorReply.IsEventHandled())
+					{
+						if (!CursorReply.GetCursorWidget().IsValid())
+						{
+							for (; WidgetIndex >= 0; --WidgetIndex)
+							{
+								TOptional<TSharedRef<SWidget>> CursorWidget = WidgetsToQueryForCursor.Widgets[WidgetIndex].Widget->OnMapCursor(CursorReply);
+								if (CursorWidget.IsSet())
+								{
+									CursorReply.SetCursorWidget(WidgetsToQueryForCursor.GetWindow(), CursorWidget.GetValue());
+									break;
+								}
+							}
+						}
+						break;
+					}
 				}
-				else if (WidgetsToQueryForCursor.IsValid())
+
+				if (!CursorReply.IsEventHandled() && WidgetsToQueryForCursor.IsValid())
 				{
 					// Query was NOT handled, and we are still over a slate window.
-					PlatformApplication->Cursor->SetType(EMouseCursor::Default);
+					CursorReply = FCursorReply::Cursor(EMouseCursor::Default);
 				}
 			}
 			else
 			{
 				// Set the default cursor when there isn't an active window under the cursor and the mouse isn't captured
-				PlatformApplication->Cursor->SetType(EMouseCursor::Default);
+				CursorReply = FCursorReply::Cursor(EMouseCursor::Default);
 			}
 		}
+		ProcessCursorReply(CursorReply);
+	}
+}
+
+void FSlateApplication::ProcessCursorReply(const FCursorReply& CursorReply)
+{
+	if (CursorReply.IsEventHandled())
+	{
+		CursorWidgetPtr = CursorReply.GetCursorWidget();
+		if (CursorReply.GetCursorWidget().IsValid())
+		{
+			CursorReply.GetCursorWidget()->SetVisibility(EVisibility::HitTestInvisible);
+			CursorWindowPtr = CursorReply.GetCursorWindow();
+			PlatformApplication->Cursor->SetType(EMouseCursor::None);
+		}
+		else
+		{
+			CursorWindowPtr.Reset();
+			PlatformApplication->Cursor->SetType(CursorReply.GetCursorType());
+		}
+	}
+	else
+	{
+		CursorWindowPtr.Reset();
+		CursorWidgetPtr.Reset();
 	}
 }
 
@@ -2841,7 +2907,7 @@ TSharedPtr<FDragDropOperation> FSlateApplication::GetDragDroppingContent() const
 	return DragDropContent;
 }
 
-void FSlateApplication::EndDragDrop()
+void FSlateApplication::CancelDragDrop()
 {
 	FWidgetPath WidgetsToDragLeave = WidgetsUnderCursorLastEvent.ToWidgetPath(FWeakWidgetPath::EInterruptedPathHandling::Truncate);
 	if (WidgetsToDragLeave.IsValid())
@@ -2852,6 +2918,8 @@ void FSlateApplication::EndDragDrop()
 			WidgetsToDragLeave.Widgets[WidgetIndex].Widget->OnDragLeave(DragDropEvent);
 		}
 	}
+
+	WidgetsUnderCursorLastEvent = FWeakWidgetPath();
 	DragDropContent.Reset();
 }
 
@@ -3000,15 +3068,15 @@ void FSlateApplication::SetDragTriggerDistnace( float ScreenPixels )
 	DragTriggerDistnace = ScreenPixels;
 }
 
-void FSlateApplication::SetAnalogCursorEnable(bool bEnable, TSharedPtr<class FAnalogCursor> OptionalNewAnalogCursor)
+void FSlateApplication::SetInputPreProcessor(bool bEnable, TSharedPtr<class IInputProcessor> NewInputProcessor)
 {
-	if (bEnable && !AnalogCursor.IsValid())
+	if (bEnable && NewInputProcessor.IsValid())
 	{
-		AnalogCursor = OptionalNewAnalogCursor.IsValid() ? OptionalNewAnalogCursor : MakeShareable(new FAnalogCursor);
+		InputPreProcessor = NewInputProcessor;
 	}
 	else
 	{
-		AnalogCursor.Reset();
+		InputPreProcessor.Reset();
 	}
 }
 
@@ -3457,7 +3525,7 @@ bool FSlateApplication::OnKeyDown( const int32 KeyCode, const uint32 CharacterCo
 bool FSlateApplication::ProcessKeyDownEvent( FKeyEvent& InKeyEvent )
 {
 	// Analog cursor gets first chance at the input
-	if (AnalogCursor.IsValid() && AnalogCursor->HandleKeyDownEvent(*this, InKeyEvent))
+	if (InputPreProcessor.IsValid() && InputPreProcessor->HandleKeyDownEvent(*this, InKeyEvent))
 	{
 		return true;
 	}
@@ -3469,7 +3537,7 @@ bool FSlateApplication::ProcessKeyDownEvent( FKeyEvent& InKeyEvent )
 	if (IsDragDropping() && InKeyEvent.GetKey() == EKeys::Escape)
 	{
 		// Pressing ESC while drag and dropping terminates the drag drop.
-		EndDragDrop();
+		CancelDragDrop();
 		Reply = FReply::Handled();
 	}
 	else
@@ -3542,7 +3610,7 @@ bool FSlateApplication::OnKeyUp( const int32 KeyCode, const uint32 CharacterCode
 bool FSlateApplication::ProcessKeyUpEvent( FKeyEvent& InKeyEvent )
 {
 	// Analog cursor gets first chance at the input
-	if (AnalogCursor.IsValid() && AnalogCursor->HandleKeyUpEvent(*this, InKeyEvent))
+	if (InputPreProcessor.IsValid() && InputPreProcessor->HandleKeyUpEvent(*this, InKeyEvent))
 	{
 		return true;
 	}
@@ -3574,7 +3642,7 @@ bool FSlateApplication::ProcessKeyUpEvent( FKeyEvent& InKeyEvent )
 bool FSlateApplication::ProcessAnalogInputEvent(FAnalogInputEvent& InAnalogInputEvent)
 {
 	// Analog cursor gets first chance at the input
-	if (AnalogCursor.IsValid() && AnalogCursor->HandleAnalogInputEvent(*this, InAnalogInputEvent))
+	if (InputPreProcessor.IsValid() && InputPreProcessor->HandleAnalogInputEvent(*this, InAnalogInputEvent))
 	{
 		return true;
 	}
@@ -3972,6 +4040,7 @@ bool FSlateApplication::ProcessMouseButtonUpEvent( FPointerEvent& MouseEvent )
 			// @todo slate : depending on SetEventPath() is not ideal.
 			MouseEvent.SetEventPath( WidgetsUnderCursor );
 			LocalDragDropContent->OnDrop( Reply.IsEventHandled(), MouseEvent );
+			WidgetsUnderCursorLastEvent = FWeakWidgetPath();
 		}
 	}
 
@@ -4318,7 +4387,7 @@ bool FSlateApplication::ProcessMouseMoveEvent( FPointerEvent& MouseEvent, bool b
 		if (CursorResult.IsEventHandled())
 		{
 			// Query was handled, so we should set the cursor.
-			PlatformApplication->Cursor->SetType( CursorResult.GetCursor() );
+			PlatformApplication->Cursor->SetType(CursorResult.GetCursorType());
 		}
 		else
 		{

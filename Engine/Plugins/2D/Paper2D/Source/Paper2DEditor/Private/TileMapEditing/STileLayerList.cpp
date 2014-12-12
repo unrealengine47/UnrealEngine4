@@ -14,9 +14,10 @@
 //////////////////////////////////////////////////////////////////////////
 // STileLayerList
 
-void STileLayerList::Construct(const FArguments& InArgs, UPaperTileMap* TileMap)
+void STileLayerList::Construct(const FArguments& InArgs, UPaperTileMap* InTileMap, FNotifyHook* InNotifyHook)
 {
-	TileMapPtr = TileMap;
+	TileMapPtr = InTileMap;
+	NotifyHook = InNotifyHook;
 
 	FTileMapEditorCommands::Register();
 	const FTileMapEditorCommands& Commands = FTileMapEditorCommands::Get();
@@ -70,15 +71,16 @@ void STileLayerList::Construct(const FArguments& InArgs, UPaperTileMap* TileMap)
 	ListViewWidget = SNew(SPaperLayerListView)
 		.SelectionMode(ESelectionMode::Single)
 		.ClearSelectionOnClick(false)
-		.ListItemsSource(&(TileMap->TileLayers))
+		.ListItemsSource(&(InTileMap->TileLayers))
 		.OnSelectionChanged(this, &STileLayerList::OnSelectionChanged)
 		.OnGenerateRow(this, &STileLayerList::OnGenerateLayerListRow)
 		.OnContextMenuOpening(this, &STileLayerList::OnConstructContextMenu);
 
-	// Select the top item by default
-	if (TileMap->TileLayers.Num() > 0)
+	// Restore the selection
+	InTileMap->ValidateSelectedLayerIndex();
+	if (InTileMap->SelectedLayerIndex != INDEX_NONE)
 	{
-		SetSelectedLayer(TileMap->TileLayers[TileMap->TileLayers.Num() - 1]);
+		SetSelectedLayer(InTileMap->TileLayers[InTileMap->SelectedLayerIndex]);
 	}
 
 	ChildSlot
@@ -116,30 +118,6 @@ TSharedRef<ITableRow> STileLayerList::OnGenerateLayerListRow(class UPaperTileLay
 UPaperTileLayer* STileLayerList::GetSelectedLayer() const
 {
 	return (ListViewWidget->GetNumItemsSelected() > 0) ? ListViewWidget->GetSelectedItems()[0] : nullptr;
-}
-
-FText STileLayerList::GenerateNewLayerName(UPaperTileMap* TileMap)
-{
-	// Create a set of existing names
-	TSet<FString> ExistingNames;
-	for (UPaperTileLayer* ExistingLayer : TileMap->TileLayers)
-	{
-		ExistingNames.Add(ExistingLayer->LayerName.ToString());
-	}
-
-	// Find a good name
-	FText TestLayerName;
-	do
-	{
-		TileMap->LayerNameIndex++;
-
-		FNumberFormattingOptions NoGroupingFormat;
-		NoGroupingFormat.SetUseGrouping(false);
-
-		TestLayerName = FText::Format(LOCTEXT("NewLayerNameFormatString", "Layer {0}"), FText::AsNumber(TileMap->LayerNameIndex, &NoGroupingFormat));
-	} while (ExistingNames.Contains(TestLayerName.ToString()));
-
-	return TestLayerName;
 }
 
 FText STileLayerList::GenerateDuplicatedLayerName(const FString& InputNameRaw, UPaperTileMap* TileMap)
@@ -198,7 +176,7 @@ FText STileLayerList::GenerateDuplicatedLayerName(const FString& InputNameRaw, U
 
 UPaperTileLayer* STileLayerList::AddLayer(bool bCollisionLayer, int32 InsertionIndex)
 {
-	UPaperTileLayer* NewLayer = NULL;
+	UPaperTileLayer* NewLayer = nullptr;
 
 	if (UPaperTileMap* TileMap = TileMapPtr.Get())
 	{
@@ -206,28 +184,9 @@ UPaperTileLayer* STileLayerList::AddLayer(bool bCollisionLayer, int32 InsertionI
 		TileMap->SetFlags(RF_Transactional);
 		TileMap->Modify();
 
-		// Create the new layer
-		NewLayer = NewObject<UPaperTileLayer>(TileMap);
-		NewLayer->SetFlags(RF_Transactional);
+		NewLayer = TileMap->AddNewLayer(bCollisionLayer, InsertionIndex);
 
-		NewLayer->LayerWidth = TileMap->MapWidth;
-		NewLayer->LayerHeight = TileMap->MapHeight;
-		NewLayer->DestructiveAllocateMap(NewLayer->LayerWidth, NewLayer->LayerHeight);
-		NewLayer->LayerName = GenerateNewLayerName(TileMap);
-		NewLayer->bCollisionLayer = bCollisionLayer;
-
-		// Insert the new layer
-		if (TileMap->TileLayers.IsValidIndex(InsertionIndex))
-		{
-			TileMap->TileLayers.Insert(NewLayer, InsertionIndex);
-		}
-		else
-		{
-			TileMap->TileLayers.Add(NewLayer);
-		}
-
-		ListViewWidget->RequestListRefresh();
-		TileMap->PostEditChange();
+		PostEditNotfications();
 
 		// Change the selection set to select it
 		SetSelectedLayer(NewLayer);
@@ -250,8 +209,12 @@ void STileLayerList::ChangeLayerOrdering(int32 OldIndex, int32 NewIndex)
 			TileMap->TileLayers.RemoveAt(OldIndex);
 			TileMap->TileLayers.Insert(LayerToMove, NewIndex);
 
-			ListViewWidget->RequestListRefresh();
-			TileMap->PostEditChange();
+			if (TileMap->SelectedLayerIndex == OldIndex)
+			{
+				TileMap->SelectedLayerIndex = NewIndex;
+			}
+
+			PostEditNotfications();
 		}
 	}
 }
@@ -298,8 +261,7 @@ void STileLayerList::DeleteLayer()
 
 			TileMap->TileLayers.RemoveAt(DeleteIndex);
 
-			TileMap->PostEditChange();
-			ListViewWidget->RequestListRefresh();
+			PostEditNotfications();
 
 			// Select the item below the one that just got deleted
 			const int32 NewSelectionIndex = FMath::Min<int32>(DeleteIndex, TileMap->TileLayers.Num() - 1);
@@ -326,8 +288,7 @@ void STileLayerList::DuplicateLayer()
 			TileMap->TileLayers.Insert(NewLayer, DuplicateIndex);
 			NewLayer->LayerName = GenerateDuplicatedLayerName(NewLayer->LayerName.ToString(), TileMap);
 
-			TileMap->PostEditChange();
-			ListViewWidget->RequestListRefresh();
+			PostEditNotfications();
 
 			// Select the duplicated layer
 			SetSelectedLayer(NewLayer);
@@ -337,7 +298,42 @@ void STileLayerList::DuplicateLayer()
 
 void STileLayerList::MergeLayerDown()
 {
-	//@TODO: TILEMAPS: Support merging layers down
+	if (UPaperTileMap* TileMap = TileMapPtr.Get())
+	{
+		const int32 SourceIndex = GetSelectionIndex();
+		const int32 TargetIndex = SourceIndex + 1;
+		if ((SourceIndex != INDEX_NONE) && (TargetIndex != INDEX_NONE))
+		{
+			const FScopedTransaction Transaction(LOCTEXT("TileMapMergeLayerDown", "Merge Layer Down"));
+			TileMap->SetFlags(RF_Transactional);
+			TileMap->Modify();
+
+			UPaperTileLayer* SourceLayer = TileMap->TileLayers[SourceIndex];
+			UPaperTileLayer* TargetLayer = TileMap->TileLayers[TargetIndex];
+
+			TargetLayer->SetFlags(RF_Transactional);
+			TargetLayer->Modify();
+
+			// Copy the non-empty tiles from the source to the target layer
+			for (int32 Y = 0; Y < SourceLayer->LayerWidth; ++Y)
+			{
+				for (int32 X = 0; X < SourceLayer->LayerWidth; ++X)
+				{
+					FPaperTileInfo TileInfo = SourceLayer->GetCell(X, Y);
+					if (TileInfo.IsValid())
+					{
+						TargetLayer->SetCell(X, Y, TileInfo);
+					}
+				}
+			}
+
+			// Remove the source layer
+			TileMap->TileLayers.RemoveAt(SourceIndex);
+
+			// Update viewers
+			PostEditNotfications();
+		}
+	}
 }
 
 void STileLayerList::MoveLayerUp()
@@ -389,6 +385,8 @@ void STileLayerList::OnSelectionChanged(UPaperTileLayer* ItemChangingState, ESel
 	if (UPaperTileMap* TileMap = TileMapPtr.Get())
 	{
 		TileMap->SelectedLayerIndex = GetSelectionIndex();
+
+		PostEditNotfications();
 	}
 }
 
@@ -408,6 +406,23 @@ TSharedPtr<SWidget> STileLayerList::OnConstructContextMenu()
 	MenuBuilder.EndSection();
 
 	return MenuBuilder.MakeWidget();
+}
+
+void STileLayerList::PostEditNotfications()
+{
+	ListViewWidget->RequestListRefresh();
+
+	if (UPaperTileMap* TileMap = TileMapPtr.Get())
+	{
+		TileMap->PostEditChange();
+	}
+
+	if (NotifyHook != nullptr)
+	{
+		UProperty* TileMapProperty = FindFieldChecked<UProperty>(UPaperTileMapComponent::StaticClass(), GET_MEMBER_NAME_CHECKED(UPaperTileMapComponent, TileMap));
+		NotifyHook->NotifyPreChange(TileMapProperty);
+		NotifyHook->NotifyPostChange(FPropertyChangedEvent(TileMapProperty), TileMapProperty);
+	}
 }
 
 //////////////////////////////////////////////////////////////////////////

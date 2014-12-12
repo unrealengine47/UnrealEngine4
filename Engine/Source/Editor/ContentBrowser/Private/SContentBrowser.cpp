@@ -186,7 +186,7 @@ void SContentBrowser::Construct( const FArguments& InArgs, const FName& InInstan
 							.ButtonStyle(FEditorStyle::Get(), "ToggleButton")
 							.ToolTipText(LOCTEXT("AddContentTooltip", "Get more content."))
 							.ContentPadding(0)
-							.Visibility(UEditorExperimentalSettings::StaticClass()->GetDefaultObject<UEditorExperimentalSettings>()->bGetFeatureContent == false ? EVisibility::Collapsed : EVisibility::Visible)
+							.Visibility(EVisibility::Visible)
 							.OnClicked(this, &SContentBrowser::OnAddContentClicked)
 							[
 								SNew(SHorizontalBox)
@@ -1365,11 +1365,9 @@ FReply SContentBrowser::OnSaveClicked()
 FReply SContentBrowser::OnAddContentClicked()
 {
 	IAddContentDialogModule& AddContentDialogModule = FModuleManager::LoadModuleChecked<IAddContentDialogModule>("AddContentDialog");
-	TSharedRef<SWindow> AddContentDialog = AddContentDialogModule.CreateDialogWindow();
-
 	FWidgetPath WidgetPath;
 	FSlateApplication::Get().GeneratePathToWidgetChecked(AsShared(), WidgetPath);
-	FSlateApplication::Get().AddWindowAsNativeChild(AddContentDialog, WidgetPath.GetWindow());
+	AddContentDialogModule.ShowDialog(WidgetPath.GetWindow());
 
 	return FReply::Handled();
 }

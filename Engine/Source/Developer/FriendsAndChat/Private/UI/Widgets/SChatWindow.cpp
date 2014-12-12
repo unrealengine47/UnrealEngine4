@@ -26,6 +26,8 @@ public:
 
 		TSharedRef<SScrollBar> ExternalScrollbar =
 		SNew(SScrollBar)
+		.Thickness(FVector2D(4, 4))
+		.Style(&FriendStyle.ScrollBarStyle)
 		.AlwaysShowScrollbar(true);
 
 		SUserWidget::Construct(SUserWidget::FArguments()
@@ -46,7 +48,7 @@ public:
 					.VAlign(VAlign_Fill)
 					[
 						SNew( SBorder )
-						.BorderBackgroundColor(this, &SChatWindowImpl::GetTimedFadeSlateColor)
+						.BorderBackgroundColor(FLinearColor::Transparent)
 						.ColorAndOpacity(this, &SChatWindowImpl::GetTimedFadeColor)
 						[
 							ExternalScrollbar
@@ -582,17 +584,17 @@ private:
 		}
 	}
 
-	void OnGlobalOptionChanged(ESlateCheckBoxState::Type NewState)
+	void OnGlobalOptionChanged(ECheckBoxState NewState)
 	{
-		const bool bDisabled = NewState == ESlateCheckBoxState::Unchecked;
+		const bool bDisabled = NewState == ECheckBoxState::Unchecked;
 		ViewModel->SetAllowGlobalChat(!bDisabled);
 
 		FFriendsAndChatManager::Get()->GetAnalytics().RecordToggleChat(TEXT("Global"), !bDisabled, TEXT("Social.Chat.Toggle"));
 	}
 
-	ESlateCheckBoxState::Type GetGlobalOptionState() const
+	ECheckBoxState GetGlobalOptionState() const
 	{
-		return ViewModel->IsGlobalChatEnabled() ? ESlateCheckBoxState::Checked : ESlateCheckBoxState::Unchecked;
+		return ViewModel->IsGlobalChatEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 	}
 
 	virtual bool SupportsKeyboardFocus() const override

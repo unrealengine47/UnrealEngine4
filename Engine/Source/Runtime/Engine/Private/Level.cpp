@@ -166,6 +166,7 @@ FLevelSimplificationDetails::FLevelSimplificationDetails()
  : DetailsPercentage(70.f)
  , LandscapeExportLOD(7)
  , bGenerateLandscapeNormalMap(true)
+ , bGenerateLandscapeMetallicMap(false)
  , bGenerateLandscapeRoughnessMap(false)
  , bGenerateLandscapeSpecularMap(false)
  , bBakeFoliageToLandscape(false)
@@ -176,8 +177,10 @@ bool FLevelSimplificationDetails::operator == (const FLevelSimplificationDetails
 {
 	return
 		DetailsPercentage == Other.DetailsPercentage &&
+		bCreatePackagePerAsset == Other.bCreatePackagePerAsset &&
 		LandscapeExportLOD == Other.LandscapeExportLOD &&
 		bGenerateLandscapeNormalMap == Other.bGenerateLandscapeNormalMap &&
+		bGenerateLandscapeMetallicMap == Other.bGenerateLandscapeMetallicMap &&
 		bGenerateLandscapeRoughnessMap == Other.bGenerateLandscapeRoughnessMap &&
 		bGenerateLandscapeSpecularMap == Other.bGenerateLandscapeSpecularMap &&
 		bBakeFoliageToLandscape == Other.bBakeFoliageToLandscape;

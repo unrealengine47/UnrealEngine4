@@ -44,6 +44,8 @@ UGameplayAbility::UGameplayAbility(const FObjectInitializer& ObjectInitializer)
 		}
 	}
 #endif
+
+	bServerRespectsRemoteAbilityCancelation = false;
 }
 
 int32 UGameplayAbility::GetFunctionCallspace(UFunction* Function, void* Parameters, FFrame* Stack)
@@ -133,9 +135,13 @@ bool UGameplayAbility::IsSupportedForNetworking() const
 	return Supported;
 }
 
-bool UGameplayAbility::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo) const
+bool UGameplayAbility::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, OUT FGameplayTagContainer* OptionalRelevantTags) const
 {
 	SetCurrentActorInfo(Handle, ActorInfo);
+
+	//make into a reference for simplicity
+	FGameplayTagContainer DummyContainer;
+	FGameplayTagContainer& OutTags = OptionalRelevantTags ? *OptionalRelevantTags : DummyContainer;
 
 	if (ActorInfo->AbilitySystemComponent->GetUserAbilityActivationInhibited())
 	{
@@ -172,7 +178,8 @@ bool UGameplayAbility::CanActivateAbility(const FGameplayAbilitySpecHandle Handl
 
 	if (HasBlueprintCanUse)
 	{
-		if (K2_CanActivateAbility(*ActorInfo) == false)
+
+		if (K2_CanActivateAbility(*ActorInfo, OutTags) == false)
 		{
 			ABILITY_LOG(Log, TEXT("CanActivateAbility %s failed, blueprint refused"), *GetName());
 			return false;
@@ -215,6 +222,30 @@ bool UGameplayAbility::CommitAbility(const FGameplayAbilitySpecHandle Handle, co
 	return true;
 }
 
+bool UGameplayAbility::CommitAbilityCooldown(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo)
+{
+	// Last chance to fail (maybe we no longer have resources to commit since we after we started this ability activation)
+	if (!CheckCooldown(Handle, ActorInfo))
+	{
+		return false;
+	}
+
+	ApplyCooldown(Handle, ActorInfo, ActivationInfo);
+	return true;
+}
+
+bool UGameplayAbility::CommitAbilityCost(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo)
+{
+	// Last chance to fail (maybe we no longer have resources to commit since we after we started this ability activation)
+	if (!CheckCost(Handle, ActorInfo))
+	{
+		return false;
+	}
+
+	ApplyCost(Handle, ActorInfo, ActivationInfo);
+	return true;
+}
+
 bool UGameplayAbility::CommitCheck(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo)
 {
 	/**
@@ -225,17 +256,7 @@ bool UGameplayAbility::CommitCheck(const FGameplayAbilitySpecHandle Handle, cons
 	 *			-E.g., its possible the act of starting your ability makes it no longer activatable (CanaCtivateAbility() may be false if called here).
 	 */
 
-	if (!CheckCooldown(Handle, ActorInfo))
-	{
-		return false;
-	}
-
-	if (!CheckCost(Handle, ActorInfo))
-	{
-		return false;
-	}
-
-	return true;
+	return (CheckCooldown(Handle, ActorInfo) && CheckCost(Handle, ActorInfo));
 }
 
 void UGameplayAbility::CommitExecute(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo)
@@ -566,6 +587,30 @@ bool UGameplayAbility::K2_CommitAbility()
 	return CommitAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo);
 }
 
+bool UGameplayAbility::K2_CommitAbilityCooldown()
+{
+	check(CurrentActorInfo);
+	return CommitAbilityCooldown(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo);
+}
+
+bool UGameplayAbility::K2_CommitAbilityCost()
+{
+	check(CurrentActorInfo);
+	return CommitAbilityCost(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo);
+}
+
+bool UGameplayAbility::K2_CheckAbilityCooldown()
+{
+	check(CurrentActorInfo);
+	return CheckCooldown(CurrentSpecHandle, CurrentActorInfo);
+}
+
+bool UGameplayAbility::K2_CheckAbilityCost()
+{
+	check(CurrentActorInfo);
+	return CheckCost(CurrentSpecHandle, CurrentActorInfo);
+}
+
 void UGameplayAbility::K2_EndAbility()
 {
 	check(CurrentActorInfo);
@@ -825,6 +870,22 @@ bool UGameplayAbility::IsTriggered() const
 bool UGameplayAbility::HasAuthorityOrPredictionKey(const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo* ActivationInfo) const
 {
 	return ActorInfo->AbilitySystemComponent->HasAuthorityOrPredictionKey(ActivationInfo);
+}
+
+void UGameplayAbility::OnGiveAbility(const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilitySpec& Spec)
+{
+	SetCurrentActorInfo(Spec.Handle, ActorInfo);
+
+	// If we already have an avatar set, call the OnAvatarSet event as well
+	if (ActorInfo && ActorInfo->AvatarActor.IsValid())
+	{
+		OnAvatarSet(ActorInfo, Spec);
+	}
+}
+
+void UGameplayAbility::OnAvatarSet(const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilitySpec& Spec)
+{
+	// Projects may want to initiate passives or do other "BeginPlay" type of logic here.
 }
 
 // -------------------------------------------------------

@@ -666,10 +666,13 @@ void SMyBlueprint::GetLocalVariables(FGraphActionListBuilderBase& OutAllActions)
 					Category = FString();
 				}
 
-				TSharedPtr<FEdGraphSchemaAction_K2LocalVar> NewVarAction = MakeShareable(new FEdGraphSchemaAction_K2LocalVar(Category, FText::FromName(Variable.VarName), TEXT(""), 0));
 				UFunction* Func = FindField<UFunction>(GetBlueprintObj()->SkeletonGeneratedClass, EdGraph->GetFName());
-				NewVarAction->SetVariableInfo(Variable.VarName, Func);
-				OutAllActions.AddAction(NewVarAction);
+				if (Func)
+				{
+					TSharedPtr<FEdGraphSchemaAction_K2LocalVar> NewVarAction = MakeShareable(new FEdGraphSchemaAction_K2LocalVar(Category, FText::FromName(Variable.VarName), TEXT(""), 0));
+					NewVarAction->SetVariableInfo(Variable.VarName, Func);
+					OutAllActions.AddAction(NewVarAction);
+				}
 			}
 		}
 	}
@@ -1042,14 +1045,14 @@ void SMyBlueprint::CollectAllActions(FGraphActionListBuilderBase& OutAllActions)
 	}
 }
 
-ESlateCheckBoxState::Type SMyBlueprint::OnUserVarsCheckState() const
+ECheckBoxState SMyBlueprint::OnUserVarsCheckState() const
 {
-	return !bShowUserVarsOnly ? ESlateCheckBoxState::Checked : ESlateCheckBoxState::Unchecked;
+	return !bShowUserVarsOnly ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 }
 
-void SMyBlueprint::OnUserVarsCheckStateChanged(ESlateCheckBoxState::Type InNewState)
+void SMyBlueprint::OnUserVarsCheckStateChanged(ECheckBoxState InNewState)
 {
-	bShowUserVarsOnly = (InNewState != ESlateCheckBoxState::Checked);
+	bShowUserVarsOnly = (InNewState != ECheckBoxState::Checked);
 	Refresh();
 }
 

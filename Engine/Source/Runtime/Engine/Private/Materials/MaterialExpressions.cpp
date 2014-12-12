@@ -2716,16 +2716,32 @@ UMaterialExpressionTime::UMaterialExpressionTime(const FObjectInitializer& Objec
 
 	MenuCategories.Add(ConstructorStatics.NAME_Constants);
 	bShaderInputData = true;
+	Period = 0.0f;
+	bOverride_Period = false;
 }
 
 int32 UMaterialExpressionTime::Compile(class FMaterialCompiler* Compiler, int32 OutputIndex, int32 MultiplexIndex)
 {
-	return bIgnorePause ? Compiler->RealTime() : Compiler->GameTime();
+	return bIgnorePause ? Compiler->RealTime(bOverride_Period, Period) : Compiler->GameTime(bOverride_Period, Period);
 }
 
 void UMaterialExpressionTime::GetCaption(TArray<FString>& OutCaptions) const
 {
-	OutCaptions.Add(TEXT("Time"));
+	if (bOverride_Period)
+	{
+		if (Period == 0.0f)
+		{
+			OutCaptions.Add(TEXT("Time (Stopped)"));
+		}
+		else
+		{
+			OutCaptions.Add(FString::Printf(TEXT("Time (Period of %.2f)"), Period));
+		}
+	}
+	else
+	{
+		OutCaptions.Add(TEXT("Time"));
+	}
 }
 
 
@@ -2857,7 +2873,7 @@ UMaterialExpressionPanner::UMaterialExpressionPanner(const FObjectInitializer& O
 
 int32 UMaterialExpressionPanner::Compile(class FMaterialCompiler* Compiler, int32 OutputIndex, int32 MultiplexIndex)
 {
-	int32 TimeArg = Time.Expression ? Time.Compile(Compiler) : Compiler->GameTime();
+	int32 TimeArg = Time.Expression ? Time.Compile(Compiler) : Compiler->GameTime(false, 0.0f);
 	int32 Arg1;
 	int32 Arg2;
 	if (bFractionalPart)
@@ -2917,8 +2933,8 @@ UMaterialExpressionRotator::UMaterialExpressionRotator(const FObjectInitializer&
 
 int32 UMaterialExpressionRotator::Compile(class FMaterialCompiler* Compiler, int32 OutputIndex, int32 MultiplexIndex)
 {
-	int32	Cosine = Compiler->Cosine(Compiler->Mul(Time.Expression ? Time.Compile(Compiler) : Compiler->GameTime(),Compiler->Constant(Speed))),
-		Sine = Compiler->Sine(Compiler->Mul(Time.Expression ? Time.Compile(Compiler) : Compiler->GameTime(),Compiler->Constant(Speed))),
+	int32	Cosine = Compiler->Cosine(Compiler->Mul(Time.Expression ? Time.Compile(Compiler) : Compiler->GameTime(false, 0.0f),Compiler->Constant(Speed))),
+		Sine = Compiler->Sine(Compiler->Mul(Time.Expression ? Time.Compile(Compiler) : Compiler->GameTime(false, 0.0f),Compiler->Constant(Speed))),
 		RowX = Compiler->AppendVector(Cosine,Compiler->Mul(Compiler->Constant(-1.0f),Sine)),
 		RowY = Compiler->AppendVector(Sine,Cosine),
 		Origin = Compiler->Constant2(CenterX,CenterY),
@@ -4944,7 +4960,6 @@ UMaterialExpressionIf::UMaterialExpressionIf(const FObjectInitializer& ObjectIni
 
 	EqualsThreshold = 0.00001f;
 	ConstB = 0.0f;
-	ConstAEqualsB = INDEX_NONE;
 }
 
 int32 UMaterialExpressionIf::Compile(class FMaterialCompiler* Compiler, int32 OutputIndex, int32 MultiplexIndex)
@@ -4976,7 +4991,7 @@ int32 UMaterialExpressionIf::Compile(class FMaterialCompiler* Compiler, int32 Ou
 	}
 
 	int32 Arg3 = AGreaterThanB.Compile(Compiler);
-	int32 Arg4 = AEqualsB.Expression ? AEqualsB.Compile(Compiler) : Compiler->Constant(ConstAEqualsB);
+	int32 Arg4 = AEqualsB.Expression ? AEqualsB.Compile(Compiler) : INDEX_NONE;
 	int32 Arg5 = ALessThanB.Compile(Compiler);
 	int32 ThresholdArg = Compiler->Constant(EqualsThreshold);
 

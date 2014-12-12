@@ -132,6 +132,7 @@ FEditorDelegates::FOnNewAssetCreation					FEditorDelegates::OnConfigureNewAssetP
 FEditorDelegates::FOnNewAssetCreation					FEditorDelegates::OnNewAssetCreated;
 FEditorDelegates::FOnAssetPreImport						FEditorDelegates::OnAssetPreImport;
 FEditorDelegates::FOnAssetPostImport					FEditorDelegates::OnAssetPostImport;
+FEditorDelegates::FOnAssetReimport						FEditorDelegates::OnAssetReimport;
 FEditorDelegates::FOnNewActorsDropped					FEditorDelegates::OnNewActorsDropped;
 FEditorDelegates::FOnGridSnappingChanged				FEditorDelegates::OnGridSnappingChanged;
 FSimpleMulticastDelegate								FEditorDelegates::OnLightingBuildStarted;
@@ -605,11 +606,6 @@ void UEditorEngine::Init(IEngineLoop* InEngineLoop)
 			FModuleManager::Get().LoadModule(TEXT("EnvironmentQueryEditor"));
 		}
 
-		if (GetDefault<UEditorExperimentalSettings>()->bVisualLogger)
-		{
-			FModuleManager::Get().LoadModule(TEXT("NewLogVisualizer"));
-		}
-
 		bool bGameplayAbilitiesEnabled = false;
 		GConfig->GetBool(TEXT("GameplayAbilities"), TEXT("GameplayAbilitiesEditorEnabled"), bGameplayAbilitiesEnabled, GEngineIni);
 		if (bGameplayAbilitiesEnabled)
@@ -617,6 +613,8 @@ void UEditorEngine::Init(IEngineLoop* InEngineLoop)
 			FModuleManager::Get().LoadModule(TEXT("GameplayAbilitiesEditor"));
 		}
 
+
+		FModuleManager::Get().LoadModule(TEXT("LogVisualizer"));
 		FModuleManager::Get().LoadModule(TEXT("HotReload"));
 	}
 
@@ -744,6 +742,12 @@ void UEditorEngine::InitBuilderBrush( UWorld* InWorld )
 	{
 		InWorld->GetCurrentLevel()->GetOutermost()->SetDirtyFlag( bOldDirtyState );
 	}
+}
+
+void UEditorEngine::BroadcastObjectReimported(UObject* InObject)
+{
+	ObjectReimportedEvent.Broadcast(InObject);
+	FEditorDelegates::OnAssetReimport.Broadcast(InObject);
 }
 
 void UEditorEngine::FinishDestroy()

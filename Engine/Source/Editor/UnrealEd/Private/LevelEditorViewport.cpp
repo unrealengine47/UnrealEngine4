@@ -1466,16 +1466,7 @@ FLevelEditorViewportClient::FLevelEditorViewportClient()
 	// GEditorModeTools serves as our draw helper
 	bUsesDrawHelper = false;
 
-	// make sure all actors know about this view for per-view layer vis
-	GEditor->Layers->UpdatePerViewVisibility( this );
-
-	// Get the number of volume classes so we can initialize our bit array
-	TArray<UClass*> VolumeClasses;
-	UUnrealEdEngine::GetSortedVolumeClasses(&VolumeClasses);
-	VolumeActorVisibility.Init(true, VolumeClasses.Num() );
-
-	// Initialize all sprite categories to visible
-	SpriteCategoryVisibility.Init( true, GUnrealEd->SpriteIDToIndexMap.Num() );
+	InitializeVisibilityFlags();
 
 	// Sign up for notifications about users changing settings.
 	GetMutableDefault<ULevelEditorViewportSettings>()->OnSettingChanged().AddRaw(this, &FLevelEditorViewportClient::HandleViewportSettingChanged);
@@ -1511,6 +1502,20 @@ FLevelEditorViewportClient::~FLevelEditorViewportClient()
 	GEditor->LevelViewportClients.Remove(this);
 
 	RemoveReferenceToWorldContext(GEditor->GetEditorWorldContext());
+}
+
+void FLevelEditorViewportClient::InitializeVisibilityFlags()
+{
+	// make sure all actors know about this view for per-view layer vis
+	GEditor->Layers->UpdatePerViewVisibility(this);
+
+	// Get the number of volume classes so we can initialize our bit array
+	TArray<UClass*> VolumeClasses;
+	UUnrealEdEngine::GetSortedVolumeClasses(&VolumeClasses);
+	VolumeActorVisibility.Init(true, VolumeClasses.Num());
+
+	// Initialize all sprite categories to visible
+	SpriteCategoryVisibility.Init(true, GUnrealEd->SpriteIDToIndexMap.Num());
 }
 
 FSceneView* FLevelEditorViewportClient::CalcSceneView(FSceneViewFamily* ViewFamily)
@@ -3209,16 +3214,10 @@ FViewportCursorLocation FLevelEditorViewportClient::GetCursorWorldLocationFromMo
  */
 void FLevelEditorViewportClient::CapturedMouseMove( FViewport* InViewport, int32 InMouseX, int32 InMouseY )
 {
-	FEditorViewportClient::CapturedMouseMove(InViewport,InMouseX,InMouseY);
-
 	// Commit to any pending transactions now
 	TrackingTransaction.PromotePendingToActive();
 
-	// Let the current editor mode know about the mouse movement.
-	if (IsLevelEditorClient() && ModeTools->CapturedMouseMove(this, InViewport, InMouseX, InMouseY))
-	{
-		return;
-	}
+	FEditorViewportClient::CapturedMouseMove(InViewport, InMouseX, InMouseY);
 }
 
 

@@ -421,6 +421,12 @@ FSceneView::FSceneView(const FSceneViewInitOptions& InitOptions)
 	// into world oriented z.
 	InvDeviceZToWorldZTransform = CreateInvDeviceZToWorldZTransform(ProjectionMatrixUnadjustedForRHI);
 
+	static TConsoleVariableData<int32>* SortPolicyCvar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.TranslucentSortPolicy"));
+	TranslucentSortPolicy = static_cast<ETranslucentSortPolicy::Type>(SortPolicyCvar->GetValueOnAnyThread());
+
+	//@TODO: PAPER2D: Should come from the config value if/when axis switching is allowed
+	TranslucentSortAxis = FVector(0.0f, -1.0f, 0.0f);
+
 	// As the world is only accessable from the game thread, bIsGameView should be explicitly
 	// set on any other thread.
 	if(IsInGameThread())
@@ -1091,13 +1097,6 @@ void FSceneView::EndFinalPostprocessSettings(const FSceneViewInitOptions& ViewIn
 		{
 			FinalPostProcessSettings.ScreenPercentage = Value;
 		}
-
-		// Not supported in ES2.
-		auto FeatureLevel = Family->Scene->GetFeatureLevel();
-		if(FeatureLevel == ERHIFeatureLevel::ES2 || FeatureLevel == ERHIFeatureLevel::ES3_1)
-		{
-			FinalPostProcessSettings.ScreenPercentage = 100.0f;
-		}
 	}
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
@@ -1122,7 +1121,7 @@ void FSceneView::EndFinalPostprocessSettings(const FSceneViewInitOptions& ViewIn
 		}
 	}
 
-	if(!Family->EngineShowFlags.ScreenPercentage)
+	if(!Family->EngineShowFlags.ScreenPercentage || bIsSceneCapture || bIsReflectionCapture)
 	{
 		FinalPostProcessSettings.ScreenPercentage = 100;
 	}
@@ -1211,40 +1210,12 @@ void FSceneView::EndFinalPostprocessSettings(const FSceneViewInitOptions& ViewIn
 	}
 
 #if WITH_EDITOR
-	// Access the materials for the hires screenshot system
-	static UMaterial* HighResScreenshotMaterial = NULL;
-	static UMaterial* HighResScreenshotMaskMaterial = NULL;
-	static UMaterial* HighResScreenshotCaptureRegionMaterial = NULL;
-	static bool bHighResScreenshotMaterialsConfigured = false;
-
-	if (!bHighResScreenshotMaterialsConfigured)
-	{
-		HighResScreenshotMaterial = LoadObject<UMaterial>(NULL, TEXT("/Engine/EngineMaterials/HighResScreenshot.HighResScreenshot"));
-		HighResScreenshotMaskMaterial = LoadObject<UMaterial>(NULL, TEXT("/Engine/EngineMaterials/HighResScreenshotMask.HighResScreenshotMask"));
-		HighResScreenshotCaptureRegionMaterial = LoadObject<UMaterial>(NULL, TEXT("/Engine/EngineMaterials/HighResScreenshotCaptureRegion.HighResScreenshotCaptureRegion"));
-
-		if (HighResScreenshotMaterial)
-		{
-			HighResScreenshotMaterial->AddToRoot();
-		}
-		if (HighResScreenshotMaskMaterial)
-		{
-			HighResScreenshotMaskMaterial->AddToRoot(); 
-		}
-		if (HighResScreenshotCaptureRegionMaterial)
-		{
-			HighResScreenshotCaptureRegionMaterial->AddToRoot();
-		}
-
-		bHighResScreenshotMaterialsConfigured = true;
-	}
+	FHighResScreenshotConfig& Config = GetHighResScreenshotConfig();
 
 	// Pass highres screenshot materials through post process settings
-	FinalPostProcessSettings.HighResScreenshotMaterial = HighResScreenshotMaterial;
-	FinalPostProcessSettings.HighResScreenshotMaskMaterial = HighResScreenshotMaskMaterial;
+	FinalPostProcessSettings.HighResScreenshotMaterial = Config.HighResScreenshotMaterial;
+	FinalPostProcessSettings.HighResScreenshotMaskMaterial = Config.HighResScreenshotMaskMaterial;
 	FinalPostProcessSettings.HighResScreenshotCaptureRegionMaterial = NULL;
-
-	FHighResScreenshotConfig& Config = GetHighResScreenshotConfig();
 
 	// If the highres screenshot UI is open and we're not taking a highres screenshot this frame
 	if (Config.bDisplayCaptureRegion && !GIsHighResScreenshot)
@@ -1266,7 +1237,7 @@ void FSceneView::EndFinalPostprocessSettings(const FSceneViewInitOptions& ViewIn
 				NormalizedCaptureRegion.A = (float)Config.UnscaledCaptureRegion.Max.Y / (float)ViewRect.Height();
 
 				// Get a MID for drawing this frame and push the capture region into the shader parameter
-				FinalPostProcessSettings.HighResScreenshotCaptureRegionMaterial = State->GetReusableMID(HighResScreenshotCaptureRegionMaterial);
+				FinalPostProcessSettings.HighResScreenshotCaptureRegionMaterial = State->GetReusableMID(Config.HighResScreenshotCaptureRegionMaterial);
 				FinalPostProcessSettings.HighResScreenshotCaptureRegionMaterial->SetVectorParameterValue(ParamName, NormalizedCaptureRegion);
 			}
 		}
@@ -1457,6 +1428,13 @@ FSceneViewFamily::FSceneViewFamily( const ConstructionValues& CVS )
 	LandscapeLODOverride = -1;
 	bDrawBaseInfo = true;
 #endif
+
+	// Not supported in ES2.
+	auto FeatureLevel = GetFeatureLevel();
+	if (FeatureLevel == ERHIFeatureLevel::ES2 || FeatureLevel == ERHIFeatureLevel::ES3_1)
+	{
+		EngineShowFlags.ScreenPercentage = false;
+	}
 }
 
 void FSceneViewFamily::ComputeFamilySize()

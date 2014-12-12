@@ -236,6 +236,13 @@ void UBehaviorTreeComponent::OnTaskFinished(const UBTTaskNode* TaskNode, EBTNode
 				RequestExecution(TaskResult);
 			}
 		}
+		else if (TaskResult == EBTNodeResult::Aborted && InstanceStack[TaskInstanceIdx].ActiveNode == TaskNode)
+		{
+			// active instance may be already changed when getting back from AbortCurrentTask 
+			// (e.g. new task is higher on stack)
+
+			InstanceStack[TaskInstanceIdx].ActiveNodeType = EBTActiveNode::InactiveTask;
+		}
 
 		// update state of aborting tasks after currently finished one was set to Inactive
 		UpdateAbortingTasks();
@@ -520,9 +527,8 @@ void UBehaviorTreeComponent::RequestExecution(UBTCompositeNode* RequestedOn, int
 	ExecutionIdx.ExecutionIndex = RequestedBy->GetExecutionIndex();
 	uint16 LastExecutionIndex = MAX_uint16;
 
-	if (bSwitchToHigherPriority)
+	if (bSwitchToHigherPriority && RequestedByChildIndex >= 0)
 	{
-		RequestedByChildIndex = FMath::Max(0, RequestedByChildIndex);
 		ExecutionIdx.ExecutionIndex = RequestedOn->GetChildExecutionIndex(RequestedByChildIndex, EBTChildIndex::FirstNode);
 		
 		// first index outside allowed range		
@@ -1133,6 +1139,7 @@ void UBehaviorTreeComponent::ExecuteTask(UBTTaskNode* TaskNode)
 	uint8* NodeMemory = (uint8*)(TaskNode->GetNodeMemory<uint8>(ActiveInstance));
 	EBTNodeResult::Type TaskResult = TaskNode->WrappedExecuteTask(*this, NodeMemory);
 
+	// pass task finished if wasn't already notified (FinishLatentTask)
 	const UBTNode* ActiveNodeAfterExecution = GetActiveNode();
 	if (ActiveNodeAfterExecution == TaskNode)
 	{
@@ -1145,23 +1152,26 @@ void UBehaviorTreeComponent::ExecuteTask(UBTTaskNode* TaskNode)
 
 void UBehaviorTreeComponent::AbortCurrentTask()
 {
-	FBehaviorTreeInstance& ActiveInstance = InstanceStack.Last();
-	UBTTaskNode* ActiveTask = (UBTTaskNode*)ActiveInstance.ActiveNode;
+	const int32 CurrentInstanceIdx = InstanceStack.Num() - 1;
+	FBehaviorTreeInstance& CurrentInstance = InstanceStack[CurrentInstanceIdx];
+	CurrentInstance.ActiveNodeType = EBTActiveNode::AbortingTask;
+
+	UBTTaskNode* CurrentTask = (UBTTaskNode*)CurrentInstance.ActiveNode;
 
 	// remove all observers before requesting abort
-	UnregisterMessageObserversFrom(ActiveTask);
+	UnregisterMessageObserversFrom(CurrentTask);
 
-	UE_VLOG(GetOwner(), LogBehaviorTree, Log, TEXT("Abort task: %s"), *UBehaviorTreeTypes::DescribeNodeHelper(ActiveTask));
+	UE_VLOG(GetOwner(), LogBehaviorTree, Log, TEXT("Abort task: %s"), *UBehaviorTreeTypes::DescribeNodeHelper(CurrentTask));
 
 	// abort task using current state of tree
-	uint8* NodeMemory = (uint8*)(ActiveTask->GetNodeMemory<uint8>(ActiveInstance));
-	EBTNodeResult::Type TaskResult = ActiveTask->WrappedAbortTask(*this, NodeMemory);
+	uint8* NodeMemory = (uint8*)(CurrentTask->GetNodeMemory<uint8>(CurrentInstance));
+	EBTNodeResult::Type TaskResult = CurrentTask->WrappedAbortTask(*this, NodeMemory);
 
-	const UBTNode* ActiveNodeAfterAbort = GetActiveNode();
-	if (ActiveNodeAfterAbort == ActiveTask)
+	// pass task finished if wasn't already notified (FinishLatentAbort)
+	if (CurrentInstance.ActiveNodeType == EBTActiveNode::AbortingTask &&
+		CurrentInstanceIdx == (InstanceStack.Num() - 1))
 	{
-		ActiveInstance.ActiveNodeType = EBTActiveNode::AbortingTask;
-		OnTaskFinished(ActiveTask, TaskResult);
+		OnTaskFinished(CurrentTask, TaskResult);
 	}
 }
 

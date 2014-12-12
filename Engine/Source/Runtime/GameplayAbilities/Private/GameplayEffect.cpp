@@ -1665,8 +1665,8 @@ void FActiveGameplayEffectsContainer::AddActiveGameplayEffectGrantedTagsAndModif
 
 	Owner->UpdateTagMap(Effect.Spec.DynamicGrantedTags, 1);
 
-	ApplicationImmunityGameplayTagCountContainer.UpdateTagMap(Effect.Spec.Def->GrantedApplicationImmunityTags.RequireTags, 1);
-	ApplicationImmunityGameplayTagCountContainer.UpdateTagMap(Effect.Spec.Def->GrantedApplicationImmunityTags.IgnoreTags, 1);
+	ApplicationImmunityGameplayTagCountContainer.UpdateTagCount(Effect.Spec.Def->GrantedApplicationImmunityTags.RequireTags, 1);
+	ApplicationImmunityGameplayTagCountContainer.UpdateTagCount(Effect.Spec.Def->GrantedApplicationImmunityTags.IgnoreTags, 1);
 
 	for (const FGameplayEffectCue& Cue : Effect.Spec.Def->GameplayCues)
 	{
@@ -1799,8 +1799,8 @@ void FActiveGameplayEffectsContainer::RemoveActiveGameplayEffectGrantedTagsAndMo
 	IGameplayTagsModule& GameplayTagsModule = IGameplayTagsModule::Get();
 	Owner->UpdateTagMap(Effect.Spec.Def->InheritableOwnedTagsContainer.CombinedTags, -1);
 
-	ApplicationImmunityGameplayTagCountContainer.UpdateTagMap(Effect.Spec.Def->GrantedApplicationImmunityTags.RequireTags, -1);
-	ApplicationImmunityGameplayTagCountContainer.UpdateTagMap(Effect.Spec.Def->GrantedApplicationImmunityTags.IgnoreTags, -1);
+	ApplicationImmunityGameplayTagCountContainer.UpdateTagCount(Effect.Spec.Def->GrantedApplicationImmunityTags.RequireTags, -1);
+	ApplicationImmunityGameplayTagCountContainer.UpdateTagCount(Effect.Spec.Def->GrantedApplicationImmunityTags.IgnoreTags, -1);
 
 	Owner->UpdateTagMap(Effect.Spec.DynamicGrantedTags, -1);
 
@@ -1848,24 +1848,25 @@ void FActiveGameplayEffectsContainer::OnOwnerTagChange(FGameplayTag TagChange, i
 	}
 }
 
-bool FActiveGameplayEffectsContainer::CheckApplicationImmunity(const FGameplayEffectSpec& SpecToApply) const
+bool FActiveGameplayEffectsContainer::HasApplicationImmunityToSpec(const FGameplayEffectSpec& SpecToApply) const
 {
-	SCOPE_CYCLE_COUNTER(STAT_CheckApplicationImmunity)
+	SCOPE_CYCLE_COUNTER(STAT_HasApplicationImmunityToSpec)
 
-	const FGameplayTagContainer* Tags = SpecToApply.CapturedSourceTags.GetAggregatedTags();
-	if (!ensure(Tags))
+	const FGameplayTagContainer* AggregatedSourceTags = SpecToApply.CapturedSourceTags.GetAggregatedTags();
+	if (!ensure(AggregatedSourceTags))
+	{
 		return false;
-	
+	}
 
 	// Quick map test
-	if (!ApplicationImmunityGameplayTagCountContainer.HasAnyMatchingGameplayTags(*Tags, EGameplayTagMatchType::Explicit, false))
+	if (!AggregatedSourceTags->MatchesAny(ApplicationImmunityGameplayTagCountContainer.GetExplicitGameplayTags(), false))
 	{
 		return false;
 	}
 
 	for (const FActiveGameplayEffect& Effect : GameplayEffects)
 	{
-		if (Effect.Spec.Def->GrantedApplicationImmunityTags.IsEmpty() == false && Effect.Spec.Def->GrantedApplicationImmunityTags.RequirementsMet( *Tags ))
+		if (Effect.Spec.Def->GrantedApplicationImmunityTags.IsEmpty() == false && Effect.Spec.Def->GrantedApplicationImmunityTags.RequirementsMet( *AggregatedSourceTags ))
 		{
 			return true;
 		}
@@ -1919,13 +1920,16 @@ void FActiveGameplayEffectsContainer::CheckDuration(FActiveGameplayEffectHandle 
 			if (Duration > 0.f && (Effect.StartWorldTime + Duration) < CurrentTime)
 			{
 				// This gameplay effect has hit its duration. Check if it needs to execute one last time before removing it.
-				if (Effect.PeriodHandle.IsValid())
+				if (Effect.PeriodHandle.IsValid() && TimerManager.TimerExists(Effect.PeriodHandle))
 				{
 					float PeriodTimeRemaining = TimerManager.GetTimerRemaining(Effect.PeriodHandle);
-					if (FMath::IsNearlyEqual(PeriodTimeRemaining, 0.f))
+					if (PeriodTimeRemaining <= KINDA_SMALL_NUMBER)
 					{
 						ExecuteActiveEffectsFrom(Effect.Spec);
 					}
+
+					// Forcibly clear the periodic ticks because this effect is going to be removed
+					TimerManager.ClearTimer(Effect.PeriodHandle);
 				}
 
 				InternalRemoveActiveGameplayEffect(Idx);
@@ -2241,7 +2245,7 @@ bool FActiveGameplayEffectQuery::Matches(const FActiveGameplayEffect& Effect) co
 		if (!Effect.Spec.Def->InheritableOwnedTagsContainer.CombinedTags.MatchesAny(*OwningTagContainer, false) &&
 			!Effect.Spec.DynamicGrantedTags.MatchesAny(*OwningTagContainer, false))
 		{
-			// this doesnt match our Tags so bail
+			// this doesn't match our Tags so bail
 			return false;
 		}
 	}	
@@ -2251,7 +2255,17 @@ bool FActiveGameplayEffectQuery::Matches(const FActiveGameplayEffect& Effect) co
 	{
 		if (!Effect.Spec.Def->InheritableGameplayEffectTags.CombinedTags.MatchesAny(*EffectTagContainer, false))
 		{
-			// this doesnt match our Tags so bail
+			// this doesn't match our Tags so bail
+			return false;
+		}
+	}
+
+	// if we are just looking for Tags on the Effect then look at the Gameplay Effect Tags
+	if (EffectTagContainer_Rejection)
+	{
+		if (Effect.Spec.Def->InheritableGameplayEffectTags.CombinedTags.MatchesAny(*EffectTagContainer_Rejection, false))
+		{
+			// this matches our Rejection Tags so bail
 			return false;
 		}
 	}

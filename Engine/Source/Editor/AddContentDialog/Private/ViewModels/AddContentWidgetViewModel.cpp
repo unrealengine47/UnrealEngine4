@@ -122,6 +122,7 @@ void FAddContentWidgetViewModel::BuildContentSourceViewModels()
 
 	if (Categories.Num() > 0)
 	{
+		Categories.Sort();
 		SelectedCategory = Categories[0];
 	}
 	OnCategoriesChanged.ExecuteIfBound();
@@ -155,29 +156,4 @@ void FAddContentWidgetViewModel::TransformContentSourceToStrings(TSharedPtr<FCon
 void FAddContentWidgetViewModel::ContentSourcesChanged()
 {
 	BuildContentSourceViewModels();
-}
-
-void FAddContentWidgetViewModel::AppendToAddList(TSharedPtr<FContentSourceViewModel> ContentSourceToAppend)
-{
-	if (AddList.Contains(ContentSourceToAppend) == false)
-	{
-		AddList.Add(ContentSourceToAppend);
-		OnAddListChanged.ExecuteIfBound();
-	}
-}
-
-void FAddContentWidgetViewModel::RemoveFromAddList(TSharedPtr<FContentSourceViewModel> ContentSourceToRemove)
-{
-	AddList.Remove(ContentSourceToRemove);
-	OnAddListChanged.ExecuteIfBound();
-}
-
-const TArray<TSharedPtr<FContentSourceViewModel>>* FAddContentWidgetViewModel::GetAddList()
-{
-	return &AddList;
-}
-
-void FAddContentWidgetViewModel::SetOnAddListChanged(FOnAddListChanged OnAddListChangedIn)
-{
-	OnAddListChanged = OnAddListChangedIn;
 }

@@ -40,6 +40,15 @@ namespace iPhonePackager
 		public static string RepackageStagingDirectory = "";
 
 		/// <summary>
+		/// The delta manifest for deploying files for iterative deploy
+		/// </summary>
+		public static string DeltaManifest = "";
+
+		/// <summary
+		/// The files to be retrieved from the device
+		/// <summary>
+		public static List<string> FilesForBackup = new List<string>();
+
 		/// The project file that is passed into IPP from UAT
 		/// </summary>
 		public static string ProjectFile = "";
@@ -48,6 +57,16 @@ namespace iPhonePackager
 		/// The device to deploy or launch on
 		/// </summary>
 		public static string DeviceId = "";
+
+		/// <summary>
+		/// Determine whether to use RPC Util or not
+		/// </summary>
+		public static bool bUseRPCUtil = true;
+
+		/// <summary>
+		/// Optional override for the dev root on the target mac for remote builds.
+		/// </summary>
+		public static string OverrideDevRoot = null;
 
 		/// <summary>
 		/// The local build directory (on PC)
@@ -345,6 +364,11 @@ namespace iPhonePackager
 		/// The minimum OS version
 		/// </summary>
 		public static string MinOSVersion;
+
+		/// <summary>
+		/// Create an iterative IPA (i.e. a stub only with Icons and Splash images)
+		/// </summary>
+		public static bool bIterate = false;
 
 		/// <summary>
 		/// Returns a path to the place to back up documents from a device

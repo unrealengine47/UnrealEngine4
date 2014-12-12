@@ -187,7 +187,7 @@ FString SKismetInspector::GetContextualEditingWidgetTitle() const
 void SKismetInspector::Construct(const FArguments& InArgs)
 {
 	bShowInspectorPropertyView = true;
-	PublicViewState = ESlateCheckBoxState::Unchecked;
+	PublicViewState = ECheckBoxState::Unchecked;
 
 	Kismet2Ptr = InArgs._Kismet2;
 	bShowPublicView = InArgs._ShowPublicViewControl;
@@ -210,7 +210,7 @@ void SKismetInspector::Construct(const FArguments& InArgs)
 	//@TODO: .IsEnabled( FSlateApplication::Get().GetNormalExecutionAttribute() );
 	PropertyView->SetIsPropertyVisibleDelegate( FIsPropertyVisible::CreateSP(this, &SKismetInspector::IsPropertyVisible) );
 	PropertyView->SetIsPropertyEditingEnabledDelegate(InArgs._IsPropertyEditingEnabledDelegate);
-	PropertyView->OnFinishedChangingProperties().Add( InArgs._OnFinishedChangingProperties );
+	UserOnFinishedChangingProperties = InArgs._OnFinishedChangingProperties;
 
 	TWeakPtr<SMyBlueprint> MyBlueprint = Kismet2.IsValid() ? Kismet2->GetMyBlueprintWidget() : InArgs._MyBlueprintWidget;
 	
@@ -342,6 +342,9 @@ void SKismetInspector::AddPropertiesRecursive(UProperty* Property)
 
 void SKismetInspector::UpdateFromObjects(const TArray<UObject*>& PropertyObjects, struct FKismetSelectionInfo& SelectionInfo, const FShowDetailsOptions& Options)
 {
+	PropertyView->OnFinishedChangingProperties().Clear();
+	PropertyView->OnFinishedChangingProperties().Add( UserOnFinishedChangingProperties );
+
 	if (!Options.bForceRefresh)
 	{
 		// Early out if the PropertyObjects and the SelectedObjects are the same
@@ -484,7 +487,7 @@ bool SKismetInspector::IsPropertyVisible( const FPropertyAndParent& PropertyAndP
 
 
 	// If we are in 'instance preview' - hide anything marked 'disabled edit on instance'
-	if ((ESlateCheckBoxState::Checked == PublicViewState) && Property.HasAnyPropertyFlags(CPF_DisableEditOnInstance))
+	if ((ECheckBoxState::Checked == PublicViewState) && Property.HasAnyPropertyFlags(CPF_DisableEditOnInstance))
 	{
 		return false;
 	}
@@ -544,12 +547,12 @@ EVisibility SKismetInspector::GetPropertyViewVisibility() const
 	return bShowInspectorPropertyView? EVisibility::Visible : EVisibility::Collapsed;
 }
 
-ESlateCheckBoxState::Type SKismetInspector::GetPublicViewCheckboxState() const
+ECheckBoxState SKismetInspector::GetPublicViewCheckboxState() const
 {
 	return PublicViewState;
 }
 
-void SKismetInspector::SetPublicViewCheckboxState( ESlateCheckBoxState::Type InIsChecked )
+void SKismetInspector::SetPublicViewCheckboxState( ECheckBoxState InIsChecked )
 {
 	PublicViewState = InIsChecked;
 

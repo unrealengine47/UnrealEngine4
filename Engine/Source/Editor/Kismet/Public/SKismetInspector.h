@@ -80,7 +80,7 @@ protected:
 	bool bShowInspectorPropertyView;
 
 	/** State of CheckBox representing whether to show only the public variables*/
-	ESlateCheckBoxState::Type	PublicViewState;
+	ECheckBoxState	PublicViewState;
 
 	/** Property viewing widget */
 	TSharedPtr<class IDetailsView> PropertyView;
@@ -103,6 +103,9 @@ protected:
 	/** Set of object properties that should be visible */
 	TSet<TWeakObjectPtr<UProperty> > SelectedObjectProperties;
 	
+	/** User defined delegate for OnFinishedChangingProperties */
+	FOnFinishedChangingProperties::FDelegate UserOnFinishedChangingProperties;
+
 protected:
 	/** Show properties of the selected object */
 	void SetPropertyWindowContents(TArray<UObject*> Objects);
@@ -121,6 +124,6 @@ protected:
 	 */
 	FString GetContextualEditingWidgetTitle() const;
 
-	ESlateCheckBoxState::Type GetPublicViewCheckboxState() const;
-	void SetPublicViewCheckboxState(ESlateCheckBoxState::Type InIsChecked);
+	ECheckBoxState GetPublicViewCheckboxState() const;
+	void SetPublicViewCheckboxState(ECheckBoxState InIsChecked);
 };

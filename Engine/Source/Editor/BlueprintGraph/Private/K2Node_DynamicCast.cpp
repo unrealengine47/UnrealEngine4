@@ -17,8 +17,6 @@ UK2Node_DynamicCast::UK2Node_DynamicCast(const FObjectInitializer& ObjectInitial
 	: Super(ObjectInitializer)
 	, bIsPureCast(false)
 {
-	const UBlueprintEditorSettings* BlueprintSettings = GetDefault<UBlueprintEditorSettings>();
-	bIsPureCast = BlueprintSettings->bFavorPureCastNodes;
 }
 
 void UK2Node_DynamicCast::AllocateDefaultPins()
@@ -143,6 +141,14 @@ void UK2Node_DynamicCast::GetContextMenuActions(const FGraphNodeContextMenuBuild
 		);
 	}
 	Context.MenuBuilder->EndSection();
+}
+
+void UK2Node_DynamicCast::PostPlacedNewNode()
+{
+	Super::PostPlacedNewNode();
+
+	const UBlueprintEditorSettings* BlueprintSettings = GetDefault<UBlueprintEditorSettings>();
+	SetPurity(BlueprintSettings->bFavorPureCastNodes);
 }
 
 UEdGraphPin* UK2Node_DynamicCast::GetValidCastPin() const

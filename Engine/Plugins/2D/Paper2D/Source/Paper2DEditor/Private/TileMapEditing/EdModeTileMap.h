@@ -54,10 +54,7 @@ public:
 	virtual bool InputDelta(FEditorViewportClient* InViewportClient, FViewport* InViewport, FVector& InDrag, FRotator& InRot, FVector& InScale) override;
 	virtual void Render(const FSceneView* View, FViewport* Viewport, FPrimitiveDrawInterface* PDI) override;
 	virtual void DrawHUD(FEditorViewportClient* ViewportClient, FViewport* Viewport, const FSceneView* View, FCanvas* Canvas) override;
-	// 	virtual bool Select(AActor* InActor, bool bInSelected) override;
-	// 	virtual bool IsSelectionAllowed(AActor* InActor) const override;
-	// 	virtual void ActorSelectionChangeNotify() override;
-	// 	virtual FVector GetWidgetLocation() const override;
+	virtual void ActorSelectionChangeNotify() override;
 	virtual bool AllowWidgetMove();
 	virtual bool ShouldDrawWidget() const override;
 	virtual bool UsesTransformWidget() const override;
@@ -95,6 +92,10 @@ protected:
 
 	void EnableTileMapEditMode();
 	bool IsTileMapEditModeActive() const;
+
+public:
+	UPaperTileMapComponent* FindSelectedComponent() const;
+
 protected:
 	bool bIsPainting;
 	TWeakObjectPtr<UPaperTileSet> PaintSourceTileSet;

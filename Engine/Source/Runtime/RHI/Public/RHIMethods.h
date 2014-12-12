@@ -549,7 +549,7 @@ DEFINE_RHIMETHOD_CMDLIST_0(
 // Useful when used with geometry shader (emit polygons to different viewports), otherwise SetViewPort() is simpler
 // @param Count >0
 // @param Data must not be 0
-DEFINE_RHIMETHOD_2(
+DEFINE_RHIMETHOD_CMDLIST_2(
 	void,SetMultipleViewports,
 	uint32,Count,
 	const FViewportBounds*,Data,
@@ -987,7 +987,7 @@ DEFINE_RHIMETHOD_GLOBALTHREADSAFE_1(
  * @param RequestStatus	- Will be decremented by 1 when the reallocation is complete (success or failure).
  * @return				- New reference to the texture, or an invalid reference upon failure
  */
-DEFINE_RHIMETHOD_GLOBAL_5(
+DEFINE_RHIMETHOD_GLOBALFLUSH_5(
 	FTexture2DRHIRef,AsyncReallocateTexture2D,
 	FTexture2DRHIParamRef,Texture2D,
 	int32,NewMipCount,
@@ -1310,23 +1310,13 @@ DEFINE_RHIMETHOD_CMDLIST_1(
 	FRenderQueryRHIParamRef,RenderQuery,
 	,
 	);
-#if PLATFORM_HAS_THREADSAFE_RHIGetRenderQueryResult
-	DEFINE_RHIMETHOD_GLOBALTHREADSAFE_3(
-		bool,GetRenderQueryResult,
-		FRenderQueryRHIParamRef,RenderQuery,
-		uint64&,OutResult,
-		bool,bWait,
-		return,return true;
+DEFINE_RHIMETHOD_3(
+	bool,GetRenderQueryResult,
+	FRenderQueryRHIParamRef,RenderQuery,
+	uint64&,OutResult,
+	bool,bWait,
+	return,return true;
 	);
-#else
-	DEFINE_RHIMETHOD_3(
-		bool,GetRenderQueryResult,
-		FRenderQueryRHIParamRef,RenderQuery,
-		uint64&,OutResult,
-		bool,bWait,
-		return,return true;
-	);
-#endif
 
 #if PLATFORM_SUPPORTS_RHI_THREAD
 	DEFINE_RHIMETHOD_CMDLIST_2(

@@ -167,6 +167,7 @@ private:
 	/** Saves dirty content. */
 	FReply OnSaveClicked();
 
+	/** Opens the add content dialog. */
 	FReply OnAddContentClicked();
 
 	/** Handler for when the selection set in the asset view has changed. */

@@ -16,7 +16,7 @@ UTileMapActorFactory::UTileMapActorFactory(const FObjectInitializer& ObjectIniti
 void UTileMapActorFactory::PostSpawnActor(UObject* Asset, AActor* NewActor)
 {
 	APaperTileMapActor* TypedActor = CastChecked<APaperTileMapActor>(NewActor);
-	UPaperTileMapRenderComponent* RenderComponent = TypedActor->GetRenderComponent();
+	UPaperTileMapComponent* RenderComponent = TypedActor->GetRenderComponent();
 	check(RenderComponent);
 
 	if (UPaperTileMap* TileMap = Cast<UPaperTileMap>(Asset))
@@ -39,13 +39,18 @@ void UTileMapActorFactory::PostSpawnActor(UObject* Asset, AActor* NewActor)
 			RenderComponent->RegisterComponent();
 		}
 	}
+
+	if (RenderComponent->OwnsTileMap())
+	{
+		RenderComponent->TileMap->AddNewLayer();
+	}
 }
 
 void UTileMapActorFactory::PostCreateBlueprint(UObject* Asset, AActor* CDO)
 {
 	if (APaperTileMapActor* TypedActor = Cast<APaperTileMapActor>(CDO))
 	{
-		UPaperTileMapRenderComponent* RenderComponent = TypedActor->GetRenderComponent();
+		UPaperTileMapComponent* RenderComponent = TypedActor->GetRenderComponent();
 		check(RenderComponent);
 
 		if (UPaperTileMap* TileMap = Cast<UPaperTileMap>(Asset))
@@ -59,6 +64,11 @@ void UTileMapActorFactory::PostCreateBlueprint(UObject* Asset, AActor* CDO)
 				RenderComponent->TileMap->TileWidth = TileSet->TileWidth;
 				RenderComponent->TileMap->TileHeight = TileSet->TileHeight;
 			}
+		}
+
+		if (RenderComponent->OwnsTileMap())
+		{
+			RenderComponent->TileMap->AddNewLayer();
 		}
 	}
 }

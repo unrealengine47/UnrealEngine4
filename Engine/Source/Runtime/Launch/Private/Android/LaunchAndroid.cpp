@@ -167,52 +167,6 @@ void InitHMDs()
 	}
 }
 
-
-void UpdateGameInterruptions()
-{
-	// Check for game suspension.
-	if(GHasInterruptionRequest)
-	{
-		// Suspend the renderer.
-		if(GUseThreadedRendering)
-		{
-			FlushRenderingCommands();
-			StopRenderingThread();
-		}
-		else
-		{
-			RHIReleaseThreadOwnership();
-		}
-
-		// Flag the suspended state.
-		GIsInterrupted = true;
-
-		// Wait for resume.
-		while(GHasInterruptionRequest)
-		{
-			FPlatformProcess::Sleep(0.1f);
-		}
-
-		// Flag the resume state.
-		GIsInterrupted = false;
-
-		// Reset the window surface.
-		RHIAcquireThreadOwnership();
-		RHIReleaseThreadOwnership();
-
-		// Resume the renderer.
-		if(GUseThreadedRendering)
-		{
-			StartRenderingThread();
-		}
-		else
-		{
-			UE_LOG(LogAndroid, Display, TEXT("Acquiring Thread Ownership"));
-			RHIAcquireThreadOwnership();
-		}
-	}
-}
-
 static void InitCommandLine()
 {
 	static const uint32 CMD_LINE_MAX = 16384u;
@@ -977,15 +931,6 @@ extern "C" void Java_com_epicgames_ue4_GameActivity_nativeConsoleCommand(JNIEnv*
 
 	//Release the string
 	jenv->ReleaseStringUTFChars(commandString, javaChars);
-}
-
-//This function is declared in the Java-defined class, GameActivity.java: "public native void nativeIsGooglePlayEnabled();"
-extern "C" jboolean Java_com_epicgames_ue4_GameActivity_nativeIsGooglePlayEnabled(JNIEnv* jenv, jobject thiz)
-{
-	bool bEnabled = false;
-	GConfig->GetBool(TEXT("/Script/AndroidRuntimeSettings.AndroidRuntimeSettings"), TEXT("bEnableGooglePlaySupport"), bEnabled, GEngineIni);
-	UE_LOG(LogOnline, Log, TEXT("Checking whether Google Play is enabled. bEnableGooglePlaySupport = %d"), bEnabled);
-	return bEnabled;
 }
 
 // This is called from the Java UI thread for initializing VR HMDs

@@ -31,7 +31,7 @@ FTileMapEditorViewportClient::FTileMapEditorViewportClient(TWeakPtr<FTileMapEdit
 	WidgetMode = FWidget::WM_Translate;
 	bManipulating = false;
 	bManipulationDirtiedSomething = false;
-	ScopedTransaction = NULL;
+	ScopedTransaction = nullptr;
 
 	bShowPivot = true;
 
@@ -42,9 +42,10 @@ FTileMapEditorViewportClient::FTileMapEditorViewportClient(TWeakPtr<FTileMapEdit
 
 	// Create a render component for the tile map being edited
 	{
-		RenderTileMapComponent = NewObject<UPaperTileMapRenderComponent>();
+		RenderTileMapComponent = NewObject<UPaperTileMapComponent>();
 		UPaperTileMap* TileMap = GetTileMapBeingEdited();
 		RenderTileMapComponent->TileMap = TileMap;
+		GSelectedAnnotation.Set(RenderTileMapComponent);
 
 		PreviewScene->AddComponent(RenderTileMapComponent, FTransform::Identity);
 	}
@@ -92,7 +93,7 @@ void FTileMapEditorViewportClient::DrawCanvas(FViewport& Viewport, FSceneView& V
 	const bool bIsHitTesting = Canvas.IsHitTesting();
 	if (!bIsHitTesting)
 	{
-		Canvas.SetHitProxy(NULL);
+		Canvas.SetHitProxy(nullptr);
 	}
 
 	if (!TileMapEditorPtr.IsValid())
@@ -130,7 +131,7 @@ void FTileMapEditorViewportClient::Tick(float DeltaSeconds)
 		FIntPoint Size = Viewport->GetSizeXY();
 		if (bDeferZoomToTileMap && (Size.X > 0) && (Size.Y > 0))
 		{
-			UPaperTileMapRenderComponent* ComponentToFocusOn = RenderTileMapComponent;
+			UPaperTileMapComponent* ComponentToFocusOn = RenderTileMapComponent;
 			FocusViewportOnBox(ComponentToFocusOn->Bounds.GetBox(), true);
 			bDeferZoomToTileMap = false;
 		}		
@@ -164,10 +165,10 @@ void FTileMapEditorViewportClient::EndTransaction()
 	
 	bManipulationDirtiedSomething = false;
 
-	if (ScopedTransaction != NULL)
+	if (ScopedTransaction != nullptr)
 	{
 		delete ScopedTransaction;
-		ScopedTransaction = NULL;
+		ScopedTransaction = nullptr;
 	}
 }
 

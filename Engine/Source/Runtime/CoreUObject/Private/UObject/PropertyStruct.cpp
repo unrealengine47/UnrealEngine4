@@ -215,15 +215,39 @@ bool UStructProperty::HasNoOpConstructor() const
 
 FString UStructProperty::GetCPPType( FString* ExtendedTypeText/*=NULL*/, uint32 CPPExportFlags/*=0*/ ) const
 {
-	bool bExportForwardDeclaration = 
-		(CPPExportFlags&CPPF_OptionalValue) == 0 &&
-		(Struct->GetOwnerClass() == NULL || 
-		!(Struct->GetOwnerClass()->HasAnyClassFlags(CLASS_NoExport) || (Struct->StructFlags&STRUCT_Native) == 0));
-
-	return FString::Printf( TEXT("%sF%s"), 
-		bExportForwardDeclaration ? TEXT("struct ") : TEXT(""),
-		*Struct->GetName() );
+	return FString::Printf(TEXT("F%s"), *Struct->GetName());
 }
+
+FString UStructProperty::GetCPPTypeForwardDeclaration() const
+{
+	// The following types are classes, but reflection system sees them as structs.
+	static FName ClassNames[] =
+	{
+		NAME_Box,
+		NAME_Color,
+		FName(TEXT("Guid")),
+		NAME_Plane,
+		NAME_Quat,
+		FName(TEXT("RandomStream")),
+		FName(TEXT("Rotator")),
+		FName(TEXT("Timespan")),
+		NAME_Transform,
+		NAME_Vector
+	};
+
+	auto Name = Struct->GetFName();
+
+	for (int32 i = 0; i < ARRAY_COUNT(ClassNames); ++i)
+	{
+		if (ClassNames[i] == Name)
+		{
+			return FString::Printf(TEXT("class F%s;"), *Struct->GetName());
+		}
+	}
+
+	return FString::Printf(TEXT("struct F%s;"), *Struct->GetName());
+}
+
 FString UStructProperty::GetCPPMacroType( FString& ExtendedTypeText ) const
 {
 	ExtendedTypeText = GetCPPType(NULL, CPPF_None);
@@ -395,7 +419,7 @@ void UStructProperty::CopyValuesInternal( void* Dest, void const* Src, int32 Cou
 
 void UStructProperty::InitializeValueInternal( void* InDest ) const
 {
-	Struct->InitializeScriptStruct(InDest, ArrayDim);
+	Struct->InitializeStruct(InDest, ArrayDim);
 }
 
 void UStructProperty::ClearValueInternal( void* Data ) const
@@ -405,7 +429,7 @@ void UStructProperty::ClearValueInternal( void* Data ) const
 
 void UStructProperty::DestroyValueInternal( void* Dest ) const
 {
-	Struct->DestroyScriptStruct(Dest, ArrayDim);
+	Struct->DestroyStruct(Dest, ArrayDim);
 }
 
 /**

@@ -939,6 +939,9 @@ void UEngine::PreExit()
 	}
 
 	delete ScreenSaverInhibitorRunnable;
+
+	StereoRenderingDevice.Reset();
+	HMDDevice.Reset();
 }
 
 void UEngine::TickDeferredCommands()
@@ -1729,26 +1732,23 @@ public:
 
 bool UEngine::InitializeHMDDevice()
 {
-	if (!GIsEditor)
+	if (FParse::Param(FCommandLine::Get(), TEXT("emulatestereo")))
 	{
-		if (FParse::Param(FCommandLine::Get(), TEXT("emulatestereo")))
+		TSharedPtr<FFakeStereoRenderingDevice> FakeStereoDevice(new FFakeStereoRenderingDevice());
+		StereoRenderingDevice = FakeStereoDevice;
+	}
+	// No reason to connect an HMD on a dedicated server.  Also fixes dedicated servers stealing the oculus connection.
+	else if (!HMDDevice.IsValid() && !FParse::Param(FCommandLine::Get(), TEXT("nohmd")) && !IsRunningDedicatedServer())
+	{
+		// Get a list of plugins that implement this feature
+		TArray<IHeadMountedDisplayModule*> HMDImplementations = IModularFeatures::Get().GetModularFeatureImplementations<IHeadMountedDisplayModule>(IHeadMountedDisplayModule::GetModularFeatureName());
+		HMDImplementations.Sort(FHMDPluginSorter());
+		for (auto HMDModuleIt = HMDImplementations.CreateIterator(); HMDModuleIt && !HMDDevice.IsValid(); ++HMDModuleIt)
 		{
-			TSharedPtr<FFakeStereoRenderingDevice> FakeStereoDevice(new FFakeStereoRenderingDevice());
-			StereoRenderingDevice = FakeStereoDevice;
-		}
-		// No reason to connect an HMD on a dedicated server.  Also fixes dedicated servers stealing the oculus connection.
-		else if (!HMDDevice.IsValid() && !FParse::Param(FCommandLine::Get(), TEXT("nohmd")) && !IsRunningDedicatedServer())
-		{
-			// Get a list of plugins that implement this feature
-			TArray<IHeadMountedDisplayModule*> HMDImplementations = IModularFeatures::Get().GetModularFeatureImplementations<IHeadMountedDisplayModule>(IHeadMountedDisplayModule::GetModularFeatureName());
-			HMDImplementations.Sort(FHMDPluginSorter());
-			for (auto HMDModuleIt = HMDImplementations.CreateIterator(); HMDModuleIt && !HMDDevice.IsValid(); ++HMDModuleIt)
+			HMDDevice = (*HMDModuleIt)->CreateHeadMountedDisplay();
+			if (HMDDevice.IsValid())
 			{
-				HMDDevice = (*HMDModuleIt)->CreateHeadMountedDisplay();
-				if (HMDDevice.IsValid())
-				{
-					StereoRenderingDevice = HMDDevice;
-				}
+				StereoRenderingDevice = HMDDevice;
 			}
 		}
 	}
@@ -1771,7 +1771,7 @@ void UEngine::RecordHMDAnalytics()
 bool UEngine::IsSplitScreen(UWorld *InWorld)
 {
 	if (InWorld == NULL)
-{
+	{
 		// If no specified world, return true if any world context has multiple local players
 		for (auto It = WorldList.CreateIterator(); It; ++It)
 		{
@@ -1788,9 +1788,10 @@ bool UEngine::IsSplitScreen(UWorld *InWorld)
 }
 
 /** @return whether we're currently running with stereoscopic 3D enabled */
-bool UEngine::IsStereoscopic3D()
+bool UEngine::IsStereoscopic3D(FViewport* InViewport)
 {
-	return !GIsEditor && StereoRenderingDevice.IsValid() && StereoRenderingDevice->IsStereoEnabled();
+	return (!InViewport || InViewport->IsStereoRenderingAllowed()) &&
+		   (StereoRenderingDevice.IsValid() && StereoRenderingDevice->IsStereoEnabled());
 }
 
 ULocalPlayer* GetLocalPlayerFromControllerId_local(const TArray<class ULocalPlayer*>& GamePlayers, const int32 ControllerId)
@@ -6671,7 +6672,7 @@ void DrawStatsHUD( UWorld* World, FViewport* Viewport, FCanvas* Canvas, UCanvas*
 
 	//@todo joeg: Move this stuff to a function, make safe to use on consoles by
 	// respecting the various safe zones, and make it compile out.
-	const int32 FPSXOffset	= (GEngine->IsStereoscopic3D()) ? Viewport->GetSizeXY().X * 0.5f * 0.334f : (FPlatformProperties::SupportsWindowedMode() ? 110 : 250);
+	const int32 FPSXOffset	= (GEngine->IsStereoscopic3D(Viewport)) ? Viewport->GetSizeXY().X * 0.5f * 0.334f : (FPlatformProperties::SupportsWindowedMode() ? 110 : 250);
 	const int32 StatsXOffset	= FPlatformProperties::SupportsWindowedMode() ?  4 : 100;
 
 	int32 MessageY = 35;
@@ -6865,7 +6866,7 @@ void DrawStatsHUD( UWorld* World, FViewport* Viewport, FCanvas* Canvas, UCanvas*
 
 	{
 		int32 X = (CanvasObject) ? CanvasObject->SizeX - FPSXOffset : Viewport->GetSizeXY().X - FPSXOffset; //??
-		int32 Y = (GEngine->IsStereoscopic3D()) ? FMath::TruncToInt(Viewport->GetSizeXY().Y * 0.40f) : FMath::TruncToInt(Viewport->GetSizeXY().Y * 0.20f);
+		int32 Y = (GEngine->IsStereoscopic3D(Viewport)) ? FMath::TruncToInt(Viewport->GetSizeXY().Y * 0.40f) : FMath::TruncToInt(Viewport->GetSizeXY().Y * 0.20f);
 
 		//give the viewport first shot at drawing stats
 		Y = Viewport->DrawStatsHUD(Canvas, X, Y);
@@ -7938,12 +7939,12 @@ void UEngine::HandleDisconnect( UWorld *InWorld, UNetDriver *NetDriver )
 		WorldContext->LastURL.RemoveOption( TEXT("Listen") );
 		WorldContext->LastURL.RemoveOption( TEXT("LAN") );
 
+		// Net driver destruction will occur during LoadMap (prevents GetNetMode from changing output for the remainder of the frame)
 		SetClientTravel( InWorld, TEXT("?closed"), TRAVEL_Absolute );
 	}
-
-	// Shut down any existing game connections
-	if (NetDriver)
+	else if (NetDriver)
 	{
+		// Shut down any existing game connections
 		if (InWorld)
 		{
 			// Call this to remove the NetDriver from the world context's ActiveNetDriver list

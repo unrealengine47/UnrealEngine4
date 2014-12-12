@@ -780,7 +780,7 @@ public class GameActivity extends NativeActivity
 
 		for ( String fontdir : fontdirs )
         {
-			Log.debug(fontdir);
+//			Log.debug(fontdir);
             File dir = new File( fontdir );
 
 			if(dir.exists())
@@ -891,15 +891,11 @@ public class GameActivity extends NativeActivity
 
 	public native void nativeConsoleCommand(String commandString);
 	public native void nativeVirtualKeyboardResult(boolean update, String contents);
-	
-	public native boolean nativeIsGooglePlayEnabled();
 
 	public native void nativeInitHMDs();
 
 	public native void nativeResumeMainInit();
 	
-	public native void nativeCompletedConnection(int playerID, int errorCode);
-
 	static
 	{
 		System.loadLibrary("gnustl_shared");

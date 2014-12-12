@@ -92,6 +92,11 @@ struct ENGINE_API FMaterialRenderContext
 	const FMaterialRenderProxy* MaterialRenderProxy;
 	/** Material resource to use. */
 	const FMaterial& Material;
+
+	// Used only when evaluating expressions per frame
+	float Time;
+	float RealTime;
+
 	/** Whether or not selected objects should use their selection color. */
 	bool bShowSelection;
 
@@ -167,6 +172,7 @@ public:
 	virtual void GetNumberValue(const struct FMaterialRenderContext& Context,FLinearColor& OutValue) const {}
 	virtual class FMaterialUniformExpressionTexture* GetTextureUniformExpression() { return NULL; }
 	virtual bool IsConstant() const { return false; }
+	virtual bool IsChangingPerFrame() const { return false; }
 	virtual bool IsIdentical(const FMaterialUniformExpression* OtherExpression) const { return false; }
 
 	friend FArchive& operator<<(FArchive& Ar,class FMaterialUniformExpression*& Ref);
@@ -232,6 +238,8 @@ public:
 			+ UniformScalarExpressions.GetAllocatedSize()
 			+ Uniform2DTextureExpressions.GetAllocatedSize()
 			+ UniformCubeTextureExpressions.GetAllocatedSize()
+			+ PerFrameUniformScalarExpressions.GetAllocatedSize()
+			+ PerFrameUniformVectorExpressions.GetAllocatedSize()
 			+ ParameterCollections.GetAllocatedSize()
 			+ (UniformBufferStruct ? (sizeof(FUniformBufferStruct) + UniformBufferStruct->GetMembers().GetAllocatedSize()) : 0);
 	}
@@ -242,6 +250,8 @@ protected:
 	TArray<TRefCountPtr<FMaterialUniformExpression> > UniformScalarExpressions;
 	TArray<TRefCountPtr<FMaterialUniformExpressionTexture> > Uniform2DTextureExpressions;
 	TArray<TRefCountPtr<FMaterialUniformExpressionTexture> > UniformCubeTextureExpressions;
+	TArray<TRefCountPtr<FMaterialUniformExpression> > PerFrameUniformScalarExpressions;
+	TArray<TRefCountPtr<FMaterialUniformExpression> > PerFrameUniformVectorExpressions;
 
 	/** Ids of parameter collections referenced by the material that was translated. */
 	TArray<FGuid> ParameterCollections;
@@ -555,6 +565,14 @@ public:
 
 	/** Attempts to load missing shaders from memory. */
 	void LoadMissingShadersFromMemory(const FMaterial* Material);
+
+	/**
+	 * Checks to see if the shader map is already being compiled for another material, and if so
+	 * adds the specified material to the list to be applied to once the compile finishes.
+	 * @param Material - The material we also wish to apply the compiled shader map to.
+	 * @return True if the shader map was being compiled and we added Material to the list to be applied.
+	 */
+	bool TryToAddToExistingCompilationTask(FMaterial* Material);
 
 	/** Builds a list of the shaders in a shader map. */
 	ENGINE_API void GetShaderList(TMap<FShaderId,FShader*>& OutShaders) const;

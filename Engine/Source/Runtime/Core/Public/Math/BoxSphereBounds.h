@@ -136,11 +136,36 @@ public:
 	}
 
 	/**
+	 * Test whether the spheres from two BoxSphereBounds intersect/overlap.
+	 * 
+	 * @param  A First BoxSphereBounds to test.
+	 * @param  B Second BoxSphereBounds to test.
+	 * @param  Tolerance Error tolerance added to test distance.
+	 * @return true if spheres intersect, false otherwise.
+	 */
+	FORCEINLINE static bool SpheresIntersect(const FBoxSphereBounds& A, const FBoxSphereBounds& B, float Tolerance = KINDA_SMALL_NUMBER)
+	{
+		return (A.Origin - B.Origin).SizeSquared() <= FMath::Square(FMath::Max(0.f, A.SphereRadius + B.SphereRadius + Tolerance));
+	}
+
+	/**
+	 * Test whether the boxes from two BoxSphereBounds intersect/overlap.
+	 * 
+	 * @param  A First BoxSphereBounds to test.
+	 * @param  B Second BoxSphereBounds to test.
+	 * @return true if boxes intersect, false otherwise.
+	 */
+	FORCEINLINE static bool BoxesIntersect(const FBoxSphereBounds& A, const FBoxSphereBounds& B)
+	{
+		return A.GetBox().Intersect(B.GetBox());
+	}
+
+	/**
 	 * Gets the bounding box.
 	 *
 	 * @return The bounding box.
 	 */
-	FBox GetBox( ) const
+	FORCEINLINE FBox GetBox( ) const
 	{
 		return FBox(Origin - BoxExtent,Origin + BoxExtent);
 	}
@@ -166,7 +191,7 @@ public:
 	 *
 	 * @return The bounding sphere.
 	 */
-	FSphere GetSphere( ) const
+	FORCEINLINE FSphere GetSphere( ) const
 	{
 		return FSphere(Origin,SphereRadius);
 	}

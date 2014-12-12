@@ -308,8 +308,8 @@ void UK2Node_MakeArray::AddInputPin()
 	Modify();
 
 	++NumInputs;
-	CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Wildcard, TEXT(""), NULL, false, false, *FString::Printf(TEXT("[%d]"), (NumInputs-1)));
-	PostReconstructNode();
+	FEdGraphPinType OutputPinType = GetOutputPin()->PinType;
+	CreatePin(EGPD_Input, OutputPinType.PinCategory, OutputPinType.PinSubCategory, OutputPinType.PinSubCategoryObject.Get(), false, false, *FString::Printf(TEXT("[%d]"), (NumInputs-1)));
 	
 	const bool bIsCompiling = GetBlueprint()->bBeingCompiled;
 	if( !bIsCompiling )
