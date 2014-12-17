@@ -77,7 +77,7 @@ FDeferredShadingSceneRenderer::FDeferredShadingSceneRenderer(const FSceneViewFam
 	// Shader complexity requires depth only pass to display masked material cost correctly
 	if (ViewFamily.EngineShowFlags.ShaderComplexity)
 	{
-		EarlyZPassMode = DDM_AllOccluders;
+		EarlyZPassMode = DDM_AllOpaque;
 	}
 
 	// developer override, good for profiling, can be useful as project setting
@@ -90,6 +90,7 @@ FDeferredShadingSceneRenderer::FDeferredShadingSceneRenderer(const FSceneViewFam
 			case 0: EarlyZPassMode = DDM_None; break;
 			case 1: EarlyZPassMode = DDM_NonMaskedOnly; break;
 			case 2: EarlyZPassMode = DDM_AllOccluders; break;
+			case 3: EarlyZPassMode = DDM_AllOpaque; break;
 		}
 	}
 }
@@ -976,15 +977,17 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		RenderLightShaftBloom(RHICmdList);
 	}
 
-	if (ViewFamily.EngineShowFlags.VisualizeDistanceFieldAO)
+	if (ViewFamily.EngineShowFlags.VisualizeDistanceFieldAO || ViewFamily.EngineShowFlags.VisualizeDistanceFieldGI)
 	{
+		// Use the skylight's max distance if there is one, to be consistent with DFAO shadowing on the skylight
+		const float OcclusionMaxDistance = Scene->SkyLight && !Scene->SkyLight->bWantsStaticShadowing ? Scene->SkyLight->OcclusionMaxDistance : 600;
 		TRefCountPtr<IPooledRenderTarget> DummyOutput;
-		RenderDistanceFieldAOSurfaceCache(RHICmdList, FDistanceFieldAOParameters(), DummyOutput, DummyOutput, true);
+		RenderDistanceFieldAOSurfaceCache(RHICmdList, FDistanceFieldAOParameters(OcclusionMaxDistance), DummyOutput, DummyOutput, true);
 	}
 
 	if (ViewFamily.EngineShowFlags.VisualizeMeshDistanceFields)
 	{
-		RenderMeshDistanceFieldVisualization(RHICmdList, FDistanceFieldAOParameters());
+		RenderMeshDistanceFieldVisualization(RHICmdList, FDistanceFieldAOParameters(600));
 	}
 
 	// Resolve the scene color for post processing.
@@ -1040,7 +1043,7 @@ bool FDeferredShadingSceneRenderer::RenderPrePassViewDynamic(FRHICommandList& RH
 			const FPrimitiveSceneProxy* PrimitiveSceneProxy = MeshBatchAndRelevance.PrimitiveSceneProxy;
 			bool bShouldUseAsOccluder = true;
 
-			if (EarlyZPassMode != DDM_AllOccluders)
+			if (EarlyZPassMode < DDM_AllOccluders)
 			{
 				extern float GMinScreenRadiusForDepthPrepass;
 				//@todo - move these proxy properties into FMeshBatchAndRelevance so we don't have to dereference the proxy in order to reject a mesh
