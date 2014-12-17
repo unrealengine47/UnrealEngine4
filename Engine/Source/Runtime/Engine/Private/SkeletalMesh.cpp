@@ -3614,7 +3614,7 @@ ASkeletalMeshActor::ASkeletalMeshActor(const FObjectInitializer& ObjectInitializ
 	: Super(ObjectInitializer)
 {
 
-	SkeletalMeshComponent = ObjectInitializer.CreateDefaultSubobject<USkeletalMeshComponent>(this, TEXT("SkeletalMeshComponent0"));
+	SkeletalMeshComponent = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("SkeletalMeshComponent0"));
 	SkeletalMeshComponent->MeshComponentUpdateFlag = EMeshComponentUpdateFlag::AlwaysTickPose;
 	// check BaseEngine.ini for profile setup
 	SkeletalMeshComponent->SetCollisionProfileName(UCollisionProfile::PhysicsActor_ProfileName);
@@ -4238,9 +4238,6 @@ void FSkeletalMeshSceneProxy::GetMeshElementsConditionallySelectable(const TArra
 	{
 		if (VisibilityMap & (1 << ViewIndex))
 		{
-			// debug drawing
-			TArray<FTransform>* BoneSpaceBases = MeshObject->GetSpaceBases();
-
 			if( PhysicsAssetForDebug )
 			{
 				DebugDrawPhysicsAsset(ViewIndex, Collector, ViewFamily.EngineShowFlags);
@@ -4550,6 +4547,7 @@ USkinnedMeshComponent::USkinnedMeshComponent(const FObjectInitializer& ObjectIni
 	bDoubleBufferedBlendSpaces = true;
 	CurrentEditableSpaceBases = 0;
 	CurrentReadSpaceBases = 1;
+	bNeedToFlipSpaceBaseBuffers = false;
 }
 
 

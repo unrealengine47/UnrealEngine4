@@ -183,7 +183,8 @@ void DrawBox(FPrimitiveDrawInterface* PDI,const FMatrix& BoxToWorld,const FVecto
 	MeshBuilder.Draw(PDI,FScaleMatrix(Radii) * BoxToWorld,MaterialRenderProxy,DepthPriorityGroup,0.f);
 }
 
-void GetHalfSphereMesh(const FVector& Center, const FVector& Radii, int32 NumSides, int32 NumRings, float StartAngle, float EndAngle, const FMaterialRenderProxy* MaterialRenderProxy, uint8 DepthPriority, bool bDisableBackfaceCulling, int32 ViewIndex, FMeshElementCollector& Collector)
+void GetHalfSphereMesh(const FVector& Center, const FVector& Radii, int32 NumSides, int32 NumRings, float StartAngle, float EndAngle, const FMaterialRenderProxy* MaterialRenderProxy, uint8 DepthPriority, 
+					bool bDisableBackfaceCulling, int32 ViewIndex, FMeshElementCollector& Collector,bool bUseSelectionOutline,HHitProxy* HitProxy)
 {
 	// Use a mesh builder to draw the sphere.
 	FDynamicMeshBuilder MeshBuilder;
@@ -263,14 +264,20 @@ void GetHalfSphereMesh(const FVector& Center, const FVector& Radii, int32 NumSid
 		FMemory::Free(Verts);
 		FMemory::Free(ArcVerts);
 	}
-	MeshBuilder.GetMesh(FScaleMatrix(Radii) * FTranslationMatrix(Center), MaterialRenderProxy, DepthPriority, bDisableBackfaceCulling, false, ViewIndex, Collector);
+	MeshBuilder.GetMesh(FScaleMatrix(Radii) * FTranslationMatrix(Center), MaterialRenderProxy, DepthPriority, bDisableBackfaceCulling, false, bUseSelectionOutline, ViewIndex, Collector, HitProxy);
 }
 
-void GetSphereMesh(const FVector& Center,const FVector& Radii,int32 NumSides,int32 NumRings,const FMaterialRenderProxy* MaterialRenderProxy,uint8 DepthPriority,bool bDisableBackfaceCulling,int32 ViewIndex,FMeshElementCollector& Collector)
+void GetSphereMesh(const FVector& Center, const FVector& Radii, int32 NumSides, int32 NumRings, const FMaterialRenderProxy* MaterialRenderProxy, uint8 DepthPriority,
+					bool bDisableBackfaceCulling, int32 ViewIndex, FMeshElementCollector& Collector)
 {
-	GetHalfSphereMesh(Center, Radii, NumSides, NumRings, 0, PI, MaterialRenderProxy, DepthPriority, bDisableBackfaceCulling, ViewIndex, Collector);
+	GetSphereMesh(Center, Radii, NumSides, NumRings, MaterialRenderProxy, DepthPriority, bDisableBackfaceCulling, ViewIndex, Collector, true, NULL);
 }
 
+extern ENGINE_API void GetSphereMesh(const FVector& Center, const FVector& Radii, int32 NumSides, int32 NumRings, const FMaterialRenderProxy* MaterialRenderProxy, uint8 DepthPriority,
+	bool bDisableBackfaceCulling, int32 ViewIndex, FMeshElementCollector& Collector, bool bUseSelectionOutline, HHitProxy* HitProxy)
+{
+	GetHalfSphereMesh(Center, Radii, NumSides, NumRings, 0, PI, MaterialRenderProxy, DepthPriority, bDisableBackfaceCulling, ViewIndex, Collector, bUseSelectionOutline, HitProxy);
+}
 
 void DrawSphere(FPrimitiveDrawInterface* PDI,const FVector& Center,const FVector& Radii,int32 NumSides,int32 NumRings,const FMaterialRenderProxy* MaterialRenderProxy,uint8 DepthPriority,bool bDisableBackfaceCulling)
 {
@@ -835,6 +842,41 @@ void DrawWireBox(FPrimitiveDrawInterface* PDI, const FBox& Box, const FLinearCol
 		PDI->DrawLine(P, Q, Color, DepthPriority, Thickness, DepthBias, bScreenSpace);
 	}
 }
+
+
+void DrawWireBox( FPrimitiveDrawInterface* PDI, const FMatrix& Matrix, const FBox& Box, const FLinearColor& Color, uint8 DepthPriority )
+{
+	FVector B[ 2 ];
+	B[ 0 ] = Box.Min;
+	B[ 1 ] = Box.Max;
+
+	for( int i = 0; i < 2; i++ )
+	{
+		for( int j = 0; j < 2; j++ )
+		{
+			FVector P, Q;
+
+			P.X = B[ i ].X; Q.X = B[ i ].X;
+			P.Y = B[ j ].Y; Q.Y = B[ j ].Y;
+			P.Z = B[ 0 ].Z; Q.Z = B[ 1 ].Z;
+			P = Matrix.TransformPosition( P ); Q = Matrix.TransformPosition( Q );
+			PDI->DrawLine( P, Q, Color, DepthPriority );
+
+			P.Y = B[ i ].Y; Q.Y = B[ i ].Y;
+			P.Z = B[ j ].Z; Q.Z = B[ j ].Z;
+			P.X = B[ 0 ].X; Q.X = B[ 1 ].X;
+			P = Matrix.TransformPosition( P ); Q = Matrix.TransformPosition( Q );
+			PDI->DrawLine( P, Q, Color, DepthPriority );
+
+			P.Z = B[ i ].Z; Q.Z = B[ i ].Z;
+			P.X = B[ j ].X; Q.X = B[ j ].X;
+			P.Y = B[ 0 ].Y; Q.Y = B[ 1 ].Y;
+			P = Matrix.TransformPosition( P ); Q = Matrix.TransformPosition( Q );
+			PDI->DrawLine( P, Q, Color, DepthPriority );
+		}
+	}
+}
+
 
 /**
  * Draws a circle using lines.

@@ -2671,6 +2671,43 @@ bool UEngine::HandleHotReloadCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 }
 #endif // WITH_HOT_RELOAD
 
+
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+static void DumpHelp(UWorld* InWorld)
+{
+	UE_LOG(LogEngine, Display, TEXT("Console Help:"));
+	UE_LOG(LogEngine, Display, TEXT("============="));
+	UE_LOG(LogEngine, Display, TEXT(" "));
+	UE_LOG(LogEngine, Display, TEXT("A console variable is a engine wide key value pair. The key is a string usually starting with the subsystem prefix followed"));
+	UE_LOG(LogEngine, Display, TEXT("by '.' e.g. r.BloomQuality. The value can be of different tpe (e.g. float, int, string). A console command has no state associated with"));
+	UE_LOG(LogEngine, Display, TEXT("and gets executed immediately."));
+	UE_LOG(LogEngine, Display, TEXT(" "));
+	UE_LOG(LogEngine, Display, TEXT("Console variables can be put into ini files (e.g. ConsoleVariables.ini or BaseEngine.ini) with this syntax:"));
+	UE_LOG(LogEngine, Display, TEXT("<Console variable> = <value>"));
+	UE_LOG(LogEngine, Display, TEXT(" "));
+	UE_LOG(LogEngine, Display, TEXT("DumpConsoleCommands         Lists all console variables and commands that are registered (Some are not registered)"));
+	UE_LOG(LogEngine, Display, TEXT("<Console variable>          Get the console variable state"));
+	UE_LOG(LogEngine, Display, TEXT("<Console variable> ?        Get the console variable help text"));
+	UE_LOG(LogEngine, Display, TEXT("<Console variable> <value>  Set the console variable value"));
+	UE_LOG(LogEngine, Display, TEXT("<Console command> [Params]  Execute the console command with optional parameters"));
+
+	UE_LOG(LogEngine, Display, TEXT(" "));
+
+	FString FilePath = FPaths::GameSavedDir() + TEXT("ConsoleHelp.html");
+
+	UE_LOG(LogEngine, Display, TEXT("To browse console variables open this: '%s'"), *FilePath);
+	UE_LOG(LogEngine, Display, TEXT(" "));
+
+	ConsoleCommandLibrary_DumpLibraryHTML(InWorld, *GEngine, FilePath);
+}
+static FAutoConsoleCommandWithWorld GConsoleCommandHelp(
+	TEXT("help"),
+	TEXT("Outputs some helptext to the console and the log"),
+	FConsoleCommandWithWorldDelegate::CreateStatic(DumpHelp)
+	);
+#endif // !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+
+
 bool UEngine::HandleDumpConsoleCommandsCommand( const TCHAR* Cmd, FOutputDevice& Ar, UWorld* InWorld )
 {
 	Ar.Logf(TEXT("DumpConsoleCommands: %s*"), Cmd);
@@ -5374,7 +5411,8 @@ bool UEngine::HandleConfigHashCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 			Ar.Log( TEXT("Files map:") );
 			for ( FConfigCacheIni::TIterator It(*GConfig); It; ++It )
 			{
-				Ar.Logf(TEXT("FileName: %s"), *It.Key());
+				// base filename is what Dump() compares against
+				Ar.Logf(TEXT("FileName: %s (%s)"), *FPaths::GetBaseFilename(It.Key()), *It.Key());
 			}
 		}
 		else
@@ -6560,7 +6598,7 @@ static void DrawProperty(UCanvas* CanvasObject, UObject* Obj, const FDebugDispla
 		CanvasObject->ClippedStrLen(GEngine->GetSmallFont(), 1.0f, 1.0f, XL, YL, *PropText);
 		FTextSizingParameters DrawParams(X, Y, CanvasObject->SizeX - X, 0, GEngine->GetSmallFont());
 		TArray<FWrappedStringElement> TextLines;
-		UCanvas::WrapString(DrawParams, X + XL, *Str, TextLines);
+		CanvasObject->WrapString(DrawParams, X + XL, *Str, TextLines);
 		int32 XL2 = XL;
 		if (TextLines.Num() > 0)
 		{
@@ -8601,7 +8639,7 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 		ShutdownWorldNetDriver(WorldContext.World());
 
 		// Make sure there are no pending visibility requests.
-		WorldContext.World()->FlushLevelStreaming( NULL, EFlushLevelStreamingType::Visibility );
+		WorldContext.World()->FlushLevelStreaming(EFlushLevelStreamingType::Visibility);
 		
 		// send a message that all levels are going away (NULL means every sublevel is being removed
 		// without a call to RemoveFromWorld for each)
@@ -8952,7 +8990,7 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 	LoadPackagesFully(WorldContext.World(), FULLYLOAD_Map, WorldContext.World()->PersistentLevel->GetOutermost()->GetName());
 
 	// Make sure "always loaded" sub-levels are fully loaded
-	WorldContext.World()->FlushLevelStreaming(nullptr, EFlushLevelStreamingType::Visibility);
+	WorldContext.World()->FlushLevelStreaming(EFlushLevelStreamingType::Visibility);
 	
 	UNavigationSystem::InitializeForWorld(WorldContext.World(), FNavigationSystem::GameMode);
 	
@@ -9040,28 +9078,8 @@ void UEngine::BlockTillLevelStreamingCompleted(UWorld* InWorld)
 		InWorld->WorldComposition->UpdateStreamingState();
 	}
 
-	// Create view collection
-	int32 NumPlayers = GetNumGamePlayers(InWorld);
-	TUniquePtr<FSceneViewFamilyContext> ViewFamily;
-	if (NumPlayers && GameViewport)
-	{
-		ViewFamily = MakeUnique<FSceneViewFamilyContext>(
-			FSceneViewFamily::ConstructionValues(GameViewport->Viewport, InWorld->Scene, GameViewport->EngineShowFlags).SetRealtimeUpdate(true));
-
-		for (int32 PlayerIndex = 0; PlayerIndex < NumPlayers; ++PlayerIndex)
-		{
-			ULocalPlayer* Player = GetGamePlayer(InWorld, PlayerIndex);
-			if (Player && Player->ViewportClient)
-			{
-				FVector ViewLocation;
-				FRotator ViewRotation;
-				Player->CalcSceneView(ViewFamily.Get(), /*out*/ ViewLocation, /*out*/ ViewRotation, Player->ViewportClient->Viewport);
-			}
-		}
-	}
-
 	// Probe if we have anything to do
-	InWorld->UpdateLevelStreaming(ViewFamily.Get());
+	InWorld->UpdateLevelStreaming();
 	bool bWorkToDo = (InWorld->IsVisibilityRequestPending() || IsAsyncLoading());
 	
 	if (bWorkToDo)
@@ -9072,7 +9090,7 @@ void UEngine::BlockTillLevelStreamingCompleted(UWorld* InWorld)
 		}	
 
 		// Flush level streaming requests, blocking till completion.
-		InWorld->FlushLevelStreaming(ViewFamily.Get(), EFlushLevelStreamingType::Full);
+		InWorld->FlushLevelStreaming(EFlushLevelStreamingType::Full);
 
 		if( GEngine->EndStreamingPauseDelegate && GEngine->EndStreamingPauseDelegate->IsBound() )
 		{
@@ -9955,7 +9973,7 @@ bool UEngine::CommitMapChange( FWorldContext &Context )
 		// Update level streaming, forcing existing levels to be unloaded and their streaming objects 
 		// removed from the world info.	We can't kick off async loading in this update as we want to 
 		// collect garbage right below.
-		Context.World()->FlushLevelStreaming( NULL, EFlushLevelStreamingType::Visibility );
+		Context.World()->FlushLevelStreaming(EFlushLevelStreamingType::Visibility);
 		
 		// make sure any looping sounds, etc are stopped
 		if (GetAudioDevice() != NULL)
@@ -10002,12 +10020,12 @@ bool UEngine::CommitMapChange( FWorldContext &Context )
 
 			Context.PendingLevelStreamingStatusUpdates.Empty();
 
-			Context.World()->FlushLevelStreaming( NULL, EFlushLevelStreamingType::Full );
+			Context.World()->FlushLevelStreaming(EFlushLevelStreamingType::Full);
 		}
 		else
 		{
 			// Make sure there are no pending visibility requests.
-			Context.World()->FlushLevelStreaming( NULL, EFlushLevelStreamingType::Visibility );
+			Context.World()->FlushLevelStreaming(EFlushLevelStreamingType::Visibility);
 		}
 
 		// delay the use of streaming volumes for a few frames

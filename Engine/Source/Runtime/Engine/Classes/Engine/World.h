@@ -1852,19 +1852,12 @@ public:
 	void RemoveFromWorld( ULevel* Level );
 
 	/**
-	 * Updates the all the visible worlds based on the current view location of the player and sets level LODs accordingly.	 
-	 *
-	 * @param ViewFamily	Optional collection of views to take into account
+	 * Updates sub-levels (load/unload/show/hide) using streaming levels current state
 	 */
-	void UpdateLevelStreaming( FSceneViewFamily* ViewFamily = NULL );
+	void UpdateLevelStreaming();
 
 private:
-	/**
-	 * Updates the world based on the current view location of the player and sets level LODs accordingly.	 
-	 * @param PersistentWorld	Persistent world
-	 * @param ViewFamily		Optional collection of views to take into account
-	 */
-	void UpdateLevelStreamingInner( UWorld* PersistentWorld, FSceneViewFamily* ViewFamily );
+	void UpdateLevelStreamingInner( ULevelStreaming* StreamingLevel );
 
 public:
 	/**
@@ -1872,11 +1865,10 @@ public:
 	 * so further calls to UpdateLevelStreaming won't do any work unless state changes. Basically blocks
 	 * on all async operation like updating components.
 	 *
-	 * @param ViewFamily				Optional collection of views to take into account
 	 * @param FlushType					Whether to only flush level visibility operations (optional)
 	 * @param ExcludeType				Exclude packages of this type from flushing
 	 */
-	void FlushLevelStreaming( FSceneViewFamily* ViewFamily = NULL, EFlushLevelStreamingType FlushType = EFlushLevelStreamingType::Full, FName ExcludeType = NAME_None );
+	void FlushLevelStreaming(EFlushLevelStreamingType FlushType = EFlushLevelStreamingType::Full, FName ExcludeType = NAME_None);
 
 	/**
 	 * Triggers a call to ULevel::BuildStreamingData(this,NULL,NULL) within a few seconds.
@@ -2642,7 +2634,22 @@ public:
 	DECLARE_MULTICAST_DELEGATE_TwoParams(FWorldInitializationEvent, UWorld* /*World*/, const UWorld::InitializationValues /*IVS*/);
 	DECLARE_MULTICAST_DELEGATE_ThreeParams(FWorldCleanupEvent, UWorld* /*World*/, bool /*bSessionEnded*/, bool /*bCleanupResources*/);
 	DECLARE_MULTICAST_DELEGATE_OneParam(FWorldEvent, UWorld* /*World*/);
-	DECLARE_MULTICAST_DELEGATE_TwoParams(FWorldPostDuplicateEvent, UWorld* /*World*/, bool /*bDuplicateForPIE*/);
+
+	/**
+	 * Post UWorld duplicate event.
+	 *
+	 * Sometimes there is a need to duplicate additional element after
+	 * duplicating UWorld. If you do this using this event you need also fill
+	 * ReplacementMap and ObjectsToFixReferences in order to properly fix
+	 * duplicated objects references.
+	 */
+	typedef TMap<UObject*, UObject*> FReplacementMap; // Typedef needed so the macro below can properly digest comma in template parameters.
+	DECLARE_MULTICAST_DELEGATE_FourParams(FWorldPostDuplicateEvent, UWorld* /*World*/, bool /*bDuplicateForPIE*/, FReplacementMap& /*ReplacementMap*/, TArray<UObject*>& /*ObjectsToFixReferences*/);
+
+#if WITH_EDITOR
+	DECLARE_MULTICAST_DELEGATE_FiveParams(FWorldRenameEvent, UWorld* /*World*/, const TCHAR* /*InName*/, UObject* /*NewOuter*/, ERenameFlags /*Flags*/, bool& /*bShouldFailRename*/);
+#endif // WITH_EDITOR
+
 	// Delegate type for level change events
 	DECLARE_MULTICAST_DELEGATE_TwoParams(FOnLevelChanged, ULevel*, UWorld*);
 
@@ -2654,6 +2661,11 @@ public:
 	
 	// Callback for world initialization (post)
 	static FWorldInitializationEvent OnPostWorldInitialization;
+
+#if WITH_EDITOR
+	// Callback for world rename event (pre)
+	static FWorldRenameEvent OnPreWorldRename;
+#endif // WITH_EDITOR
 
 	// Post duplication event.
 	static FWorldPostDuplicateEvent OnPostDuplicate;

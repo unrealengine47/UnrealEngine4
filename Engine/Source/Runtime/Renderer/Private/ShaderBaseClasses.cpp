@@ -105,7 +105,9 @@ void FMaterialShader::SetParameters(
 
 	// Validate that the shader is being used for a material that matches the uniform expression set the shader was compiled for.
 	const FUniformExpressionSet& MaterialUniformExpressionSet = Material.GetRenderingThreadShaderMap()->GetUniformExpressionSet();
+
 #if NO_LOGGING == 0
+	
 	const bool bUniformExpressionSetMismatch = !DebugUniformExpressionSet.Matches(MaterialUniformExpressionSet)
 		|| UniformExpressionCache->CachedUniformExpressionShaderMap != Material.GetRenderingThreadShaderMap();
 
@@ -151,6 +153,20 @@ void FMaterialShader::SetParameters(
 	{
 		// Set the material uniform buffer.
 		SetUniformBufferParameter(RHICmdList, ShaderRHI, MaterialUniformBuffer, UniformExpressionCache->UniformBuffer);
+	}
+
+	{
+		const TArray<FGuid>& ParameterCollections = UniformExpressionCache->ParameterCollections;
+		const int32 ParameterCollectionsNum = ParameterCollections.Num();
+
+		check(ParameterCollectionUniformBuffers.Num() >= ParameterCollectionsNum);
+
+		// Find each referenced parameter collection's uniform buffer in the scene and set the parameter
+		for (int32 CollectionIndex = 0; CollectionIndex < ParameterCollectionsNum; CollectionIndex++)
+		{
+			FUniformBufferRHIParamRef UniformBuffer = GetParameterCollectionBuffer(ParameterCollections[CollectionIndex], View.Family->Scene);
+			SetUniformBufferParameter(RHICmdList, ShaderRHI,ParameterCollectionUniformBuffers[CollectionIndex],UniformBuffer);
+		}
 	}
 
 	{
@@ -270,11 +286,6 @@ bool FMaterialShader::Serialize(FArchive& Ar)
 	const bool bShaderHasOutdatedParameters = FShader::Serialize(Ar);
 	Ar << MaterialUniformBuffer;
 	Ar << ParameterCollectionUniformBuffers;
-	if (Ar.UE4Ver() >= VER_UE4_PERFRAME_MATERIAL_UNIFORM_EXPRESSIONS)
-	{
-		Ar << PerFrameScalarExpressions;
-		Ar << PerFrameVectorExpressions;
-	}
 	Ar << DeferredParameters;
 	Ar << LightAttenuation;
 	Ar << LightAttenuationSampler;
@@ -298,6 +309,10 @@ bool FMaterialShader::Serialize(FArchive& Ar)
 	Ar << PerlinNoiseGradientTextureSampler;
 	Ar << PerlinNoise3DTexture;
 	Ar << PerlinNoise3DTextureSampler;
+
+	Ar << PerFrameScalarExpressions;
+	Ar << PerFrameVectorExpressions;
+
 	return bShaderHasOutdatedParameters;
 }
 

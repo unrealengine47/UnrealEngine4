@@ -112,6 +112,12 @@ struct FMath : public FPlatformMath
 		return InMin + (InMax - InMin) * FRand();
 	}
 
+	/** Util to generate a random boolean. */
+	static FORCEINLINE bool RandBool()
+	{
+		return (RandRange(0,1) == 1) ? true : false;
+	}
+
 	/** Return a uniformly distributed random unit length vector = point on the unit sphere surface. */
 	static FVector VRand();
 	
@@ -773,7 +779,11 @@ struct FMath : public FPlatformMath
 	static FVector LinePlaneIntersection( const FVector &Point1, const FVector &Point2, const FVector &PlaneOrigin, const FVector &PlaneNormal);
 	static FVector LinePlaneIntersection( const FVector &Point1, const FVector &Point2, const FPlane  &Plane);
 
-	/**
+	// @parma InOutScissorRect should be set to View.ViewRect before the call
+	// @return 0: light is not visible, 1:use scissor rect, 2: no scissor rect needed
+	static CORE_API uint32 ComputeProjectedSphereScissorRect(struct FIntRect& InOutScissorRect, FVector SphereOrigin, float Radius, FVector ViewOrigin, const FMatrix& ViewMatrix, const FMatrix& ProjMatrix);
+
+	/** 
 	 * Determine if a plane and an AABB intersect
 	 * @param P - the plane to test
 	 * @param AABB - the axis aligned bounding box to test

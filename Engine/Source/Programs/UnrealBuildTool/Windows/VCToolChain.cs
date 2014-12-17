@@ -126,14 +126,7 @@ namespace UnrealBuildTool
 			// with Windows XP (http://blogs.msdn.com/b/vcblog/archive/2012/10/08/10357555.aspx)
 			if( WindowsPlatform.SupportWindowsXP )
 			{
-				if( WindowsPlatform.Compiler == WindowsCompiler.VisualStudio2013 )
-				{
-					Arguments.Append(" /D_USING_V120_SDK71_");
-				}
-				else if (WindowsPlatform.Compiler == WindowsCompiler.VisualStudio2012)
-				{
-					Arguments.Append(" /D_USING_V110_SDK71_");
-				}
+				Arguments.Append(" /D_USING_V110_SDK71_");
 			}
 
 
@@ -1059,6 +1052,9 @@ namespace UnrealBuildTool
 				CompileAction.CommandPath        = EnvVars.ResourceCompilerPath;
 				CompileAction.StatusDescription  = Path.GetFileName(RCFile.AbsolutePath);
 
+				// Resource tool can run remotely if possible
+				CompileAction.bCanExecuteRemotely = true;
+
 				if( WindowsPlatform.bCompileWithClang )
 				{ 
 					CompileAction.OutputEventHandler = new DataReceivedEventHandler( ClangCompilerOutputFormatter );
@@ -1078,14 +1074,7 @@ namespace UnrealBuildTool
 				// with Windows XP (http://blogs.msdn.com/b/vcblog/archive/2012/10/08/10357555.aspx)
 				if (WindowsPlatform.SupportWindowsXP)
 				{
-					if (WindowsPlatform.Compiler == WindowsCompiler.VisualStudio2013)
-					{
-						CompileAction.CommandArguments += " /D_USING_V120_SDK71_";
-					}
-					else if (WindowsPlatform.Compiler == WindowsCompiler.VisualStudio2012)
-					{
-						CompileAction.CommandArguments += " /D_USING_V110_SDK71_";
-					}
+					CompileAction.CommandArguments += " /D_USING_V110_SDK71_";
 				}
 
 				// Language
@@ -1334,8 +1323,8 @@ namespace UnrealBuildTool
 			// ignored as a prerequisite for other actions
 			LinkAction.bProducesImportLibrary = bBuildImportLibraryOnly || LinkEnvironment.Config.bIsBuildingDLL;
 
-			// Only execute linking on the local PC.
-			LinkAction.bCanExecuteRemotely = false;
+			// Allow remote linking.  Especially in modular builds with many small DLL files, this is almost always very efficient
+			LinkAction.bCanExecuteRemotely = true;
 
 			Log.TraceVerbose( "     Linking: " + LinkAction.StatusDescription );
 			Log.TraceVerbose( "     Command: " + LinkAction.CommandArguments );

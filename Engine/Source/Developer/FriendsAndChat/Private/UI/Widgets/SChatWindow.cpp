@@ -229,7 +229,12 @@ public:
 			]
 		]);
 
-		RefreshChatList();
+		if(ViewModel->GetFilteredChatList().Num())
+		{
+			ChatList->RequestScrollIntoView(ViewModel->GetFilteredChatList().Last());
+		}
+		bUserHasScrolled = false;
+		bAutoScroll = true;
 	}
 
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override
@@ -252,6 +257,17 @@ public:
 			}
 			ViewModel->SetTimeDisplayTransparency(TimeTransparency);
 		}
+
+		if(!bUserHasScrolled && ChatList.IsValid() && ChatList->IsUserScrolling())
+		{
+			bUserHasScrolled = true;
+		}
+	}
+
+	virtual FReply OnMouseWheel( const FGeometry& MyGeometry, const FPointerEvent& MouseEvent ) override
+	{
+		bUserHasScrolled = true;
+		return FReply::Unhandled();
 	}
 
 private:
@@ -279,6 +295,11 @@ private:
 
 	TSharedRef<ITableRow> MakeChatWidget(TSharedRef<FChatItemViewModel> ChatMessage, const TSharedRef<STableViewBase>& OwnerTable)
 	{
+		if(bUserHasScrolled)
+		{
+			bAutoScroll = ChatMessage == ViewModel->GetFilteredChatList().Last() ? true : false;
+		}
+
 		return SNew(STableRow< TSharedPtr<SWidget> >, OwnerTable)
 		[
 			SNew(SButton)
@@ -493,7 +514,10 @@ private:
 		if(ViewModel->GetFilteredChatList().Num())
 		{
 			ChatList->RequestListRefresh();
-			ChatList->RequestScrollIntoView(ViewModel->GetFilteredChatList().Last());
+			if(bAutoScroll)
+			{
+				ChatList->RequestScrollIntoView(ViewModel->GetFilteredChatList().Last());
+			}
 		}
 	}
 
@@ -649,6 +673,12 @@ private:
 
 	// Holds the menu method - Full screen requires use owning window or crashes.
 	EPopupMethod MenuMethod;
+
+	// Should AutoScroll
+	bool bAutoScroll;
+
+	// Has the user scrolled
+	bool bUserHasScrolled;
 
 	// Holds the time transparency.
 	float TimeTransparency;

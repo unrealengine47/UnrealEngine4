@@ -36,8 +36,6 @@ bool GLogDetailedDumpStats = true;
 
 
 // DECLARE_CYCLE_STAT is the reverse of what will be displayed in the game's stat game
-DEFINE_STAT(STAT_CharacterMovementAuthority);
-DEFINE_STAT(STAT_CharacterMovementSimulated)
 
 DEFINE_STAT(STAT_AsyncWorkWaitTime);
 DEFINE_STAT(STAT_PhysicsTime);
@@ -51,6 +49,7 @@ DEFINE_STAT(STAT_TeleportToTime);
 DEFINE_STAT(STAT_MoveComponentTime);
 DEFINE_STAT(STAT_UpdateOverlaps);
 DEFINE_STAT(STAT_UpdatePhysicsVolume);
+DEFINE_STAT(STAT_EndScopedMovementUpdate);
 
 DEFINE_STAT(STAT_PostTickComponentLW);
 DEFINE_STAT(STAT_PostTickComponentRecreate);
@@ -60,6 +59,7 @@ DEFINE_STAT(STAT_PostTickComponentUpdateWait);
 DEFINE_STAT(STAT_TickTime);
 DEFINE_STAT(STAT_WorldTickTime);
 DEFINE_STAT(STAT_UpdateCameraTime);
+DEFINE_STAT(STAT_CharacterMovement);
 
 DEFINE_STAT(STAT_VolumeStreamingTickTime);
 DEFINE_STAT(STAT_VolumeStreamingChecks);
@@ -550,7 +550,7 @@ void UWorld::ProcessLevelStreamingVolumes(FVector* OverrideViewLocation)
 			else
 			{
 				FRotator ViewRotation(0,0,0);
-				PlayerActor->GetPlayerViewPoint( ViewLocation, ViewRotation );
+				PlayerActor->GetActorEyesViewPoint( ViewLocation, ViewRotation );
 			}
 
 			TMap<AVolume*,bool> VolumeMap;

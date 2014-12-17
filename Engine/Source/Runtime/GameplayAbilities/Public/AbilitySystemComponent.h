@@ -76,6 +76,7 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 		return (T*)GetAttributeSubobject(T::StaticClass());
 	}
 
+	/** Finds existing AttributeSet. Asserts if it isn't there. */
 	template <class T >
 	const T*	GetSetChecked() const
 	{
@@ -97,6 +98,13 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 		return Subobject;
 	}
 
+	/**
+	* Does this ability system component have this attribute?
+	*
+	* @param Attribute	Handle of the gameplay effect to retrieve target tags from
+	*
+	* @return true if Attribute is valid and this ability system component contains an attribute set that contains Attribute. Returns false otherwise.
+	*/
 	bool HasAttributeSetForAttribute(FGameplayAttribute Attribute) const;
 
 	const UAttributeSet* InitStats(TSubclassOf<class UAttributeSet> Attributes, const UDataTable* DataTable);
@@ -244,9 +252,6 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	UFUNCTION(BlueprintCallable, Category = GameplayEffects)
 	float GetGameplayEffectMagnitude(FActiveGameplayEffectHandle Handle, FGameplayAttribute Attribute) const;
 
-	UFUNCTION(BlueprintCallable, Category = GameplayEffects)
-	bool IsGameplayEffectActive(FActiveGameplayEffectHandle InHandle) const;
-
 	/**
 	 * Get the source tags from the gameplay spec represented by the specified handle, if possible
 	 * 
@@ -271,12 +276,26 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	 * @param OutCaptureSpec	[OUT] Capture spec to populate with captured data
 	 */
 	void CaptureAttributeForGameplayEffect(OUT FGameplayEffectAttributeCaptureSpec& OutCaptureSpec);
-
-	// Delegates (these need to be at the UObject level so we can safetly bind, rather than binding to raw at the ActiveGameplayEffect/Container level which is unsafe if the AbilitySystemComponent were killed).
+	
+	// --------------------------------------------
+	// Callbacks / Notifies
+	// (these need to be at the UObject level so we can safetly bind, rather than binding to raw at the ActiveGameplayEffect/Container level which is unsafe if the AbilitySystemComponent were killed).
+	// --------------------------------------------
 
 	void OnAttributeAggregatorDirty(FAggregator* Aggregator, FGameplayAttribute Attribute);
 
 	void OnMagnitudeDependancyChange(FActiveGameplayEffectHandle Handle, const FAggregator* ChangedAggregator);
+
+	/** This ASC has successfully applied a GE to something (potentially itself) */
+	void OnGameplayEffectAppliedToTarget(UAbilitySystemComponent* Target, const FGameplayEffectSpec& SpecApplied, FActiveGameplayEffectHandle ActiveHandle);
+
+	void OnGameplayEffectAppliedToSelf(UAbilitySystemComponent* Source, const FGameplayEffectSpec& SpecApplied, FActiveGameplayEffectHandle ActiveHandle);
+
+	DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnGameplayEffectAppliedDelegate, UAbilitySystemComponent*, const FGameplayEffectSpec&, FActiveGameplayEffectHandle);
+
+	FOnGameplayEffectAppliedDelegate OnGameplayEffectAppliedDelegateToSelf;
+
+	FOnGameplayEffectAppliedDelegate OnGameplayEffectAppliedDelegateToTarget;
 
 	// --------------------------------------------
 	// Tags
@@ -331,7 +350,7 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 
 
 	// --------------------------------------------
-	// Possibly useful but not primary API functions:
+	// Additional Helper Functions
 	// --------------------------------------------
 	
 	FOnActiveGameplayEffectRemoved* OnGameplayEffectRemovedDelegate(FActiveGameplayEffectHandle Handle);
@@ -352,7 +371,8 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	
 	FActiveGameplayEffectHandle ApplyGameplayEffectToSelf(const UGameplayEffect *GameplayEffect, float Level, const FGameplayEffectContextHandle& EffectContext, FPredictionKey PredictionKey = FPredictionKey());
 
-	int32 GetNumActiveGameplayEffect() const;
+	// Returns the number of gameplay effects that are currently active on this ability system component
+	int32 GetNumActiveGameplayEffects() const;
 
 	void SetBaseAttributeValueFromReplication(float NewValue, FGameplayAttribute Attribute);
 
@@ -371,10 +391,6 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 
 	UFUNCTION(BlueprintCallable, Category = GameplayEffects)
 	void RemoveActiveEffectsWithTags(FGameplayTagContainer Tags);
-
-	/** Constructs a query and removess active effects as appropriate */
-	UFUNCTION(BlueprintCallable, Category = GameplayEffects)
-	void RemoveActiveEffects(FGameplayTagContainer OwningTags, FGameplayTagContainer EffectTags, FGameplayTagContainer OwningTags_Rejection, FGameplayTagContainer EffectTags_Rejection);
 
 	/** Removes all active effects that match given query */
 	void RemoveActiveEffects(const FActiveGameplayEffectQuery Query);
@@ -404,6 +420,9 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	void AddGameplayCue(const FGameplayTag GameplayCueTag, FGameplayEffectContextHandle EffectContext = FGameplayEffectContextHandle());
 	
 	void RemoveGameplayCue(const FGameplayTag GameplayCueTag);
+
+	/** Removes any GameplayCue added on its own, i.e. not as part of a GameplayEffect. */
+	void RemoveAllGameplayCues();
 
 	UFUNCTION(NetMulticast, unreliable)
 	void NetMulticast_InvokeGameplayCueExecuted(const FGameplayTag GameplayCueTag, FPredictionKey PredictionKey, FGameplayEffectContextHandle EffectContext);
@@ -441,15 +460,16 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	/** Grants Ability. Returns handle that can be used in TryActivateAbility, etc. */
 	FGameplayAbilitySpecHandle GiveAbility(FGameplayAbilitySpec AbilitySpec);
 
-	void GetActivateableGameplayAbilitySpecsByTag(const FGameplayTagContainer& GameplayTagContainer, TArray < struct FGameplayAbilitySpec* >& MatchingGameplayAbilities) const;
+	void GetActivateableGameplayAbilitySpecsByAllMatchingTags(const FGameplayTagContainer& GameplayTagContainer, TArray < struct FGameplayAbilitySpec* >& MatchingGameplayAbilities) const;
 
+	/** Attempts to activate a gameplay ability that matches the given tag. Returns true if anything is activated */
 	UFUNCTION(BlueprintCallable, Category = "Abilities")
-	UGameplayAbility* TryActivateAbilityByTag(const FGameplayTagContainer& GameplayTagContainer);
+	bool TryActivateAbilityByTag(const FGameplayTagContainer& GameplayTagContainer);
 
 	/** Attempts to activate the given ability */
-	bool TryActivateAbility(FGameplayAbilitySpecHandle AbilityToActivate, FPredictionKey InPredictionKey = FPredictionKey(), UGameplayAbility ** OutInstancedAbility = nullptr, FOnGameplayAbilityEnded* OnGameplayAbilityEndedDelegate = nullptr);
+	bool TryActivateAbility(FGameplayAbilitySpecHandle AbilityToActivate, FPredictionKey InPredictionKey = FPredictionKey(), UGameplayAbility ** OutInstancedAbility = nullptr, FOnGameplayAbilityEnded* OnGameplayAbilityEndedDelegate = nullptr, const FGameplayEventData* TriggerEventData = nullptr);
 
-	void TriggerAbilityFromGameplayEvent(FGameplayAbilitySpecHandle AbilityToTrigger, FGameplayAbilityActorInfo* ActorInfo, FGameplayTag Tag, FGameplayEventData* Payload, UAbilitySystemComponent& Component);
+	bool TriggerAbilityFromGameplayEvent(FGameplayAbilitySpecHandle AbilityToTrigger, FGameplayAbilityActorInfo* ActorInfo, FGameplayTag Tag, const FGameplayEventData* Payload, UAbilitySystemComponent& Component);
 
 	/** Wipes all 'given' abilities. */
 	void ClearAllAbilities();
@@ -458,17 +478,37 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	void ClearAbility(const FGameplayAbilitySpecHandle& Handle);
 
 	/** Will be called from GiveAbility or from OnRep. Initializes events (triggers and inputs) with the given ability */
-	void OnGiveAbility(const FGameplayAbilitySpec AbilitySpec);
+	virtual void OnGiveAbility(const FGameplayAbilitySpec AbilitySpec);
 
-	/** Called from ClearAbility or OnRep. Clears any triggers tht should no longer exist. */
+	/** Will be called from GiveAbility or from OnRep. Unbinds inputs with the given ability */
+	virtual void OnRemoveAbility(const FGameplayAbilitySpec AbilitySpec) {};
+
+	/** Called from ClearAbility, ClearAllAbilities or OnRep. Clears any triggers that should no longer exist. */
 	void CheckForClearedAbilities();
 
-	UGameplayAbility* CreateNewInstanceOfAbility(FGameplayAbilitySpec& Spec, UGameplayAbility* Ability);
+	UGameplayAbility* CreateNewInstanceOfAbility(FGameplayAbilitySpec& Spec, const UGameplayAbility* Ability);
 
 	void CancelAbilities(const FGameplayTagContainer* WithTags=nullptr, const FGameplayTagContainer* WithoutTags=nullptr, UGameplayAbility* Ignore=nullptr);
 
-	void BlockAbilitiesWithTags(const FGameplayTagContainer Tags);
-	void UnBlockAbilitiesWithTags(const FGameplayTagContainer Tags);
+	/** 
+	 * Called from ability activation or native code, will apply the correct ability blocking tags and cancel existing abilities. Subclasses can override the behavior 
+	 * @param AbilityTags The tags of the ability that has block and cancel flags
+	 * @param RequestingAbility The gameplay ability requesting the change, can be NULL for native events
+	 * @param bEnableBlockTags If true will enable the block tags, if false will disable the block tags
+	 * @param BlockTags What tags to block
+	 * @param bExecuteCancelTags If true will cancel abilities matching tags
+	 * @param CancelTags what tags to cancel
+	 */
+	virtual void ApplyAbilityBlockAndCancelTags(const FGameplayTagContainer& AbilityTags, UGameplayAbility* RequestingAbility, bool bEnableBlockTags, const FGameplayTagContainer& BlockTags, bool bExecuteCancelTags, const FGameplayTagContainer& CancelTags);
+
+	/** Called when an ability is cancellable or not. Doesn't do anything by default, can be overridden to tie into gameplay events */
+	virtual void HandleChangeAbilityCanBeCanceled(const FGameplayTagContainer& AbilityTags, UGameplayAbility* RequestingAbility, bool bCanBeCanceled) {}
+
+	/** Returns true if any passed in tags are blocked */
+	bool AreAbilityTagsBlocked(const FGameplayTagContainer& Tags) const;
+
+	void BlockAbilitiesWithTags(const FGameplayTagContainer& Tags);
+	void UnBlockAbilitiesWithTags(const FGameplayTagContainer& Tags);
 
 	void BlockAbilityByInputID(int32 InputID);
 	void UnBlockAbilityByInputID(int32 InputID);
@@ -492,6 +532,10 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	UPROPERTY(ReplicatedUsing=OnRep_ActivateAbilities, BlueprintReadOnly, Category = "Abilities")
 	TArray<FGameplayAbilitySpec>	ActivatableAbilities;
 
+	/** Copy of the last time abilities were replicated. If any are missing at replication call the remove callback. This may be better with fast array replication */
+	UPROPERTY()
+	TArray<FGameplayAbilitySpec>	ClientLastActivatableAbilities;
+
 	FGameplayAbilitySpec* FindAbilitySpecFromHandle(FGameplayAbilitySpecHandle Handle);
 
 	FGameplayAbilitySpec* FindAbilitySpecFromInputID(int32 InputID);
@@ -502,14 +546,20 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	UFUNCTION(Server, reliable, WithValidation)
 	void	ServerTryActivateAbility(FGameplayAbilitySpecHandle AbilityToActivate, bool InputPressed, FPredictionKey PredictionKey);
 
+	UFUNCTION(Server, reliable, WithValidation)
+	void	ServerTryActivateAbilityWithEventData(FGameplayAbilitySpecHandle AbilityToActivate, bool InputPressed, FPredictionKey PredictionKey, FGameplayEventData TriggerEventData);
+
+	/** Replicate that an ability has ended, to the client or server as appropriate */
+	void	ReplicateEndAbility(FGameplayAbilitySpecHandle Handle, FGameplayAbilityActivationInfo ActivationInfo, UGameplayAbility* Ability);
+
 	/** Called by ServerEndAbility and ClientEndAbility; avoids code duplication. */
-	void EndAbility(FGameplayAbilitySpecHandle AbilityToEnd);
+	void	RemoteEndAbility(FGameplayAbilitySpecHandle AbilityToEnd, FGameplayAbilityActivationInfo ActivationInfo);
 
 	UFUNCTION(Server, reliable, WithValidation)
-	void	ServerEndAbility(FGameplayAbilitySpecHandle AbilityToEnd);
+	void	ServerEndAbility(FGameplayAbilitySpecHandle AbilityToEnd, FGameplayAbilityActivationInfo ActivationInfo);
 
 	UFUNCTION(Client, reliable)
-	void	ClientEndAbility(FGameplayAbilitySpecHandle AbilityToEnd);
+	void	ClientEndAbility(FGameplayAbilitySpecHandle AbilityToEnd, FGameplayAbilityActivationInfo ActivationInfo);
 
 	UFUNCTION(Client, Reliable)
 	void	ClientActivateAbilityFailed(FGameplayAbilitySpecHandle AbilityToActivate, int16 PredictionKey);
@@ -575,7 +625,8 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	FGenericAbilityDelegate AbilityActivatedCallbacks;
 	FGenericAbilityDelegate AbilityCommitedCallbacks;
 
-	void HandleGameplayEvent(FGameplayTag EventTag, FGameplayEventData* Payload);
+	/** Executes a gameplay event. Returns the number of successful ability activations triggered by the event */
+	int32 HandleGameplayEvent(FGameplayTag EventTag, const FGameplayEventData* Payload);
 
 	TMap<FGameplayTag, TArray<FGameplayAbilitySpecHandle > > GameplayEventTriggeredAbilities;
 
@@ -650,6 +701,9 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	float GetCurrentMontageSectionTimeLeft() const;
 
 protected:
+
+	/** Implementation of ServerTryActivateAbility */
+	virtual void InternalServerTryActiveAbility(FGameplayAbilitySpecHandle AbilityToActivate, bool InputPressed, const FPredictionKey& PredictionKey, const FGameplayEventData* TriggerEventData);
 
 	/** Called when a prediction key that played a montage is rejected */
 	void OnPredictiveMontageRejected(UAnimMontage* PredictiveMontage);
@@ -758,7 +812,7 @@ public:
 	UFUNCTION()
 	void OnRep_SimulatedTasks();
 
-private:
+protected:
 
 	/** Actually pushes the final attribute value to the attribute set's property. Should not be called by outside code since this does not go through the attribute aggregator system. */
 	void SetNumericAttribute_Internal(const FGameplayAttribute &Attribute, float NewFloatValue);
@@ -777,6 +831,7 @@ private:
 
 	// --------------------------------------------
 	
+	// Contains all of the gameplay effects that are currently active on this component
 	UPROPERTY(ReplicatedUsing=OnRep_GameplayEffects)
 	FActiveGameplayEffectsContainer	ActiveGameplayEffects;
 

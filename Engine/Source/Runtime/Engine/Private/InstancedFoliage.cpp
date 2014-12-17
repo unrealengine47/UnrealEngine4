@@ -295,10 +295,11 @@ void FFoliageMeshInfo::CheckValid()
 
 void FFoliageMeshInfo::AddInstance(AInstancedFoliageActor* InIFA, UFoliageType* InSettings, const FFoliageInstance& InNewInstance)
 {
-	// Want to make sure the component exists before we start a transaction, so it will be there on undo.
+	InIFA->Modify();
+
 	if (Component == nullptr)
 	{
-		Component = ConstructObject<UHierarchicalInstancedStaticMeshComponent>(UHierarchicalInstancedStaticMeshComponent::StaticClass(), InIFA);
+		Component = ConstructObject<UHierarchicalInstancedStaticMeshComponent>(UHierarchicalInstancedStaticMeshComponent::StaticClass(), InIFA, NAME_None, RF_Transactional);
 
 		Component->Mobility = EComponentMobility::Static;
 
@@ -326,13 +327,16 @@ void FFoliageMeshInfo::AddInstance(AInstancedFoliageActor* InIFA, UFoliageType* 
 
 		// Use only instance translation as a component transform
 		Component->SetWorldTransform(InIFA->GetRootComponent()->ComponentToWorld);
+
+		// Add the new component to the transaction buffer so it will get destroyed on undo
+		Component->Modify();
+		// We don't want to track changes to instances later so we mark it as non-transactional
+		Component->ClearFlags(RF_Transactional);
 	}
 	else
 	{
 		Component->InvalidateLightingCache();
 	}
-
-	InIFA->Modify();
 
 	// Add the instance taking either a free slot or adding a new item.
 	int32 InstanceIndex = Instances.AddUninitialized();
@@ -674,7 +678,7 @@ void FFoliageMeshInfo::SelectInstances(AInstancedFoliageActor* InIFA, bool bSele
 AInstancedFoliageActor::AInstancedFoliageActor(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	USceneComponent* SceneComponent = ObjectInitializer.CreateDefaultSubobject<USceneComponent>(this, TEXT("RootComponent0"));
+	USceneComponent* SceneComponent = CreateDefaultSubobject<USceneComponent>(TEXT("RootComponent0"));
 	RootComponent = SceneComponent;
 	RootComponent->Mobility = EComponentMobility::Static;
 	
@@ -1212,8 +1216,9 @@ FVector AInstancedFoliageActor::GetSelectionLocation()
 
 void AInstancedFoliageActor::MapRebuild()
 {
-	// Map rebuilt - this may have modified the BSP components and thrown the previous ones away - if so we need to migrate the foliage across.
-	UE_LOG(LogInstancedFoliage, Log, TEXT("Map Rebuilt - Update all BSP painted foliage!"));
+	// Map rebuild may have modified the BSP's ModelComponents and thrown the previous ones away.
+	// Most BSP-painted foliage is attached to a Brush's UModelComponent which persist across rebuilds,
+	// but any foliage attached directly to the level BSP's ModelComponents will need to try to find a new base.
 
 	TMap<UFoliageType*, TArray<FFoliageInstance>> NewInstances;
 	TArray<UModelComponent*> RemovedModelComponents;
@@ -1232,7 +1237,8 @@ void AInstancedFoliageActor::MapRebuild()
 		{
 			// BSP components are UModelComponents - they are the only ones we need to change
 			UModelComponent* TargetComponent = Cast<UModelComponent>(ComponentFoliagePair.Key);
-			if (TargetComponent)
+			// Check if it's part of a brush. We only need to fix up model components that are part of the level BSP.
+			if (TargetComponent && Cast<ABrush>(TargetComponent->GetOuter()) == nullptr)
 			{
 				// Delete its instances later
 				RemovedModelComponents.Add(TargetComponent);
@@ -1242,7 +1248,7 @@ void AInstancedFoliageActor::MapRebuild()
 				// We have to test each instance to see if we can migrate it across
 				for (int32 InstanceIdx : FoliageInfo.Instances)
 				{
-					// Use a line test against the world, similar to FoliageEditMode.
+					// Use a line test against the world. This is not very reliable as we don't know the original trace direction.
 					check(MeshInfo.Instances.IsValidIndex(InstanceIdx));
 					FFoliageInstance const& Instance = MeshInfo.Instances[InstanceIdx];
 

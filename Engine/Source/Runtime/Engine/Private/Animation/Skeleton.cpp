@@ -16,10 +16,10 @@
 
 #if WITH_EDITOR
 const FName USkeleton::AnimNotifyTag = FName(TEXT("AnimNotifyList"));
-const TCHAR USkeleton::AnimNotifyTagDelimiter = TEXT(';');
+const FString USkeleton::AnimNotifyTagDelimiter = TEXT(";");
 
 const FName USkeleton::CurveTag = FName(TEXT("CurveUIDList"));
-const TCHAR USkeleton::CurveTagDelimiter = TEXT(';');
+const FString USkeleton::CurveTagDelimiter = TEXT(";");
 
 const FName USkeleton::RigTag = FName(TEXT("Rig"));
 #endif 
@@ -431,8 +431,25 @@ bool USkeleton::RecreateBoneTree(USkeletalMesh* InSkelMesh)
 		RegenerateGuid();	
 		BoneTree.Empty();
 		ReferenceSkeleton.Empty();
-		return MergeAllBonesToBoneTree(InSkelMesh);
+
+		bool bResult = MergeAllBonesToBoneTree(InSkelMesh);
+
+		if (bResult)
+		{
+			// this has to go through all assets and fix up
+			for (FObjectIterator Iter(UAnimationAsset::StaticClass()); Iter; ++Iter)
+			{
+				UAnimationAsset* AnimAsset = Cast<UAnimationAsset>(*Iter);
+				if (AnimAsset->GetSkeleton() == this)
+				{
+					AnimAsset->ValidateSkeleton();
+				}
+			}
+		}
+		
+		return bResult;
 	}
+
 	return false;
 }
 
@@ -703,7 +720,7 @@ void USkeleton::CollectAnimationNotifies()
 			if (const FString* Value = Asset.TagsAndValues.Find(USkeleton::AnimNotifyTag))
 			{
 				TArray<FString> NotifyList;
-				Value->ParseIntoArray(&NotifyList, &AnimNotifyTagDelimiter, true);
+				Value->ParseIntoArray(&NotifyList, *USkeleton::AnimNotifyTagDelimiter, true);
 				for (auto NotifyIter = NotifyList.CreateConstIterator(); NotifyIter; ++NotifyIter)
 				{
 					FString NotifyName = *NotifyIter;

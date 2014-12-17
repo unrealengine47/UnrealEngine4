@@ -1393,18 +1393,6 @@ void FBlueprintEditorUtils::PropagateParentBlueprintDefaults(UClass* ClassToProp
 	}
 }
 
-void DestroyGeneratedClass(TSubclassOf<UObject> &ClassToDestroy)
-{
-	if (ClassToDestroy != nullptr)
-	{
-		// We just need to rename the object, so the name won't collide.
-		ClassToDestroy->Rename(TEXT("None"), nullptr, REN_DontCreateRedirectors);
-
-		// The rest will do GC after we lose reference to it.
-		ClassToDestroy = nullptr;
-	}
-}
-
 void FBlueprintEditorUtils::PostDuplicateBlueprint(UBlueprint* Blueprint)
 {
 	// Only recompile after duplication if this isn't PIE
@@ -1427,11 +1415,6 @@ void FBlueprintEditorUtils::PostDuplicateBlueprint(UBlueprint* Blueprint)
 
 			TArray<UTimelineTemplate*> Timelines = Blueprint->Timelines;
 			Blueprint->Timelines.Empty();
-
-			// Delete the existing class references, the compile will create new ones
-			DestroyGeneratedClass(Blueprint->GeneratedClass);
-			DestroyGeneratedClass(Blueprint->SkeletonGeneratedClass);
-				
 
 			Blueprint->GeneratedClass = nullptr;
 			Blueprint->SkeletonGeneratedClass = nullptr;
@@ -2422,7 +2405,6 @@ bool FBlueprintEditorUtils::IsDelegateSignatureGraph(const UEdGraph* Graph)
 		{
 			return (NULL != Blueprint->DelegateSignatureGraphs.FindByKey(Graph));
 		}
-
 	}
 	return false;
 }
@@ -4976,7 +4958,10 @@ static void ConformInterfaceByName(UBlueprint* Blueprint, FBPInterfaceDescriptio
 			UEdGraph* EventGraph = EventNode->GetGraph();
 			// we've already implemented this interface function as an event (which we need to replace)
 			UK2Node_CustomEvent* CustomEventNode = Cast<UK2Node_CustomEvent>(EventGraph->GetSchema()->CreateSubstituteNode(EventNode, EventGraph, NULL));
-			check(CustomEventNode != NULL);			
+			if (CustomEventNode == NULL)
+			{
+				continue;
+			}
 
 			// grab the function's name before we delete the node
 			FName const FunctionName = EventNode->EventSignatureName;

@@ -80,13 +80,10 @@ inline FArchive& operator<<(FArchive& Ar, FDebugUniformExpressionSet& DebugExpre
 {
 	Ar << DebugExpressionSet.NumVectorExpressions;
 	Ar << DebugExpressionSet.NumScalarExpressions;
+	Ar << DebugExpressionSet.NumPerFrameScalarExpressions;
+	Ar << DebugExpressionSet.NumPerFrameVectorExpressions;
 	Ar << DebugExpressionSet.Num2DTextureExpressions;
 	Ar << DebugExpressionSet.NumCubeTextureExpressions;
-	if (Ar.UE4Ver() >= VER_UE4_PERFRAME_MATERIAL_UNIFORM_EXPRESSIONS)
-	{
-		Ar << DebugExpressionSet.NumPerFrameScalarExpressions;
-		Ar << DebugExpressionSet.NumPerFrameVectorExpressions;
-	}
 	return Ar;
 }
 

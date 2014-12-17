@@ -1657,16 +1657,8 @@ bool UEditorEngine::UpdateSingleViewportClient(FEditorViewportClient* InViewport
 			// this ourselves!
 			if( PlayWorld != NULL && bIsSimulatingInEditor && InViewportClient->IsSimulateInEditorViewport() )
 			{
-				// Create a scene view to use when calculating listener position.
-				FSceneViewFamilyContext ViewFamily( FSceneViewFamily::ConstructionValues( 
-					InViewportClient->Viewport, 
-					InViewportClient->GetScene(), 
-					InViewportClient->EngineShowFlags )
-					.SetRealtimeUpdate( InViewportClient->IsRealtime() ));
-				const FSceneView& View = *InViewportClient->CalcSceneView( &ViewFamily );
-	
 				// Update level streaming.
-				GWorld->UpdateLevelStreaming( &ViewFamily );
+				GWorld->UpdateLevelStreaming();
 
 				// Also make sure hit proxies are refreshed for SIE viewports, as the user may be trying to grab an object or widget manipulator that's moving!
 				if( InViewportClient->IsRealtime() )
@@ -2507,6 +2499,13 @@ bool FReimportManager::Reimport( UObject* Obj, bool bAskForNewFileIfMissing )
 		bool bShowNotification = true;
 		bool bValidSourceFilename = false;
 		TArray<FString> SourceFilenames;
+		
+		struct FCompareReimportHandlerPriority
+		{
+			// Use > operator because we want higher priorities earlier in the list
+			FORCEINLINE bool operator()(const FReimportHandler& A, const FReimportHandler& B) const { return A.GetPriority() > B.GetPriority(); }
+		};
+		Handlers.Sort(FCompareReimportHandlerPriority());
 		for( int32 HandlerIndex = 0; HandlerIndex < Handlers.Num(); ++HandlerIndex )
 		{
 			SourceFilenames.Empty();

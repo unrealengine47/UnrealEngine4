@@ -28,10 +28,6 @@ FString EGameplayModToString(int32 Type);
 
 FString EGameplayModEffectToString(int32 Type);
 
-FString EGameplayEffectCopyPolicyToString(int32 Type);
-
-FString EGameplayEffectStackingPolicyToString(int32 Type);
-
 UENUM(BlueprintType)
 namespace EGameplayModOp
 {
@@ -47,38 +43,6 @@ namespace EGameplayModOp
 
 		// This must always be at the end
 		Max					UMETA(DisplayName="Invalid")
-	};
-}
-
-/**
- * Tells us how to handle copying gameplay effect when it is applied.
- *	Default means to use context - e.g, OutgoingGE is are always snapshots, IncomingGE is always Link
- *	AlwaysSnapshot vs AlwaysLink let mods themselves override
- */
-UENUM(BlueprintType)
-namespace EGameplayEffectCopyPolicy
-{
-	enum Type
-	{
-		Default = 0			UMETA(DisplayName="Default"),
-		AlwaysSnapshot		UMETA(DisplayName="AlwaysSnapshot"),
-		AlwaysLink			UMETA(DisplayName="AlwaysLink")
-	};
-}
-
-UENUM(BlueprintType)
-namespace EGameplayEffectStackingPolicy
-{
-	enum Type
-	{
-		Unlimited = 0		UMETA(DisplayName = "NoRule"),
-		Highest				UMETA(DisplayName = "Strongest"),
-		Lowest				UMETA(DisplayName = "Weakest"),
-		Replaces			UMETA(DisplayName = "MostRecent"),
-		Callback			UMETA(DisplayName = "Custom"),
-
-		// This must always be at the end
-		Max					UMETA(DisplayName = "Invalid")
 	};
 }
 
@@ -235,7 +199,11 @@ struct GAMEPLAYABILITIES_API FGameplayEffectAttributeCaptureDefinition
 	 */
 	friend uint32 GetTypeHash(const FGameplayEffectAttributeCaptureDefinition& CaptureDef)
 	{
-		return FCrc::MemCrc32(&CaptureDef, sizeof(FGameplayEffectAttributeCaptureDefinition));
+		uint32 Hash = 0;
+		Hash = HashCombine(Hash, GetTypeHash(CaptureDef.AttributeToCapture));
+		Hash = HashCombine(Hash, GetTypeHash(static_cast<uint8>(CaptureDef.AttributeSource)));
+		Hash = HashCombine(Hash, GetTypeHash(CaptureDef.bSnapshot));
+		return Hash;
 	}
 
 	FString ToSimpleString() const;
@@ -254,6 +222,7 @@ struct GAMEPLAYABILITIES_API FGameplayEffectContext
 	FGameplayEffectContext()
 		: Instigator(NULL)
 		, EffectCauser(NULL)
+		, SourceObject(NULL)
 		, InstigatorAbilitySystemComponent(NULL)
 		, bHasWorldOrigin(false)
 	{
@@ -262,6 +231,7 @@ struct GAMEPLAYABILITIES_API FGameplayEffectContext
 	FGameplayEffectContext(AActor* InInstigator, AActor* InEffectCauser)
 		: Instigator(NULL)
 		, EffectCauser(NULL)
+		, SourceObject(NULL)
 		, InstigatorAbilitySystemComponent(NULL)
 	{
 		AddInstigator(InInstigator, InEffectCauser);
@@ -305,6 +275,18 @@ struct GAMEPLAYABILITIES_API FGameplayEffectContext
 	virtual UAbilitySystemComponent* GetOriginalInstigatorAbilitySystemComponent() const
 	{
 		return InstigatorAbilitySystemComponent;
+	}
+
+	/** Sets the object this effect was created from. */
+	virtual void AddSourceObject(const UObject* NewSourceObject)
+	{
+		SourceObject = NewSourceObject;
+	}
+
+	/** Returns the object this effect was created from. */
+	virtual const UObject* GetSourceObject() const
+	{
+		return SourceObject;
 	}
 
 	virtual void AddActors(TArray<TWeakObjectPtr<AActor>> InActor, bool bReset = false);
@@ -374,6 +356,10 @@ protected:
 	/** The physical actor that actually did the damage, can be a weapon or projectile */
 	UPROPERTY()
 	TWeakObjectPtr<AActor> EffectCauser;
+
+	/** Object this effect was created from, can be an actor or static object. Useful to bind an effect to a gameplay object */
+	UPROPERTY()
+	const UObject* SourceObject;
 
 	/** The ability system component that's bound to instigator */
 	UPROPERTY(NotReplicated)
@@ -510,6 +496,25 @@ struct FGameplayEffectContextHandle
 		if (IsValid())
 		{
 			return Data->GetOriginalInstigatorAbilitySystemComponent();
+		}
+		return NULL;
+	}
+
+	/** Sets the object this effect was created from. */
+	void AddSourceObject(const UObject* NewSourceObject)
+	{
+		if (IsValid())
+		{
+			Data->AddSourceObject(NewSourceObject);
+		}
+	}
+
+	/** Returns the object this effect was created from. */
+	const UObject* GetSourceObject() const
+	{
+		if (IsValid())
+		{
+			return Data->GetSourceObject();
 		}
 		return NULL;
 	}
@@ -653,12 +658,15 @@ struct FGameplayCueParameters
 	UPROPERTY(BlueprintReadWrite, Category=GameplayCue)
 	float RawMagnitude;
 
-	UPROPERTY()
+	/** Effect context, contains information about hit reslt, etc */
+	UPROPERTY(BlueprintReadWrite, Category=GameplayCue)
 	FGameplayEffectContextHandle EffectContext;
 
+	/** The tag name that matched this specific gameplay cue handler */
 	UPROPERTY(BlueprintReadWrite, Category=GameplayCue)
 	FName MatchedTagName;
 
+	/** The original tag of the gameplay cue */
 	UPROPERTY(BlueprintReadWrite, Category=GameplayCue)
 	FGameplayTag OriginalTag;
 };
@@ -791,11 +799,11 @@ struct FGameplayTagRequirements
 	GENERATED_USTRUCT_BODY()
 
 	/** All of these tags must be present */
-	UPROPERTY(EditDefaultsOnly, Category = GameplayModifier)
+	UPROPERTY(EditAnywhere, Category = GameplayModifier)
 	FGameplayTagContainer RequireTags;
 
 	/** None of these tags may be present */
-	UPROPERTY(EditDefaultsOnly, Category = GameplayModifier)
+	UPROPERTY(EditAnywhere, Category = GameplayModifier)
 	FGameplayTagContainer IgnoreTags;
 
 	bool	RequirementsMet(const FGameplayTagContainer& Container) const;

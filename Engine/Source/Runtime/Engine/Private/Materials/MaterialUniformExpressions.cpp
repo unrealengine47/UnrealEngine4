@@ -88,13 +88,11 @@ void FUniformExpressionSet::Serialize(FArchive& Ar)
 	Ar << UniformScalarExpressions;
 	Ar << Uniform2DTextureExpressions;
 	Ar << UniformCubeTextureExpressions;
-	if (Ar.UE4Ver() >= VER_UE4_PERFRAME_MATERIAL_UNIFORM_EXPRESSIONS)
-	{
-		Ar << PerFrameUniformScalarExpressions;
-		Ar << PerFrameUniformVectorExpressions;
-	}
 
 	Ar << ParameterCollections;
+
+	Ar << PerFrameUniformScalarExpressions;
+	Ar << PerFrameUniformVectorExpressions;
 
 	// Recreate the uniform buffer struct after loading.
 	if(Ar.IsLoading())
@@ -492,7 +490,6 @@ IMPLEMENT_MATERIALUNIFORMEXPRESSION_TYPE(FMaterialUniformExpressionMin);
 IMPLEMENT_MATERIALUNIFORMEXPRESSION_TYPE(FMaterialUniformExpressionMax);
 IMPLEMENT_MATERIALUNIFORMEXPRESSION_TYPE(FMaterialUniformExpressionClamp);
 IMPLEMENT_MATERIALUNIFORMEXPRESSION_TYPE(FMaterialUniformExpressionSaturate);
-IMPLEMENT_MATERIALUNIFORMEXPRESSION_TYPE(FMaterialUniformExpressionComponentSwizzle);
 IMPLEMENT_MATERIALUNIFORMEXPRESSION_TYPE(FMaterialUniformExpressionFloor);
 IMPLEMENT_MATERIALUNIFORMEXPRESSION_TYPE(FMaterialUniformExpressionCeil);
 IMPLEMENT_MATERIALUNIFORMEXPRESSION_TYPE(FMaterialUniformExpressionFrac);

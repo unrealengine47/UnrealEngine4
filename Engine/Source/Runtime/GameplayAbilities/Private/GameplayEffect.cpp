@@ -4,7 +4,6 @@
 #include "GameplayEffect.h"
 #include "GameplayEffectExtension.h"
 #include "GameplayEffectTypes.h"
-#include "GameplayEffectStackingExtension.h"
 #include "GameplayTagsModule.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
@@ -29,8 +28,6 @@ UGameplayEffect::UGameplayEffect(const FObjectInitializer& ObjectInitializer)
 	DurationPolicy = EGameplayEffectDurationType::Instant;
 	ChanceToApplyToTarget.SetValue(1.f);
 	ChanceToExecuteOnGameplayEffect.SetValue(1.f);
-	StackingPolicy = EGameplayEffectStackingPolicy::Unlimited;
-	StackedAttribName = NAME_None;
 
 #if WITH_EDITORONLY_DATA
 	ShowAllProperties = true;
@@ -381,7 +378,7 @@ void FGameplayEffectExecutionDefinition::GetAttributeCaptureDefinitions(OUT TArr
 // --------------------------------------------------------------------------------------------------------------------------------------------------------
 
 FGameplayEffectSpec::FGameplayEffectSpec(const UGameplayEffect* InDef, const FGameplayEffectContextHandle& InEffectContext, float Level)
-: Def(InDef)
+	: Def(InDef)
 {
 	check(Def);	
 	SetLevel(Level);
@@ -630,11 +627,6 @@ void FGameplayEffectSpec::PruneModifiedAttributes()
 			ModifiedAttributes.RemoveAtSwap(i);
 		}
 	}
-}
-
-EGameplayEffectStackingPolicy::Type FGameplayEffectSpec::GetStackingType() const
-{
-	return Def->StackingPolicy;
 }
 
 void FGameplayEffectSpec::SetContext(FGameplayEffectContextHandle NewEffectContext)
@@ -919,11 +911,6 @@ void FActiveGameplayEffect::CheckOngoingTagRequirements(const FGameplayTagContai
 	}
 }
 
-bool FActiveGameplayEffect::CanBeStacked(const FActiveGameplayEffect& Other) const
-{
-	return (Handle != Other.Handle) && Spec.GetStackingType() == Other.Spec.GetStackingType() && Spec.Def->Modifiers[0].Attribute == Other.Spec.Def->Modifiers[0].Attribute;
-}
-
 void FActiveGameplayEffect::PreReplicatedRemove(const struct FActiveGameplayEffectsContainer &InArray)
 {
 	if (Spec.Def == nullptr)
@@ -1015,26 +1002,8 @@ void FActiveGameplayEffectsContainer::ExecuteActiveEffectsFrom(FGameplayEffectSp
 {
 	// If there are no modifiers, we always want to apply the GameplayCue. If there are modifiers, we only want to invoke the GameplayCue if one of them went through (could be blocked by immunity or % chance roll)
 	bool InvokeGameplayCueExecute = (Spec.Modifiers.Num() == 0);
-
-	// check if this is a stacking effect and if it is the active stacking effect.
-	if (Spec.GetStackingType() != EGameplayEffectStackingPolicy::Unlimited)
-	{
-		// we're a stacking attribute but not active
-		if (Spec.bTopOfStack == false)
-		{
-			return;
-		}
-	}
-
-	// The process of executing a gameplay spec may cause modifications to the spec, however those modifications
-	// should not persist across multiple executions on the same spec. Therefore, if the spec isn't instantaneous, make a 
-	// copy that can be modified and pass it along to each part of the execution process.
-	TSharedPtr<FGameplayEffectSpec> StackSpec;
-	if (Spec.GetDuration() != UGameplayEffect::INSTANT_APPLICATION)
-	{
-		StackSpec = TSharedPtr<FGameplayEffectSpec>(new FGameplayEffectSpec(Spec));
-	}
-	FGameplayEffectSpec& SpecToUse = StackSpec.IsValid() ? *(StackSpec.Get()) : Spec;
+	
+	FGameplayEffectSpec& SpecToUse = Spec;
 
 	float ChanceToExecute = SpecToUse.GetChanceToExecuteOnGameplayEffect();		// Not implemented? Should we just remove ChanceToExecute?
 
@@ -1336,26 +1305,6 @@ float FActiveGameplayEffectsContainer::GetGameplayEffectMagnitude(FActiveGamepla
 	return -1.f;
 }
 
-bool FActiveGameplayEffectsContainer::IsGameplayEffectActive(FActiveGameplayEffectHandle Handle, bool IncludeEffectsBlockedByStackingRules) const
-{
-	// Could make this a map for quicker lookup
-	for (const FActiveGameplayEffect& Effect : GameplayEffects)
-	{
-		if (Effect.Handle == Handle)
-		{
-			// stacking effects may return false
-			if (Effect.Spec.GetStackingType() != EGameplayEffectStackingPolicy::Unlimited &&
-				Effect.Spec.bTopOfStack == false)
-			{
-				return IncludeEffectsBlockedByStackingRules;
-			}
-			return true;
-		}
-	}
-
-	return false;
-}
-
 const FGameplayTagContainer* FActiveGameplayEffectsContainer::GetGameplayEffectSourceTagsFromHandle(FActiveGameplayEffectHandle Handle) const
 {
 	// @todo: Need to consider this with tag changes
@@ -1428,9 +1377,17 @@ void FActiveGameplayEffectsContainer::SetAttributeBaseValue(FGameplayAttribute A
 
 bool FActiveGameplayEffectsContainer::InternalExecuteMod(FGameplayEffectSpec& Spec, FGameplayModifierEvaluatedData& ModEvalData)
 {
+	check(Owner);
+
 	bool bExecuted = false;
 
-	UAttributeSet* AttributeSet = const_cast<UAttributeSet*>(Owner->GetAttributeSubobject(ModEvalData.Attribute.GetAttributeSetClass()));
+	UAttributeSet* AttributeSet = nullptr;
+	UClass* AttributeSetClass = ModEvalData.Attribute.GetAttributeSetClass();
+	if (AttributeSetClass && AttributeSetClass->IsChildOf(UAttributeSet::StaticClass()))
+	{
+		AttributeSet = const_cast<UAttributeSet*>(Owner->GetAttributeSubobject(AttributeSetClass));
+	}
+
 	if (AttributeSet)
 	{
 		ABILITY_LOG_SCOPE(TEXT("Executing Attribute Mod %s"), *ModEvalData.ToSimpleString());
@@ -1484,18 +1441,6 @@ void FActiveGameplayEffectsContainer::ApplyModToAttribute(const FGameplayAttribu
 		const float NewPropertyValue = FAggregator::StaticExecModOnBaseValue(CurrentValueOfProperty, ModifierOp, ModifierMagnitude);
 
 		InternalUpdateNumericalAttribute(Attribute, NewPropertyValue, ModData);
-	}
-}
-
-void FActiveGameplayEffectsContainer::StacksNeedToRecalculate()
-{
-	if (!bNeedToRecalculateStacks)
-	{
-		bNeedToRecalculateStacks = true;
-		FTimerManager& TimerManager = Owner->GetWorld()->GetTimerManager();
-		FTimerDelegate Delegate = FTimerDelegate::CreateUObject(Owner, &UAbilitySystemComponent::OnRestackGameplayEffects);
-
-		TimerManager.SetTimerForNextTick(Delegate);
 	}
 }
 
@@ -1575,29 +1520,9 @@ FActiveGameplayEffect& FActiveGameplayEffectsContainer::CreateNewActiveGameplayE
 		{
 			FTimerManager& TimerManager = Owner->GetWorld()->GetTimerManager();
 			FTimerDelegate Delegate = FTimerDelegate::CreateUObject(Owner, &UAbilitySystemComponent::ExecutePeriodicEffect, NewHandle);
-
-			// If this is a periodic stacking effect, make sure that it's in sync with the others.
-			float FirstDelay = -1.f;
-			bool bApplyToNextTick = true;
-			if (NewEffect.Spec.GetStackingType() != EGameplayEffectStackingPolicy::Unlimited)
-			{
-				for (FActiveGameplayEffect& Effect : GameplayEffects)
-				{
-					if (Effect.CanBeStacked(NewEffect))
-					{
-						FirstDelay = TimerManager.GetTimerRemaining(Effect.PeriodHandle);
-						bApplyToNextTick = TimerManager.IsTimerPending(Effect.PeriodHandle);
-						break;
-					}
-				}
-			}
 			
-			if (bApplyToNextTick)
-			{
-				TimerManager.SetTimerForNextTick(Delegate); // not part of a stack or the first item on the stack, execute once right away
-			}
-
-			TimerManager.SetTimer(NewEffect.PeriodHandle, Delegate, NewEffect.Spec.GetPeriod(), true, FirstDelay); // this is going to be off by a frame for stacking because of the pending list
+			TimerManager.SetTimerForNextTick(Delegate);
+			TimerManager.SetTimer(NewEffect.PeriodHandle, Delegate, NewEffect.Spec.GetPeriod(), true, -1.f);
 		}
 	}
 	
@@ -1749,8 +1674,7 @@ bool FActiveGameplayEffectsContainer::InternalRemoveActiveGameplayEffect(int32 I
 		// during debugging where breakpoints or pausing can mess up network update times. Open issue
 		// with network team.
 		Owner->GetOwner()->ForceNetUpdate();
-
-		StacksNeedToRecalculate();
+		
 		return true;
 	}
 
@@ -1917,7 +1841,8 @@ void FActiveGameplayEffectsContainer::CheckDuration(FActiveGameplayEffectHandle 
 			// Make sure that this effect should really be destroyed now
 			float Duration = Effect.GetDuration();
 			float CurrentTime = GetWorldTime();
-			if (Duration > 0.f && (Effect.StartWorldTime + Duration) < CurrentTime)
+
+			if (Duration > 0.f && (((Effect.StartWorldTime + Duration) < CurrentTime) || FMath::IsNearlyZero(CurrentTime - Duration - Effect.StartWorldTime, KINDA_SMALL_NUMBER)))
 			{
 				// This gameplay effect has hit its duration. Check if it needs to execute one last time before removing it.
 				if (Effect.PeriodHandle.IsValid() && TimerManager.TimerExists(Effect.PeriodHandle))
@@ -1951,112 +1876,6 @@ void FActiveGameplayEffectsContainer::CheckDuration(FActiveGameplayEffectHandle 
 	}
 }
 
-void FActiveGameplayEffectsContainer::RecalculateStacking()
-{
-	bNeedToRecalculateStacks = false;
-
-	// one or more gameplay effects has been removed or added so we need to go through all of them to see what the best elements are in each stack
-	TArray<FActiveGameplayEffect*> StackedEffects;
-	TArray<FActiveGameplayEffect*> CustomStackedEffects;
-
-	for (FActiveGameplayEffect& Effect : GameplayEffects)
-	{
-		// ignore effects that don't stack and effects that replace when they stack
-		// effects that replace when they stack only need to be handled when they are added
-		if (Effect.Spec.GetStackingType() != EGameplayEffectStackingPolicy::Unlimited &&
-			Effect.Spec.GetStackingType() != EGameplayEffectStackingPolicy::Replaces)
-		{
-			if (Effect.Spec.Def->Modifiers.Num() > 0)
-			{
-				Effect.Spec.bTopOfStack = false;
-				bool bFoundStack = false;
-
-				// group all of the custom stacking effects and deal with them after
-				if (Effect.Spec.GetStackingType() == EGameplayEffectStackingPolicy::Callback)
-				{
-					CustomStackedEffects.Add(&Effect);
-					continue;
-				}
-
-				for (FActiveGameplayEffect*& StackedEffect : StackedEffects)
-				{
-					if (StackedEffect->Spec.GetStackingType() == Effect.Spec.GetStackingType() && StackedEffect->Spec.Def->Modifiers[0].Attribute == Effect.Spec.Def->Modifiers[0].Attribute)
-					{
-						switch (Effect.Spec.GetStackingType())
-						{
-						case EGameplayEffectStackingPolicy::Highest:
-						{
-							float BestSpecMagnitude = StackedEffect->Spec.GetMagnitude(StackedEffect->Spec.Def->Modifiers[0].Attribute);
-							float CurrSpecMagnitude = Effect.Spec.GetMagnitude(Effect.Spec.Def->Modifiers[0].Attribute);
-							if (BestSpecMagnitude < CurrSpecMagnitude)
-							{
-								StackedEffect = &Effect;
-							}
-							break;
-						}
-						case EGameplayEffectStackingPolicy::Lowest:
-						{
-							float BestSpecMagnitude = StackedEffect->Spec.GetMagnitude(StackedEffect->Spec.Def->Modifiers[0].Attribute);
-							float CurrSpecMagnitude = Effect.Spec.GetMagnitude(Effect.Spec.Def->Modifiers[0].Attribute);
-							if (BestSpecMagnitude > CurrSpecMagnitude)
-							{
-								StackedEffect = &Effect;
-							}
-							break;
-						}
-						default:
-							// we shouldn't ever be here
-							ABILITY_LOG(Warning, TEXT("%s uses unhandled stacking rule %s."), *Effect.Spec.Def->GetPathName(), *EGameplayEffectStackingPolicyToString(Effect.Spec.GetStackingType()));
-							break;
-						};
-
-						bFoundStack = true;
-						break;
-					}
-				}
-
-				// if we didn't find a stack matching this effect we need to add it to our list
-				if (!bFoundStack)
-				{
-					StackedEffects.Add(&Effect);
-				}
-			}
-		}
-	}
-
-	// now deal with the custom effects
-	while (CustomStackedEffects.Num() > 0)
-	{
-		int32 StackedIdx = StackedEffects.Add(CustomStackedEffects[0]);
-		CustomStackedEffects.RemoveAtSwap(0);
-
-		UGameplayEffectStackingExtension * StackedExt = StackedEffects[StackedIdx]->Spec.Def->StackingExtension->GetDefaultObject<UGameplayEffectStackingExtension>();
-
-		TArray<FActiveGameplayEffect*> Effects;
-		
-		for (int32 Idx = 0; Idx < CustomStackedEffects.Num(); Idx++)
-		{
-			UGameplayEffectStackingExtension * CurrentExt = CustomStackedEffects[Idx]->Spec.Def->StackingExtension->GetDefaultObject<UGameplayEffectStackingExtension>();
-			if (CurrentExt && StackedExt && CurrentExt->Handle == StackedExt->Handle && 
-				StackedEffects[StackedIdx]->Spec.Def->Modifiers[0].Attribute == CustomStackedEffects[Idx]->Spec.Def->Modifiers[0].Attribute)
-			{
-				Effects.Add(CustomStackedEffects[Idx]);
-				CustomStackedEffects.RemoveAtSwap(Idx);
-				--Idx;
-			}
-		}
-
-		UGameplayEffectStackingExtension * Ext = StackedEffects[StackedIdx]->Spec.Def->StackingExtension->GetDefaultObject<UGameplayEffectStackingExtension>();
-		Ext->CalculateStack(Effects, *this, *StackedEffects[StackedIdx]);
-	}
-
-	// we've found all of the best stacking effects, mark them so that they updated properly
-	for (FActiveGameplayEffect* const StackedEffect : StackedEffects)
-	{
-		StackedEffect->Spec.bTopOfStack = true;
-	}
-}
-
 bool FActiveGameplayEffectsContainer::CanApplyAttributeModifiers(const UGameplayEffect* GameplayEffect, float Level, const FGameplayEffectContextHandle& EffectContext)
 {
 	SCOPE_CYCLE_COUNTER(STAT_GameplayEffectsCanApplyAttributeModifiers);
@@ -2073,6 +1892,10 @@ bool FActiveGameplayEffectsContainer::CanApplyAttributeModifiers(const UGameplay
 		// It only makes sense to check additive operators
 		if (ModDef.ModifierOp == EGameplayModOp::Additive)
 		{
+			if (!ModDef.Attribute.IsValid())
+			{
+				continue;
+			}
 			const UAttributeSet* Set = Owner->GetAttributeSubobject(ModDef.Attribute.GetAttributeSetClass());
 			float CurrentValue = ModDef.Attribute.GetNumericValueChecked(Set);
 			float CostValue = ModSpec.GetEvaluatedMagnitude();
@@ -2242,18 +2065,21 @@ bool FActiveGameplayEffectQuery::Matches(const FActiveGameplayEffect& Effect) co
 	// if we are looking for owning tags check them on the Granted Tags and Owned Tags Container
 	if (OwningTagContainer)
 	{
-		if (!Effect.Spec.Def->InheritableOwnedTagsContainer.CombinedTags.MatchesAny(*OwningTagContainer, false) &&
+		if (!Effect.Spec.Def->InheritableOwnedTagsContainer.CombinedTags.MatchesAny(*OwningTagContainer, true) &&
 			!Effect.Spec.DynamicGrantedTags.MatchesAny(*OwningTagContainer, false))
 		{
-			// this doesn't match our Tags so bail
-			return false;
+			// if the GameplayEffect didn't match check the spec for tags that were added when this effect was created
+			if (!Effect.Spec.CapturedSourceTags.GetSpecTags().MatchesAny(*OwningTagContainer, false))
+			{
+				return false;
+			}
 		}
 	}	
 	
 	// if we are just looking for Tags on the Effect then look at the Gameplay Effect Tags
 	if (EffectTagContainer)
 	{
-		if (!Effect.Spec.Def->InheritableGameplayEffectTags.CombinedTags.MatchesAny(*EffectTagContainer, false))
+		if (!Effect.Spec.Def->InheritableGameplayEffectTags.CombinedTags.MatchesAny(*EffectTagContainer, true))
 		{
 			// this doesn't match our Tags so bail
 			return false;
@@ -2263,7 +2089,7 @@ bool FActiveGameplayEffectQuery::Matches(const FActiveGameplayEffect& Effect) co
 	// if we are just looking for Tags on the Effect then look at the Gameplay Effect Tags
 	if (EffectTagContainer_Rejection)
 	{
-		if (Effect.Spec.Def->InheritableGameplayEffectTags.CombinedTags.MatchesAny(*EffectTagContainer_Rejection, false))
+		if (Effect.Spec.Def->InheritableGameplayEffectTags.CombinedTags.MatchesAny(*EffectTagContainer_Rejection, true))
 		{
 			// this matches our Rejection Tags so bail
 			return false;
@@ -2292,6 +2118,16 @@ bool FActiveGameplayEffectQuery::Matches(const FActiveGameplayEffect& Effect) co
 		}
 	}
 
+	// check source object
+	if (EffectSource)
+	{
+		if (Effect.Spec.GetEffectContext().GetSourceObject() != EffectSource)
+		{
+			return false;
+		}
+	}
+
+	// passed all the checks
 	return true;
 }
 

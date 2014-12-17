@@ -14,6 +14,8 @@ DEFINE_LOG_CATEGORY_STATIC(LogFactory, Log, All);
 ----------------------------------------------------------------------------*/
 FString UFactory::CurrentFilename(TEXT(""));
 
+// This needs to be greater than 0 to allow factories to have both higher and lower priority than the default
+const int32 UFactory::DefaultImportPriority = 100;
 
 int32 UFactory::OverwriteYesOrNoToAllState = -1;
 
@@ -22,7 +24,7 @@ bool UFactory::bAllowOneTimeWarningMessages = true;
 UFactory::UFactory(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-
+	ImportPriority = DefaultImportPriority;
 }
 
 void UFactory::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
@@ -217,18 +219,35 @@ UObject* UFactory::StaticImportObject
 			if( It->IsChildOf( UFactory::StaticClass() ) )
 			{
 				UFactory* Default = It->GetDefaultObject<UFactory>();
-				if( Class->IsChildOf( Default->SupportedClass ) && Default->AutoPriority >= 0 )
+				if (Class->IsChildOf(Default->SupportedClass) && Default->ImportPriority >= 0)
 				{
 					Factories.Add( ConstructObject<UFactory>( *It ) );
 				}
 			}
 		}
 
-		struct FCompareUFactoryAutoPriority
+		Factories.Sort([](const UFactory& A, const UFactory& B) -> bool
 		{
-			FORCEINLINE bool operator()(const UFactory& A, const UFactory& B) const { return A.AutoPriority < B.AutoPriority; }
-		};
-		Factories.Sort( FCompareUFactoryAutoPriority() );
+			// First sort so that higher priorities are earlier in the list
+			if( A.ImportPriority > B.ImportPriority )
+			{
+				return true;
+			}
+			else if( A.ImportPriority < B.ImportPriority )
+			{
+				return false;
+			}
+
+			// Then sort so that factories that only create new assets are tried after those that actually import the file data (when they have an equivalent priority)
+			const bool bFactoryAImportsFiles = !A.CanCreateNew();
+			const bool bFactoryBImportsFiles = !B.CanCreateNew();
+			if( bFactoryAImportsFiles && !bFactoryBImportsFiles )
+			{
+				return true;
+			}
+
+			return false;
+		});
 	}
 
 	bool bLoadedFile = false;
@@ -240,12 +259,9 @@ UObject* UFactory::StaticImportObject
 		UObject* Result = NULL;
 		if( Factory->CanCreateNew() )
 		{
-			if( FCString::Stricmp(Filename,TEXT(""))==0 )
-			{
-				UE_LOG(LogFactory, Log,  TEXT("FactoryCreateNew: %s with %s (%i %i %s)"), *Class->GetName(), *Factories[i]->GetClass()->GetName(), Factory->bCreateNew, Factory->bText, Filename );
-				Factory->ParseParms( Parms );
-				Result = Factory->FactoryCreateNew( Class, InOuter, Name, Flags, NULL, Warn );
-			}
+			UE_LOG(LogFactory, Log,  TEXT("FactoryCreateNew: %s with %s (%i %i %s)"), *Class->GetName(), *Factories[i]->GetClass()->GetName(), Factory->bCreateNew, Factory->bText, Filename );
+			Factory->ParseParms( Parms );
+			Result = Factory->FactoryCreateNew( Class, InOuter, Name, Flags, NULL, Warn );
 		}
 		else if( FCString::Stricmp(Filename,TEXT(""))!=0 )
 		{
