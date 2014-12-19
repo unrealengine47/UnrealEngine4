@@ -1222,8 +1222,10 @@ void USceneComponent::UpdatePhysicsVolume( bool bTriggerNotifiers )
 		if (MyWorld->GetNonDefaultPhysicsVolumeCount() > 0)
 		{
 			// Avoid a full overlap query if we can do some quick bounds tests against the volumes.
+			static uint32 MaxVolumesToCheck = 100;
+			uint32 VolumeIndex = 0;
 			bool bAnyPotentialOverlap = false;
-			for (auto VolumeIter = MyWorld->GetNonDefaultPhysicsVolumeIterator(); VolumeIter && !bAnyPotentialOverlap; ++VolumeIter)
+			for (auto VolumeIter = MyWorld->GetNonDefaultPhysicsVolumeIterator(); VolumeIter && !bAnyPotentialOverlap; ++VolumeIter, ++VolumeIndex)
 			{
 				const APhysicsVolume* Volume = *VolumeIter;
 				const USceneComponent* VolumeRoot = Volume->GetRootComponent();
@@ -1237,7 +1239,13 @@ void USceneComponent::UpdatePhysicsVolume( bool bTriggerNotifiers )
 						}
 					}
 				}
-				// TODO: bail if too many volumes?				
+
+				// Bail if too many volumes. Later we'll probably convert to using an octree so this wouldn't be a concern.
+				if (VolumeIndex >= MaxVolumesToCheck)
+				{
+					bAnyPotentialOverlap = true;
+					break;
+				}
 			}
 			
 			if (bAnyPotentialOverlap)
@@ -1274,7 +1282,10 @@ void USceneComponent::UpdatePhysicsVolume( bool bTriggerNotifiers )
 			}
 		}
 
-		SetPhysicsVolume( NewVolume, bTriggerNotifiers );
+		if (PhysicsVolume != NewVolume)
+		{
+			SetPhysicsVolume( NewVolume, bTriggerNotifiers );
+		}
 	}
 }
 
@@ -1378,16 +1389,19 @@ bool USceneComponent::MoveComponent( const FVector& Delta, const FRotator& NewRo
 {
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	// make sure mobility is movable, otherwise you shouldn't try to move
-	if ( UWorld * World = GetWorld() )
+	if (Mobility != EComponentMobility::Movable)
 	{
-		ULevel* Level = GetComponentLevel();
-
-		// It's only a problem if we're in gameplay, and the owning level is visible
-		if (World->HasBegunPlay() && IsRegistered() && Level && Level->bIsVisible && Mobility != EComponentMobility::Movable)
+		if (UWorld * World = GetWorld())
 		{
-			FMessageLog("Performance").Warning( FText::Format(LOCTEXT("InvalidMove", "Mobility of {0} : {1} has to be 'Movable' if you'd like to move. "), 
-				FText::FromString(GetNameSafe(GetOwner())), FText::FromString(GetName())));
-			return false;
+			ULevel* Level = GetComponentLevel();
+
+			// It's only a problem if we're in gameplay, and the owning level is visible
+			if (World->HasBegunPlay() && IsRegistered() && Level && Level->bIsVisible)
+			{
+				FMessageLog("Performance").Warning(FText::Format(LOCTEXT("InvalidMove", "Mobility of {0} : {1} has to be 'Movable' if you'd like to move. "),
+					FText::FromString(GetNameSafe(GetOwner())), FText::FromString(GetName())));
+				return false;
+			}
 		}
 	}
 #endif

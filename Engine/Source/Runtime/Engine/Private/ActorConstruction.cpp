@@ -50,7 +50,7 @@ namespace
 		/** Called before UCS execution has started for the given Actor */
 		void PreProcessComponents(const AActor* InActor)
 		{
-			TArray<UActorComponent*> ActorComponents;
+			TInlineComponentArray<UActorComponent*> ActorComponents;
 			InActor->GetComponents(ActorComponents);
 			for (auto CompIt = ActorComponents.CreateConstIterator(); CompIt; ++CompIt)
 			{
@@ -186,7 +186,7 @@ void AActor::ResetPropertiesForConstruction()
 void AActor::DestroyConstructedComponents()
 {
 	// Remove all existing components
-	TArray<UActorComponent*> PreviouslyAttachedComponents;
+	TInlineComponentArray<UActorComponent*> PreviouslyAttachedComponents;
 	GetComponents(PreviouslyAttachedComponents);
 	for (int32 i = 0; i < PreviouslyAttachedComponents.Num(); i++)
 	{
@@ -580,7 +580,10 @@ UActorComponent* AActor::AddComponent(FName TemplateName, bool bManualAttachment
 	if(NewActorComp != nullptr)
 	{
 		// Keep track of the new component during UCS execution
-		FUCSComponentManager::Get().AddComponent(this, NewActorComp);
+		if(bRunningUserConstructionScript)
+		{
+			FUCSComponentManager::Get().AddComponent(this, NewActorComp);
+		}
 
 		// The user has the option of doing attachment manually where they have complete control or via the automatic rule
 		// that the first component added becomes the root component, with subsequent components attached to the root.

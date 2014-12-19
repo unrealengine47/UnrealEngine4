@@ -30,9 +30,9 @@ UENUM()
 enum EBlueprintType
 {
 	// Normal blueprint
-	BPTYPE_Normal				UMETA(DisplayName="Blueprint"),
+	BPTYPE_Normal				UMETA(DisplayName="Class Blueprint"),
 	// Blueprint that is const during execution (no state graph and methods cannot modify member variables)
-	BPTYPE_Const				UMETA(DisplayName="Const Blueprint"),
+	BPTYPE_Const				UMETA(DisplayName="Const Class Blueprint"),
 	// Blueprint that serves as a container for macros to be used in other blueprints
 	BPTYPE_MacroLibrary			UMETA(DisplayName="Blueprint Macro Library"),
 	// Blueprint that serves as an interface to be implemented by other blueprints
@@ -358,6 +358,14 @@ class ENGINE_API UBlueprint : public UBlueprintCore
 	 *
 	 * This flag needs to be copied on duplication (because it's the duplicated object that we're disabling on PostDuplicate),
 	 * but we don't *need* to serialize it for permanent objects.
+	 *
+	 * Without setting this flag a blueprint will be marked dirty when it is duplicated and if saved while in this dirty
+	 * state you will not be able to open the blueprint. More specifically, UClass::Rename (called by DestroyGeneratedClass)
+	 * sets a dirty flag on the package. Once saved the package will fail to open because some unnamed objects are present in
+	 * the pacakge.
+	 *
+	 * This flag can be used to avoid the package being marked as dirty in the first place. Ideally PostDuplicateObject
+	 * would not rename classes that are still in use by the original object.
 	 */
 	UPROPERTY()
 	mutable bool bDuplicatingReadOnly;

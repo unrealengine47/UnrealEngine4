@@ -97,6 +97,8 @@
 #include "Components/BrushComponent.h"
 #include "GameFramework/GameUserSettings.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
+#include "NotificationManager.h"
+#include "SNotificationList.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogEngine, Log, All);
 
@@ -2478,6 +2480,11 @@ bool UEngine::Exec( UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar )
 	{
 		return HandleDumpTicksCommand( InWorld, Cmd, Ar );
 	}
+	else if (FParse::Command(&Cmd, TEXT("CANCELASYNCLOAD")))
+	{
+		CancelAsyncLoading();
+		return true;
+	}
 #if USE_NETWORK_PROFILER
 	else if( FParse::Command(&Cmd,TEXT("NETPROFILE")) )
 	{
@@ -2699,6 +2706,28 @@ static void DumpHelp(UWorld* InWorld)
 	UE_LOG(LogEngine, Display, TEXT(" "));
 
 	ConsoleCommandLibrary_DumpLibraryHTML(InWorld, *GEngine, FilePath);
+
+	// Notification in editor
+	{
+		auto Message = NSLOCTEXT("UnrealEd", "ConsoleHelpExported", "ConsoleHelp.html was saved as");
+		FNotificationInfo Info(Message);
+		Info.bFireAndForget = true;
+		Info.ExpireDuration = 5.0f;
+		Info.bUseSuccessFailIcons = false;
+		Info.bUseLargeFont = false;
+
+		const FString HyperLinkText = FPaths::ConvertRelativePathToFull(FilePath);
+		Info.Hyperlink = FSimpleDelegate::CreateStatic([](FString SourceFilePath) 
+		{
+			// open default browser, usually internet explorer (bit slower than Chrome)
+//			FPlatformProcess::LaunchURL(*SourceFilePath, TEXT(""), 0);
+			// open folder, you can choose the browser yourself
+			FPlatformProcess::ExploreFolder(*(FPaths::GetPath(SourceFilePath)));
+		}, HyperLinkText);
+		Info.HyperlinkText = FText::FromString(HyperLinkText);
+
+		FSlateNotificationManager::Get().AddNotification(Info);
+	}
 }
 static FAutoConsoleCommandWithWorld GConsoleCommandHelp(
 	TEXT("help"),
@@ -8444,7 +8473,7 @@ static void SetGametypeContentObjectReferencers(UObject* GametypeContentPackage,
  * @param	ContentPackage		The package that was loaded.
  * @param	GameEngine			The GameEngine.
  */
-static void AsyncLoadLocalizedMapGameTypeContentCallback(const FName& PackageName, UPackage* ContentPackage, FName InContextHandle)
+static void AsyncLoadLocalizedMapGameTypeContentCallback(const FName& PackageName, UPackage* ContentPackage, EAsyncLoadingResult::Type Result, FName InContextHandle)
 {
 	SetGametypeContentObjectReferencers(ContentPackage, InContextHandle, GametypeContent_LocalizedReferencerIndex);
 }
@@ -8456,7 +8485,7 @@ static void AsyncLoadLocalizedMapGameTypeContentCallback(const FName& PackageNam
  * @param	ContentPackage		The package that was loaded.
  * @param	GameEngine			The GameEngine.
  */
-static void AsyncLoadMapGameTypeContentCallback(const FName& PackageName, UPackage* ContentPackage, FName InContextHandle)
+static void AsyncLoadMapGameTypeContentCallback(const FName& PackageName, UPackage* ContentPackage, EAsyncLoadingResult::Type Result, FName InContextHandle)
 {
 	SetGametypeContentObjectReferencers(ContentPackage, InContextHandle, GametypeContent_ReferencerIndex);
 }
@@ -9637,7 +9666,7 @@ void UEngine::VerifyLoadMapWorldCleanup()
  * @param	LevelPackage	level package that finished async loading
  * @param	InGameEngine	pointer to game engine object to associated loaded level with so it won't be GC'ed
  */
-static void AsyncMapChangeLevelLoadCompletionCallback(const FName& PackageName, UPackage* LevelPackage, FName InWorldHandle )
+static void AsyncMapChangeLevelLoadCompletionCallback(const FName& PackageName, UPackage* LevelPackage, EAsyncLoadingResult::Type Result, FName InWorldHandle)
 {
 	FWorldContext &Context = GEngine->GetWorldContextFromHandleChecked( InWorldHandle );
 
@@ -10196,7 +10225,7 @@ void UEngine::CopyPropertiesForUnrelatedObjects(UObject* OldObject, UObject* New
 	AActor* NewActor = Cast<AActor>(NewObject);
 	if(NewActor != NULL)
 	{
-		TArray<UActorComponent*> Components;
+		TInlineComponentArray<UActorComponent*> Components;
 		NewActor->GetComponents(Components);
 
 		for(int32 i=0; i<Components.Num(); i++)

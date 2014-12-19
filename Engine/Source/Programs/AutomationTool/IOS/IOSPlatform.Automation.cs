@@ -186,10 +186,11 @@ public class IOSPlatform : Platform
 		bool bNeedsIPA = false;
 		if (Params.IterativeDeploy)
 		{
+			String NonUFSManifestPath = SC.GetNonUFSDeploymentDeltaPath();
 			// check to determine if we need to update the IPA
-			if (File.Exists(SC.StageDirectory + "/Manifest_DeltaNonUFSFiles.txt"))
+			if (File.Exists(NonUFSManifestPath))
 			{
-				string NonUFSFiles = File.ReadAllText(SC.StageDirectory + "/Manifest_DeltaNonUFSFiles.txt");
+				string NonUFSFiles = File.ReadAllText(NonUFSManifestPath);
 				string[] Lines = NonUFSFiles.Split('\n');
 				bNeedsIPA = Lines.Length > 0 && !string.IsNullOrWhiteSpace(Lines[0]);
 			}
@@ -817,7 +818,7 @@ public class IOSPlatform : Platform
 				int EndPos = Contents.IndexOf("</string>", Pos);
 				BundleIdentifier = Contents.Substring(Pos, EndPos - Pos);
 			}
-			RunAndLog(CmdEnv, DeployServer, "Backup -file \"" + CombinePaths(Params.BaseStageDirectory, "IOS", "Manifest_UFSFiles.txt") + "\" -file \"" + CombinePaths(Params.BaseStageDirectory, "IOS", "Manifest_NonUFSFiles.txt") + "\"" + (String.IsNullOrEmpty(Params.Device) ? "" : " -device " + Params.Device.Substring(4)) + " -bundle " + BundleIdentifier);
+			RunAndLog(CmdEnv, DeployServer, "Backup -file \"" + CombinePaths(Params.BaseStageDirectory, "IOS", DeploymentContext.UFSDeployedManifestFileName) + "\" -file \"" + CombinePaths(Params.BaseStageDirectory, "IOS", DeploymentContext.NonUFSDeployedManifestFileName) + "\"" + (String.IsNullOrEmpty(Params.Device) ? "" : " -device " + Params.Device.Substring(4)) + " -bundle " + BundleIdentifier);
 
 			string[] ManifestFiles = Directory.GetFiles(CombinePaths(Params.BaseStageDirectory, "IOS"), "*_Manifest_UFS*.txt");
 			UFSManifests.AddRange(ManifestFiles);
@@ -878,9 +879,10 @@ public class IOSPlatform : Platform
 			}
 
 			// check to determine if we need to update the IPA
-			if (File.Exists(SC.StageDirectory + "/Manifest_DeltaNonUFSFiles.txt"))
+			String NonUFSManifestPath = SC.GetNonUFSDeploymentDeltaPath();
+			if (File.Exists(NonUFSManifestPath))
 			{
-				string NonUFSFiles = File.ReadAllText(SC.StageDirectory + "/Manifest_DeltaNonUFSFiles.txt");
+				string NonUFSFiles = File.ReadAllText(NonUFSManifestPath);
 				string[] Lines = NonUFSFiles.Split('\n');
 				bNeedsIPA = Lines.Length > 0 && !string.IsNullOrWhiteSpace(Lines[0]);
 			}
@@ -902,7 +904,7 @@ public class IOSPlatform : Platform
 		if (Params.IterativeDeploy)
 		{
 			// push over the changed files
-			RunAndLog(CmdEnv, DeployServer, "Deploy -manifest \"" + CombinePaths(Params.BaseStageDirectory, "IOS", "Manifest_DeltaUFSFiles.txt") + "\"" + (String.IsNullOrEmpty(Params.Device) ? "" : " -device " + Params.Device.Substring(4)) + AdditionalCommandline + " -bundle " + BundleIdentifier);
+			RunAndLog(CmdEnv, DeployServer, "Deploy -manifest \"" + CombinePaths(Params.BaseStageDirectory, "IOS", DeploymentContext.UFSDeployDeltaFileName) + "\"" + (String.IsNullOrEmpty(Params.Device) ? "" : " -device " + Params.Device.Substring(4)) + AdditionalCommandline + " -bundle " + BundleIdentifier);
 		}
 		Directory.SetCurrentDirectory (CurrentDir);
         PrintRunTime();
@@ -932,6 +934,14 @@ public class IOSPlatform : Platform
 	public override bool IsSupported { get { return true; } }
 
 	public override bool LaunchViaUFE { get { return UnrealBuildTool.BuildHostPlatform.Current.Platform != UnrealTargetPlatform.Mac; } }
+
+	public override bool UseAbsLog
+	{
+		get
+		{
+			return !LaunchViaUFE;
+		}
+	}
 
 	public override string Remap(string Dest)
 	{
@@ -972,32 +982,9 @@ public class IOSPlatform : Platform
 		}
 		else
 		{
-/*			// get the CFBundleIdentifier and modify the command line
-			int Pos = ClientCmdLine.IndexOf("-Exe=") + 6;
-			int EndPos = ClientCmdLine.IndexOf("-Targetplatform=") - 2;
-			string Exe = ClientCmdLine.Substring(Pos, EndPos - Pos);
-			
-			// check for Info.plist
-			if (string.IsNullOrEmpty(Params.StageDirectoryParam))
-			{
-				// need to crack open the ipa and read it from there - todo
-			}
-			else
-			{
-				if (File.Exists(Params.BaseStageDirectory+"/IOS/Info.plist"))
-				{
-					string Contents = File.ReadAllText(Params.BaseStageDirectory + "/IOS/Info.plist");
-					Pos = Contents.IndexOf("CFBundleIdentifier");
-					Pos = Contents.IndexOf("<string>", Pos) + 8;
-					EndPos = Contents.IndexOf("</string>", Pos);
-					string id = Contents.Substring(Pos, EndPos - Pos);
-					id = id.Substring(id.LastIndexOf(".") + 1);
-					ClientCmdLine = ClientCmdLine.Replace(Exe, id + ".stub");
-				}
-			}
-
-			return base.RunClient(ClientRunFlags, ClientApp, ClientCmdLine, Params);*/
-			return null;
+			ProcessResult Result = new ProcessResult("DummyApp", null, false, null);
+			Result.ExitCode = 0;
+			return Result;
 		}
 	}
 

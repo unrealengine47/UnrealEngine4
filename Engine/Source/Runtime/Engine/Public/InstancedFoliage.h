@@ -54,8 +54,11 @@ struct FFoliageInstance : public FFoliageInstancePlacementInfo
 {
 	UActorComponent* Base;
 
+	UActorComponent* Spawner;
+
 	FFoliageInstance()
 	: Base(NULL)
+	, Spawner(NULL)
 	{}
 
 

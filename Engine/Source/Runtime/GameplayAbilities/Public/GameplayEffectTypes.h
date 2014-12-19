@@ -22,11 +22,11 @@ class UGameplayEffect;
 struct FGameplayEffectSpec;
 struct FGameplayEffectModCallbackData;
 
-FString EGameplayModOpToString(int32 Type);
+GAMEPLAYABILITIES_API FString EGameplayModOpToString(int32 Type);
 
-FString EGameplayModToString(int32 Type);
+GAMEPLAYABILITIES_API FString EGameplayModToString(int32 Type);
 
-FString EGameplayModEffectToString(int32 Type);
+GAMEPLAYABILITIES_API FString EGameplayModEffectToString(int32 Type);
 
 UENUM(BlueprintType)
 namespace EGameplayModOp
@@ -242,7 +242,7 @@ struct GAMEPLAYABILITIES_API FGameplayEffectContext
 	}
 
 	/** Returns the list of gameplay tags applicable to this effect, defaults to the owner's tags */
-	virtual void GetOwnedGameplayTags(OUT FGameplayTagContainer &TagContainer) const;
+	virtual void GetOwnedGameplayTags(OUT FGameplayTagContainer& ActorTagContainer, OUT FGameplayTagContainer& SpecTagContainer) const;
 
 	/** Sets the instigator and effect causer. Instigator is who owns the ability that spawned this, EffectCauser is the actor that is the physical source of the effect, such as a weapon. They can be the same. */
 	virtual void AddInstigator(class AActor *InInstigator, class AActor *InEffectCauser);
@@ -433,11 +433,11 @@ struct FGameplayEffectContextHandle
 	}
 
 	/** Returns the list of gameplay tags applicable to this effect, defaults to the owner's tags */
-	void GetOwnedGameplayTags(OUT FGameplayTagContainer &TagContainer) const
+	void GetOwnedGameplayTags(OUT FGameplayTagContainer& ActorTagContainer, OUT FGameplayTagContainer& SpecTagContainer) const
 	{
 		if (IsValid())
 		{
-			Data->GetOwnedGameplayTags(TagContainer);
+			Data->GetOwnedGameplayTags(ActorTagContainer, SpecTagContainer);
 		}
 	}
 

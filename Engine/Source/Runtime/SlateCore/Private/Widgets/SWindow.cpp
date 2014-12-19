@@ -3,9 +3,6 @@
 #include "SlateCorePrivatePCH.h"
 #include "HittestGrid.h"
 
-// this define is the first step to complete removal of the below hack
-#define PLATFORM_SPECIFIC_HACK 	0
-
 namespace SWindowDefs
 {
 	/** Height of a Slate window title bar, in pixels */
@@ -531,11 +528,6 @@ void SWindow::Tick( const FGeometry& AllottedGeometry, const double InCurrentTim
 {
 	if( Morpher.bIsActive )
 	{
-		if(Morpher.bIsPendingPlay)
-		{
-			Morpher.Sequence.Play();
-			Morpher.bIsPendingPlay = false;
-		}
 		if ( Morpher.Sequence.IsPlaying() )
 		{
 			const float InterpAlpha = Morpher.Sequence.GetLerp();
@@ -549,7 +541,7 @@ void SWindow::Tick( const FGeometry& AllottedGeometry, const double InCurrentTim
 					this->ReshapeWindow( WindowRect );
 				}
 			}
-			else
+			else // if animating position
 			{
 				const FVector2D StartPosition( Morpher.StartingMorphShape.Left, Morpher.StartingMorphShape.Top );
 				const FVector2D TargetPosition( Morpher.TargetMorphShape.Left, Morpher.TargetMorphShape.Top );
@@ -565,6 +557,7 @@ void SWindow::Tick( const FGeometry& AllottedGeometry, const double InCurrentTim
 		}
 		else
 		{
+			// The animation is complete, so just make sure the target size/position and opacity are reached
 			if( Morpher.bIsAnimatingWindowSize )
 			{
 				if( Morpher.TargetMorphShape != GetRectInScreen() )
@@ -573,7 +566,7 @@ void SWindow::Tick( const FGeometry& AllottedGeometry, const double InCurrentTim
 					this->ReshapeWindow( Morpher.TargetMorphShape );
 				}
 			}
-			else
+			else // if animating position
 			{
 				const FVector2D TargetPosition( Morpher.TargetMorphShape.Left, Morpher.TargetMorphShape.Top );
 				if( TargetPosition != this->GetPositionInScreen() )
@@ -846,9 +839,13 @@ void SWindow::StartMorph()
 {
 	Morpher.StartingOpacity = GetOpacity();
 	Morpher.StartingMorphShape = FSlateRect( this->ScreenPosition.X, this->ScreenPosition.Y, this->ScreenPosition.X + this->Size.X, this->ScreenPosition.Y + this->Size.Y );
-	Morpher.bIsPendingPlay = true;
 	Morpher.bIsActive = true;
 	Morpher.Sequence.JumpToStart();
+
+	if ( !ActiveTickHandle.IsValid() )
+	{
+		ActiveTickHandle = RegisterActiveTick( 0.f, FWidgetActiveTickDelegate::CreateSP( this, &SWindow::TriggerPlayMorphSequence ) );
+	}
 }
 
 const FSlateBrush* SWindow::GetWindowBackground() const
@@ -1417,13 +1414,6 @@ FReply SWindow::OnMouseButtonDown( const FGeometry& MyGeometry, const FPointerEv
 
 FReply SWindow::OnMouseButtonUp( const FGeometry& MyGeometry, const FPointerEvent& MouseEvent )
 {
-#if PLATFORM_SPECIFIC_HACK && PLATFORM_LINUX
-	if (MoveResizeZone != EWindowZone::Unspecified && MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
-	{
-		MoveResizeZone =  EWindowZone::Unspecified;
-		return FReply::Handled().ReleaseMouseCapture();
-	}
-#endif
 	if (bDragAnywhere &&  this->HasMouseCapture() && MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
 		MoveResizeZone =  EWindowZone::Unspecified;
@@ -1437,110 +1427,6 @@ FReply SWindow::OnMouseButtonUp( const FGeometry& MyGeometry, const FPointerEven
 
 FReply SWindow::OnMouseMove( const FGeometry& MyGeometry, const FPointerEvent& MouseEvent )
 {
-#if PLATFORM_SPECIFIC_HACK && PLATFORM_LINUX
-	if (MoveResizeZone == EWindowZone::TopLeftBorder)
-	{
-		FVector2D MoveResizeOffset = MouseEvent.GetScreenSpacePosition() - MoveResizeStart;
-		if (NativeWindow.IsValid())
-		{
-			NativeWindow->ReshapeWindow(
-				FMath::TruncToInt(MoveResizeRect.Left + MoveResizeOffset.X), FMath::TruncToInt(MoveResizeRect.Top + MoveResizeOffset.Y),
-				FMath::TruncToInt(MoveResizeRect.Right - MoveResizeRect.Left - MoveResizeOffset.X), FMath::TruncToInt(MoveResizeRect.Bottom - MoveResizeRect.Top - MoveResizeOffset.Y)
-				);
-		}
-		return FReply::Handled();
-	}
-	if (MoveResizeZone == EWindowZone::BottomRightBorder)
-	{
-		FVector2D MoveResizeOffset = MouseEvent.GetScreenSpacePosition() - MoveResizeStart;
-		if (NativeWindow.IsValid())
-		{
-			NativeWindow->ReshapeWindow(
-				FMath::TruncToInt(MoveResizeRect.Left), FMath::TruncToInt(MoveResizeRect.Top),
-				FMath::TruncToInt(MoveResizeRect.Right - MoveResizeRect.Left + MoveResizeOffset.X), FMath::TruncToInt(MoveResizeRect.Bottom - MoveResizeRect.Top + MoveResizeOffset.Y)
-				);
-		}
-		return FReply::Handled();
-	}
-	if (MoveResizeZone == EWindowZone::BottomLeftBorder)
-	{
-		FVector2D MoveResizeOffset = MouseEvent.GetScreenSpacePosition() - MoveResizeStart;
-		if (NativeWindow.IsValid())
-		{
-			NativeWindow->ReshapeWindow(
-				FMath::TruncToInt(MoveResizeRect.Left + MoveResizeOffset.X), FMath::TruncToInt(MoveResizeRect.Top),
-				FMath::TruncToInt(MoveResizeRect.Right - MoveResizeRect.Left - MoveResizeOffset.X), FMath::TruncToInt(MoveResizeRect.Bottom - MoveResizeRect.Top + MoveResizeOffset.Y)
-				);
-		}
-		return FReply::Handled();
-	}
-	if (MoveResizeZone == EWindowZone::TopRightBorder)
-	{
-		FVector2D MoveResizeOffset = MouseEvent.GetScreenSpacePosition() - MoveResizeStart;
-		if (NativeWindow.IsValid())
-		{
-			NativeWindow->ReshapeWindow(
-				FMath::TruncToInt(MoveResizeRect.Left), FMath::TruncToInt(MoveResizeRect.Top + MoveResizeOffset.Y),
-				FMath::TruncToInt(MoveResizeRect.Right - MoveResizeRect.Left + MoveResizeOffset.X), FMath::TruncToInt(MoveResizeRect.Bottom - MoveResizeRect.Top - MoveResizeOffset.Y)
-				);
-		}
-		return FReply::Handled();
-	}
-	if (MoveResizeZone == EWindowZone::TopBorder)
-	{
-		FVector2D MoveResizeOffset = MouseEvent.GetScreenSpacePosition() - MoveResizeStart;
-		if (NativeWindow.IsValid())
-		{
-			NativeWindow->ReshapeWindow(
-				FMath::TruncToInt(MoveResizeRect.Left), FMath::TruncToInt(MoveResizeRect.Top + MoveResizeOffset.Y),
-				FMath::TruncToInt(MoveResizeRect.Right - MoveResizeRect.Left), FMath::TruncToInt(MoveResizeRect.Bottom - MoveResizeRect.Top - MoveResizeOffset.Y)
-				);
-		}
-		return FReply::Handled();
-	}
-	if (MoveResizeZone == EWindowZone::BottomBorder)
-	{
-		FVector2D MoveResizeOffset = MouseEvent.GetScreenSpacePosition() - MoveResizeStart;
-		if (NativeWindow.IsValid())
-		{
-			NativeWindow->ReshapeWindow(
-				FMath::TruncToInt(MoveResizeRect.Left), FMath::TruncToInt(MoveResizeRect.Top),
-				FMath::TruncToInt(MoveResizeRect.Right - MoveResizeRect.Left), FMath::TruncToInt(MoveResizeRect.Bottom - MoveResizeRect.Top + MoveResizeOffset.Y)
-				);
-		}
-		return FReply::Handled();
-	}
-	if (MoveResizeZone == EWindowZone::LeftBorder)
-	{
-		FVector2D MoveResizeOffset = MouseEvent.GetScreenSpacePosition() - MoveResizeStart;
-		if (NativeWindow.IsValid())
-		{
-			NativeWindow->ReshapeWindow(
-				FMath::TruncToInt(MoveResizeRect.Left + MoveResizeOffset.X), FMath::TruncToInt(MoveResizeRect.Top),
-				FMath::TruncToInt(MoveResizeRect.Right - MoveResizeRect.Left - MoveResizeOffset.X), FMath::TruncToInt(MoveResizeRect.Bottom - MoveResizeRect.Top)
-				);
-		}
-		return FReply::Handled();
-	}
-	if (MoveResizeZone == EWindowZone::RightBorder)
-	{
-		FVector2D MoveResizeOffset = MouseEvent.GetScreenSpacePosition() - MoveResizeStart;
-		if (NativeWindow.IsValid())
-		{
-			NativeWindow->ReshapeWindow(
-				FMath::TruncToInt(MoveResizeRect.Left), FMath::TruncToInt(MoveResizeRect.Top),
-				FMath::TruncToInt(MoveResizeRect.Right - MoveResizeRect.Left + MoveResizeOffset.X), FMath::TruncToInt(MoveResizeRect.Bottom - MoveResizeRect.Top)
-				);
-		}
-		return FReply::Handled();
-	}
-	if (MoveResizeZone == EWindowZone::TitleBar)
-	{
-		FVector2D MoveResizeOffset = MouseEvent.GetScreenSpacePosition() - MoveResizeStart;
-		this->MoveWindowTo( FVector2D(MoveResizeRect.Left, MoveResizeRect.Top) + MoveResizeOffset );
-		return FReply::Handled();
-	}
-#endif
 	if ( bDragAnywhere && this->HasMouseCapture() && MouseEvent.IsMouseButtonDown(EKeys::LeftMouseButton) && MoveResizeZone != EWindowZone::TitleBar )
 	{
 		this->MoveWindowTo( ScreenPosition + MouseEvent.GetCursorDelta() );
@@ -1856,3 +1742,9 @@ EVisibility SWindow::GetWindowContentVisibility() const
 	// in which case the full window overlay content is visible but nothing under it
 	return (bShouldShowWindowContentDuringOverlay == true || !FullWindowOverlayWidget.IsValid()) ? EVisibility::SelfHitTestInvisible : EVisibility::Hidden;
 };
+
+EActiveTickReturnType SWindow::TriggerPlayMorphSequence( double InCurrentTime, float InDeltaTime )
+{
+	Morpher.Sequence.Play( this->AsShared() );
+	return EActiveTickReturnType::StopTicking;
+}

@@ -75,8 +75,7 @@ bool FICUInternationalization::Initialize()
 {
 	UErrorCode ICUStatus = U_ZERO_ERROR;
 
-	// Linux needs to have those compiled statically at least until we settle on .so location for deployed/native builds
-#if (IS_PROGRAM || !IS_MONOLITHIC) && !PLATFORM_LINUX
+#if NEEDS_ICU_DLLS
 	LoadDLLs();
 #endif /*IS_PROGRAM || !IS_MONOLITHIC*/
 
@@ -138,12 +137,12 @@ void FICUInternationalization::Terminate()
 	CachedCultures.Empty();
 
 	u_cleanup();
-#if IS_PROGRAM || !IS_MONOLITHIC
+#if NEEDS_ICU_DLLS
 	UnloadDLLs();
 #endif //IS_PROGRAM || !IS_MONOLITHIC
 }
 
-#if (IS_PROGRAM || !IS_MONOLITHIC)
+#if NEEDS_ICU_DLLS
 void FICUInternationalization::LoadDLLs()
 {
 	// The base directory for ICU binaries is consistent on all platforms.
@@ -206,7 +205,7 @@ void FICUInternationalization::LoadDLLs()
 #elif PLATFORM_LINUX
 		FString LibraryName = "lib" "icu" + Stem + LibraryNamePostfix + ".53.1" "." "so";
 #elif PLATFORM_MAC
-		FString LibraryName = "lib" "icu" + Stem + LibraryNamePostfix + ".53.1" "." "dylib";
+		FString LibraryName = "lib" "icu" + Stem + ".53.1" + LibraryNamePostfix + "." "dylib";
 #endif //PLATFORM_*
 
 		void* DLLHandle = FPlatformProcess::GetDllHandle(*(TargetSpecificPath / LibraryName));
@@ -223,7 +222,7 @@ void FICUInternationalization::UnloadDLLs()
 	}
 	DLLHandles.Reset();
 }
-#endif // IS_PROGRAM || !IS_MONOLITHIC
+#endif // NEEDS_ICU_DLLS
 
 #if STATS
 namespace

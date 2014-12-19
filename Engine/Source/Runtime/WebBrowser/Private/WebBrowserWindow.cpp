@@ -15,7 +15,7 @@ FWebBrowserWindow::FWebBrowserWindow(FIntPoint InViewportSize)
 	TextureData.Reserve(ViewportSize.X * ViewportSize.Y * 4);
 	TextureData.SetNumZeroed(ViewportSize.X * ViewportSize.Y * 4);
 
-	if (FSlateApplication::Get().GetRenderer().IsValid())
+	if (FSlateApplication::IsInitialized() && FSlateApplication::Get().GetRenderer().IsValid())
 	{
 		UpdatableTexture = FSlateApplication::Get().GetRenderer()->CreateUpdatableTexture(ViewportSize.X, ViewportSize.Y);
 	}
@@ -30,6 +30,19 @@ FWebBrowserWindow::~FWebBrowserWindow()
 		FSlateApplication::Get().GetRenderer()->ReleaseUpdatableTexture(UpdatableTexture);
 	}
 	UpdatableTexture = nullptr;
+}
+
+void FWebBrowserWindow::LoadURL(FString NewURL)
+{
+	if (IsValid())
+	{
+		CefRefPtr<CefFrame> MainFrame = InternalCefBrowser->GetMainFrame();
+		if (MainFrame.get() != nullptr)
+		{
+			CefString URL = *NewURL;
+			MainFrame->LoadURL(URL);
+		}
+	}
 }
 
 void FWebBrowserWindow::SetViewportSize(FVector2D WindowSize)
@@ -99,7 +112,12 @@ void FWebBrowserWindow::OnKeyDown(const FKeyEvent& InKeyEvent)
 	if (IsValid())
 	{
 		CefKeyEvent KeyEvent;
+#if PLATFORM_MAC
+		KeyEvent.native_key_code = InKeyEvent.GetKeyCode();
+		KeyEvent.character = InKeyEvent.GetCharacter();
+#else
 		KeyEvent.windows_key_code = InKeyEvent.GetKeyCode();
+#endif
 		// TODO: Figure out whether this is a system key if we come across problems
 		/*KeyEvent.is_system_key = message == WM_SYSCHAR ||
 			message == WM_SYSKEYDOWN ||
@@ -117,7 +135,12 @@ void FWebBrowserWindow::OnKeyUp(const FKeyEvent& InKeyEvent)
 	if (IsValid())
 	{
 		CefKeyEvent KeyEvent;
+#if PLATFORM_MAC
+		KeyEvent.native_key_code = InKeyEvent.GetKeyCode();
+		KeyEvent.character = InKeyEvent.GetCharacter();
+#else
 		KeyEvent.windows_key_code = InKeyEvent.GetKeyCode();
+#endif
 		// TODO: Figure out whether this is a system key if we come across problems
 		/*KeyEvent.is_system_key = message == WM_SYSCHAR ||
 			message == WM_SYSKEYDOWN ||
@@ -135,7 +158,11 @@ void FWebBrowserWindow::OnKeyChar(const FCharacterEvent& InCharacterEvent)
 	if (IsValid())
 	{
 		CefKeyEvent KeyEvent;
+#if PLATFORM_MAC
+		KeyEvent.character = InCharacterEvent.GetCharacter();
+#else
 		KeyEvent.windows_key_code = InCharacterEvent.GetCharacter();
+#endif
 		// TODO: Figure out whether this is a system key if we come across problems
 		/*KeyEvent.is_system_key = message == WM_SYSCHAR ||
 			message == WM_SYSKEYDOWN ||

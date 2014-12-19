@@ -477,17 +477,7 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	/** Removes the specified ability */
 	void ClearAbility(const FGameplayAbilitySpecHandle& Handle);
 
-	/** Will be called from GiveAbility or from OnRep. Initializes events (triggers and inputs) with the given ability */
-	virtual void OnGiveAbility(const FGameplayAbilitySpec AbilitySpec);
-
-	/** Will be called from GiveAbility or from OnRep. Unbinds inputs with the given ability */
-	virtual void OnRemoveAbility(const FGameplayAbilitySpec AbilitySpec) {};
-
-	/** Called from ClearAbility, ClearAllAbilities or OnRep. Clears any triggers that should no longer exist. */
-	void CheckForClearedAbilities();
-
-	UGameplayAbility* CreateNewInstanceOfAbility(FGameplayAbilitySpec& Spec, const UGameplayAbility* Ability);
-
+	/** Cancel all abilities with the specified tags. Will not cancel the Ignore instance */
 	void CancelAbilities(const FGameplayTagContainer* WithTags=nullptr, const FGameplayTagContainer* WithoutTags=nullptr, UGameplayAbility* Ignore=nullptr);
 
 	/** 
@@ -528,17 +518,38 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	 *	without an AbilitySystemComponent. For example an ability could be written to execute on a StaticMeshActor. As long as the ability doesn't require 
 	 *	instancing or anything else that the AbilitySystemComponent would provide, then it doesn't need the component to function.
 	 */
-
+protected:
 	UPROPERTY(ReplicatedUsing=OnRep_ActivateAbilities, BlueprintReadOnly, Category = "Abilities")
-	TArray<FGameplayAbilitySpec>	ActivatableAbilities;
+	FGameplayAbilitySpecContainer	ActivatableAbilities;
 
-	/** Copy of the last time abilities were replicated. If any are missing at replication call the remove callback. This may be better with fast array replication */
-	UPROPERTY()
-	TArray<FGameplayAbilitySpec>	ClientLastActivatableAbilities;
+	/** Will be called from GiveAbility or from OnRep. Initializes events (triggers and inputs) with the given ability */
+	virtual void OnGiveAbility(FGameplayAbilitySpec& AbilitySpec);
 
+	/** Will be called from RemoveAbility or from OnRep. Unbinds inputs with the given ability */
+	virtual void OnRemoveAbility(FGameplayAbilitySpec& AbilitySpec);
+
+	/** Called from ClearAbility, ClearAllAbilities or OnRep. Clears any triggers that should no longer exist. */
+	void CheckForClearedAbilities();
+
+	/** Cancel a specific ability spec */
+	void CancelAbilitySpec(FGameplayAbilitySpec& Spec, UGameplayAbility* Ignore);
+
+	/** Creates a new instance of an ability, storing it in the spec */
+	UGameplayAbility* CreateNewInstanceOfAbility(FGameplayAbilitySpec& Spec, const UGameplayAbility* Ability);
+
+public:
+
+	/** Returns the list of all activatable abilities */
+	const TArray<FGameplayAbilitySpec>& GetActivatableAbilities();
+
+	/** Returns an ability spec from a handle. If modifying call MarkAbilitySpecDirty */
 	FGameplayAbilitySpec* FindAbilitySpecFromHandle(FGameplayAbilitySpecHandle Handle);
 
+	/** Returns an ability spec from a handle. If modifying call MarkAbilitySpecDirty */
 	FGameplayAbilitySpec* FindAbilitySpecFromInputID(int32 InputID);
+
+	/** Call to mark that an ability spec has been modified */
+	void MarkAbilitySpecDirty(FGameplayAbilitySpec& Spec);
 	
 	UFUNCTION()
 	void	OnRep_ActivateAbilities();
@@ -567,7 +578,7 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	void	OnClientActivateAbilityFailed(FGameplayAbilitySpecHandle AbilityToActivate, FPredictionKey::KeyType PredictionKey);
 
 	UFUNCTION(Client, Reliable)
-	void	ClientActivateAbilitySucceed(FGameplayAbilitySpecHandle AbilityToActivate,int16 PredictionKey);
+	void	ClientActivateAbilitySucceed(FGameplayAbilitySpecHandle AbilityToActivate, int16 PredictionKey, FGameplayEventData TriggerEventData);
 
 	/** Attempted to confirm targeting, but the targeting actor rejected it. */
 	UFUNCTION(Client, Unreliable)
@@ -628,11 +639,8 @@ class GAMEPLAYABILITIES_API UAbilitySystemComponent : public UActorComponent, pu
 	/** Executes a gameplay event. Returns the number of successful ability activations triggered by the event */
 	int32 HandleGameplayEvent(FGameplayTag EventTag, const FGameplayEventData* Payload);
 
-	TMap<FGameplayTag, TArray<FGameplayAbilitySpecHandle > > GameplayEventTriggeredAbilities;
-
 	void NotifyAbilityCommit(UGameplayAbility* Ability);
 	void NotifyAbilityActivated(const FGameplayAbilitySpecHandle Handle, UGameplayAbility* Ability);
-
 
 	UPROPERTY()
 	TArray<AGameplayAbilityTargetActor*>	SpawnedTargetActors;
@@ -729,6 +737,18 @@ protected:
 	/** RPC function called from CurrentMontageJumpToSection, replicates to other clients */
 	UFUNCTION(reliable, server, WithValidation)
 	void ServerCurrentMontageJumpToSectionName(UAnimMontage* ClientAnimMontage, FName SectionName);
+
+	/** Abilities that are triggered from a gameplay event */
+	TMap<FGameplayTag, TArray<FGameplayAbilitySpecHandle > > GameplayEventTriggeredAbilities;
+
+	/** Abilities that are triggered from a tag being added to the owner */
+	TMap<FGameplayTag, TArray<FGameplayAbilitySpecHandle > > OwnedTagTriggeredAbilities;
+
+	/** Callback that is called when an owned tag bound to an ability changes */
+	virtual void MonitoredTagChanged(const FGameplayTag Tag, int32 NewCount);
+
+	/** Returns true if the specified ability should be activated from an event in this network mode */
+	bool HasNetworkAuthorityToActivateTriggeredAbility(const FGameplayAbilitySpec &Spec) const;
 
 	// -----------------------------------------------------------------------------
 public:
@@ -875,4 +895,6 @@ protected:
 	friend struct FActiveGameplayEffectsContainer;
 	friend struct FActiveGameplayCue;
 	friend struct FActiveGameplayCueContainer;
+	friend struct FGameplayAbilitySpec;
+	friend struct FGameplayAbilitySpecContainer;
 };

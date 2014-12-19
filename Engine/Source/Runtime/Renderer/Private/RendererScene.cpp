@@ -530,7 +530,7 @@ void FScene::UpdatePrimitiveTransform(UPrimitiveComponent* Primitive)
 	// If the root component of an actor is being moved, update all the actor position of the other components sharing that actor
 	if (Owner && Owner->GetRootComponent() == Primitive)
 	{
-		TArray<UPrimitiveComponent*> Components;
+		TInlineComponentArray<UPrimitiveComponent*> Components;
 		Owner->GetComponents(Components);
 		for (int32 ComponentIndex = 0; ComponentIndex < Components.Num(); ComponentIndex++)
 		{
@@ -2464,8 +2464,7 @@ TStaticMeshDrawList<TBasePassForForwardShadingDrawingPolicy<FMovableDirectionalL
 -----------------------------------------------------------------------------*/
 
 FMotionBlurInfoData::FMotionBlurInfoData()
-	: CacheUpdateCount(0)
-	, bShouldClearMotionBlurInfo(false)
+	: bShouldClearMotionBlurInfo(false)
 {
 
 }
@@ -2552,7 +2551,7 @@ void FMotionBlurInfoData::RestoreForPausedMotionBlur()
 
 void FMotionBlurInfoData::UpdateMotionBlurCache(FScene* InScene)
 {
-	check(IsInRenderingThread());
+	check(InScene && IsInRenderingThread());
 
 	if (InScene->GetFeatureLevel() >= ERHIFeatureLevel::SM4)
 	{

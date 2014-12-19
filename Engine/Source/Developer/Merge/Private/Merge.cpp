@@ -69,9 +69,9 @@ static TSharedPtr<SWidget> GenerateMergeTabContents(TSharedRef<FBlueprintEditor>
 	FBlueprintMergeData Data(Editor
 		, LocalBlueprint
 		, BaseBlueprint
-		, RemoteRevInfo
+		, BaseRevInfo
 		, RemoteBlueprint
-		, BaseRevInfo);
+		, RemoteRevInfo);
 
 	return SNew(SBlueprintMerge, Data)
 		.bForcePickAssets(bForceAssetPicker)
@@ -196,11 +196,10 @@ TSharedRef<SDockTab> FMerge::GenerateMergeWidget(const UBlueprint* BaseBlueprint
 
 bool FMerge::PendingMerge(const UBlueprint& BlueprintObj) const
 {
-	bool bIsMergeEnabled = GetDefault<UEditorExperimentalSettings>()->bEnableBlueprintMergeTool;
 	ISourceControlProvider& SourceControlProvider = ISourceControlModule::Get().GetProvider();
 
 	bool bPendingMerge = false;
-	if( bIsMergeEnabled && SourceControlProvider.IsEnabled() )
+	if( SourceControlProvider.IsEnabled() )
 	{
 		FSourceControlStatePtr SourceControlState = SourceControlProvider.GetState(BlueprintObj.GetOutermost(), EStateCacheUsage::Use);
 		bPendingMerge = SourceControlState.IsValid() && SourceControlState->IsConflicted();

@@ -353,7 +353,7 @@ void FFoliageMeshInfo::AddInstance(AInstancedFoliageActor* InIFA, UFoliageType* 
 		ComponentHashInfo = &ComponentHash.Add(InNewInstance.Base, FFoliageComponentHashInfo(InNewInstance.Base));
 	}
 	ComponentHashInfo->Instances.Add(InstanceIndex);
-
+	
 	// Calculate transform for the instance
 	FTransform InstanceToWorld = InNewInstance.GetInstanceWorldTransform();
 
@@ -794,6 +794,27 @@ void AInstancedFoliageActor::DeleteInstancesForComponent(UActorComponent* InComp
 		if (ComponentHashInfo)
 		{
 			MeshInfo.RemoveInstances(this, ComponentHashInfo->Instances.Array());
+		}
+	}
+}
+
+void AInstancedFoliageActor::DeleteInstancesForSpawner(UActorComponent* InComponent)
+{
+	for (auto& MeshPair : FoliageMeshes)
+	{
+		FFoliageMeshInfo& MeshInfo = *MeshPair.Value;
+		TArray<int32> InstancesToRemove;
+		for (int32 InstanceIdx = 0; InstanceIdx < MeshInfo.Instances.Num(); InstanceIdx++)
+		{
+			if (MeshInfo.Instances[InstanceIdx].Spawner == InComponent)
+			{
+				InstancesToRemove.Add(InstanceIdx);
+			}
+		}
+
+		if (InstancesToRemove.Num())
+		{
+			MeshInfo.RemoveInstances(this, InstancesToRemove);
 		}
 	}
 }
@@ -1394,7 +1415,7 @@ void AInstancedFoliageActor::Serialize(FArchive& Ar)
 	// Clean up any old cluster components and convert to hierarchical instanced foliage.
 	if (Ar.CustomVer(FFoliageCustomVersion::GUID) < FFoliageCustomVersion::FoliageUsingHierarchicalISMC)
 	{
-		TArray<UInstancedStaticMeshComponent*> ClusterComponents;
+		TInlineComponentArray<UInstancedStaticMeshComponent*> ClusterComponents;
 		GetComponents(ClusterComponents);
 		for (UInstancedStaticMeshComponent* Component : ClusterComponents)
 		{

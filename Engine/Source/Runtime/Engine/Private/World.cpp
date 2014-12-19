@@ -1238,7 +1238,7 @@ void UWorld::UpdateCullDistanceVolumes()
 		// Establish base line of LD specified cull distances.
 		for( FActorIterator It(this); It; ++It )
 		{
-			TArray<UPrimitiveComponent*> PrimitiveComponents;
+			TInlineComponentArray<UPrimitiveComponent*> PrimitiveComponents;
 			It->GetComponents(PrimitiveComponents);
 			for (UPrimitiveComponent* PrimitiveComponent : PrimitiveComponents)
 			{
@@ -2530,6 +2530,8 @@ bool UWorld::HandleDemoRecordCommand( const TCHAR* Cmd, FOutputDevice& Ar, UWorl
 		Ar.Logf( TEXT( "Missing demo name." ) );
 		return true;
 	}
+
+	DemoName.ReplaceInline( TEXT( "%m" ), *GetMapName() );
 
 	int32 Year, Month, DayOfWeek, Day, Hour, Min, Sec, MSec;
 	FPlatformTime::SystemTime( Year, Month, DayOfWeek, Day, Hour, Min, Sec, MSec );
@@ -4157,7 +4159,7 @@ void FSeamlessTravelHandler::SetHandlerLoadedData(UObject* InLevelPackage, UWorl
 }
 
 /** callback sent to async loading code to inform us when the level package is complete */
-void FSeamlessTravelHandler::SeamlessTravelLoadCallback(const FName& PackageName, UPackage* LevelPackage)
+void FSeamlessTravelHandler::SeamlessTravelLoadCallback(const FName& PackageName, UPackage* LevelPackage, EAsyncLoadingResult::Type Result)
 {
 	// make sure we remove the name, even if travel was cancelled.
 	const FName URLMapFName = FName(*PendingTravelURL.Map);

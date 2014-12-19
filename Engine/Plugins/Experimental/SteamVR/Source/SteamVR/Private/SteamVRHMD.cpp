@@ -361,10 +361,6 @@ FVector FSteamVRHMD::GetPositionOffset() const
 	return FVector::ZeroVector;
 }
 
-void FSteamVRHMD::UpdateScreenSettings(const FViewport*)
-{
-}
-
 bool FSteamVRHMD::IsStereoEnabled() const
 {
 	return bStereoEnabled && bHmdEnabled;
@@ -526,8 +522,8 @@ FSteamVRHMD::FSteamVRHMD() :
 	bHmdPosTracking(true),
 	bHaveVisionTracking(false),
 	IPD(0.064f),
-	LastHmdOrientation(FQuat::Identity),
 	CurHmdOrientation(FQuat::Identity),
+	LastHmdOrientation(FQuat::Identity),
 	DeltaControlRotation(FRotator::ZeroRotator),
 	DeltaControlOrientation(FQuat::Identity),
 	CurHmdPosition(FVector::ZeroVector),

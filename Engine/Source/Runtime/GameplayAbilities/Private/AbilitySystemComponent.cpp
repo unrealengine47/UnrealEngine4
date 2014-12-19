@@ -131,6 +131,7 @@ void UAbilitySystemComponent::OnRegister()
 	}
 
 	ActiveGameplayEffects.RegisterWithOwner(this);
+	ActivatableAbilities.RegisterWithOwner(this);
 }
 
 // ---------------------------------------------------------
@@ -435,6 +436,12 @@ void UAbilitySystemComponent::UpdateTagMap(const FGameplayTagContainer& Containe
 
 FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToTarget(OUT FGameplayEffectSpec &Spec, UAbilitySystemComponent *Target, FPredictionKey PredictionKey)
 {
+	if (!UAbilitySystemGlobals::Get().PredictTargetGameplayEffects)
+	{
+		// If we don't want to predict target effects, clear prediction key
+		PredictionKey = FPredictionKey();
+	}
+
 	return Target->ApplyGameplayEffectSpecToSelf(Spec, PredictionKey);
 }
 
@@ -522,32 +529,13 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSe
 			MyHandle = NewActiveEffect.Handle;
 			OurCopyOfSpec = &NewActiveEffect.Spec;
 
-			UE_VLOG(OwnerActor, LogAbilitySystem, Log, TEXT("Applied %s"), *OurCopyOfSpec->Def->GetFName().ToString());
+			ABILITY_VLOG(OwnerActor, Log, TEXT("Applied %s"), *OurCopyOfSpec->Def->GetFName().ToString());
 
 			for (FGameplayModifierInfo Modifier : Spec.Def->Modifiers)
 			{
 				float Magnitude = 0.f;
-				FString Op;
-				switch (Modifier.ModifierOp)
-				{
-				case EGameplayModOp::Additive:
-					Op = "Add";
-					break;
-				case EGameplayModOp::Multiplicitive:
-					Op = "Multiply";
-					break;
-				case EGameplayModOp::Division:
-					Op = "Divide";
-					break;
-				case EGameplayModOp::Override:
-					Op = "Override";
-					break;
-				default:
-					Op = "Unknown Operation";
-				}
-
 				Modifier.ModifierMagnitude.AttemptCalculateMagnitude(Spec, Magnitude);
-				UE_VLOG(OwnerActor, LogAbilitySystem, Log, TEXT("         %s: %s %f"), *Modifier.Attribute.GetName(), *Op, Magnitude);
+				ABILITY_VLOG(OwnerActor, Log, TEXT("         %s: %s %f"), *Modifier.Attribute.GetName(), *EGameplayModOpToString(Modifier.ModifierOp), Magnitude);
 			}
 		}
 
@@ -584,7 +572,14 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSe
 	// Execute if this is an instant application effect
 	if (Duration == UGameplayEffect::INSTANT_APPLICATION)
 	{
-		ExecuteGameplayEffect(*OurCopyOfSpec, PredictionKey);
+		if (OurCopyOfSpec->Def->OngoingTagRequirements.IsEmpty())
+		{
+			ExecuteGameplayEffect(*OurCopyOfSpec, PredictionKey);
+		}
+		else
+		{
+			ABILITY_LOG(Warning, TEXT("%s is instant but has tag requirements. Tag requirements can only be used with gameplay effects that have a duration. This gameplay effect will be ignored."), *Spec.Def->GetPathName());
+		}
 	}
 	else if (bTreatAsInfiniteDuration)
 	{
@@ -638,32 +633,13 @@ void UAbilitySystemComponent::ExecutePeriodicEffect(FActiveGameplayEffectHandle	
 	FActiveGameplayEffect* GameplayEffect = ActiveGameplayEffects.GetActiveGameplayEffect(Handle);
 	if (GameplayEffect)
 	{
-		UE_VLOG(OwnerActor, LogAbilitySystem, Log, TEXT("Executed Periodic Effect %s"), *GameplayEffect->Spec.Def->GetFName().ToString());
+		ABILITY_VLOG(OwnerActor, Log, TEXT("Executed Periodic Effect %s"), *GameplayEffect->Spec.Def->GetFName().ToString());
 
 		for (FGameplayModifierInfo Modifier : GameplayEffect->Spec.Def->Modifiers)
 		{
 			float Magnitude = 0.f;
-			FString Op;
-			switch (Modifier.ModifierOp)
-			{
-			case EGameplayModOp::Additive:
-				Op = "Add";
-				break;
-			case EGameplayModOp::Multiplicitive:
-				Op = "Multiply";
-				break;
-			case EGameplayModOp::Division:
-				Op = "Divide";
-				break;
-			case EGameplayModOp::Override:
-				Op = "Override";
-				break;
-			default:
-				Op = "Unknown Operation";
-			}
-
 			Modifier.ModifierMagnitude.AttemptCalculateMagnitude(GameplayEffect->Spec, Magnitude);
-			UE_VLOG(OwnerActor, LogAbilitySystem, Log, TEXT("         %s: %s %f"), *Modifier.Attribute.GetName(), *Op, Magnitude);
+			ABILITY_VLOG(OwnerActor, Log, TEXT("         %s: %s %f"), *Modifier.Attribute.GetName(), *EGameplayModOpToString(Modifier.ModifierOp), Magnitude);
 		}
 
 		ActiveGameplayEffects.ExecutePeriodicGameplayEffect(Handle);
@@ -676,31 +652,13 @@ void UAbilitySystemComponent::ExecuteGameplayEffect(FGameplayEffectSpec &Spec, F
 	// Effects with no period and that aren't instant application should never be executed
 	check( (Spec.GetDuration() == UGameplayEffect::INSTANT_APPLICATION || Spec.GetPeriod() != UGameplayEffect::NO_PERIOD) );
 
-	UE_VLOG(OwnerActor, LogAbilitySystem, Log, TEXT("Executed %s"), *Spec.Def->GetFName().ToString());
+	ABILITY_VLOG(OwnerActor, Log, TEXT("Executed %s"), *Spec.Def->GetFName().ToString());
 	
 	for (FGameplayModifierInfo Modifier : Spec.Def->Modifiers)
 	{
 		float Magnitude = 0.f;
-		FString Op;
-		switch (Modifier.ModifierOp)
-		{
-		case EGameplayModOp::Additive:
-			Op = "Add";
-			break;
-		case EGameplayModOp::Multiplicitive:
-			Op = "Multiply";
-			break;
-		case EGameplayModOp::Division:
-			Op = "Divide";
-			break;
-		case EGameplayModOp::Override:
-			Op = "Override";
-			break;
-		default:
-			Op = "Unknown Operation";
-		}
 		Modifier.ModifierMagnitude.AttemptCalculateMagnitude(Spec, Magnitude);
-		UE_VLOG(OwnerActor, LogAbilitySystem, Log, TEXT("         %s: %s %f"), *Modifier.Attribute.GetName(), *Op, Magnitude);
+		ABILITY_VLOG(OwnerActor, Log, TEXT("         %s: %s %f"), *Modifier.Attribute.GetName(), *EGameplayModOpToString(Modifier.ModifierOp), Magnitude);
 	}
 
 	ActiveGameplayEffects.ExecuteActiveEffectsFrom(Spec, PredictionKey);
@@ -716,32 +674,13 @@ bool UAbilitySystemComponent::RemoveActiveGameplayEffect(FActiveGameplayEffectHa
 	FActiveGameplayEffect* GameplayEffect = ActiveGameplayEffects.GetActiveGameplayEffect(Handle);
 	if (GameplayEffect)
 	{
-		UE_VLOG(OwnerActor, LogAbilitySystem, Log, TEXT("Removed %s"), *GameplayEffect->Spec.Def->GetFName().ToString());
+		ABILITY_VLOG(OwnerActor, Log, TEXT("Removed %s"), *GameplayEffect->Spec.Def->GetFName().ToString());
 
 		for (FGameplayModifierInfo Modifier : GameplayEffect->Spec.Def->Modifiers)
 		{
 			float Magnitude = 0.f;
-			FString Op;
-			switch (Modifier.ModifierOp)
-			{
-			case EGameplayModOp::Additive:
-				Op = "Add";
-				break;
-			case EGameplayModOp::Multiplicitive:
-				Op = "Multiply";
-				break;
-			case EGameplayModOp::Division:
-				Op = "Divide";
-				break;
-			case EGameplayModOp::Override:
-				Op = "Override";
-				break;
-			default:
-				Op = "Unknown Operation";
-			}
-
 			Modifier.ModifierMagnitude.AttemptCalculateMagnitude(GameplayEffect->Spec, Magnitude);
-			UE_VLOG(OwnerActor, LogAbilitySystem, Log, TEXT("         %s: %s %f"), *Modifier.Attribute.GetName(), *Op, Magnitude);
+			ABILITY_VLOG(OwnerActor, Log, TEXT("         %s: %s %f"), *Modifier.Attribute.GetName(), *EGameplayModOpToString(Modifier.ModifierOp), Magnitude);
 		}
 	}
 
@@ -1290,7 +1229,7 @@ void UAbilitySystemComponent::DisplayDebug(class UCanvas* Canvas, const class FD
 
 	if (bShowAbilities)
 	{
-		for (const FGameplayAbilitySpec& AbilitySpec : ActivatableAbilities)
+		for (const FGameplayAbilitySpec& AbilitySpec : GetActivatableAbilities())
 		{
 			if (AbilitySpec.Ability == nullptr)
 				continue;

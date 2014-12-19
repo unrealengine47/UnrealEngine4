@@ -75,15 +75,21 @@ bool FGameplayAbilityActorInfo::IsLocallyControlled() const
 	{
 		return PlayerController->IsLocalController();
 	}
+	else if (IsNetAuthority())
+	{
+		// Non-players are always locally controlled on the server
+		return true;
+	}
 
 	return false;
 }
 
 bool FGameplayAbilityActorInfo::IsNetAuthority() const
 {
-	if (OwnerActor.IsValid())
+	// Make sure this works on pending kill actors
+	if (OwnerActor.IsValid(true))
 	{
-		return (OwnerActor->Role == ROLE_Authority);
+		return (OwnerActor.Get(true)->Role == ROLE_Authority);
 	}
 
 	// If we encounter issues with this being called before or after the owning actor is destroyed,
@@ -131,4 +137,25 @@ UGameplayAbility* FGameplayAbilitySpec::GetPrimaryInstance() const
 		}
 	}
 	return nullptr;
+}
+
+void FGameplayAbilitySpec::PreReplicatedRemove(const struct FGameplayAbilitySpecContainer& InArraySerializer)
+{
+	if (InArraySerializer.Owner)
+	{
+		InArraySerializer.Owner->OnRemoveAbility(*this);
+	}
+}
+
+void FGameplayAbilitySpec::PostReplicatedAdd(const struct FGameplayAbilitySpecContainer& InArraySerializer)
+{
+	if (InArraySerializer.Owner)
+	{
+		InArraySerializer.Owner->OnGiveAbility(*this);
+	}
+}
+
+void FGameplayAbilitySpecContainer::RegisterWithOwner(UAbilitySystemComponent* Owner)
+{
+	this->Owner = Owner;
 }

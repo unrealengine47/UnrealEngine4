@@ -5,6 +5,7 @@
 
 #include "AssetToolsModule.h"
 #include "IPlatformFilePak.h"
+#include "FileHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogFeaturePack, Log, All);
 
@@ -51,7 +52,19 @@ FFeaturePackContentSource::FFeaturePackContentSource(FString InFeaturePackPath)
 			FText::FromString(LocalizedDescriptionObject->GetStringField("Text"))));
 	}
 
-	FString CategoryString = ManifestObject->GetStringField("Category");
+	// Parse asset types field
+	for (TSharedPtr<FJsonValue> AssetTypesValue : ManifestObject->GetArrayField("AssetTypes"))
+	{
+		TSharedPtr<FJsonObject> LocalizedAssetTypesObject = AssetTypesValue->AsObject();
+		LocalizedAssetTypesList.Add(FLocalizedText(
+			LocalizedAssetTypesObject->GetStringField("Language"),
+			FText::FromString(LocalizedAssetTypesObject->GetStringField("Text"))));
+	}
+	
+	// Parse class types field
+	ClassTypes = ManifestObject->GetStringField("ClassTypes");
+	
+	FString CategoryString = ManifestObject->GetStringField("Category");	
 	if (CategoryString == "CodeFeature")
 	{
 		Category = EContentSourceCategory::CodeFeature;
@@ -114,6 +127,16 @@ TArray<FLocalizedText> FFeaturePackContentSource::GetLocalizedDescriptions()
 	return LocalizedDescriptions;
 }
 
+TArray<FLocalizedText> FFeaturePackContentSource::GetLocalizedAssetTypes()
+{
+	return LocalizedAssetTypesList;
+}
+
+FString FFeaturePackContentSource::GetClassTypesUsed()
+{
+	return ClassTypes;
+}
+
 EContentSourceCategory FFeaturePackContentSource::GetCategory()
 {
 	return Category;
@@ -148,6 +171,13 @@ bool FFeaturePackContentSource::InstallToProject(FString InstallPath)
 		}
 		else
 		{
+			// Save any imported assets.
+			TArray<UPackage*> ToSave;
+			for (auto ImportedObject : ImportedObjects)
+			{
+				ToSave.AddUnique(ImportedObject->GetOutermost());
+			}
+			FEditorFileUtils::PromptForCheckoutAndSave( ToSave, /*bCheckDirty=*/ false, /*bPromptToSave=*/ false );
 			bResult = true;
 		}
 	}

@@ -887,7 +887,7 @@ namespace UnrealBuildTool
 		}
 	};
 
-	/** A module that is compiled from C++ code. */
+	/** A module that is compiled from C++ code. */	
 	public class UEBuildModuleCPP : UEBuildModule
 	{
 		public class AutoGenerateCppInfoClass
@@ -1006,6 +1006,9 @@ namespace UnrealBuildTool
 
 		/** The processed dependencies for the class */
 		public ProcessedDependenciesClass ProcessedDependencies = null;
+
+		/** @hack to skip adding definitions to compile environment. They will be baked into source code by external code. */
+		public bool bSkipDefinitionsForCompileEnvironment = false;
 
 		/** Categorizes source files into per-extension buckets */
 		private static void CategorizeSourceFiles(IEnumerable<FileItem> InSourceFiles, SourceFilesClass OutSourceFiles)
@@ -1322,6 +1325,11 @@ namespace UnrealBuildTool
 						{
 							throw new BuildException( "Module {0} doesn't use a Shared PCH!  Please add a dependency on a Shared PCH module to this module's dependency list", this.Name);
 						}
+
+						// Keep track of how many modules make use of this PCH for performance diagnostics
+						var LargestSharedPCHHeader = GlobalCompileEnvironment.SharedPCHHeaderFiles[ LargestSharedPCHHeaderFileIndex ];
+						++LargestSharedPCHHeader.NumModulesUsingThisPCH;
+
 					}
 					else
 					{
@@ -1813,6 +1821,13 @@ namespace UnrealBuildTool
 
 			// Setup the compile environment for the module.
 			SetupPrivateCompileEnvironment(ref Result.Config.CPPIncludeInfo.IncludePaths, ref Result.Config.CPPIncludeInfo.SystemIncludePaths, ref Result.Config.Definitions, ref Result.Config.AdditionalFrameworks);
+
+			// @hack to skip adding definitions to compile environment, they will be baked into source code files
+			if (bSkipDefinitionsForCompileEnvironment)
+			{
+				Result.Config.Definitions.Clear();
+				Result.Config.CPPIncludeInfo.IncludePaths = new HashSet<string>(BaseCompileEnvironment.Config.CPPIncludeInfo.IncludePaths);
+			}
 
 			return Result;
 		}

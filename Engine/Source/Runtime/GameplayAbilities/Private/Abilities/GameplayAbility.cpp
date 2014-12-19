@@ -51,7 +51,7 @@ UGameplayAbility::UGameplayAbility(const FObjectInitializer& ObjectInitializer)
 	}
 #endif
 
-	bServerRespectsRemoteAbilityCancelation = false;
+	bServerRespectsRemoteAbilityCancellation = true;
 }
 
 int32 UGameplayAbility::GetFunctionCallspace(UFunction* Function, void* Parameters, FFrame* Stack)
@@ -781,7 +781,7 @@ FGameplayAbilityTargetingLocationInfo UGameplayAbility::MakeTargetLocationInfoFr
 
 void UGameplayAbility::TaskStarted(UAbilityTask* NewTask)
 {
-	UE_VLOG(CastChecked<AActor>(GetOuter()), LogAbilitySystem, Log, TEXT("Task Started %s"), *NewTask->GetName());
+	ABILITY_VLOG(CastChecked<AActor>(GetOuter()), Log, TEXT("Task Started %s"), *NewTask->GetName());
 
 	ActiveTasks.Add(NewTask);
 }
@@ -848,7 +848,7 @@ void UGameplayAbility::CancelTaskByInstanceName(FName InstanceName)
 
 void UGameplayAbility::TaskEnded(UAbilityTask* Task)
 {
-	UE_VLOG(CastChecked<AActor>(GetOuter()), LogAbilitySystem, Log, TEXT("Task Ended %s"), *Task->GetName());
+	ABILITY_VLOG(CastChecked<AActor>(GetOuter()), Log, TEXT("Task Ended %s"), *Task->GetName());
 
 	ActiveTasks.Remove(Task);
 }

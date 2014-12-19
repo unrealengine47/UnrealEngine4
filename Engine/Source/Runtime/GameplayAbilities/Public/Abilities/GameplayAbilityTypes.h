@@ -47,14 +47,17 @@ namespace EGameplayAbilityNetExecutionPolicy
 
 	enum Type
 	{
-		// Part of this ability runs predictively on the client.
-		Predictive		UMETA(DisplayName = "Predictive"),
+		// Part of this ability runs predictively on the local client if there is one
+		LocalPredicted		UMETA(DisplayName = "Local Predicted"),
 
-		// This ability must be OK'd by the server before doing anything on a client.
-		Server			UMETA(DisplayName = "Server"),
+		// This ability will only run on the client or server that has local control
+		LocalOnly			UMETA(DisplayName = "Local Only"),
 
-		// This ability runs as long the client says it does.
-		Client			UMETA(DisplayName = "Client"),
+		// This ability is initiated by the server, but will also run on the local client if one exists
+		ServerInitiated		UMETA(DisplayName = "Server Initiated"),
+
+		// This ability will only run on the server
+		ServerOnly			UMETA(DisplayName = "Server Only"),
 	};
 }
 
@@ -94,6 +97,25 @@ namespace EGameplayAbilityActivationMode
 		Confirmed,
 	};
 }
+
+UENUM(BlueprintType)
+namespace EGameplayAbilityTriggerSource
+{
+	/**	Defines what type of trigger will activate the ability, paired to a tag */
+
+	enum Type
+	{
+		// Triggered from a gameplay event, will come with payload
+		GameplayEvent,
+
+		// Triggered if the ability's owner gets a tag added, triggered once whenever it's added
+		OwnedTagAdded,
+
+		// Triggered if the ability's owner gets tag added, removed when the tag is removed
+		OwnedTagPresent,
+	};
+}
+
 
 // ----------------------------------------------------
 
@@ -260,8 +282,9 @@ private:
 
 // ----------------------------------------------------
 
+/** An activatable ability spec, hosted on the ability system component */
 USTRUCT()
-struct GAMEPLAYABILITIES_API FGameplayAbilitySpec
+struct GAMEPLAYABILITIES_API FGameplayAbilitySpec : public FFastArraySerializerItem
 {
 	GENERATED_USTRUCT_BODY()
 
@@ -331,6 +354,39 @@ struct GAMEPLAYABILITIES_API FGameplayAbilitySpec
 
 	/** Returns true if this ability is active in any way */
 	bool IsActive() const;
+
+	void PreReplicatedRemove(const struct FGameplayAbilitySpecContainer& InArraySerializer);
+	void PostReplicatedAdd(const struct FGameplayAbilitySpecContainer& InArraySerializer);
+};
+
+/** Fast serializer wrapper for above struct */
+USTRUCT()
+struct GAMEPLAYABILITIES_API FGameplayAbilitySpecContainer : public FFastArraySerializer
+{
+	GENERATED_USTRUCT_BODY()
+
+	/** List of activatable abilities */
+	UPROPERTY()
+	TArray<FGameplayAbilitySpec> Items;
+
+	/** Component that owns this list */
+	UAbilitySystemComponent* Owner;
+
+	void RegisterWithOwner(UAbilitySystemComponent* Owner);
+
+	bool NetDeltaSerialize(FNetDeltaSerializeInfo & DeltaParms)
+	{
+		return FFastArraySerializer::FastArrayDeltaSerialize<FGameplayAbilitySpec, FGameplayAbilitySpecContainer>(Items, DeltaParms, *this);
+	}
+};
+
+template<>
+struct TStructOpsTypeTraits< FGameplayAbilitySpecContainer > : public TStructOpsTypeTraitsBase
+{
+	enum
+	{
+		WithNetDeltaSerializer = true,
+	};
 };
 
 // ----------------------------------------------------

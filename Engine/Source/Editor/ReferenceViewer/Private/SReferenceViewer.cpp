@@ -253,16 +253,6 @@ void SReferenceViewer::SetGraphRootPackageNames(const TArray<FName>& NewGraphRoo
 	HistoryManager.AddHistoryData();
 }
 
-void SReferenceViewer::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
-{
-	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
-
-	if ( GraphObj && GraphObj->GetAssetThumbnailPool().IsValid() )
-	{
-		GraphObj->GetAssetThumbnailPool()->Tick(InDeltaTime);
-	}
-}
-
 void SReferenceViewer::OnNodeDoubleClicked(UEdGraphNode* Node)
 {
 	TSet<UObject*> Nodes;
@@ -483,9 +473,7 @@ void SReferenceViewer::RegisterActions()
 	ReferenceViewerActions->MapAction(
 		FReferenceViewerActions::Get().OpenSelectedInAssetEditor,
 		FExecuteAction::CreateSP(this, &SReferenceViewer::OpenSelectedInAssetEditor),
-		FCanExecuteAction::CreateSP(this, &SReferenceViewer::HasExactlyOneNodeSelected),
-		FIsActionChecked(),
-		FIsActionButtonVisible::CreateSP(this, &SReferenceViewer::IsSingleSelectedItemValidObject));
+		FCanExecuteAction::CreateSP(this, &SReferenceViewer::HasExactlyOneNodeSelected));
 
 	ReferenceViewerActions->MapAction(
 		FReferenceViewerActions::Get().ReCenterGraph,
@@ -677,17 +665,6 @@ bool SReferenceViewer::HasExactlyOneNodeSelected() const
 		return GraphEditorPtr->GetSelectedNodes().Num() == 1;
 	}
 	
-	return false;
-}
-
-bool SReferenceViewer::IsSingleSelectedItemValidObject() const
-{
-	UObject* SelectedObject = GetObjectFromSingleSelectedNode();
-
-	if ( SelectedObject )
-	{
-		return true;
-	}
 	return false;
 }
 

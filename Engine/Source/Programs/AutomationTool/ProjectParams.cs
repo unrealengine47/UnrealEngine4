@@ -198,6 +198,7 @@ namespace AutomationTool
             this.CulturesToCook = InParams.CulturesToCook;
             this.BasedOnReleaseVersion = InParams.BasedOnReleaseVersion;
             this.CreateReleaseVersion = InParams.CreateReleaseVersion;
+            this.DLCName = InParams.DLCName;
             this.NewCook = InParams.NewCook;
             this.AdditionalCookerOptions = InParams.AdditionalCookerOptions;
 			this.ClientCookedTargets = InParams.ClientCookedTargets;
@@ -249,6 +250,7 @@ namespace AutomationTool
 			this.Deploy = InParams.Deploy;
 			this.IterativeDeploy = InParams.IterativeDeploy;
 			this.Device = InParams.Device;
+			this.DeviceName = InParams.DeviceName;
 			this.ServerDevice = InParams.ServerDevice;
             this.NullRHI = InParams.NullRHI;
             this.FakeClient = InParams.FakeClient;
@@ -330,6 +332,7 @@ namespace AutomationTool
             string AdditionalCookerOptions = null,
             string BasedOnReleaseVersion = null,
             string CreateReleaseVersion = null,
+            string DLCName = null,
             bool? NewCook = null,
 			bool? CrashReporter = null,
 			bool? DedicatedServer = null,
@@ -433,6 +436,7 @@ namespace AutomationTool
             this.CreateReleaseVersion = ParseParamValueIfNotSpecified(Command, CreateReleaseVersion, "createreleaseversion", String.Empty);
             this.BasedOnReleaseVersion = ParseParamValueIfNotSpecified(Command, BasedOnReleaseVersion, "basedonreleaseversion", String.Empty);
             this.AdditionalCookerOptions = ParseParamValueIfNotSpecified(Command, AdditionalCookerOptions, "AdditionalCookerOptions", String.Empty);
+            this.DLCName = ParseParamValueIfNotSpecified(Command, DLCName, "DLCName", String.Empty);
 			this.SkipCook = GetParamValueIfNotSpecified(Command, SkipCook, this.SkipCook, "skipcook");
 			if (this.SkipCook)
 			{
@@ -507,6 +511,17 @@ namespace AutomationTool
 			this.Deploy = GetParamValueIfNotSpecified(Command, Deploy, this.Deploy, "deploy");
 			this.IterativeDeploy = GetParamValueIfNotSpecified(Command, IterativeDeploy, this.IterativeDeploy, "iterativedeploy", "iterate");
 			this.Device = ParseParamValueIfNotSpecified(Command, Device, "device", String.Empty).Trim(new char[] { '\"' });
+
+			// strip the platform prefix the specified device.
+			if (this.Device.Contains("@"))
+			{
+				this.DeviceName = this.Device.Substring(this.Device.IndexOf("@") + 1);
+			}
+			else
+			{
+				this.DeviceName = this.Device;
+			}
+
 			this.ServerDevice = ParseParamValueIfNotSpecified(Command, ServerDevice, "serverdevice", this.Device);
 			this.NullRHI = GetParamValueIfNotSpecified(Command, NullRHI, this.NullRHI, "nullrhi");
 			this.FakeClient = GetParamValueIfNotSpecified(Command, FakeClient, this.FakeClient, "fakeclient");
@@ -766,7 +781,16 @@ namespace AutomationTool
 		{
 			get
 			{
-				return Path.GetFullPath(String.IsNullOrEmpty(StageDirectoryParam) ? CommandUtils.CombinePaths(Path.GetDirectoryName(RawProjectPath), "Saved", "StagedBuilds") : StageDirectoryParam);
+                if( !String.IsNullOrEmpty(StageDirectoryParam ) )
+                {
+                    return Path.GetFullPath( StageDirectoryParam );
+                }
+                if ( HasDLCName )
+                {
+                     return Path.GetFullPath( CommandUtils.CombinePaths(Path.GetDirectoryName(RawProjectPath), "Plugins", DLCName, "Saved", "StagedBuilds" ) );
+                }
+                // default return the project saved\stagedbuilds directory
+                return Path.GetFullPath( CommandUtils.CombinePaths(Path.GetDirectoryName(RawProjectPath), "Saved", "StagedBuilds") );
 			}
 		}
 
@@ -940,6 +964,11 @@ namespace AutomationTool
         public string BasedOnReleaseVersion;
 
         /// <summary>
+        /// Name of dlc to cook and package (if this paramter is supplied cooks the dlc and packages it into the dlc directory)
+        /// </summary>
+        public string DLCName;
+
+        /// <summary>
         /// Cook: Additional cooker options to include on the cooker commandline
         /// </summary>
         public string AdditionalCookerOptions;
@@ -1090,10 +1119,16 @@ namespace AutomationTool
 		public string AdditionalServerMapParams;
 
 		/// <summary>
-		/// Run: The target device to run the game on
+		/// Run: The target device to run the game on.  Comes in the form platform@devicename.
 		/// </summary>
 		[Help("device", "Device to run the game on")]
 		public string Device;
+
+		/// <summary>
+		/// Run: The target device to run the game on.  No platform prefix.
+		/// </summary>
+		[Help("device", "Device name without the platform prefix to run the game on")]
+		public string DeviceName;
 
 		/// <summary>
 		/// Run: the target device to run the server on
@@ -1517,6 +1552,11 @@ namespace AutomationTool
             get { return !String.IsNullOrEmpty(AdditionalCookerOptions); }
         }
 
+        public bool HasDLCName
+        {
+            get { return !String.IsNullOrEmpty(DLCName); }
+        }
+
         public bool HasCreateReleaseVersion
         {
             get { return !String.IsNullOrEmpty(CreateReleaseVersion); }
@@ -1810,6 +1850,7 @@ namespace AutomationTool
 				CommandUtils.Log("CookOnTheFly={0}", CookOnTheFly);
                 CommandUtils.Log("CreateReleaseVersion={0}", CreateReleaseVersion);
                 CommandUtils.Log("BasedOnReleaseVersion={0}", BasedOnReleaseVersion);
+                CommandUtils.Log("DLCName={0}", DLCName);
                 CommandUtils.Log("AdditionalCookerOptions={0}", AdditionalCookerOptions);
 				CommandUtils.Log("DedicatedServer={0}", DedicatedServer);
 				CommandUtils.Log("DirectoriesToCook={0}", DirectoriesToCook.ToString());

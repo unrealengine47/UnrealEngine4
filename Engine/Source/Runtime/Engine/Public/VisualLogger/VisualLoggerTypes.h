@@ -27,6 +27,8 @@ namespace EVisualLoggerVersion
 	{
 		Initial = 0,
 		HistogramGraphsSerialization = 1,
+		AddedOwnerClassName = 2,
+		StatusCategoryWithChildren = 3,
 		// -----<new versions can be added before this line>-------------------------------------------------
 		// - this needs to be the last line (see note below)
 		VersionPlusOne,
@@ -100,9 +102,11 @@ struct ENGINE_API FVisualLogStatusCategory
 	TArray<FString> Data;
 	FString Category;
 	int32 UniqueId;
+	TArray<FVisualLogStatusCategory> Children;
 
 	void Add(const FString& Key, const FString& Value);
 	bool GetDesc(int32 Index, FString& Key, FString& Value) const;
+	void AddChild(const FVisualLogStatusCategory& Child);
 };
 
 struct ENGINE_API FVisualLogShapeElement
@@ -216,14 +220,15 @@ public:
 	struct FVisualLogEntryItem
 	{
 		FVisualLogEntryItem() {}
-		FVisualLogEntryItem(FName InOwnerName, const FVisualLogEntry& LogEntry) : OwnerName(InOwnerName), Entry(LogEntry) { }
+		FVisualLogEntryItem(FName InOwnerName, FName InOwnerClassName, const FVisualLogEntry& LogEntry) : OwnerName(InOwnerName), OwnerClassName(InOwnerClassName), Entry(LogEntry) { }
 
 		FName OwnerName;
+		FName OwnerClassName;
 		FVisualLogEntry Entry;
 	};
 
 
-	virtual void Serialize(const class UObject* LogOwner, FName OwnerName, const FVisualLogEntry& LogEntry) = 0;
+	virtual void Serialize(const class UObject* LogOwner, FName OwnerName, FName InOwnerClassName, const FVisualLogEntry& LogEntry) = 0;
 	virtual void Cleanup(bool bReleaseMemory = false) { /* Empty */ }
 	virtual void StartRecordingToFile(float TImeStamp) { /* Empty */ }
 	virtual void StopRecordingToFile(float TImeStamp) { /* Empty */ }
@@ -307,6 +312,12 @@ FORCEINLINE
 void FVisualLogStatusCategory::Add(const FString& Key, const FString& Value)
 {
 	Data.Add(FString(Key).AppendChar(TEXT('|')) + Value);
+}
+
+FORCEINLINE
+void FVisualLogStatusCategory::AddChild(const FVisualLogStatusCategory& Child)
+{
+	Children.Add(Child);
 }
 
 FORCEINLINE

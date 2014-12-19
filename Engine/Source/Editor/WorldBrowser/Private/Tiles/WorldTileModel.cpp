@@ -9,10 +9,10 @@
 #include "WorldTileModel.h"
 #include "Engine/LevelBounds.h"
 #include "Engine/WorldComposition.h"
-#include "Landscape.h"
 #include "GameFramework/WorldSettings.h"
 #include "Engine/LevelStreaming.h"
 #include "Engine/LevelStreamingKismet.h"
+#include "Landscape.h"
 
 
 #define LOCTEXT_NAMESPACE "WorldBrowser"
@@ -754,7 +754,7 @@ bool FWorldTileModel::CreateAdjacentLandscapeProxy(ALandscapeProxy* SourceLandsc
 	ImportSettings.LandscapeTransform.SetScale3D(SourceLandscapeScale);
 	
 	// Create new landscape object
-	ALandscapeProxy* AdjacenLandscape = ImportLandscape(ImportSettings);
+	ALandscapeProxy* AdjacenLandscape = ImportLandscapeTile(ImportSettings);
 	if (AdjacenLandscape)
 	{
 		// Copy source landscape properties 
@@ -795,28 +795,18 @@ bool FWorldTileModel::CreateAdjacentLandscapeProxy(ALandscapeProxy* SourceLandsc
 	return false;
 }
 
-ALandscapeProxy* FWorldTileModel::ImportLandscape(const FLandscapeImportSettings& Settings)
+ALandscapeProxy* FWorldTileModel::ImportLandscapeTile(const FLandscapeImportSettings& Settings)
 {
 	if (!IsLoaded())
 	{
 		return nullptr;
 	}
 	
-	ALandscapeProxy*	LandscapeProxy;
-	FGuid				LandscapeGuid = Settings.LandscapeGuid;
+	check(Settings.LandscapeGuid.IsValid())
 	
-	if (LandscapeGuid.IsValid())
-	{
-		LandscapeProxy = Cast<UWorld>(LoadedLevel->GetOuter())->SpawnActor<ALandscapeProxy>();
-	}
-	else
-	{
-		LandscapeProxy = Cast<UWorld>(LoadedLevel->GetOuter())->SpawnActor<ALandscape>();
-		LandscapeGuid = FGuid::NewGuid();
-	}
-	
+	ALandscapeProxy* LandscapeProxy = Cast<UWorld>(LoadedLevel->GetOuter())->SpawnActor<ALandscapeProxy>();
 	LandscapeProxy->SetActorTransform(Settings.LandscapeTransform);
-	
+		
 	if (Settings.LandscapeMaterial)
 	{
 		LandscapeProxy->LandscapeMaterial = Settings.LandscapeMaterial;
@@ -824,7 +814,7 @@ ALandscapeProxy* FWorldTileModel::ImportLandscape(const FLandscapeImportSettings
 	
 	// Create landscape components	
 	LandscapeProxy->Import(
-		LandscapeGuid, 
+		Settings.LandscapeGuid, 
 		Settings.SizeX, 
 		Settings.SizeY, 
 		Settings.ComponentSizeQuads, 

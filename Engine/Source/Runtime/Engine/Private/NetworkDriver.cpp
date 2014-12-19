@@ -680,11 +680,8 @@ void UNetDriver::InternalProcessRemoteFunction
 			}
 			else
 			{
-				UE_LOG(LogNet, Log, TEXT("Error: Can't send function '%s' on '%s': Client hasn't loaded the level for this Actor"), *Function->GetName(), *Actor->GetName());
-				if ( !Connection->TrackLogsPerSecond() )	// This will disconnect the client if we get here too often
-				{
-					return;
-				}
+				UE_LOG(LogNet, Verbose, TEXT("Can't send function '%s' on '%s': Client hasn't loaded the level for this Actor"), *Function->GetName(), *Actor->GetName());
+				return;
 			}
 		}
 		if (!Ch)
@@ -2726,9 +2723,8 @@ void UNetDriver::ResetGameWorldState()
 
 void UNetDriver::CleanPackageMaps()
 {
-	if ( IsServer() && GuidCache.IsValid()  )
+	if ( GuidCache.IsValid() )
 	{ 
-		// Only the server makes this call initially, client will call when the GuidSequence increments on their end
 		GuidCache->CleanReferences();
 	}
 }

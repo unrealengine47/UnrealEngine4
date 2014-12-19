@@ -170,7 +170,7 @@ void FSCSEditorViewportClient::Tick(float DeltaSeconds)
 	AActor* PreviewActor = GetPreviewActor();
 	if (PreviewActor != NULL)
 	{
-		TArray<UPrimitiveComponent*> PrimitiveComponents;
+		TInlineComponentArray<UPrimitiveComponent*> PrimitiveComponents;
 		PreviewActor->GetComponents(PrimitiveComponents);
 
 		for (int32 CompIdx = 0; CompIdx < PrimitiveComponents.Num(); ++CompIdx)
@@ -181,6 +181,10 @@ void FSCSEditorViewportClient::Tick(float DeltaSeconds)
 				SCSEditor->SetSelectionOverride(PrimComponent);
 			}
 		}
+	}
+	else
+	{
+		InvalidatePreview(false);
 	}
 
 	// Tick the preview scene world.
@@ -326,7 +330,7 @@ void FSCSEditorViewportClient::ProcessClick(class FSceneView& View, class HHitPr
 			AActor* PreviewActor = GetPreviewActor();
 			if(ActorProxy && ActorProxy->Actor && ActorProxy->Actor == PreviewActor && ActorProxy->PrimComponent != NULL)
 			{
-				TArray<USceneComponent*> SceneComponents;
+				TInlineComponentArray<USceneComponent*> SceneComponents;
 				ActorProxy->Actor->GetComponents(SceneComponents);
 	
 				for(auto CompIt = SceneComponents.CreateConstIterator(); CompIt; ++CompIt)
@@ -983,7 +987,7 @@ void FSCSEditorViewportClient::RefreshPreviewBounds()
 	if(PreviewActor)
 	{
 		// Compute actor bounds as the sum of its visible parts
-		TArray<UPrimitiveComponent*> PrimitiveComponents;
+		TInlineComponentArray<UPrimitiveComponent*> PrimitiveComponents;
 		PreviewActor->GetComponents(PrimitiveComponents);
 
 		PreviewActorBounds = FBoxSphereBounds(ForceInitToZero);

@@ -128,27 +128,27 @@ void UGameplayCueManager::HandleGameplayCueNotify_Internal(AActor* TargetActor, 
 		}
 		else if (AGameplayCueNotify_Actor* InstancedCue = Cast<AGameplayCueNotify_Actor>(CueData.LoadedGameplayCueClass->ClassDefaultObject))
 		{
-			AGameplayCueNotify_Actor* SpawnedInstancedCue = nullptr;
-			if (auto InnerMap = NotifyMapActor.Find(TargetActor))
+			if (InstancedCue->HandlesEvent(EventType))
 			{
-				if (auto WeakPtrPtr = InnerMap->Find(DataIdx))
+				AGameplayCueNotify_Actor* SpawnedInstancedCue = nullptr;
+				if (auto InnerMap = NotifyMapActor.Find(TargetActor))
 				{
-					SpawnedInstancedCue = WeakPtrPtr->Get();
+					if (auto WeakPtrPtr = InnerMap->Find(DataIdx))
+					{
+						SpawnedInstancedCue = WeakPtrPtr->Get();
+					}
 				}
-			}
 
-			//Get our instance. We should probably have a flag or something to determine if we want to reuse or stack instances. That would mean changing our map to have a list of active instances.
-			if (SpawnedInstancedCue == nullptr)
-			{
-				// We don't have an instance for this, and we need one, so make one
-				//SpawnedInstancedCue = static_cast<AGameplayCueNotify_Actor*>(StaticDuplicateObject(InstancedCue, this, TEXT("None"), ~RF_RootSet));
-				SpawnedInstancedCue = TargetActor->GetWorld()->SpawnActor<AGameplayCueNotify_Actor>(InstancedCue->GetActorClass(), TargetActor->GetActorLocation(), TargetActor->GetActorRotation());
-				auto& InnerMap = NotifyMapActor.FindOrAdd(TargetActor);
-				InnerMap.Add(DataIdx) = SpawnedInstancedCue;
-			}
-			check(SpawnedInstancedCue);
-			if (SpawnedInstancedCue->HandlesEvent(EventType))
-			{
+				//Get our instance. We should probably have a flag or something to determine if we want to reuse or stack instances. That would mean changing our map to have a list of active instances.
+				if (SpawnedInstancedCue == nullptr)
+				{
+					// We don't have an instance for this, and we need one, so make one
+					//SpawnedInstancedCue = static_cast<AGameplayCueNotify_Actor*>(StaticDuplicateObject(InstancedCue, this, TEXT("None"), ~RF_RootSet));
+					SpawnedInstancedCue = TargetActor->GetWorld()->SpawnActor<AGameplayCueNotify_Actor>(InstancedCue->GetActorClass(), TargetActor->GetActorLocation(), TargetActor->GetActorRotation());
+					auto& InnerMap = NotifyMapActor.FindOrAdd(TargetActor);
+					InnerMap.Add(DataIdx) = SpawnedInstancedCue;
+				}
+				check(SpawnedInstancedCue);
 				SpawnedInstancedCue->HandleGameplayCue(TargetActor, EventType, Parameters);
 				if (!SpawnedInstancedCue->IsOverride)
 				{
@@ -399,29 +399,25 @@ void UGameplayCueManager::HandleAssetAdded(UObject *Object)
 /** Handles cleaning up an object library if it matches the passed in object */
 void UGameplayCueManager::HandleAssetDeleted(UObject *Object)
 {
-	FGameplayTag TagtoRemove;
+	FStringAssetReference StringRefToRemove;
 
 	UBlueprint* Blueprint = Cast<UBlueprint>(Object);
 	if (Blueprint && Blueprint->GeneratedClass)
 	{
-		AGameplayCueNotify_Actor* CDO = Cast<AGameplayCueNotify_Actor>(Blueprint->GeneratedClass->ClassDefaultObject);
-		if (CDO && CDO->GameplayCueTag.IsValid())
+		UGameplayCueNotify_Static* StaticCDO = Cast<UGameplayCueNotify_Static>(Blueprint->GeneratedClass->ClassDefaultObject);
+		AGameplayCueNotify_Actor* ActorCDO = Cast<AGameplayCueNotify_Actor>(Blueprint->GeneratedClass->ClassDefaultObject);
+		
+		if (StaticCDO || ActorCDO)
 		{
-			TagtoRemove = CDO->GameplayCueTag;
+			StringRefToRemove.AssetLongPathname = Blueprint->GetPathName();
 		}
 	}
 
-	AGameplayCueNotify_Actor* Notify = Cast<AGameplayCueNotify_Actor>(Object);
-	if (Notify && Notify->GameplayCueTag.IsValid())
-	{
-		TagtoRemove = Notify->GameplayCueTag;
-	}
-
-	if (TagtoRemove.IsValid())
+	if (StringRefToRemove.IsValid())
 	{
 		for (int32 idx = 0; idx < GameplayCueData.Num(); ++idx)
 		{
-			if (GameplayCueData[idx].GameplayCueTag == TagtoRemove)
+			if (GameplayCueData[idx].GameplayCueNotifyObj == StringRefToRemove)
 			{
 				GameplayCueData.RemoveAt(idx);
 				BuildAccelerationMap_Internal();
