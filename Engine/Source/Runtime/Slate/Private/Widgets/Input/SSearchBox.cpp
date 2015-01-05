@@ -9,7 +9,7 @@ void SSearchBox::Construct( const FArguments& InArgs )
 {
 	check(InArgs._Style);
 
-	bIsActiveTickRegistered = false;
+	bIsActiveTimerRegistered = false;
 	OnSearchDelegate = InArgs._OnSearch;
 	OnTextChangedDelegate = InArgs._OnTextChanged;
 	OnTextCommittedDelegate = InArgs._OnTextCommitted;
@@ -31,11 +31,15 @@ void SSearchBox::Construct( const FArguments& InArgs )
 		.MinDesiredWidth( InArgs._MinDesiredWidth )
 	);
 
+	// If we want to have the buttons appear to the left of the text box we have to insert the slots instead of add them
+	int32 SlotIndex = InArgs._Style->bLeftAlignButtons ? 0 : Box->NumSlots();
+
 	// If a search delegate was bound, add a previous and next button
 	if (OnSearchDelegate.IsBound())
 	{
-		Box->AddSlot()
+		Box->InsertSlot(SlotIndex++)
 		.AutoWidth()
+		.Padding(InArgs._Style->ImagePadding)
 		.HAlign(HAlign_Center)
 		.VAlign(VAlign_Center)
 		[
@@ -53,8 +57,9 @@ void SSearchBox::Construct( const FArguments& InArgs )
 				.ColorAndOpacity( FSlateColor::UseForeground() )
 			]
 		];
-		Box->AddSlot()
+		Box->InsertSlot(SlotIndex++)
 		.AutoWidth()
+		.Padding(InArgs._Style->ImagePadding)
 		.HAlign(HAlign_Center)
 		.VAlign(VAlign_Center)
 		[
@@ -75,8 +80,9 @@ void SSearchBox::Construct( const FArguments& InArgs )
 	}
 
 	// Add a search glass image so that the user knows this text box is for searching
-	Box->AddSlot()
+	Box->InsertSlot(SlotIndex++)
 	.AutoWidth()
+	.Padding(InArgs._Style->ImagePadding)
 	.HAlign(HAlign_Center)
 	.VAlign(VAlign_Center)
 	[
@@ -87,8 +93,11 @@ void SSearchBox::Construct( const FArguments& InArgs )
 	];
 
 	// Add an X to clear the search whenever there is some text typed into it
-	Box->AddSlot()
+	Box->InsertSlot(SlotIndex++)
 	.AutoWidth()
+	.Padding(InArgs._Style->ImagePadding)
+	.HAlign(HAlign_Center)
+	.VAlign(VAlign_Center)
 	[
 		SNew(SButton)
 		.Visibility(this, &SSearchBox::GetXVisibility)
@@ -109,13 +118,13 @@ void SSearchBox::Construct( const FArguments& InArgs )
 	];
 }
 
-EActiveTickReturnType SSearchBox::TriggerOnTextChanged( double InCurrentTime, float InDeltaTime )
+EActiveTimerReturnType SSearchBox::TriggerOnTextChanged( double InCurrentTime, float InDeltaTime )
 {
 	// Reset the flag first in case the delegate winds up triggering HandleTextChanged
-	bIsActiveTickRegistered = false;
+	bIsActiveTimerRegistered = false;
 
 	OnTextChangedDelegate.ExecuteIfBound( LastPendingTextChangedValue );
-	return EActiveTickReturnType::StopTicking;
+	return EActiveTimerReturnType::Stop;
 }
 
 void SSearchBox::HandleTextChanged(const FText& NewText)
@@ -125,12 +134,12 @@ void SSearchBox::HandleTextChanged(const FText& NewText)
 		LastPendingTextChangedValue = NewText;
 
 		// Remove the existing registered tick if necessary
-		if ( ActiveTickHandle.IsValid() )
+		if ( ActiveTimerHandle.IsValid() )
 		{
-			UnRegisterActiveTick( ActiveTickHandle.Pin().ToSharedRef() );
+			UnRegisterActiveTimer( ActiveTimerHandle.Pin().ToSharedRef() );
 		}
-		bIsActiveTickRegistered = true;
-		ActiveTickHandle = RegisterActiveTick( FilterDelayAfterTyping, FWidgetActiveTickDelegate::CreateSP( this, &SSearchBox::TriggerOnTextChanged ) );
+		bIsActiveTimerRegistered = true;
+		ActiveTimerHandle = RegisterActiveTimer( FilterDelayAfterTyping, FWidgetActiveTimerDelegate::CreateSP( this, &SSearchBox::TriggerOnTextChanged ) );
 	}
 	else
 	{
@@ -140,10 +149,10 @@ void SSearchBox::HandleTextChanged(const FText& NewText)
 
 void SSearchBox::HandleTextCommitted(const FText& NewText, ETextCommit::Type CommitType)
 {
-	if ( bIsActiveTickRegistered && ActiveTickHandle.IsValid() )
+	if ( bIsActiveTimerRegistered && ActiveTimerHandle.IsValid() )
 	{
-		bIsActiveTickRegistered = false;
-		UnRegisterActiveTick( ActiveTickHandle.Pin().ToSharedRef() );
+		bIsActiveTimerRegistered = false;
+		UnRegisterActiveTimer( ActiveTimerHandle.Pin().ToSharedRef() );
 	}
 
 	OnTextCommittedDelegate.ExecuteIfBound( NewText, CommitType );

@@ -126,8 +126,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Render Transform", meta=( DisplayName="Pivot" ))
 	FVector2D RenderTransformPivot;
 
-	/**  */
-	UPROPERTY(Instanced, EditAnywhere, BlueprintReadOnly, Category="Navigation")
+	/**
+	 * The navigation object for this widget is optionally created if the user has configured custom
+	 * navigation rules for this widget in the widget designer.  Those rules determine how navigation transitions
+	 * can occur between widgets.
+	 */
+	UPROPERTY(Instanced, EditDefaultsOnly, BlueprintReadOnly, Category="Navigation")
 	class UWidgetNavigation* Navigation;
 
 #if WITH_EDITORONLY_DATA
@@ -227,7 +231,7 @@ public:
 
 	/** Sets the focus to this widget. */
 	UFUNCTION(BlueprintCallable, Category="Widget")
-	void SetKeyboardFocus() const;
+	void SetKeyboardFocus();
 
 	/** Forces the underlying slate system to perform a pre-pass on the layout of the widget.  This is for advanced users. */
 	UFUNCTION(BlueprintCallable, Category="Widget")

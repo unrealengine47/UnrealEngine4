@@ -90,24 +90,7 @@ ULandscapeComponent::ULandscapeComponent(const FObjectInitializer& ObjectInitial
 
 	bBoundsChangeTriggersStreamingDataRebuild = true;
 	ForcedLOD = -1;
-	// Neighbor LOD and LODBias are saved in a legacy uint8 form instead of int8. Todo: convert
-	NeighborLOD[0] = 255;
-	NeighborLOD[1] = 255;
-	NeighborLOD[2] = 255;
-	NeighborLOD[3] = 255;
-	NeighborLOD[4] = 255;
-	NeighborLOD[5] = 255;
-	NeighborLOD[6] = 255;
-	NeighborLOD[7] = 255;
 	LODBias = 0;
-	NeighborLODBias[0] = 128;
-	NeighborLODBias[1] = 128;
-	NeighborLODBias[2] = 128;
-	NeighborLODBias[3] = 128;
-	NeighborLODBias[4] = 128;
-	NeighborLODBias[5] = 128;
-	NeighborLODBias[6] = 128;
-	NeighborLODBias[7] = 128;
 #if WITH_EDITORONLY_DATA
 	LightingLODBias = -1; // -1 Means automatic LOD calculation based on ForcedLOD + LODBias
 #endif
@@ -2747,7 +2730,7 @@ void ALandscapeProxy::Tick(float DeltaSeconds)
 
 				FBoxSphereBounds WorldBounds = HierarchicalInstancedStaticMeshComponent->CalcBounds(HierarchicalInstancedStaticMeshComponent->ComponentToWorld);
 				UE_LOG(LogTemp, Display, TEXT("Comp %d instances at %.0f %.0f %.0f"), HierarchicalInstancedStaticMeshComponent->PerInstanceSMData.Num(), WorldBounds.Origin.X, WorldBounds.Origin.Y, WorldBounds.Origin.Z);
-				TreeSize += HierarchicalInstancedStaticMeshComponent->ClusterTree.GetAllocatedSize();
+				TreeSize += HierarchicalInstancedStaticMeshComponent->ClusterTreePtr->GetAllocatedSize();
 				InstSize += HierarchicalInstancedStaticMeshComponent->PerInstanceSMData.GetAllocatedSize();
 				InstBufSize += HierarchicalInstancedStaticMeshComponent->PerInstanceSMData.Num() * 7 * 16; // there is no place where this constant exists.
 			}
