@@ -107,6 +107,10 @@ struct FSpritePolygonCollection
 	UPROPERTY(Category=PolygonData, EditAnywhere, AdvancedDisplay)
 	float AlphaThreshold;
 
+	// Amount to detail to consider when shrink-wrapping (range 0..1, 0 = low detail, 1 = high detail)
+	UPROPERTY(Category = PolygonData, EditAnywhere, AdvancedDisplay)
+	float DetailAmount;
+
 	// This is the threshold below which multiple vertices will be merged together when doing shrink-wrapping.  Higher values result in fewer vertices.
 	UPROPERTY(Category=PolygonData, EditAnywhere, AdvancedDisplay)
 	float SimplifyEpsilon;
@@ -117,6 +121,7 @@ struct FSpritePolygonCollection
 		, PixelsPerSubdivisionY(32)
 		, bAvoidVertexMerging(false)
 		, AlphaThreshold(0.0f)
+		, DetailAmount(0.5f)
 		, SimplifyEpsilon(2.0f)
 	{
 	}
