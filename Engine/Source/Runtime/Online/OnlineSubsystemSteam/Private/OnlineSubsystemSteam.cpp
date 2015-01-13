@@ -199,11 +199,6 @@ IOnlineIdentityPtr FOnlineSubsystemSteam::GetIdentityInterface() const
 	return IdentityInterface;
 }
 
-IOnlinePartyPtr FOnlineSubsystemSteam::GetPartyInterface() const
-{
-	return NULL;
-}
-
 IOnlineTitleFilePtr FOnlineSubsystemSteam::GetTitleFileInterface() const
 {
 	return NULL;
@@ -252,6 +247,11 @@ IOnlinePresencePtr FOnlineSubsystemSteam::GetPresenceInterface() const
 IOnlineChatPtr FOnlineSubsystemSteam::GetChatInterface() const
 {
 	return NULL;
+}
+
+IOnlineTurnBasedPtr FOnlineSubsystemSteam::GetTurnBasedInterface() const
+{
+    return NULL;
 }
 
 void FOnlineSubsystemSteam::QueueAsyncTask(FOnlineAsyncTask* AsyncTask)
@@ -671,6 +671,10 @@ void FOnlineSubsystemSteam::ClearUserCloudFiles()
 	UserCloudData.Empty();
 }
 
+static FDelegateHandle GOnEnumerateUserFilesCompleteDelegateHandle;
+
+TMap<IOnlineUserCloud*, FDelegateHandle> GPerCloudDeleteFromEnumerateUserFilesCompleteDelegateHandles;
+
 static void DeleteFromEnumerateUserFilesComplete(bool bWasSuccessful, const FUniqueNetId& UserId)
 {
 	IOnlineSubsystem* OnlineSub = IOnlineSubsystem::Get();
@@ -678,8 +682,8 @@ static void DeleteFromEnumerateUserFilesComplete(bool bWasSuccessful, const FUni
 
 	IOnlineUserCloudPtr UserCloud = OnlineSub->GetUserCloudInterface();
 
-	FOnEnumerateUserFilesCompleteDelegate Delegate = FOnEnumerateUserFilesCompleteDelegate::CreateStatic(&DeleteFromEnumerateUserFilesComplete);
-	UserCloud->ClearOnEnumerateUserFilesCompleteDelegate(Delegate);
+	UserCloud->ClearOnEnumerateUserFilesCompleteDelegate_Handle(GOnEnumerateUserFilesCompleteDelegateHandle);
+	GPerCloudDeleteFromEnumerateUserFilesCompleteDelegateHandles.Remove(UserCloud.Get());
 	if (bWasSuccessful)
 	{
 		TArray<FCloudFileHeader> UserFiles;
@@ -701,7 +705,7 @@ bool FOnlineSubsystemSteam::Exec(UWorld* InWorld, const TCHAR* Cmd, FOutputDevic
 		FUniqueNetIdSteam SteamId(SteamUser()->GetSteamID());
 
 		FOnEnumerateUserFilesCompleteDelegate Delegate = FOnEnumerateUserFilesCompleteDelegate::CreateStatic(&DeleteFromEnumerateUserFilesComplete);
-		UserCloud->AddOnEnumerateUserFilesCompleteDelegate(Delegate);
+		GPerCloudDeleteFromEnumerateUserFilesCompleteDelegateHandles.Add(UserCloud.Get(), UserCloud->AddOnEnumerateUserFilesCompleteDelegate_Handle(Delegate));
 		UserCloud->EnumerateUserFiles(SteamId);
 		return true;
 	}

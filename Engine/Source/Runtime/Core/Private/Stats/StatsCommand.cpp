@@ -16,23 +16,19 @@ DECLARE_CYCLE_STAT(TEXT("HUD Group"),STAT_HUDGroup,STATGROUP_StatSystem);
 DECLARE_CYCLE_STAT(TEXT("Accumulate"),STAT_Accumulate,STATGROUP_StatSystem);
 DECLARE_CYCLE_STAT(TEXT("GetFlatAggregates"),STAT_GetFlatAggregates,STATGROUP_StatSystem);
 
-template<>
-struct TTypeFromString<EStatCompareBy::Type>
+void FromString( EStatCompareBy::Type& OutValue, const TCHAR* Buffer )
 {
-	static void FromString( EStatCompareBy::Type& OutValue, const TCHAR* Buffer )
-	{
-		OutValue = EStatCompareBy::Sum;
+	OutValue = EStatCompareBy::Sum;
 
-		if (FCString::Stricmp(Buffer, TEXT("CallCount")) == 0)
-		{
-			OutValue = EStatCompareBy::CallCount;
-		}
-		else if (FCString::Stricmp(Buffer, TEXT("Name")) == 0)
-		{
-			OutValue = EStatCompareBy::Name;
-		}
+	if (FCString::Stricmp(Buffer, TEXT("CallCount")) == 0)
+	{
+		OutValue = EStatCompareBy::CallCount;
 	}
-};
+	else if (FCString::Stricmp(Buffer, TEXT("Name")) == 0)
+	{
+		OutValue = EStatCompareBy::Name;
+	}
+}
 
 struct FGroupFilter : public IItemFiler
 {
@@ -520,6 +516,9 @@ struct FHUDGroupManager
 	/** Whether it's enabled or not. */
 	bool bEnabled;
 
+	/** NewFrame delegate handle */
+	FDelegateHandle NewFrameDelegateHandle;
+
 	/** Default constructor. */
 	FHUDGroupManager(FStatsThreadState const& InStats)
 		: NumTotalStackFrames(0)
@@ -594,12 +593,12 @@ struct FHUDGroupManager
 		if( EnabledGroups.Num() && !bEnabled )
 		{
 			bEnabled = true;
-			Stats.NewFrameDelegate.AddRaw( this, &FHUDGroupManager::NewFrame );
+			NewFrameDelegateHandle = Stats.NewFrameDelegate.AddRaw( this, &FHUDGroupManager::NewFrame );
 			StatsMasterEnableAdd();
 		}
 		else if( !EnabledGroups.Num() && bEnabled )
 		{
-			Stats.NewFrameDelegate.RemoveRaw( this, &FHUDGroupManager::NewFrame );
+			Stats.NewFrameDelegate.Remove( NewFrameDelegateHandle );
 			StatsMasterEnableSubtract();
 			bEnabled = false;
 
@@ -942,6 +941,9 @@ struct FHUDGroupManager
 static float DumpCull = 5.0f;
 static int32 MaxDepth = MAX_int32;
 static FString NameFilter;
+static FDelegateHandle DumpFrameDelegateHandle;
+static FDelegateHandle DumpCPUDelegateHandle;
+static FDelegateHandle DumpMemoryDelegateHandle;
 
 static void DumpFrame(int64 Frame)
 {
@@ -949,7 +951,7 @@ static void DumpFrame(int64 Frame)
 	int64 Latest = Stats.GetLatestValidFrame();
 	check(Latest > 0);
 	DumpHistoryFrame(Stats, Latest, DumpCull, MaxDepth, *NameFilter);
-	Stats.NewFrameDelegate.RemoveStatic(&DumpFrame);
+	Stats.NewFrameDelegate.Remove(DumpFrameDelegateHandle);
 	StatsMasterEnableSubtract();
 }
 
@@ -959,7 +961,7 @@ static void DumpCPU(int64 Frame)
 	int64 Latest = Stats.GetLatestValidFrame();
 	check(Latest > 0);
 	DumpCPUSummary(Stats, Latest);
-	Stats.NewFrameDelegate.RemoveStatic(&DumpCPU);
+	Stats.NewFrameDelegate.Remove(DumpCPUDelegateHandle);
 	StatsMasterEnableSubtract();
 }
 
@@ -1050,7 +1052,7 @@ static void DumpMemory(int64 /*Frame*/)
 		UE_LOG(LogStats, Warning, TEXT("Allocated memory: %llu bytes (%.2f MB)"), TotalAllocatedMemory, TotalAllocatedMemory/1024.0f/1024.0f );
 	}
 
-	Stats.NewFrameDelegate.RemoveStatic(&DumpMemory);
+	Stats.NewFrameDelegate.Remove(DumpMemoryDelegateHandle);
 }
 
 static struct FDumpMultiple* DumpMultiple = NULL;
@@ -1063,6 +1065,7 @@ struct FDumpMultiple
 	int32 NumFrames;
 	int32 NumFramesToGo;
 	FRawStatStackNode* Stack;
+	FDelegateHandle NewFrameDelegateHandle;
 
 	FDumpMultiple()
 		: Stats(FStatsThreadState::GetLocalState())
@@ -1073,7 +1076,7 @@ struct FDumpMultiple
 		, Stack(NULL)
 	{
 		StatsMasterEnableAdd();
-		Stats.NewFrameDelegate.AddRaw(this, &FDumpMultiple::NewFrame);
+		NewFrameDelegateHandle = Stats.NewFrameDelegate.AddRaw(this, &FDumpMultiple::NewFrame);
 	}
 
 	~FDumpMultiple()
@@ -1106,7 +1109,7 @@ struct FDumpMultiple
 			delete Stack;
 			Stack = NULL;
 		}
-		Stats.NewFrameDelegate.RemoveRaw(this, &FDumpMultiple::NewFrame);
+		Stats.NewFrameDelegate.Remove(NewFrameDelegateHandle);
 		StatsMasterEnableSubtract();
 		DumpMultiple = NULL;
 	}
@@ -1230,11 +1233,11 @@ static void StatCmd(FString InCmd)
 	if( FParse::Command(&Cmd,TEXT("DUMPFRAME")) )
 	{
 		StatsMasterEnableAdd();
-		Stats.NewFrameDelegate.AddStatic(&DumpFrame);
+		DumpFrameDelegateHandle = Stats.NewFrameDelegate.AddStatic(&DumpFrame);
 	} 
 	else if( FParse::Command(&Cmd,TEXT("DumpMemory")) )
 	{
-		Stats.NewFrameDelegate.AddStatic(&DumpMemory);
+		DumpMemoryDelegateHandle = Stats.NewFrameDelegate.AddStatic(&DumpMemory);
 	}
 	else if ( FParse::Command(&Cmd,TEXT("DUMPNONFRAME")) )
 	{
@@ -1243,7 +1246,7 @@ static void StatCmd(FString InCmd)
 	else if ( FParse::Command(&Cmd,TEXT("DUMPCPU")) )
 	{
 		StatsMasterEnableAdd();
-		Stats.NewFrameDelegate.AddStatic(&DumpCPU);
+		DumpCPUDelegateHandle = Stats.NewFrameDelegate.AddStatic(&DumpCPU);
 	}
 	else if( FParse::Command(&Cmd,TEXT("STOP")) )
 	{
@@ -1294,16 +1297,17 @@ static void StatCmd(FString InCmd)
 	else if( FParse::Command(&Cmd,TEXT("DUMPHITCHES")) )
 	{
 		static bool bToggle = false;
+		static FDelegateHandle DumpHitchDelegateHandle;
 		bToggle = !bToggle;
 		if (bToggle)
 		{
 			StatsMasterEnableAdd();
-			Stats.NewFrameDelegate.AddStatic(&DumpHitch);
+			DumpHitchDelegateHandle = Stats.NewFrameDelegate.AddStatic(&DumpHitch);
 		}
 		else
 		{
 			StatsMasterEnableSubtract();
-			Stats.NewFrameDelegate.RemoveStatic(&DumpHitch);
+			Stats.NewFrameDelegate.Remove(DumpHitchDelegateHandle);
 		}
 	}
 	else if( FParse::Command( &Cmd, TEXT( "STARTFILE" ) ) )

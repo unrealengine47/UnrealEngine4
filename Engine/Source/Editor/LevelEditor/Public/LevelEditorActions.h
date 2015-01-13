@@ -122,6 +122,9 @@ public:
 	/** Goes to the documentation for the selected actor's class. */
 	TSharedPtr< FUICommandInfo > GoToDocsForActor;
 
+	/** Customize the script behavior of an instance. */
+	TSharedPtr< FUICommandInfo > AddScriptBehavior;
+
 	/** Paste actor at click location*/
 	TSharedPtr< FUICommandInfo > PasteHere;
 
@@ -322,6 +325,9 @@ public:
 	/** Selects all actors of the same class and archetype as the current selection */
 	TSharedPtr< FUICommandInfo > SelectAllActorsOfSameClassWithArchetype;
 
+	/** Selects the actor that owns the currently selected component(s) */
+	TSharedPtr< FUICommandInfo > SelectComponentOwnerActor;
+
 	/** Selects all lights relevant to the current selection */
 	TSharedPtr< FUICommandInfo > SelectRelevantLights;
 
@@ -357,12 +363,6 @@ public:
 
 	/** Selects all subtractive brushes */
 	TSharedPtr< FUICommandInfo > SelectAllSubtractiveBrushes;
-
-	/** Selects all semi-solid brushes */
-	TSharedPtr< FUICommandInfo > SelectAllSemiSolidBrushes;
-
-	/** Selects all non-solid brushes */
-	TSharedPtr< FUICommandInfo > SelectAllNonSolidBrushes;
 
 	/**
 	 * Surface commands                   
@@ -792,6 +792,9 @@ public:
 	/** Called when 'Go to Documentation for Actor' is clicked */
 	static void GoToDocsForActor_Clicked();
 
+	/** Called when 'Add Script Behavior' is clicked */
+	static void AddScriptBehavior_Clicked();
+
 	/**
 	 * Called when the LockActorMovement command is executed
 	 */
@@ -863,6 +866,12 @@ public:
 	 * @param bArchetype	true to also check that the archetype is the same
 	 */
 	static void OnSelectAllActorsOfClass( bool bArchetype );
+
+	/** Called when selecting the actor that owns the currently selected component(s) */
+	static void OnSelectComponentOwnerActor();
+
+	/** Called to see if any components are selected */
+	static bool CanSelectComponentOwnerActor();
 
 	/**
 	 * Called to select all lights
@@ -1074,7 +1083,7 @@ public:
 	static void OnToggleLevelStreamingVolumePrevis();
 	static bool OnIsLevelStreamingVolumePrevisEnabled(); 
 	
-	static FString GetAudioVolumeToolTip();
+	static FText GetAudioVolumeToolTip();
 	static float GetAudioVolume();
 	static void OnAudioVolumeChanged(float Volume);
 	static bool GetAudioMuted();
@@ -1082,7 +1091,7 @@ public:
 
 	static void OnEnableActorSnap();
 	static bool OnIsActorSnapEnabled();
-	static FString GetActorSnapTooltip();
+	static FText GetActorSnapTooltip();
 	static float GetActorSnapSetting();
 	static void SetActorSnapSetting(float Distance);
 	static void OnEnableVertexSnap();

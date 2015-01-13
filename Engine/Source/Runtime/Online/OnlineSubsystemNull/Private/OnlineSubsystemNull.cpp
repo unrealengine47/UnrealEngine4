@@ -63,11 +63,6 @@ IOnlineIdentityPtr FOnlineSubsystemNull::GetIdentityInterface() const
 	return IdentityInterface;
 }
 
-IOnlinePartyPtr FOnlineSubsystemNull::GetPartyInterface() const
-{
-	return NULL;
-}
-
 IOnlineTitleFilePtr FOnlineSubsystemNull::GetTitleFileInterface() const
 {
 	return NULL;
@@ -111,6 +106,11 @@ IOnlinePresencePtr FOnlineSubsystemNull::GetPresenceInterface() const
 IOnlineChatPtr FOnlineSubsystemNull::GetChatInterface() const
 {
 	return NULL;
+}
+
+IOnlineTurnBasedPtr FOnlineSubsystemNull::GetTurnBasedInterface() const
+{
+    return NULL;
 }
 
 bool FOnlineSubsystemNull::Tick(float DeltaTime)

@@ -399,6 +399,10 @@ void USkeletalMeshComponent::PostEditChangeProperty(FPropertyChangedEvent& Prope
 				UE_LOG(LogAnimation, Warning, TEXT("Invalid animation"));
 				AnimationData.AnimToPlay = NULL;
 			}
+			else
+			{
+				PlayAnimation(AnimationData.AnimToPlay, false);
+			}
 		}
 
 		if ( PropertyThatChanged->GetFName() == GET_MEMBER_NAME_CHECKED( FSingleAnimationPlayData, SavedPosition ))
@@ -1004,6 +1008,11 @@ void USkeletalMeshComponent::RefreshBoneTransforms(FActorComponentTickFunction* 
 
 void USkeletalMeshComponent::PostAnimEvaluation(FAnimationEvaluationContext& EvaluationContext)
 {
+	if (AnimScriptInstance)
+	{
+		AnimScriptInstance->PostAnimEvaluation();
+	}
+
 	AnimEvaluationContext.Clear();
 
 	SCOPE_CYCLE_COUNTER(STAT_PostAnimEvaluation);
@@ -1872,14 +1881,19 @@ void USkeletalMeshComponent::UpdateCollisionProfile()
 	}
 }
 
-void USkeletalMeshComponent::RegisterOnSkeletalMeshPropertyChanged( const FOnSkeletalMeshPropertyChanged& Delegate )
+FDelegateHandle USkeletalMeshComponent::RegisterOnSkeletalMeshPropertyChanged( const FOnSkeletalMeshPropertyChanged& Delegate )
 {
-	OnSkeletalMeshPropertyChanged.Add(Delegate);
+	return OnSkeletalMeshPropertyChanged.Add(Delegate);
 }
 
 void USkeletalMeshComponent::UnregisterOnSkeletalMeshPropertyChanged( const FOnSkeletalMeshPropertyChanged& Delegate )
 {
-	OnSkeletalMeshPropertyChanged.Remove(Delegate);
+	OnSkeletalMeshPropertyChanged.DEPRECATED_Remove(Delegate);
+}
+
+void USkeletalMeshComponent::UnregisterOnSkeletalMeshPropertyChanged( FDelegateHandle Handle )
+{
+	OnSkeletalMeshPropertyChanged.Remove(Handle);
 }
 
 void USkeletalMeshComponent::ValidateAnimation()

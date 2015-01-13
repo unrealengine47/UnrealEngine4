@@ -3,6 +3,7 @@
 #include "FriendsAndChatPrivatePCH.h"
 #include "SFriendItem.h"
 #include "FriendViewModel.h"
+#include "SFriendsToolTip.h"
 #include "SFriendsList.h"
 
 #define LOCTEXT_NAMESPACE "SFriendItem"
@@ -49,28 +50,51 @@ public:
 				]
 				+ SHorizontalBox::Slot()
 				[
-					SNew(SVerticalBox)
-					+ SVerticalBox::Slot()
-					[
-						SNew(STextBlock)
-						.Font(FriendStyle.FriendsFontStyleBold)
-						.ColorAndOpacity(FriendStyle.DefaultFontColor)
-						.Text(ViewModel->GetFriendName())
-					]
-					+ SVerticalBox::Slot()
-					.HAlign(HAlign_Left)
-					.VAlign(VAlign_Center)
-					[
-						SNew(STextBlock)
-						.Font(FriendStyle.FriendsFontStyleSmallBold)
-						.ColorAndOpacity(FriendStyle.DefaultFontColor)
-						.Text(ViewModelPtr, &FFriendViewModel::GetFriendLocation)
-					]
-				]
-				+ SHorizontalBox::Slot()
-				.HAlign(HAlign_Right)
-				[
 					SNew(SOverlay)
+					+ SOverlay::Slot()
+					.HAlign(HAlign_Fill)
+					[
+						SNew(SHorizontalBox)
+						+SHorizontalBox::Slot()
+						.FillWidth(1)
+						[
+							SNew(SVerticalBox)
+							+ SVerticalBox::Slot()
+							[
+								SNew(STextBlock)
+								.Font(FriendStyle.FriendsFontStyleBold)
+								.ColorAndOpacity(FriendStyle.DefaultFontColor)
+								.Text(ViewModel->GetFriendName())
+							]
+							+ SVerticalBox::Slot()
+							.HAlign(HAlign_Left)
+							.VAlign(VAlign_Center)
+							[
+								SNew(STextBlock)
+								.Font(FriendStyle.FriendsFontStyleSmallBold)
+								.ColorAndOpacity(FriendStyle.DefaultFontColor)
+								.Text(ViewModelPtr, &FFriendViewModel::GetFriendLocation)
+							]
+						]
+						+ SHorizontalBox::Slot()
+						.Padding(15, 0)
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						.HAlign(HAlign_Right)
+						[
+							SAssignNew(Anchor, SMenuAnchor)
+							.Method(InArgs._Method)
+							.OnGetMenuContent(this, &SFriendItemImpl::GetMenuContent)
+							.Placement(MenuPlacement_BelowAnchor)
+							.Visibility(this, &SFriendItemImpl::ActionMenuButtonVisibility)
+							.Content()
+							[
+								SNew(SButton)
+								.ButtonStyle(&FriendStyle.FriendActionDropdownButtonStyle)
+								.OnClicked(this, &SFriendItemImpl::HandleItemClicked)
+							]
+						]
+					]
 					+ SOverlay::Slot()
 					.HAlign(HAlign_Right)
 					.VAlign(VAlign_Bottom)
@@ -159,22 +183,6 @@ public:
 							]
 						]
 					]
-					+ SOverlay::Slot()
-					.VAlign(VAlign_Center)
-					.Padding(15, 0)
-					[
-						SAssignNew(Anchor, SMenuAnchor)
-						.Method(InArgs._Method)
-						.OnGetMenuContent(this, &SFriendItemImpl::GetMenuContent)
-						.Placement(MenuPlacement_BelowAnchor)
-						.Visibility(this, &SFriendItemImpl::ActionMenuButtonVisibility)
-						.Content()
-						[
-							SNew(SButton)
-							.ButtonStyle(&FriendStyle.FriendActionDropdownButtonStyle)
-							.OnClicked(this, &SFriendItemImpl::HandleItemClicked)
-						]
-					]
 				]
 			]
 		]);
@@ -237,6 +245,7 @@ private:
 			ActionListBox->AddSlot()
 			[
 				SNew(SButton)
+				.ToolTip(FriendAction == EFriendActionType::JoinGame ? CreateJoingGameToolTip() : NULL)
 				.IsEnabled(this, &SFriendItemImpl::IsActionEnabled, FriendAction)
 				.OnClicked(this, &SFriendItemImpl::HandleActionClicked, FriendAction)
 				.ButtonStyle(&FriendStyle.FriendListItemButtonStyle)
@@ -300,6 +309,17 @@ private:
 	EVisibility ActionMenuButtonVisibility() const
 	{
 		return (bIsHovered && PendingAction == EFriendActionType::MAX_None) || Anchor->IsOpen() ? EVisibility::Visible : EVisibility::Hidden;
+	}
+
+	TSharedPtr<SToolTip> CreateJoingGameToolTip()
+	{
+		if(!ViewModel->CanPerformAction(EFriendActionType::JoinGame))
+		{
+			return SNew(SFriendsToolTip)
+			.DisplayText(ViewModel->GetJoinGameDisallowReason())
+			.FriendStyle(&FriendStyle);
+		}
+		return nullptr;
 	}
 
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override

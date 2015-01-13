@@ -3,6 +3,7 @@
 #pragma once
 #include "UniquePtr.h"
 #include "IPackageAutoSaver.h"
+#include "ISourceControlModule.h"
 #include "ComponentVisualizerManager.h"
 #include "UnrealEdEngine.generated.h"
 
@@ -15,6 +16,8 @@ enum EPackageNotifyState
 	NS_DialogPrompted,
 	// The package has been marked dirty and is pending a balloon prompt
 	NS_PendingPrompt,
+	// The package has been marked dirty but cannot be checked out, and is pending a modal warning dialog
+	NS_PendingWarning,
 	NS_MAX,
 };
 
@@ -178,9 +181,10 @@ class UNREALED_API UUnrealEdEngine : public UEditorEngine, public FNotifyHook
 	virtual void SelectActor(AActor* Actor, bool InSelected, bool bNotify, bool bSelectEvenIfHidden=false) override;
 	virtual bool CanSelectActor(AActor* Actor, bool InSelected, bool bSelectEvenIfHidden=false, bool bWarnIfLevelLocked=false) const override;
 	virtual void SelectGroup(AGroupActor* InGroupActor, bool bForceSelection=false, bool bInSelected=true, bool bNotify=true) override;
+	virtual void SelectComponent(class UActorComponent* Component, bool bInSelected, bool bNotify, bool bSelectEvenIfHidden = false) override;
 	virtual void SelectBSPSurf(UModel* InModel, int32 iSurf, bool bSelected, bool bNoteSelectionChange) override;
 	virtual void SelectNone(bool bNoteSelectionChange, bool bDeselectBSPSurfs, bool WarnAboutManyActors=true) override;
-	virtual void NoteSelectionChange() override;
+	virtual void NoteSelectionChange(bool bComponentSelectionChanged = false) override;
 	virtual void NoteActorMovement() override;
 	virtual void FinishAllSnaps() override;
 	virtual void Cleanse( bool ClearSelection, bool Redraw, const FText& Reason ) override;
@@ -213,6 +217,10 @@ class UNREALED_API UUnrealEdEngine : public UEditorEngine, public FNotifyHook
 
 	/** called when a package has has its dirty state updated */
 	void OnPackageDirtyStateUpdated( UPackage* Pkg);
+	/** called when a package's source control state is updated */
+	void OnSourceControlStateUpdated(const FSourceControlOperationRef& SourceControlOp, ECommandResult::Type ResultType, TWeakObjectPtr<UPackage> Package);
+	/** called when a package is automatically checked out from source control */
+	void OnPackageCheckedOut(const FSourceControlOperationRef& SourceControlOp, ECommandResult::Type ResultType, TWeakObjectPtr<UPackage> Package);
 	/** caled by FCoreDelegate::PostGarbageCollect */
 	void OnPostGarbageCollect();
 	/** called by color picker change event */
@@ -734,10 +742,14 @@ class UNREALED_API UUnrealEdEngine : public UEditorEngine, public FNotifyHook
 	
 protected:
 	EWriteDisallowedWarningState GetWarningStateForWritePermission(const FString& PackageName) const;
+	bool IsComponentSelected(const UPrimitiveComponent* PrimComponent);
 
 	/** The package auto-saver instance used by the editor */
 	TUniquePtr<IPackageAutoSaver> PackageAutoSaver;
 
 	/** Instance responsible for monitoring this editor's performance */
 	FPerformanceMonitor* PerformanceMonitor;
+
+	/** Handle to the registered OnMatineeEditorClosed delegate. */
+	FDelegateHandle OnMatineeEditorClosedDelegateHandle;
 };

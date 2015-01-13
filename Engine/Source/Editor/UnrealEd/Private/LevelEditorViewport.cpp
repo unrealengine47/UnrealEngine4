@@ -18,6 +18,7 @@
 #include "Engine.h"
 #include "Editor/LevelEditor/Public/LevelEditor.h"
 #include "Editor/LevelEditor/Public/LevelViewportActions.h"
+#include "Editor/LevelEditor/Public/SLevelViewport.h"
 #include "Editor/PropertyEditor/Public/PropertyEditorModule.h"
 #include "AssetSelection.h"
 #include "BlueprintUtilities.h"
@@ -43,7 +44,7 @@
 #include "AssetRegistryModule.h"
 #include "Animation/VertexAnim/VertexAnimation.h"
 #include "InstancedFoliage.h"
-
+#include "DynamicMeshBuilder.h"
 #include "Editor/ActorPositioning.h"
 #include "NotificationManager.h"
 #include "SNotificationList.h"
@@ -1132,12 +1133,12 @@ FDropQuery FLevelEditorViewportClient::CanDropObjectsAtCoordinates(int32 MouseX,
 		if ( AssetObj->IsA( AActor::StaticClass() ) || bHasActorFactory )
 		{
 			Result.bCanDrop = true;
-			bPivotMovedIndependantly = false;
+			bPivotMovedIndependently = false;
 		}
 		else if( AssetObj->IsA( UBrushBuilder::StaticClass()) )
 		{
 			Result.bCanDrop = true;
-			bPivotMovedIndependantly = false;
+			bPivotMovedIndependently = false;
 		}
 		else
 		{
@@ -1148,7 +1149,7 @@ FDropQuery FLevelEditorViewportClient::CanDropObjectsAtCoordinates(int32 MouseX,
 				{
 					// If our asset is a material and the target is a valid recipient
 					Result.bCanDrop = true;
-					bPivotMovedIndependantly = false;
+					bPivotMovedIndependently = false;
 
 					//if ( HitProxy->IsA(HActor::StaticGetType()) )
 					//{
@@ -1384,6 +1385,10 @@ void FTrackingTransaction::Begin(const FText& Description)
 	{
 		GroupActor->Modify();
 	}
+	for (FSelectionIterator It(GEditor->GetSelectedComponentIterator()); It; ++It)
+	{
+		CastChecked<UActorComponent>(*It)->Modify();
+	}
 }
 
 void FTrackingTransaction::End()
@@ -1422,8 +1427,8 @@ void FTrackingTransaction::PromotePendingToActive()
 	}
 }
 
-FLevelEditorViewportClient::FLevelEditorViewportClient()
-	: FEditorViewportClient(&GLevelEditorModeTools(), NULL)
+FLevelEditorViewportClient::FLevelEditorViewportClient(const TSharedPtr<SLevelViewport>& InLevelViewport)
+	: FEditorViewportClient(&GLevelEditorModeTools(), nullptr, StaticCastSharedPtr<SEditorViewport>(InLevelViewport))
 	, ViewHiddenLayers()
 	, VolumeActorVisibility()
 	, LastEditorViewLocation( FVector::ZeroVector )
@@ -1439,14 +1444,15 @@ FLevelEditorViewportClient::FLevelEditorViewportClient()
 	, bDuplicateActorsInProgress( false )
 	, bIsTrackingBrushModification( false )
 	, bLockedCameraView(true)
+	, bReceivedFocusRecently(false)
 	, SpriteCategoryVisibility()
-	, World(NULL)
+	, World(nullptr)
 	, TrackingTransaction()
 	, DropPreviewMouseX(0)
 	, DropPreviewMouseY(0)
 	, bWasControlledByOtherViewport(false)
-	, ActorLockedByMatinee(NULL)
-	, ActorLockedToCamera(NULL)
+	, ActorLockedByMatinee(nullptr)
+	, ActorLockedToCamera(nullptr)
 {
 	// By default a level editor viewport is pointed to the editor world
 	SetReferenceToWorldContext(GEditor->GetEditorWorldContext());
@@ -1691,15 +1697,32 @@ void FLevelEditorViewportClient::RestoreCameraFromPIE()
 	}
 }
 
+void FLevelEditorViewportClient::ReceivedFocus(FViewport* InViewport)
+{
+	if (!bReceivedFocusRecently)
+	{
+		bReceivedFocusRecently = true;
+
+		// A few frames can pass between receiving focus and processing a click, so we use a timer to track whether we have recently received focus.
+		FTimerHandle DummyHandle;
+		FTimerDelegate ResetFocusReceivedTimer;
+		ResetFocusReceivedTimer.BindLambda([&] ()
+		{
+			bReceivedFocusRecently = false;
+		});
+		GEditor->GetTimerManager()->SetTimer(DummyHandle, ResetFocusReceivedTimer, 0.1f, false);
+	}
+
+	FEditorViewportClient::ReceivedFocus(InViewport);
+}
 
 //
 //	FLevelEditorViewportClient::ProcessClick
 //
-
 void FLevelEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* HitProxy, FKey Key, EInputEvent Event, uint32 HitX, uint32 HitY)
 {
 	// We clicked, allow the pivot to reposition itself.
-	bPivotMovedIndependantly = false;
+	bPivotMovedIndependently = false;
 
 	static FName ProcessClickTrace = FName(TEXT("ProcessClickTrace"));
 
@@ -1756,7 +1779,31 @@ void FLevelEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* HitPr
 		}
 		else if (HitProxy->IsA(HActor::StaticGetType()))
 		{
-			ClickHandlers::ClickActor(this,((HActor*)HitProxy)->Actor,Click,true);
+			auto ActorHitProxy = (HActor*)HitProxy;
+
+			// We want to process the click on the component only if:
+			// 1. The actor clicked is already selected
+			// 2. The actor selected is the only actor selected
+			// 3. The LMB was pressed or we already have a component selected (so that right-clicking a selected actor won't select a component)
+			// 4. The click was not a double click (unless a component has already been selected)
+			// 5. The level viewport didn't just receive focus this frame (again unless a component has already been selected)
+			const bool bActorAlreadySelectedExclusively = GEditor->GetSelectedActors()->IsSelected(ActorHitProxy->Actor) && ( GEditor->GetSelectedActorCount() == 1 );
+			const bool bComponentAlreadySelected = GEditor->GetSelectedComponentCount() > 0;
+	
+			const bool bCanBeginSelectingComponents =  (Click.GetKey() == EKeys::LeftMouseButton) 
+													&& (Click.GetEvent() != IE_DoubleClick) 
+													&& !bReceivedFocusRecently;
+
+			const bool bSelectComponent = bActorAlreadySelectedExclusively && ( bComponentAlreadySelected || bCanBeginSelectingComponents );
+
+			if (bSelectComponent && GetDefault<UEditorExperimentalSettings>()->bInWorldBPEditing)
+			{
+				ClickHandlers::ClickComponent(this, ActorHitProxy, Click);
+			}
+			else
+			{
+				ClickHandlers::ClickActor(this, ActorHitProxy->Actor, Click, true);
+			}
 		}
 		else if (HitProxy->IsA(HInstancedStaticMeshInstance::StaticGetType()))
 		{
@@ -1833,7 +1880,7 @@ void FLevelEditorViewportClient::Tick(float DeltaTime)
 {
 	FEditorViewportClient::Tick(DeltaTime);
 
-	if( !bPivotMovedIndependantly && GCurrentLevelEditingViewportClient == this &&
+	if( !bPivotMovedIndependently && GCurrentLevelEditingViewportClient == this &&
 		bIsRealtime &&
 		( Widget == NULL || !Widget->IsDragging() ) )
 	{
@@ -2140,7 +2187,7 @@ bool FLevelEditorViewportClient::InputWidgetDelta(FViewport* Viewport, EAxisList
 				else
 				{
 					FSnappingUtils::SnapDragLocationToNearestVertex( ModeTools->PivotLocation, Drag, this );
-					bPivotMovedIndependantly = true;
+					bPivotMovedIndependently = true;
 				}
 
 				ModeTools->PivotLocation += Drag;
@@ -2511,7 +2558,7 @@ void FLevelEditorViewportClient::TrackingStopped()
 			GEditor->BroadcastEndObjectMovement( *Actor );
 		}
 
-		if (!bPivotMovedIndependantly)
+		if (!bPivotMovedIndependently)
 		{
 			GUnrealEd->UpdatePivotLocationForSelection();
 		}
@@ -2909,12 +2956,12 @@ void FLevelEditorViewportClient::ApplyDeltaToActors(const FVector& InDrag,
 			if(bIsSimulateInEditorViewport)
 			{
 				// If the Actor's outer (level) outer (world) is not the PlayWorld then it cannot be moved in this viewport.
-				if( !(GEditor->PlayWorld == Actor->GetOuter()->GetOuter()) )
+				if( !(GEditor->PlayWorld == Actor->GetWorld()) )
 				{
 					continue;
 				}
 			}
-			else if( !(GEditor->EditorWorld == Actor->GetOuter()->GetOuter()) )
+			else if( !(GEditor->EditorWorld == Actor->GetWorld()) )
 			{
 				continue;
 			}
@@ -2922,7 +2969,19 @@ void FLevelEditorViewportClient::ApplyDeltaToActors(const FVector& InDrag,
 
 		if ( !Actor->bLockLocation )
 		{
-			// find topmost selected group
+			if (GEditor->GetSelectedComponentCount() > 0)
+			{
+				for (FSelectionIterator It(GEditor->GetSelectedComponentIterator()); It; ++It)
+				{
+					USceneComponent* SceneComponent = CastChecked<USceneComponent>(*It);
+					if (SceneComponent)
+					{
+						ApplyDeltaToComponent(SceneComponent, InDrag, InRot, ModifiedScale);
+					}
+				}
+			}
+			else
+			{
 			AGroupActor* ParentGroup = AGroupActor::GetRootForActor(Actor, true, true);
 			if(ParentGroup && GEditor->bGroupingActive )
 			{
@@ -2948,6 +3007,7 @@ void FLevelEditorViewportClient::ApplyDeltaToActors(const FVector& InDrag,
 			}
 		}
 	}
+	}
 	AGroupActor::RemoveSubGroupsFromArray(ActorGroups);
 	for(int32 ActorGroupsIndex=0; ActorGroupsIndex<ActorGroups.Num(); ++ActorGroupsIndex)
 	{
@@ -2955,6 +3015,32 @@ void FLevelEditorViewportClient::ApplyDeltaToActors(const FVector& InDrag,
 	}
 }
 
+void FLevelEditorViewportClient::ApplyDeltaToComponent(USceneComponent* InComponent, const FVector& InDeltaDrag, const FRotator& InDeltaRot, const FVector& InDeltaScale)
+{
+	// If we are scaling, we need to change the scaling factor a bit to properly align to grid.
+	FVector ModifiedDeltaScale = InDeltaScale;
+
+	// we don't scale components when we only have a very small scale change
+	if (!InDeltaScale.IsNearlyZero())
+	{
+		if (!GEditor->UsePercentageBasedScaling())
+		{
+			ModifyScale(InComponent, ModifiedDeltaScale);
+		}
+	}
+	else
+	{
+		ModifiedDeltaScale = FVector::ZeroVector;
+	}
+
+	GEditor->ApplyDeltaToComponent(
+		InComponent,
+		true,
+		&InDeltaDrag,
+		&InDeltaRot,
+		&ModifiedDeltaScale,
+		GEditor->GetPivotLocation());
+}
 
 /** Helper function for ModifyScale - Convert the active Dragging Axis to per-axis flags */
 static void CheckActiveAxes( EAxisList::Type DraggingAxis, bool bActiveAxes[3] )
@@ -3430,6 +3516,9 @@ void FLevelEditorViewportClient::Draw(const FSceneView* View,FPrimitiveDrawInter
 
 	FEditorViewportClient::Draw(View,PDI);
 
+	DrawBrushDetails(View, PDI);
+	AGroupActor::DrawBracketsForGroups(PDI, Viewport);
+
 	if (EngineShowFlags.StreamingBounds)
 	{
 		DrawTextureStreamingBounds(View, PDI);
@@ -3538,6 +3627,97 @@ void FLevelEditorViewportClient::Draw(const FSceneView* View,FPrimitiveDrawInter
 
 
 	Mark.Pop();
+}
+
+void FLevelEditorViewportClient::DrawBrushDetails(const FSceneView* View, FPrimitiveDrawInterface* PDI)
+{
+	if (GEditor->bShowBrushMarkerPolys)
+	{
+		// Draw translucent polygons on brushes and volumes
+
+		for (TActorIterator<ABrush> It(GetWorld()); It; ++It)
+		{
+			ABrush* Brush = *It;
+
+			// Brush->Brush is checked to safe from brushes that were created without having their brush members attached.
+			if (Brush->Brush && (FActorEditorUtils::IsABuilderBrush(Brush) || Brush->IsVolumeBrush()) && ModeTools->GetSelectedActors()->IsSelected(Brush))
+			{
+				// Build a mesh by basically drawing the triangles of each 
+				FDynamicMeshBuilder MeshBuilder;
+				int32 VertexOffset = 0;
+
+				for (int32 PolyIdx = 0; PolyIdx < Brush->Brush->Polys->Element.Num(); ++PolyIdx)
+				{
+					const FPoly* Poly = &Brush->Brush->Polys->Element[PolyIdx];
+
+					if (Poly->Vertices.Num() > 2)
+					{
+						const FVector Vertex0 = Poly->Vertices[0];
+						FVector Vertex1 = Poly->Vertices[1];
+
+						MeshBuilder.AddVertex(Vertex0, FVector2D::ZeroVector, FVector(1, 0, 0), FVector(0, 1, 0), FVector(0, 0, 1), FColor::White);
+						MeshBuilder.AddVertex(Vertex1, FVector2D::ZeroVector, FVector(1, 0, 0), FVector(0, 1, 0), FVector(0, 0, 1), FColor::White);
+
+						for (int32 VertexIdx = 2; VertexIdx < Poly->Vertices.Num(); ++VertexIdx)
+						{
+							const FVector Vertex2 = Poly->Vertices[VertexIdx];
+							MeshBuilder.AddVertex(Vertex2, FVector2D::ZeroVector, FVector(1, 0, 0), FVector(0, 1, 0), FVector(0, 0, 1), FColor::White);
+							MeshBuilder.AddTriangle(VertexOffset, VertexOffset + VertexIdx, VertexOffset + VertexIdx - 1);
+							Vertex1 = Vertex2;
+						}
+
+						// Increment the vertex offset so the next polygon uses the correct vertex indices.
+						VertexOffset += Poly->Vertices.Num();
+					}
+				}
+
+				// Allocate the material proxy and register it so it can be deleted properly once the rendering is done with it.
+				FDynamicColoredMaterialRenderProxy* MaterialProxy = new FDynamicColoredMaterialRenderProxy(GEngine->EditorBrushMaterial->GetRenderProxy(false), Brush->GetWireColor());
+				PDI->RegisterDynamicResource(MaterialProxy);
+
+				// Flush the mesh triangles.
+				MeshBuilder.Draw(PDI, Brush->ActorToWorld().ToMatrixWithScale(), MaterialProxy, SDPG_World, 0.f);
+			}
+		}
+	}
+	
+	if (ModeTools->ShouldDrawBrushVertices() && !IsInGameView())
+	{
+		UTexture2D* VertexTexture = GEngine->DefaultBSPVertexTexture;
+		const float TextureSizeX = VertexTexture->GetSizeX() * 0.170f;
+		const float TextureSizeY = VertexTexture->GetSizeY() * 0.170f;
+
+		for (FSelectionIterator It(*ModeTools->GetSelectedActors()); It; ++It)
+		{
+			AActor* SelectedActor = static_cast<AActor*>(*It);
+			checkSlow(SelectedActor->IsA(AActor::StaticClass()));
+
+			ABrush* Brush = Cast< ABrush >(SelectedActor);
+			if (Brush && Brush->Brush && !FActorEditorUtils::IsABuilderBrush(Brush))
+			{
+				for (int32 p = 0; p < Brush->Brush->Polys->Element.Num(); ++p)
+				{
+					FTransform BrushTransform = Brush->ActorToWorld();
+
+					FPoly* poly = &Brush->Brush->Polys->Element[p];
+					for (int32 VertexIndex = 0; VertexIndex < poly->Vertices.Num(); ++VertexIndex)
+					{
+						const FVector& PolyVertex = poly->Vertices[VertexIndex];
+						const FVector WorldLocation = BrushTransform.TransformPosition(PolyVertex);
+
+						const float Scale = View->WorldToScreen(WorldLocation).W * (4.0f / View->ViewRect.Width() / View->ViewMatrices.ProjMatrix.M[0][0]);
+
+						const FColor Color(Brush->GetWireColor());
+						PDI->SetHitProxy(new HBSPBrushVert(Brush, &poly->Vertices[VertexIndex]));
+
+						PDI->DrawSprite(WorldLocation, TextureSizeX * Scale, TextureSizeY * Scale, VertexTexture->Resource, Color, SDPG_World, 0.0f, 0.0f, 0.0f, 0.0f, SE_BLEND_Masked);
+
+						PDI->SetHitProxy(NULL);
+					}
+				}
+			}
+		}
+	}
 }
 
 /**

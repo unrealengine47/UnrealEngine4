@@ -15,6 +15,7 @@
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "LandscapeComponent.h"
 #include "LandscapeLayerInfoObject.h"
+#include "Tickable.h"
 
 #include "LandscapeProxy.generated.h"
 
@@ -192,11 +193,30 @@ namespace ELandscapeLODFalloff
 
 struct FCachedLandscapeFoliage
 {
+	struct FPerGrassComp
+	{
+		TWeakObjectPtr<UHierarchicalInstancedStaticMeshComponent> Foliage;
+		uint32 LastUsedFrameNumber;
+		double LastUsedTime;
+		bool Pending;
+
+		FPerGrassComp(UHierarchicalInstancedStaticMeshComponent* InFoliage)
+			: Foliage(InFoliage)
+			, Pending(true)
+		{
+			Touch();
+		}
+		void Touch()
+		{
+			LastUsedFrameNumber = GFrameNumber;
+			LastUsedTime = FPlatformTime::Seconds();
+		}
+	};
 	struct FPerLayer
 	{
 		int32 SqrtSubsections;
 		int32 CachedMaxInstancesPerComponent;
-		TArray<TWeakObjectPtr<UHierarchicalInstancedStaticMeshComponent> > Foliage;
+		TArray<FPerGrassComp> Foliage;
 		TWeakObjectPtr<ULandscapeLayerInfoObject> Layer;
 
 		FPerLayer(int32 InSqrtSubsections, int32 InCachedMaxInstancesPerComponent, ULandscapeLayerInfoObject* InLayer)
@@ -247,7 +267,7 @@ public:
 };
 
 UCLASS(NotPlaceable, hidecategories=(Display, Attachment, Physics, Debug, Lighting, LOD), showcategories=(Rendering, "Utilities|Transformation"), MinimalAPI)
-class ALandscapeProxy : public AActor
+class ALandscapeProxy : public AActor, public FTickableGameObject
 {
 	GENERATED_UCLASS_BODY()
 
@@ -262,9 +282,15 @@ protected:
 	FGuid LandscapeGuid;
 
 public:
-	/** Offset in quads from landscape actor origin **/
+	/** Offset in quads from global components grid origin (in quads) **/
 	UPROPERTY()
 	FIntPoint LandscapeSectionOffset;
+
+#if WITH_EDITORONLY_DATA
+	/** To support legacy landscape section offset modification under world composition mode */
+	UPROPERTY()
+	bool bStaticSectionOffset;
+#endif
 
 	/** Max LOD level to use when rendering */
 	UPROPERTY(EditAnywhere, Category=LOD)
@@ -411,12 +437,6 @@ public:
 	virtual void RegisterAllComponents() override;
 	virtual void RerunConstructionScripts() override {}
 	virtual bool IsLevelBoundsRelevant() const override { return true; }
-	virtual void Tick(float DeltaSeconds) override;
-	virtual bool ShouldTickIfViewportsOnly() const override
-	{
-		return true;
-	}
-
 
 #if WITH_EDITOR
 	virtual void Destroyed() override;
@@ -425,7 +445,6 @@ public:
 	virtual void PostEditMove(bool bFinished) override;
 	virtual bool ShouldImport(FString* ActorPropString, bool IsMovingLevel) override;
 	virtual bool ShouldExport() override;
-	virtual bool GetSelectedComponents(TArray<UObject*>& SelectedObjects) override;
 	// End AActor Interface
 #endif	//WITH_EDITOR
 
@@ -434,7 +453,34 @@ public:
 	virtual ALandscape* GetLandscapeActor();
 
 	/** Flush the foliage cache */
-	LANDSCAPE_API void FlushFoliageComponents();
+	LANDSCAPE_API void FlushFoliageComponents(TSet<ULandscapeComponent*>* OnlyForComponents = nullptr);
+
+	/** 
+		Update Foliage 
+		* @param Cameras to use for culling, if empty, then NO culling
+		* @param OnlyComponent if non-null only do this component
+		* @param bForceSync if true, block and finish all work
+	*/
+	LANDSCAPE_API void UpdateFoliage(const TArray<FVector>& Cameras, ULandscapeComponent* OnlyComponent = nullptr, bool bForceSync = false);
+
+	// Begin FTickableGameObject interface.
+	virtual void Tick(float DeltaTime) override;
+	virtual bool IsTickable() const override 
+	{ 
+		return !HasAnyFlags(RF_ClassDefaultObject); 
+	}
+	virtual bool IsTickableWhenPaused() const override
+	{
+		return !HasAnyFlags(RF_ClassDefaultObject); 
+	}
+	virtual bool IsTickableInEditor() const override
+	{
+		return !HasAnyFlags(RF_ClassDefaultObject); 
+	}
+	virtual TStatId GetStatId() const override
+	{
+		return GetStatID();
+	}
 
 	// Begin UObject interface.
 	virtual void Serialize(FArchive& Ar) override;

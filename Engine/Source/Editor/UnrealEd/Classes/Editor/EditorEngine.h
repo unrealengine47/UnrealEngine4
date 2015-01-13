@@ -524,6 +524,9 @@ class UNREALED_API UEditorEngine : public UEngine
 	/** Cached state of whether or not we have a worldsettings actor in the selection */
 	bool bIsWorldSettingsSelected;
 
+	/** The feature level we should use when loading or creating a new world */
+	ERHIFeatureLevel::Type DefaultWorldFeatureLevel;
+
 public:
 
 	/** The "manager" of all the layers for the UWorld currently being edited */
@@ -934,7 +937,7 @@ public:
 	 */
 	virtual void TakeHighResScreenShots(){}
 
-	virtual void NoteSelectionChange() { check(0); }
+	virtual void NoteSelectionChange(bool bComponentSelectionChanged = false) { check(0); }
 
 	/**
 	 * Adds an actor to the world at the specified location.
@@ -1058,13 +1061,20 @@ public:
 	AActor* UseActorFactory( UActorFactory* Factory, const FAssetData& AssetData, const FTransform* ActorLocation, EObjectFlags ObjectFlags = RF_Transactional );
 
 	/**
-	 * Replaces the selected Actors with the same number of a different kind of Actor
-	 * if a Factory is specified, it is used to spawn the requested Actors, otherwise NewActorClass is used (one or the other must be specified)
+	 * Replaces the selected Actors with the same number of a different kind of Actor using the specified factory to spawn the new Actors
 	 * note that only Location, Rotation, Drawscale, Drawscale3D, Tag, and Group are copied from the old Actors
 	 * 
 	 * @param Factory - the Factory to use to create Actors
 	 */
-	void ReplaceSelectedActors(UActorFactory* Factory, const FAssetData& AssetData, UClass* NewActorClass);
+	void ReplaceSelectedActors(UActorFactory* Factory, const FAssetData& AssetData);
+
+	/**
+	 * Replaces specified Actors with the same number of a different kind of Actor using the specified factory to spawn the new Actors
+	 * note that only Location, Rotation, Drawscale, Drawscale3D, Tag, and Group are copied from the old Actors
+	 * 
+	 * @param Factory - the Factory to use to create Actors
+	 */
+	void ReplaceActors(UActorFactory* Factory, const FAssetData& AssetData, const TArray<AActor*> ActorsToReplace);
 
 	/**
 	 * Converts passed in brushes into a single static mesh actor. 
@@ -1243,6 +1253,7 @@ public:
 	virtual void SelectActor(AActor* Actor, bool bInSelected, bool bNotify, bool bSelectEvenIfHidden=false) {}
 	virtual bool CanSelectActor(AActor* Actor, bool bInSelected, bool bSelectEvenIfHidden=false, bool bWarnIfLevelLocked=false) const { return true; }
 	virtual void SelectGroup(class AGroupActor* InGroupActor, bool bForceSelection=false, bool bInSelected=true, bool bNotify=true) {}
+	virtual void SelectComponent(class UActorComponent* Component, bool bInSelected, bool bNotify, bool bSelectEvenIfHidden = false) {}
 
 	/**
 	 * Replaces the components in ActorsToReplace with an primitive component in Replacement
@@ -1663,6 +1674,20 @@ public:
 	 */
 	class FSelectionIterator GetSelectedActorIterator() const;
 
+	/**
+	* Returns an FSelectionIterator that iterates over the set of selected components.
+	*/
+	class FSelectionIterator GetSelectedComponentIterator() const;
+
+	/**
+	* Returns the number of currently selected components.
+	*/
+	int32 GetSelectedComponentCount() const;
+
+	/**
+	* @return the set of selected components.
+	*/
+	class USelection* GetSelectedComponents() const;
 
 	/**
 	 * @return the set of selected non-actor objects.
@@ -2677,10 +2702,17 @@ private:
 	/** Gets the init values for worlds opened via Map_Load in the editor */
 	UWorld::InitializationValues GetEditorWorldInitializationValues() const;
 
+	FDelegateHandle OnLoginPIECompleteDelegateHandle;
+
+	TMap<FName, FDelegateHandle> OnLoginPIECompleteDelegateHandlesForPIEInstances;
+
 public:
 	// Launcher Worker
 	TSharedPtr<class ILauncherWorker> LauncherWorker;
 	
 	/** Function to run the Play On command for automation testing. */
 	void AutomationPlayUsingLauncher(const FString& InLauncherDeviceId);	
+
+private:
+	FTimerHandle CleanupPIEOnlineSessionsTimerHandle;
 };

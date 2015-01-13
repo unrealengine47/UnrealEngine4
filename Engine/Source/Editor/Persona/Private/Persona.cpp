@@ -187,9 +187,13 @@ FPersona::FPersona()
 {
 	// Register to be notified when properties are edited
 	OnPropertyChangedHandle = FCoreUObjectDelegates::FOnObjectPropertyChanged::FDelegate::CreateRaw(this, &FPersona::OnPropertyChanged);
-	FCoreUObjectDelegates::OnObjectPropertyChanged.Add(OnPropertyChangedHandle);
+	OnPropertyChangedHandleDelegateHandle = FCoreUObjectDelegates::OnObjectPropertyChanged.Add(OnPropertyChangedHandle);
 
 	GEditor->OnBlueprintPreCompile().AddRaw(this, &FPersona::OnBlueprintPreCompile);
+
+	//Temporary fix for missing attached assets - MDW
+	PreviewScene.GetWorld()->GetWorldSettings()->SetIsTemporarilyHiddenInEditor(false);
+
 }
 
 FPersona::~FPersona()
@@ -210,7 +214,7 @@ FPersona::~FPersona()
 		Viewport.Pin()->CleanupPersonaReferences();
 	}
 
-	FCoreUObjectDelegates::OnObjectPropertyChanged.Remove(OnPropertyChangedHandle);
+	FCoreUObjectDelegates::OnObjectPropertyChanged.Remove(OnPropertyChangedHandleDelegateHandle);
 
 	if(PreviewComponent)
 	{
@@ -1027,14 +1031,14 @@ void FPersona::SetPreviewVertexAnim(UVertexAnimation* VertexAnim)
 	}
 }
 
-void FPersona::UpdateSelectionDetails(UObject* Object, const FString& ForcedTitle)
+void FPersona::UpdateSelectionDetails(UObject* Object, const FText& ForcedTitle)
 {
 	Inspector->ShowDetailsForSingleObject(Object, SKismetInspector::FShowDetailsOptions(ForcedTitle));
 }
 
 void FPersona::SetDetailObject(UObject* Obj)
 {
-	FString ForcedTitle = (Obj != NULL) ? *Obj->GetName() : FString();
+	FText ForcedTitle = (Obj != NULL) ? FText::FromString(Obj->GetName()) : FText::GetEmpty();
 	UpdateSelectionDetails(Obj, ForcedTitle);
 }
 
@@ -1249,7 +1253,7 @@ void FPersona::StartEditingDefaults(bool bAutoFocus, bool bForceRefresh)
 	{
 		if (PreviewComponent->AnimScriptInstance != NULL)
 		{
-			PreviewEditor->ShowDetailsForSingleObject(PreviewComponent->AnimScriptInstance, SKismetInspector::FShowDetailsOptions(TEXT("Preview settings")));
+			PreviewEditor->ShowDetailsForSingleObject(PreviewComponent->AnimScriptInstance, SKismetInspector::FShowDetailsOptions(LOCTEXT("PreviewSettingsTitle", "Preview settings")));
 		}
 	}
 	if (bAutoFocus)
@@ -1649,9 +1653,9 @@ void FPersona::Compile()
 	}
 }
 
-FString FPersona::GetDefaultEditorTitle()
+FText FPersona::GetDefaultEditorTitle()
 {
-	return NSLOCTEXT("Kismet", "PreviewParamatersTabTitle", "Preview Parameters").ToString();
+	return NSLOCTEXT("Kismet", "PreviewParamatersTabTitle", "Preview Parameters");
 }
 
 FName FPersona::GetToolkitContextFName() const
@@ -1935,7 +1939,7 @@ FGraphAppearanceInfo FPersona::GetGraphAppearance() const
 
 	if ( GetBlueprintObj()->IsA(UAnimBlueprint::StaticClass()) )
 	{
-		AppearanceInfo.CornerText = LOCTEXT("AppearanceCornerText_Animation", "ANIMATION").ToString();
+		AppearanceInfo.CornerText = LOCTEXT("AppearanceCornerText_Animation", "ANIMATION");
 	}
 
 	return AppearanceInfo;
@@ -1983,30 +1987,30 @@ void FPersona::SetSelectedBone(USkeleton* InTargetSkeleton, const FName& BoneNam
 	{
 		if (UDebugSkelMeshComponent* Preview = GetPreviewMeshComponent())
 		{
-			// need to get mesh bone base since BonesOfInterest is saved in SkeletalMeshComponent
-			// and it is used by renderer. It is not Skeleton base
-			const int32 MeshBoneIndex = Preview->GetBoneIndex(BoneName);
+			Preview->BonesOfInterest.Empty();
+			ClearSelectedSocket();
 
-			if (MeshBoneIndex != INDEX_NONE)
+			// Add in bone of interest only if we have a preview instance set-up
+			if (Preview->PreviewInstance != NULL)
 			{
-				Preview->BonesOfInterest.Empty();
-				ClearSelectedSocket();
+				// need to get mesh bone base since BonesOfInterest is saved in SkeletalMeshComponent
+				// and it is used by renderer. It is not Skeleton base
+				const int32 MeshBoneIndex = Preview->GetBoneIndex(BoneName);
 
-				if (Preview->PreviewInstance != NULL)
+				if (MeshBoneIndex != INDEX_NONE)
 				{
-					// Add in bone of interest only if we have a preview instance set-up
 					Preview->BonesOfInterest.Add(MeshBoneIndex);
+				}
 
-					if ( bRebroadcast )
-					{
-						// Broadcast that a bone has been selected
-						OnBoneSelected.Broadcast( BoneName );
-					}
+				if ( bRebroadcast )
+				{
+					// Broadcast that a bone has been selected
+					OnBoneSelected.Broadcast( BoneName );
+				}
 
-					if( Viewport.IsValid() )
-					{
-						Viewport.Pin()->GetLevelViewportClient().Invalidate();
-					}
+				if( Viewport.IsValid() )
+				{
+					Viewport.Pin()->GetLevelViewportClient().Invalidate();
 				}
 			}
 		}
@@ -2414,7 +2418,7 @@ FReply FPersona::OnClickEditMesh()
 	USkeletalMesh* PreviewMesh = TargetSkeleton->GetPreviewMesh();
 	if(PreviewMesh)
 	{
-		UpdateSelectionDetails(PreviewMesh, *PreviewMesh->GetName());
+		UpdateSelectionDetails(PreviewMesh, FText::FromString(PreviewMesh->GetName()));
 	}
 	return FReply::Handled();
 }
@@ -2958,13 +2962,13 @@ bool FPersona::IsEditable(UEdGraph* InGraph) const
 	return bEditable;
 }
 
-FString FPersona::GetGraphDecorationString(UEdGraph* InGraph) const
+FText FPersona::GetGraphDecorationString(UEdGraph* InGraph) const
 {
 	if (!IsGraphInCurrentBlueprint(InGraph))
 	{
-		return LOCTEXT("PersonaExternalGraphDecoration", " Parent Graph Preview").ToString();
+		return LOCTEXT("PersonaExternalGraphDecoration", " Parent Graph Preview");
 	}
-	return TEXT("");
+	return FText::GetEmpty();
 }
 
 void FPersona::ValidatePreviewAttachedAssets(USkeletalMesh* PreviewSkeletalMesh)

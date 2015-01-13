@@ -44,6 +44,8 @@ public:
 	void GraphFilterCategoryClicked(FName MenuCategory);
 	bool IsGraphFilterCategoryInUse(FName MenuCategory) const;
 	void OnFiltersChanged();
+	void ResetData();
+	void OnItemSelectionChanged(const struct FVisualLogEntry& EntryItem);
 
 	TSharedRef<SWidget> MakeGraphsFilterMenu();
 	void CreateFiltersMenuCategoryForGraph(FMenuBuilder& MenuBuilder, FName MenuCategory) const;

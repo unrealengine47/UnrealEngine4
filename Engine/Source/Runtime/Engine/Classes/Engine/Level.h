@@ -266,6 +266,10 @@ struct ENGINE_API FLevelSimplificationDetails
 	UPROPERTY(Category=Landscape, EditAnywhere)
 	bool bBakeFoliageToLandscape;
 
+	// Whether to bake grass into landscape static mesh texture
+	UPROPERTY(Category=Landscape, EditAnywhere)
+	bool bBakeGrassToLandscape;
+
 	FLevelSimplificationDetails();
 
 	bool operator == (const FLevelSimplificationDetails& Other) const;
@@ -665,6 +669,11 @@ public:
 	 * @param	bDontCreate		If true, if no level scripting blueprint is found, none will be created
 	 */
 	ENGINE_API class ULevelScriptBlueprint* GetLevelScriptBlueprint(bool bDontCreate=false);
+
+	/**
+	 *  Returns a list of all blueprints contained within the level
+	 */
+	ENGINE_API TArray<class UBlueprint*> GetLevelBlueprints() const;
 
 	/**
 	 *  Called when the level script blueprint has been successfully changed and compiled.  Handles creating an instance of the blueprint class in LevelScriptActor

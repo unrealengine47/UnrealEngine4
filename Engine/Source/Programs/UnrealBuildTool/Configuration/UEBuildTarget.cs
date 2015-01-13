@@ -659,6 +659,9 @@ namespace UnrealBuildTool
 		/** The name of the application the target is part of. */
 		public string AppName;
 
+		/** AppName overriden from the commandline */
+		private static string OverridenAppName;
+
 		/** The name of the game the target is part of - can be empty */
 		public string GameName;
 
@@ -766,13 +769,10 @@ namespace UnrealBuildTool
 			const string OverrideTargetAppNameSwitch = "-overridetargetappname=";
 			if ((CmdlineAppName = InAdditionalDefinitions.Find(x => x.StartsWith(OverrideTargetAppNameSwitch))) != null)
 			{
-				AppName = CmdlineAppName.Substring(OverrideTargetAppNameSwitch.Length);
-			}
-			else
-			{
-				AppName = InAppName;
+				OverridenAppName = CmdlineAppName.Substring(OverrideTargetAppNameSwitch.Length);
 			}
 
+				AppName = InAppName;
 			GameName = InGameName;
 			Platform = InPlatform;
 			Configuration = InConfiguration;
@@ -831,7 +831,7 @@ namespace UnrealBuildTool
 			TargetTypeOrNull = (Rules != null) ? Rules.Type : (TargetRules.TargetType?)null;
 
 			// Construct the output path based on configuration, platform, game if not specified.
-            OutputPaths = MakeBinaryPaths("", AppName, UEBuildBinaryType.Executable, TargetType, null, InAppName, Configuration == UnrealTargetConfiguration.Shipping ? Rules.ForceNameAsForDevelopment() : false, Rules.ExeBinariesSubFolder);
+            OutputPaths = MakeBinaryPaths("", AppName, UEBuildBinaryType.Executable, TargetType, null, AppName, Configuration == UnrealTargetConfiguration.Shipping ? Rules.ForceNameAsForDevelopment() : false, Rules.ExeBinariesSubFolder);
 			for (int Index = 0; Index < OutputPaths.Length; Index++)
 			{
 				OutputPaths[Index] = Path.GetFullPath(OutputPaths[Index]);
@@ -1146,13 +1146,13 @@ namespace UnrealBuildTool
 
 					// Normal makefile
 					{					
-						var UBTMakefilePath = UnrealBuildTool.GetUBTMakefilePath( TargetDescs );
-						if (File.Exists(UBTMakefilePath))
-						{
-							Log.TraceVerbose("\tDeleting " + UBTMakefilePath);
-							CleanFile(UBTMakefilePath);
-						}
+					var UBTMakefilePath = UnrealBuildTool.GetUBTMakefilePath( TargetDescs );
+					if (File.Exists(UBTMakefilePath))
+					{
+						Log.TraceVerbose("\tDeleting " + UBTMakefilePath);
+						CleanFile(UBTMakefilePath);
 					}
+				}
 
 					// Hot reload makefile
 					{					
@@ -1862,7 +1862,7 @@ namespace UnrealBuildTool
 					FilteredBinaries.Add(DLLBinary);
 					AnyBinariesAdded = true;
 				}
-			}
+				}
 
 			if (!AnyBinariesAdded)
 			{
@@ -1943,7 +1943,7 @@ namespace UnrealBuildTool
 				NewModule.bSkipDefinitionsForCompileEnvironment = false;
 				GenerateLinkerFixupsContents(ExecutableBinary, LinkerFixupsFileContents, NewModule.CreateModuleCompileEnvironment(GlobalCompileEnvironment), HeaderFilename, LinkerFixupsName, PrivateDependencyModuleNames);
 				NewModule.bSkipDefinitionsForCompileEnvironment = true;
-				
+
 				// Determine if the file changed. Write it if it either doesn't exist or the contents are different.
 				bool bShouldWriteFile = true;
 				if (File.Exists(LinkerFixupCPPFilename))
@@ -2045,6 +2045,7 @@ namespace UnrealBuildTool
 				InIntelliSenseGatherer: null,
 				InSourceFiles: SourceFiles.ToList(),
 				InPublicIncludePaths: new List<string>(),
+                InPublicLibraryPaths: new List<string>(),
 				InPublicSystemIncludePaths: new List<string>(),
 				InDefinitions: new List<string>(),
 				InPublicIncludePathModuleNames: new List<string>(),
@@ -2395,7 +2396,11 @@ namespace UnrealBuildTool
 			{
 				Prefix = "lib";
 			}
-			if (LocalConfig == UnrealTargetConfiguration.Development || bForceNameAsForDevelopment)
+			if (!string.IsNullOrEmpty(OverridenAppName) && BinaryType == UEBuildBinaryType.Executable)
+			{
+				OutBinaryPath = Path.Combine(BaseDirectory, String.Format("{2}{0}{1}", OverridenAppName, BinaryExtension, Prefix));
+			}
+			else if (LocalConfig == UnrealTargetConfiguration.Development || bForceNameAsForDevelopment)
 			{
 				OutBinaryPath = Path.Combine(BaseDirectory, String.Format("{3}{0}{1}{2}", BinaryName, BinarySuffix, BinaryExtension, Prefix));
 			}
@@ -2470,6 +2475,12 @@ namespace UnrealBuildTool
 				{
 					ValidPlugins.Add(Plugin);
 				}
+			}
+
+			// For Rocket builds, remove plugin that's designed for a NDA console
+			if(UnrealBuildTool.BuildingRocket())
+			{
+				ValidPlugins.RemoveAll(x => x.Directory.IndexOf("\\PS4\\", StringComparison.InvariantCultureIgnoreCase) != -1 || x.Directory.IndexOf("\\XboxOne\\", StringComparison.InvariantCultureIgnoreCase) != -1);
 			}
 
 			// Build a list of enabled plugins
@@ -3007,6 +3018,7 @@ namespace UnrealBuildTool
 							InIntelliSenseGatherer: IntelliSenseGatherer,
 							InSourceFiles: ModuleSourceFiles,
 							InPublicSystemIncludePaths: RulesObject.PublicSystemIncludePaths,
+                            InPublicLibraryPaths: RulesObject.PublicLibraryPaths,
 							InPublicIncludePaths: RulesObject.PublicIncludePaths,
 							InDefinitions: RulesObject.Definitions,
 							InPublicIncludePathModuleNames: RulesObject.PublicIncludePathModuleNames,

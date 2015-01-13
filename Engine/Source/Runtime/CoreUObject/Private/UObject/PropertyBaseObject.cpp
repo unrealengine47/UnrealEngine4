@@ -115,30 +115,20 @@ void UObjectPropertyBase::ExportTextItem( FString& ValueStr, const void* Propert
 				{
 					StopOuter = Parent->GetOutermost();
 				}
+			}
+			else if (Parent != NULL && Temp->IsIn(Parent))
+			{
+				StopOuter = Parent;
+			}
 
-				FString TempName = Temp->GetPathName(StopOuter);
-				if ( (PortFlags & PPF_Delimited) && (!Temp->GetFName().IsValidXName(INVALID_OBJECTNAME_CHARACTERS)) )
-				{
-					TempName = FString::Printf(TEXT("\"%s\""), *TempName.ReplaceQuotesWithEscapedQuotes());
-				}
-				ValueStr += FString::Printf( TEXT("%s'%s'"), *Temp->GetClass()->GetName(), *TempName );
-			}
-			else if (Parent != NULL && (Temp->IsIn(Parent) || Temp->IsIn(Parent->GetOuter())) )
+			// Take the path name relative to the stopping point outermost ptr.
+			// This is so that cases like a component referencing a component in another actor work correctly when pasted
+			FString PathName = Temp->GetPathName(StopOuter);
+			if ( (PortFlags & PPF_Delimited) && (!Temp->GetFName().IsValidXName(INVALID_OBJECTNAME_CHARACTERS)) )
 			{
-				FString TempName = Temp->GetName();
-				if ( (PortFlags & PPF_Delimited) && (!Temp->GetFName().IsValidXName(INVALID_OBJECTNAME_CHARACTERS)) )
-				{
-					TempName = FString::Printf(TEXT("\"%s\""), *TempName.ReplaceQuotesWithEscapedQuotes());
-				}
-				ValueStr += FString::Printf( TEXT("%s'%s'"), *Temp->GetClass()->GetName(), *TempName ); 
+				PathName = FString::Printf(TEXT("\"%s\""), *PathName.ReplaceQuotesWithEscapedQuotes());
 			}
-			else
-			{
-				// Take the path name relative to the stopping point outermost ptr.
-				// This is so that cases like a component referencing a component in another actor work correctly when pasted
-				FString PathName = Temp->GetPathName(StopOuter);
-				ValueStr += FString::Printf( TEXT("%s'\"%s\"'"), *Temp->GetClass()->GetName(), *PathName );
-			}
+			ValueStr += FString::Printf( TEXT("%s'%s'"), *Temp->GetClass()->GetName(), *PathName );
 		}
 	}
 	else

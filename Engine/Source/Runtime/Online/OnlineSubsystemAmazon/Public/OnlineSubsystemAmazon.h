@@ -66,10 +66,6 @@ public:
 	{
 		return NULL;
 	}
-	virtual IOnlinePartyPtr GetPartyInterface() const override
-	{
-		return NULL;
-	}
 	virtual IOnlineTitleFilePtr GetTitleFileInterface() const override
 	{
 		return NULL;
@@ -122,6 +118,11 @@ public:
 		return NULL;
 	}
 
+    virtual IOnlineTurnBasedPtr GetTurnBasedInterface() const override
+    {
+        return NULL;
+    }
+	
 	virtual bool Init() override;
 	virtual bool Shutdown() override;
 	virtual FString GetAppId() const override;

@@ -62,12 +62,6 @@ IOnlineIdentityPtr FOnlineSubsystemIOS::GetIdentityInterface() const
 }
 
 
-IOnlinePartyPtr FOnlineSubsystemIOS::GetPartyInterface() const
-{
-	return NULL;
-}
-
-
 IOnlineTitleFilePtr FOnlineSubsystemIOS::GetTitleFileInterface() const
 {
 	return NULL;
@@ -122,6 +116,11 @@ IOnlineChatPtr FOnlineSubsystemIOS::GetChatInterface() const
 	return NULL;
 }
 
+IOnlineTurnBasedPtr FOnlineSubsystemIOS::GetTurnBasedInterface() const
+{
+    return TurnBasedInterface;
+}
+
 bool FOnlineSubsystemIOS::Init() 
 {
 	bool bSuccessfullyStartedUp = true;
@@ -146,6 +145,7 @@ bool FOnlineSubsystemIOS::Init()
 		LeaderboardsInterface = MakeShareable(new FOnlineLeaderboardsIOS(this));
 		AchievementsInterface = MakeShareable(new FOnlineAchievementsIOS(this));
 		ExternalUIInterface = MakeShareable(new FOnlineExternalUIIOS());
+        TurnBasedInterface = MakeShareable(new FOnlineTurnBasedIOS());
 	}
 
 	if( IsInAppPurchasingEnabled() )

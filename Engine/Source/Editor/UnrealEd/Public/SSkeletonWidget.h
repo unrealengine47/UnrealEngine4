@@ -6,6 +6,7 @@
 
 #include "SlateBasics.h"
 #include "PreviewScene.h"
+#include "SEditorViewport.h"
 
 class UAnimSet;
 
@@ -55,7 +56,7 @@ public:
 				.Content()
 				[
 					SNew(STextBlock)
-					.Text(BonePair->Bone1.ToString())
+					.Text(FText::FromName(BonePair->Bone1))
 				];
 		}
 		else 
@@ -76,7 +77,7 @@ public:
 					.Content()
 					[
 						SNew(STextBlock)
-						.Text(BonePair->Bone2.ToString())
+						.Text(FText::FromName(BonePair->Bone2))
 					];
 			}
 		}
@@ -117,7 +118,7 @@ public:
 			. Content()
 			[
 				SNew(STextBlock)
-				.Text(InSkeleton->GetFullName())	
+				.Text(FText::FromString(InSkeleton->GetFullName()))
 			];
 	}
 
@@ -129,7 +130,7 @@ public:
 			. Content()
 			[
 				SNew(STextBlock)
-				.Text(InBoneName->ToString())	
+				.Text(FText::FromName(*InBoneName))
 			];
 	}
 
@@ -251,30 +252,27 @@ private:
 
 
 //////////////////////////
-class SBasePoseViewport: public SCompoundWidget
+class SBasePoseViewport: public /*SCompoundWidget*/SEditorViewport
 {
 public:
 	SLATE_BEGIN_ARGS(SBasePoseViewport)
 	{}
 
-	SLATE_ARGUMENT(FString, Title)
 	SLATE_ARGUMENT(USkeleton*, Skeleton)
 SLATE_END_ARGS()
 
 public:
 	SBasePoseViewport();
-	virtual ~SBasePoseViewport();
 
 	void Construct(const FArguments& InArgs);
 	void SetSkeleton(USkeleton* Skeleton);
+
+protected:
+	/** SEditorViewport interface */
+	virtual TSharedRef<FEditorViewportClient> MakeEditorViewportClient() override;
+	virtual TSharedPtr<SWidget> MakeViewportToolbar() override;
+
 private:
-	TSharedPtr<FEditorViewportClient> LevelViewportClient;
-
-	/** Slate viewport for rendering and I/O */
-	TSharedPtr<SViewport> ViewportWidget;
-
-	TSharedPtr<class FSceneViewport> SceneViewport;
-
 	/** Skeleton */
 	USkeleton* TargetSkeleton;
 
@@ -502,7 +500,7 @@ public:
 		. Content()
 		[
 			SNew(STextBlock)
-			.Text(InBoneName->ToString())	
+			.Text(FText::FromName(*InBoneName))
 		];
 	}
 

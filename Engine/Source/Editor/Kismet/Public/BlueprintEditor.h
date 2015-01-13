@@ -286,7 +286,7 @@ public:
 	EVisibility GetParentClassNameVisibility() const;
 
 	/** Returns our PIE Status - SIMULATING / SERVER / CLIENT */
-	FString GetPIEStatus() const;
+	FText GetPIEStatus() const;
 
 	/**
 	 * Util for finding a glyph for a graph
@@ -357,6 +357,15 @@ public:
 
 	/** Refresh the preview viewport to reflect changes in the SCS */
 	void UpdateSCSPreview(bool bUpdateNow = false);
+
+	/** Delegate invoked when the tree view selection is changed in the SCS editor widget */
+	void OnSCSEditorTreeViewSelectionChanged(const TArray< TSharedPtr<class FSCSEditorTreeNode> >& SelectedNodes);
+
+	/** Delegate to update the Inspector (details) panel from the given set of selected nodes */
+	void OnSCSEditorUpdateSelectionFromNodes(const TArray< TSharedPtr<class FSCSEditorTreeNode> >& SelectedNodes);
+
+	/** Delegate invoked when the given property should be highlighted in the Inspector (details) panel */
+	void OnSCSEditorHighlightPropertyInDetailsView(const class FPropertyPath& InPropertyPath);
 
 	/** Pin visibility accessors */
 	void SetPinVisibility(SGraphEditor::EPinVisibility Visibility);
@@ -435,12 +444,6 @@ public:
 	 */
 	void DoPromoteToVariable( UBlueprint* InBlueprint, UEdGraphPin* InTargetPin );		
 
-	/**
-	 * Checks for events in the argument class
-	 * @param InClass	The class to check for events.
-	 */
-	static bool CanClassGenerateEvents( UClass* InClass );
-
 	/** Called when node is spawned by keymap */
 	void OnNodeSpawnedByKeymap();
 
@@ -492,7 +495,7 @@ public:
 	void OnNodeTitleCommitted(const FText& NewText, ETextCommit::Type CommitInfo, UEdGraphNode* NodeBeingChanged);
 
 	/** Called by a graph title bar to get any extra information the editor would like to display */
-	virtual FString GetGraphDecorationString(UEdGraph* InGraph) const;
+	virtual FText GetGraphDecorationString(UEdGraph* InGraph) const;
 
 	/** Checks to see if the provided graph is contained within the current blueprint */
 	bool IsGraphInCurrentBlueprint(UEdGraph* InGraph) const;
@@ -573,7 +576,7 @@ protected:
 	void OnBlueprintUnloaded(UBlueprint* InBlueprint);
 
 	/** Get title for Inspector 2 tab*/
-	virtual FString GetDefaultEditorTitle();
+	virtual FText GetDefaultEditorTitle();
 
 	//@TODO: Should the breakpoint/watch modification operations be whole-blueprint, or current-graph?
 
@@ -819,7 +822,7 @@ protected:
 	void OnFinishedChangingProperties(const FPropertyChangedEvent& PropertyChangedEvent);
 
 	/** the string to show for edit defaults*/
-	static FString DefaultEditString();
+	static FText DefaultEditString();
 
 	/** On starting to rename node */
 	void OnRenameNode();
@@ -1061,6 +1064,9 @@ private:
 	UEdGraph* HasOpenActionMenu;
 	/** Used to nicely fade instruction text, when the context menu is opened. */
 	float InstructionsFadeCountdown;
+
+	/** Handle to the registered OnActiveTabChanged delegate */
+	FDelegateHandle OnActiveTabChangedDelegateHandle;
 };
 
 #undef LOCTEXT_NAMESPACE

@@ -2435,6 +2435,16 @@ bool FBlueprintEditorUtils::IsLevelScriptBlueprint(const UBlueprint* Blueprint)
 	return (Blueprint->BlueprintType == BPTYPE_LevelScript);
 }
 
+bool FBlueprintEditorUtils::IsAnonymousBlueprintClass(const UClass* Class)
+{
+	return (Class->GetOutermost()->ContainsMap());
+}
+
+ULevel* FBlueprintEditorUtils::GetLevelFromBlueprint(const UBlueprint* Blueprint)
+{
+	return Cast<ULevel>(Blueprint->GetOuter());
+}
+
 bool FBlueprintEditorUtils::SupportsConstructionScript(const UBlueprint* Blueprint)
 {
 	return(	!FBlueprintEditorUtils::IsInterfaceBlueprint(Blueprint) && 
@@ -2443,6 +2453,22 @@ bool FBlueprintEditorUtils::SupportsConstructionScript(const UBlueprint* Bluepri
 			FBlueprintEditorUtils::IsActorBased(Blueprint)) &&
 			!(Blueprint->BlueprintType == BPTYPE_MacroLibrary) &&
 			!(Blueprint->BlueprintType == BPTYPE_FunctionLibrary);
+}
+
+bool FBlueprintEditorUtils::CanClassGenerateEvents(const UClass* InClass)
+{
+	if( InClass )
+	{
+		for( TFieldIterator<UMulticastDelegateProperty> PropertyIt( InClass, EFieldIteratorFlags::IncludeSuper ); PropertyIt; ++PropertyIt )
+		{
+			UProperty* Property = *PropertyIt;
+			if( !Property->HasAnyPropertyFlags( CPF_Parm ) && Property->HasAllPropertyFlags( CPF_BlueprintAssignable ))
+			{
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 UEdGraph* FBlueprintEditorUtils::FindUserConstructionScript(const UBlueprint* Blueprint)
@@ -3711,17 +3737,7 @@ void FBlueprintEditorUtils::ChangeMemberVariableType(UBlueprint* Blueprint, cons
 					Variable.VarType = NewPinType;
 
 					UClass* ParentClass = nullptr;
-					// When compiling so that skeleton classes inherit skeleton classes, marking the Blueprint structurally modified is enough
-					// when the children skeleton classes are rebuilt, they will receive the modified variables.
-					if(UBlueprintGeneratedClass::CompileSkeletonClassesInheritSkeletonClasses())
-					{
-						FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
-					}
-					else
-					{
-						// Compile the Blueprint even if no loaded BPs are using the variable, this ensures that BPs refresh correctly when they are loaded
-						FKismetEditorUtilities::CompileBlueprint(Blueprint, false, true);
-					}
+					FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
 
 					if(bBreakingVariableConnections)
 					{
@@ -5653,9 +5669,8 @@ bool FBlueprintEditorUtils::FixLevelScriptActorBindings(ALevelScriptActor* Level
 				{
 					// Grab the MC delegate we need to add to
 					FMulticastScriptDelegate* TargetDelegate = EventNode->GetTargetDelegate();
-					if( TargetDelegate == nullptr )
+					if( TargetDelegate != nullptr )
 					{
-
 						// Create the delegate, and add it if it doesn't already exist
 						FScriptDelegate Delegate;
 						Delegate.BindUFunction(LevelScriptActor, TargetFunction);
@@ -5972,7 +5987,7 @@ TSharedRef<SWidget> FBlueprintEditorUtils::ConstructBlueprintParentClassPicker( 
 
 	TSharedPtr<FBlueprintReparentFilter> Filter = MakeShareable(new FBlueprintReparentFilter);
 	Options.ClassFilter = Filter;
-	Options.ViewerTitleString = LOCTEXT("ReparentBblueprint", "Reparent blueprint").ToString();
+	Options.ViewerTitleString = LOCTEXT("ReparentBblueprint", "Reparent blueprint");
 
 	// Only allow parenting to base blueprints.
 	Options.bIsBlueprintBaseOnly = true;
@@ -6115,7 +6130,7 @@ TSharedRef<SWidget> FBlueprintEditorUtils::ConstructBlueprintInterfaceClassPicke
 
 	TSharedPtr<FBlueprintInterfaceFilter> Filter = MakeShareable(new FBlueprintInterfaceFilter);
 	Options.ClassFilter = Filter;
-	Options.ViewerTitleString = LOCTEXT("ImplementInterfaceBlueprint", "Implement Interface").ToString();
+	Options.ViewerTitleString = LOCTEXT("ImplementInterfaceBlueprint", "Implement Interface");
 
 	for( auto BlueprintIter = Blueprints.CreateConstIterator(); BlueprintIter; ++BlueprintIter )
 	{

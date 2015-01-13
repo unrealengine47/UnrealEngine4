@@ -1017,8 +1017,8 @@ public class GUBP : BuildCommand
             {
                 bool bInternalOnly;
                 bool SeparateNode;
-
-                if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalOnly, out SeparateNode) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && !bInternalOnly && !SeparateNode)
+				bool CrossCompile;
+                if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && !bInternalOnly && !SeparateNode)
                 {
                     foreach (var Plat in ProgramTarget.Rules.GUBP_ToolPlatforms(HostPlatform))
                     {
@@ -1033,6 +1033,56 @@ public class GUBP : BuildCommand
             return Agenda;
         }
     }
+	public class ToolsCrossCompileNode : CompileNode
+	{
+		public ToolsCrossCompileNode(UnrealTargetPlatform InHostPlatform)
+			: base(InHostPlatform)
+		{
+			if (!GUBP.bBuildRocket) // more errors and more performance by just starting before the root editor is done
+			{
+				AddPseudodependency(RootEditorCrossCompileLinuxNode.StaticGetFullName(HostPlatform));
+			}
+			AgentSharingGroup = "ToolsCrossCompileGroup" + StaticGetHostPlatformSuffix(HostPlatform);
+		}
+		public static string StaticGetFullName(UnrealTargetPlatform InHostPlatform)
+		{
+			return "LinuxTools" + StaticGetHostPlatformSuffix(InHostPlatform);
+		}
+		public override string GetFullName()
+		{
+			return StaticGetFullName(HostPlatform);
+		}
+		public override float Priority()
+		{
+			return base.Priority() - 1;
+		}
+		public override bool DeleteBuildProducts()
+		{
+			return true;
+		}
+		public override UE4Build.BuildAgenda GetAgenda(GUBP bp)
+		{
+			var Agenda = new UE4Build.BuildAgenda();
+
+			string AddArgs = "-nobuilduht -skipactionhistory -CopyAppBundleBackToDevice" + bp.RocketUBTArgs(); ;
+
+			foreach (var ProgramTarget in bp.Branch.BaseEngineProject.Properties.Programs)
+			{
+				bool bInternalOnly;
+				bool SeparateNode;
+				bool CrossCompile;
+				if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && !bInternalOnly && !SeparateNode && CrossCompile)
+				{
+					foreach (var Config in ProgramTarget.Rules.GUBP_ToolConfigs(HostPlatform))
+					{
+						Agenda.AddTargets(new string[] { ProgramTarget.TargetName }, UnrealTargetPlatform.Linux, Config, InAddArgs: AddArgs);
+					}					
+				}
+			}
+
+			return Agenda;
+		}
+	}
     public class SingleToolsNode : CompileNode
     {
         SingleTargetProperties ProgramTarget;
@@ -1149,8 +1199,8 @@ public class GUBP : BuildCommand
             {
                 bool bInternalOnly;
                 bool SeparateNode;
-
-                if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalOnly, out SeparateNode) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && bInternalOnly && !SeparateNode)
+				bool CrossCompile;
+                if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && bInternalOnly && !SeparateNode)
                 {
                     foreach (var Plat in ProgramTarget.Rules.GUBP_ToolPlatforms(HostPlatform))
                     {
@@ -5111,21 +5161,26 @@ public class GUBP : BuildCommand
             }
             AddNode(new ToolsNode(HostPlatform));            
 			AddNode(new InternalToolsNode(HostPlatform));
+			if (HostPlatform == UnrealTargetPlatform.Win64)
+			{
+				AddNode(new ToolsCrossCompileNode(HostPlatform));
+			}
             foreach (var ProgramTarget in Branch.BaseEngineProject.Properties.Programs)
             {
                 bool bInternalOnly;
                 bool SeparateNode;
+				bool CrossCompile;
 
-                if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalOnly, out SeparateNode) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && SeparateNode)
+                if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && SeparateNode)
                 {
                     if (bInternalOnly)
                     {
-                        AddNode(new SingleInternalToolsNode(HostPlatform, ProgramTarget));
+                        AddNode(new SingleInternalToolsNode(HostPlatform, ProgramTarget));						
                     }
                     else
                     {
                         AddNode(new SingleToolsNode(HostPlatform, ProgramTarget));
-                    }
+                    }				
                 }
 				if (ProgramTarget.Rules.GUBP_IncludeNonUnityToolTest())
 				{
@@ -5138,8 +5193,9 @@ public class GUBP : BuildCommand
 				{
 					bool bInternalNodeOnly;
 					bool SeparateNode;
+					bool CrossCompile;
 
-					if(ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalNodeOnly, out SeparateNode) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && SeparateNode)
+					if(ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalNodeOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && SeparateNode)
 					{
 						if(bInternalNodeOnly)
 						{
@@ -5820,8 +5876,7 @@ public class GUBP : BuildCommand
         var FullNodeListSortKey = new Dictionary<string, int>();
         var FullNodeDirectDependencies = new Dictionary<string, string>();
 		var FullNodeDependedOnBy = new Dictionary<string, string>();
-		var FullNodeDependentPromotions = new Dictionary<string, string>();
-		var CurrentlyFailing = new Dictionary<string, string>();
+		var FullNodeDependentPromotions = new Dictionary<string, string>();		
 		var SeparatePromotables = new List<string>();
         {
             Log("******* {0} GUBP Nodes", GUBPNodes.Count);
@@ -6144,21 +6199,7 @@ public class GUBP : BuildCommand
 				}
 				FullNodeDependentPromotions.Add(NodeToDo, All);				
 			}
-		}
-		if(bBuildRocket)
-		{
-			foreach(var NodeToDo in NodesToDo)
-			{
-				if(GUBPNodes[NodeToDo].GetFullName().Contains("EditorGame"))
-				{
-					GUBPNodes[NodeToDo].AgentSharingGroup = "SampleEditors";
-					if(GUBPNodes[NodeToDo].GetFullName().Contains("OnMac"))
-					{
-						GUBPNodes[NodeToDo].AgentSharingGroup = "SampleEditors_OnMac";
-					}					
-				}
-			}
-		}
+		}		
 		if (TimeIndex != 0)
 		{
 			Log("Culling based on time index");
@@ -6295,23 +6336,7 @@ public class GUBP : BuildCommand
                 if (!NodeIsAlreadyComplete(Node, LocalOnly))
                 {
                     UpdateNodeHistory(Node, CLString);
-                }
-				if (GUBPNodes[Node].RunInEC() && !GUBPNodes[Node].TriggerNode() && CLString != "")
-				{
-					try
-					{
-						var History = GUBPNodesHistory[Node];
-						if (History.LastFailed > History.LastSucceeded)
-						{
-							Log("Currently Failing Node {0} at CL {1}", Node, History.LastFailed.ToString());
-							CurrentlyFailing.Add(Node, History.LastFailed.ToString());
-						}
-					}
-					catch
-					{
-
-					}
-				}
+                }				
             }
             var BuildDuration = (DateTime.UtcNow - StartTime).TotalMilliseconds;
             Log("Took {0}s to get history for {1} nodes", BuildDuration / 1000, NodesToDo.Count);
@@ -6402,11 +6427,7 @@ public class GUBP : BuildCommand
 			foreach (var Node in SeparatePromotables)
 			{
 				ECProps.Add(string.Format("PossiblePromotables/{0}={1}", Node, ""));
-			}
-			foreach (var NodePair in CurrentlyFailing)
-			{
-				ECProps.Add(string.Format("CurrentlyFailing/{0}={1}", NodePair.Key, NodePair.Value));
-			}
+			}			
             var ECJobProps = new List<string>();
             if (ExplicitTrigger != "")
             {

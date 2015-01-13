@@ -216,7 +216,7 @@ namespace SceneOutliner
 			SAssignNew( FilterTextBoxWidget, SSearchBox )
 			.Visibility( InInitOptions.bShowSearchBox ? EVisibility::Visible : EVisibility::Collapsed )
 			.HintText( LOCTEXT( "FilterSearch", "Search..." ) )
-			.ToolTipText( LOCTEXT("FilterSearchHint", "Type here to search (pressing enter selects the results)").ToString() )
+			.ToolTipText( LOCTEXT("FilterSearchHint", "Type here to search (pressing enter selects the results)") )
 			.OnTextChanged( this, &SSceneOutliner::OnFilterTextChanged )
 			.OnTextCommitted( this, &SSceneOutliner::OnFilterTextCommitted )
 		];
@@ -2012,7 +2012,7 @@ namespace SceneOutliner
 		return ( IsFilterActive() || RootTreeItems.Num() > 0 ) ? EVisibility::Collapsed : EVisibility::Visible;
 	}
 
-	FString SSceneOutliner::GetFilterStatusText() const
+	FText SSceneOutliner::GetFilterStatusText() const
 	{
 		const int32 TotalActorCount = ApplicableActors.Num();
 
@@ -2027,24 +2027,24 @@ namespace SceneOutliner
 		{
 			if (SelectedActorCount == 0)
 			{
-				return FString::Printf( *LOCTEXT("ShowingAllActors", "%d actors").ToString(), TotalActorCount );
+				return FText::Format( LOCTEXT("ShowingAllActorsFmt", "{0} actors"), FText::AsNumber( TotalActorCount ) );
 			}
 			else
 			{
-				return FString::Printf( *LOCTEXT("ShowingAllActorsSelected", "%d actors (%d selected)").ToString(), TotalActorCount, SelectedActorCount );
+				return FText::Format( LOCTEXT("ShowingAllActorsSelectedFmt", "{0} actors ({1} selected)"), FText::AsNumber( TotalActorCount ), FText::AsNumber( SelectedActorCount ) );
 			}
 		}
 		else if( IsFilterActive() && FilteredActorCount == 0 )
 		{
-			return FString::Printf( *LOCTEXT("ShowingNoActors", "No matching actors (%d total)").ToString(), TotalActorCount );
+			return FText::Format( LOCTEXT("ShowingNoActorsFmt", "No matching actors ({0} total)"), FText::AsNumber( TotalActorCount ) );
 		}
 		else if (SelectedActorCount != 0)
 		{
-			return FString::Printf( *LOCTEXT("ShowingOnlySomeActorsSelected", "Showing %d of %d actors (%d selected)").ToString(), FilteredActorCount, TotalActorCount, SelectedActorCount );
+			return FText::Format( LOCTEXT("ShowingOnlySomeActorsSelectedFmt", "Showing {0} of {1} actors ({2} selected)"), FText::AsNumber( FilteredActorCount ), FText::AsNumber( TotalActorCount ), FText::AsNumber( SelectedActorCount ) );
 		}
 		else
 		{
-			return FString::Printf( *LOCTEXT("ShowingOnlySomeActors", "Showing %d of %d actors").ToString(), FilteredActorCount, TotalActorCount );
+			return FText::Format( LOCTEXT("ShowingOnlySomeActorsFmt", "Showing {0} of {1} actors"), FText::AsNumber( FilteredActorCount ), FText::AsNumber( TotalActorCount ) );
 		}
 	}
 

@@ -171,6 +171,11 @@ public:
 	bool JoinGameAllowed();
 
 	/**
+	 * @return true if in the launcher
+	 */
+	const bool IsInLauncher() const;
+
+	/**
 	 * Set the chat friend.
 	 *
 	 * @param FriendItem The friend to start a chat with.
@@ -411,6 +416,9 @@ private:
 
 	/** Send a friend invite accepted notification. */
 	void SendInviteAcceptedNotification(TSharedPtr< IFriendItem > Friend);
+
+	/** Get Invite Notification Text */
+	const FText GetInviteNotificationText(TSharedPtr< IFriendItem > Friend) const;
 
 	/** Called when singleton is released. */
 	void ShutdownManager();
@@ -780,4 +788,20 @@ private:
 
 	FFriendsAndChatAnalytics Analytics;
 	static TSharedPtr< FFriendsAndChatManager > SingletonInstance;
+
+	/** Handle to various registered delegates */
+	FDelegateHandle OnQueryRecentPlayersCompleteDelegateHandle;
+	FDelegateHandle OnFriendsListChangedDelegateHandle;
+	FDelegateHandle OnFriendInviteReceivedDelegateHandle;
+	FDelegateHandle OnFriendRemovedDelegateHandle;
+	FDelegateHandle OnFriendInviteRejectedHandle;
+	FDelegateHandle OnFriendInviteAcceptedHandle;
+	FDelegateHandle OnReadFriendsCompleteDelegateHandle;
+	FDelegateHandle OnDeleteFriendCompleteDelegateHandle;
+	FDelegateHandle OnQueryUserInfoCompleteDelegateHandle;
+	FDelegateHandle OnPresenceReceivedCompleteDelegateHandle;
+	FDelegateHandle OnGameInviteReceivedDelegateHandle;
+	FDelegateHandle OnDestroySessionCompleteDelegateHandle;
+	FDelegateHandle OnQueryUserIdMappingCompleteDelegateHandle;
+	FDelegateHandle UpdateFriendsTickerDelegateHandle;
 };

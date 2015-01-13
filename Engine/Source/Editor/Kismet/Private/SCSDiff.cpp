@@ -4,12 +4,20 @@
 #include "SCSDiff.h"
 #include "SKismetInspector.h"
 #include "SSCSEditor.h"
+#include "IDetailsView.h"
+#include "BlueprintEditorUtils.h"
 
 #include <vector>
 
 FSCSDiff::FSCSDiff(const UBlueprint* InBlueprint)
 {
-	TSharedRef<SKismetInspector> Inspector = SNew(SKismetInspector)
+	if (!FBlueprintEditorUtils::SupportsConstructionScript(InBlueprint) || InBlueprint->SimpleConstructionScript == NULL)
+	{
+		ContainerWidget = SNew(SBox);
+		return;
+	}
+
+	Inspector = SNew(SKismetInspector)
 		.HideNameArea(true)
 		.ViewIdentifier(FName("BlueprintInspector"))
 		.IsPropertyEditingEnabledDelegate(FIsPropertyEditingEnabled::CreateStatic([] { return false; }));
@@ -18,18 +26,25 @@ FSCSDiff::FSCSDiff(const UBlueprint* InBlueprint)
 		.Orientation(Orient_Vertical)
 		+ SSplitter::Slot()
 		[
-			SAssignNew(SCSEditor, SSCSEditor, TSharedPtr<FBlueprintEditor>(), InBlueprint->SimpleConstructionScript, const_cast<UBlueprint*>(InBlueprint), Inspector)
+			SAssignNew(SCSEditor, SSCSEditor, InBlueprint->SimpleConstructionScript)
+				.InEditingMode(false)
+				.HideComponentClassCombo(true)
+				.OnUpdateSelectionFromNodes(SSCSEditor::FOnUpdateSelectionFromNodes::CreateRaw(this, &FSCSDiff::OnSCSEditorUpdateSelectionFromNodes))
+				.OnHighlightPropertyInDetailsView(SSCSEditor::FOnHighlightPropertyInDetailsView::CreateRaw(this, &FSCSDiff::OnSCSEditorHighlightPropertyInDetailsView))
 		]
 		+ SSplitter::Slot()
 		[
-			Inspector
+			Inspector.ToSharedRef()
 		];
 }
 
 void FSCSDiff::HighlightProperty(FName VarName, FPropertySoftPath Property)
 {
-	check( VarName != FName() );
-	SCSEditor->HighlightTreeNode( VarName, FPropertyPath() );
+	if (SCSEditor.IsValid())
+	{
+		check(VarName != FName());
+		SCSEditor->HighlightTreeNode(VarName, FPropertyPath());
+	}
 }
 
 TSharedRef< SWidget > FSCSDiff::TreeWidget()
@@ -55,13 +70,45 @@ TArray< FSCSResolvedIdentifier > FSCSDiff::GetDisplayedHierarchy() const
 {
 	TArray< FSCSResolvedIdentifier > Ret;
 
-	for (int32 Iter = 0; Iter != SCSEditor->RootNodes.Num(); ++Iter)
+	if( SCSEditor.IsValid() )
 	{
-		TArray< int32 > TreeAddress;
-		TreeAddress.Push(Iter);
-		GetDisplayedHierarchyRecursive(TreeAddress, *SCSEditor->RootNodes[Iter], Ret);
+		for (int32 Iter = 0; Iter != SCSEditor->RootNodes.Num(); ++Iter)
+		{
+			TArray< int32 > TreeAddress;
+			TreeAddress.Push(Iter);
+			GetDisplayedHierarchyRecursive(TreeAddress, *SCSEditor->RootNodes[Iter], Ret);
+		}
 	}
 
 	return Ret;
 }
 
+void FSCSDiff::OnSCSEditorUpdateSelectionFromNodes(const TArray<FSCSEditorTreeNodePtrType>& SelectedNodes)
+{
+	FText InspectorTitle = FText::GetEmpty();
+	TArray<UObject*> InspectorObjects;
+	InspectorObjects.Empty(SelectedNodes.Num());
+	for (auto NodeIt = SelectedNodes.CreateConstIterator(); NodeIt; ++NodeIt)
+	{
+		auto NodePtr = *NodeIt;
+		if(NodePtr.IsValid() && NodePtr->CanEditDefaults())
+		{
+			InspectorTitle = FText::FromString(NodePtr->GetDisplayString());
+			InspectorObjects.Add(NodePtr->GetComponentTemplate());
+		}
+	}
+
+	if( Inspector.IsValid() )
+	{
+		SKismetInspector::FShowDetailsOptions Options(InspectorTitle, true);
+		Inspector->ShowDetailsForObjects(InspectorObjects, Options);
+	}
+}
+
+void FSCSDiff::OnSCSEditorHighlightPropertyInDetailsView(const FPropertyPath& InPropertyPath)
+{
+	if( Inspector.IsValid() )
+	{
+		Inspector->GetPropertyView()->HighlightProperty(InPropertyPath);
+	}
+}

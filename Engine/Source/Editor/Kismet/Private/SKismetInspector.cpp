@@ -73,40 +73,40 @@ TSharedRef<SWidget> SKismetInspector::MakeContextualEditingWidget(struct FKismet
 	if (SelectionInfo.ObjectsForPropertyEditing.Num())
 	{
 		ContextualEditingWidget->AddSlot()
-			.FillHeight( 0.9f )
-			.VAlign( VAlign_Top )
+		.FillHeight( 0.9f )
+		.VAlign( VAlign_Top )
+		[
+			SNew( SBox )
+			.Visibility(this, &SKismetInspector::GetPropertyViewVisibility)
 			[
-				SNew( SBorder )
-				.Visibility(this, &SKismetInspector::GetPropertyViewVisibility)
-				.BorderImage( FEditorStyle::GetBrush("NoBorder") )
-				[
-					PropertyView.ToSharedRef()
-				]
-			];
+				PropertyView.ToSharedRef()
+			]
+		];
 
 		if (bShowPublicView)
 		{
 			ContextualEditingWidget->AddSlot()
-				.AutoHeight()
-				.VAlign( VAlign_Top )
+			.AutoHeight()
+			.VAlign( VAlign_Top )
+			[
+				SNew(SCheckBox)
+				.ToolTipText(LOCTEXT("TogglePublicView", "Toggle Public View"))
+				.IsChecked(this, &SKismetInspector::GetPublicViewCheckboxState)
+				.OnCheckStateChanged( this, &SKismetInspector::SetPublicViewCheckboxState)
 				[
-					SNew(SCheckBox)
-					.ToolTipText(LOCTEXT("TogglePublicView", "Toggle Public View"))
-					.IsChecked(this, &SKismetInspector::GetPublicViewCheckboxState)
-					.OnCheckStateChanged( this, &SKismetInspector::SetPublicViewCheckboxState)
-					[
-						SNew(STextBlock) .Text(LOCTEXT("PublicViewCheckboxLabel", "Public View"))
-					]
-				];
+					SNew(STextBlock)
+					.Text(LOCTEXT("PublicViewCheckboxLabel", "Public View"))
+				]
+			];
 		}
 	}
 
 	return ContextualEditingWidget;
 }
 
-FString SKismetInspector::GetContextualEditingWidgetTitle() const
+FText SKismetInspector::GetContextualEditingWidgetTitle() const
 {
-	FString Title = PropertyViewTitle;
+	FText Title = PropertyViewTitle;
 	if (Title.IsEmpty())
 	{
 		if (SelectedObjects.Num() == 1 && SelectedObjects[0].IsValid())
@@ -115,7 +115,7 @@ FString SKismetInspector::GetContextualEditingWidgetTitle() const
 
 			if (UEdGraphNode* Node = Cast<UEdGraphNode>(Object))
 			{
-				Title = Node->GetNodeTitle(ENodeTitleType::ListView).ToString();
+				Title = Node->GetNodeTitle(ENodeTitleType::ListView);
 			}
 			else if (USCS_Node* SCSNode = Cast<USCS_Node>(Object))
 			{
@@ -123,11 +123,11 @@ FString SKismetInspector::GetContextualEditingWidgetTitle() const
 				{
 					if (SCSNode->VariableName != NAME_None)
 					{
-						Title = FString::Printf(*LOCTEXT("TemplateFor", "Template for %s").ToString(), *(SCSNode->VariableName.ToString()));
+						Title = FText::Format(LOCTEXT("TemplateForFmt", "Template for {0}"), FText::FromName(SCSNode->VariableName));
 					}
 					else 
 					{
-						Title = FString::Printf(*LOCTEXT("Name_Template", "%s Template").ToString(), *(SCSNode->ComponentTemplate->GetClass()->GetName()));
+						Title = FText::Format(LOCTEXT("Name_TemplateFmt", "{0} Template"), FText::FromString(SCSNode->ComponentTemplate->GetClass()->GetName()));
 					}
 				}
 			}
@@ -136,13 +136,13 @@ FString SKismetInspector::GetContextualEditingWidgetTitle() const
 				// Edit the component template
 				if (UActorComponent* Template = K2Node->GetTemplateFromNode())
 				{
-					Title = FString::Printf(*LOCTEXT("Name_Template", "%s Template").ToString(), *(Template->GetClass()->GetName()));
+					Title = FText::Format(LOCTEXT("Name_TemplateFmt", "{0} Template"), FText::FromString(Template->GetClass()->GetName()));
 				}
 			}
 
 			if (Title.IsEmpty())
 			{
-				Title = UKismetSystemLibrary::GetDisplayName(Object);
+				Title = FText::FromString(UKismetSystemLibrary::GetDisplayName(Object));
 			}
 		}
 		else if (SelectedObjects.Num() > 1)
@@ -177,7 +177,7 @@ FString SKismetInspector::GetContextualEditingWidgetTitle() const
 
 			if (BaseClass)
 			{
-				Title = FString::Printf( *LOCTEXT("MultipleObjectsSelected", "%d %ss selected").ToString(), SelectedObjects.Num(), *BaseClass->GetName() );
+				Title = FText::Format(LOCTEXT("MultipleObjectsSelectedFmt", "{0} {1} selected"), FText::AsNumber(SelectedObjects.Num()), FText::FromString(BaseClass->GetName() + TEXT("s")));
 			}
 		}
 	}
@@ -266,7 +266,7 @@ void SKismetInspector::Construct(const FArguments& InArgs)
 	// Update based on the current (empty) selection set
 	TArray<UObject*> InitialSelectedObjects;
 	FKismetSelectionInfo SelectionInfo;
-	UpdateFromObjects(InitialSelectedObjects, SelectionInfo, SKismetInspector::FShowDetailsOptions(FString(), true));
+	UpdateFromObjects(InitialSelectedObjects, SelectionInfo, SKismetInspector::FShowDetailsOptions(FText::GetEmpty(), true));
 }
 
 void SKismetInspector::EnableComponentDetailsCustomization(bool bEnable)

@@ -109,14 +109,14 @@ IOnlinePresencePtr FOnlineSubsystemFacebook::GetPresenceInterface() const
 	return NULL;
 }
 
-IOnlinePartyPtr FOnlineSubsystemFacebook::GetPartyInterface() const
+IOnlineChatPtr FOnlineSubsystemFacebook::GetChatInterface() const
 {
 	return NULL;
 }
 
-IOnlineChatPtr FOnlineSubsystemFacebook::GetChatInterface() const
+IOnlineTurnBasedPtr FOnlineSubsystemFacebook::GetTurnBasedInterface() const
 {
-	return NULL;
+    return NULL;
 }
 
 bool FOnlineSubsystemFacebook::Tick(float DeltaTime)

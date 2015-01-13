@@ -1343,6 +1343,15 @@ void UHierarchicalInstancedStaticMeshComponent::Serialize(FArchive& Ar)
 	ClusterTree.BulkSerialize(Ar);
 }
 
+SIZE_T UHierarchicalInstancedStaticMeshComponent::GetResourceSize( EResourceSizeMode::Type Mode )
+{
+	SIZE_T ResSize = Super::GetResourceSize(Mode);
+
+	ResSize += SortedInstances.GetAllocatedSize();
+
+	return ResSize;
+}
+
 bool UHierarchicalInstancedStaticMeshComponent::RemoveInstance(int32 InstanceIndex)
 {
 	if (!PerInstanceSMData.IsValidIndex(InstanceIndex))
@@ -1462,6 +1471,7 @@ void UHierarchicalInstancedStaticMeshComponent::ClearInstances()
 
 	ClusterTreePtr = MakeShareable(new TArray<FClusterNode>);
 	NumBuiltInstances = 0;
+	SortedInstances.Empty();
 	UnbuiltInstanceBounds.Init();
 
 	Super::ClearInstances();
@@ -1799,7 +1809,6 @@ FPrimitiveSceneProxy* UHierarchicalInstancedStaticMeshComponent::CreateSceneProx
 	const bool bMeshIsValid = 
 		// make sure we have instances
 		PerInstanceSMData.Num() > 0 &&
-		ClusterTreePtr->Num() &&
 		// make sure we have an actual staticmesh
 		StaticMesh &&
 		StaticMesh->HasValidRenderData() &&

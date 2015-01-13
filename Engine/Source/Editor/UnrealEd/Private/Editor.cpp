@@ -117,7 +117,6 @@ FSimpleMulticastDelegate								FEditorDelegates::LoadSelectedAssetsIfNeeded;
 FSimpleMulticastDelegate								FEditorDelegates::DisplayLoadErrors;
 FEditorDelegates::FOnEditorModeTransitioned				FEditorDelegates::EditorModeEnter;
 FEditorDelegates::FOnEditorModeTransitioned				FEditorDelegates::EditorModeExit;
-FSimpleMulticastDelegate								FEditorDelegates::Undo;
 FEditorDelegates::FOnPIEEvent							FEditorDelegates::BeginPIE;
 FEditorDelegates::FOnPIEEvent							FEditorDelegates::EndPIE;
 FEditorDelegates::FOnPIEEvent							FEditorDelegates::PausePIE;
@@ -162,18 +161,56 @@ static inline USelection*& PrivateGetSelectedActors()
 	return SSelectedActors;
 };
 
+static inline USelection*& PrivateGetSelectedComponents()
+{
+	static USelection* SSelectedComponents = NULL;
+	return SSelectedComponents;
+}
+
 static inline USelection*& PrivateGetSelectedObjects()
 {
 	static USelection* SSelectedObjects = NULL;
 	return SSelectedObjects;
 };
 
+static void OnObjectSelected(UObject* Object)
+{
+	// Whenever an actor is unselected we must remove its components from the components selection
+	if (!Object->IsSelected())
+	{
+		TArray<UActorComponent*> ComponentsToDeselect;
+		for (FSelectionIterator It(*PrivateGetSelectedComponents()); It; ++It)
+		{
+			UActorComponent* Component = CastChecked<UActorComponent>(*It);
+			if (Component->GetOwner() == Object)
+			{
+				ComponentsToDeselect.Add(Component);
+			}
+		}
+		if (ComponentsToDeselect.Num() > 0)
+		{
+			PrivateGetSelectedComponents()->Modify();
+			PrivateGetSelectedComponents()->BeginBatchSelectOperation();
+			for (UActorComponent* Component : ComponentsToDeselect)
+			{
+				PrivateGetSelectedComponents()->Deselect(Component);
+			}
+			PrivateGetSelectedComponents()->EndBatchSelectOperation();
+		}
+	}
+}
+
 static void PrivateInitSelectedSets()
 {
 	PrivateGetSelectedActors() = new( GetTransientPackage(), TEXT("SelectedActors"), RF_Transactional ) USelection(FObjectInitializer());
 	PrivateGetSelectedActors()->AddToRoot();
 
-	PrivateGetSelectedObjects() = new( GetTransientPackage(), TEXT("SelectedObjects"), RF_Transactional ) USelection(FObjectInitializer());
+	PrivateGetSelectedActors()->SelectObjectEvent.AddStatic(&OnObjectSelected);
+
+	PrivateGetSelectedComponents() = new(GetTransientPackage(), TEXT("SelectedComponents"), RF_Transactional) USelection(FObjectInitializer());
+	PrivateGetSelectedComponents()->AddToRoot();
+
+	PrivateGetSelectedObjects() = new(GetTransientPackage(), TEXT("SelectedObjects"), RF_Transactional) USelection(FObjectInitializer());
 	PrivateGetSelectedObjects()->AddToRoot();
 }
 
@@ -182,6 +219,8 @@ static void PrivateDestroySelectedSets()
 #if 0
 	PrivateGetSelectedActors()->RemoveFromRoot();
 	PrivateGetSelectedActors() = NULL;
+	PrivateGetSelectedComponents()->RemoveFromRoot();
+	PrivateGetSelectedComponents() = NULL;
 	PrivateGetSelectedObjects()->RemoveFromRoot();
 	PrivateGetSelectedObjects() = NULL;
 #endif
@@ -234,6 +273,7 @@ UEditorEngine::UEditorEngine(const FObjectInitializer& ObjectInitializer)
 	bPlayOnLocalPcSession = false;
 	bAllowMultiplePIEWorlds = true;
 	NumOnlinePIEInstances = 0;
+	DefaultWorldFeatureLevel = GMaxRHIFeatureLevel;
 }
 
 
@@ -277,6 +317,27 @@ FSelectionIterator UEditorEngine::GetSelectedActorIterator() const
 {
 	return FSelectionIterator( *GetSelectedActors() );
 };
+
+int32 UEditorEngine::GetSelectedComponentCount() const
+{
+	int32 NumSelectedComponents = 0;
+	for (FSelectionIterator It(GetSelectedComponentIterator()); It; ++It)
+	{
+		++NumSelectedComponents;
+	}
+
+	return NumSelectedComponents;
+}
+
+FSelectionIterator UEditorEngine::GetSelectedComponentIterator() const
+{
+	return FSelectionIterator(*GetSelectedComponents());
+};
+
+USelection* UEditorEngine::GetSelectedComponents() const
+{
+	return PrivateGetSelectedComponents();
+}
 
 USelection* UEditorEngine::GetSelectedObjects() const
 {
@@ -4962,7 +5023,7 @@ namespace ReattachActorsHelper
 	}
 }
 
-void UEditorEngine::ReplaceSelectedActors(UActorFactory* Factory, const FAssetData& AssetData, UClass* NewActorClass)
+void UEditorEngine::ReplaceSelectedActors(UActorFactory* Factory, const FAssetData& AssetData)
 {
 	UObject* ObjectForFactory = NULL;
 
@@ -4971,7 +5032,7 @@ void UEditorEngine::ReplaceSelectedActors(UActorFactory* Factory, const FAssetDa
 	{
 		return;
 	}
-	else if (Factory != NULL)
+	else if (Factory != nullptr)
 	{
 		FText ActorErrorMsg;
 		if (!Factory->CanCreateActorFrom( AssetData, ActorErrorMsg))
@@ -4980,7 +5041,7 @@ void UEditorEngine::ReplaceSelectedActors(UActorFactory* Factory, const FAssetDa
 			return;
 		}
 	}
-	else if (NewActorClass == NULL)
+	else
 	{
 		UE_LOG(LogEditor, Error, TEXT("UEditorEngine::ReplaceSelectedActors() called with NULL parameters!"));
 		return;
@@ -4999,6 +5060,11 @@ void UEditorEngine::ReplaceSelectedActors(UActorFactory* Factory, const FAssetDa
 		}
 	}
 
+	ReplaceActors(Factory, AssetData, ActorsToReplace);
+}
+
+void UEditorEngine::ReplaceActors(UActorFactory* Factory, const FAssetData& AssetData, const TArray<AActor*> ActorsToReplace)
+{
 	// Cache for attachment info of all actors being converted.
 	TArray<ReattachActorsHelper::FActorAttachmentCache> AttachmentInfo;
 
@@ -5021,35 +5087,27 @@ void UEditorEngine::ReplaceSelectedActors(UActorFactory* Factory, const FAssetDa
 		ULevel* Level = OldActor->GetLevel();
 		AActor* NewActor = NULL;
 
+		const FName OldActorName = OldActor->GetFName();
+		OldActor->Rename(*FString::Printf(TEXT("%s_REPLACED"), *OldActorName.ToString()));
+
 		const FTransform OldTransform = OldActor->ActorToWorld();
 
 		// create the actor
-		if (Factory != NULL)
+		NewActor = Factory->CreateActor( Asset, Level, OldTransform, RF_Transactional, OldActorName );
+		// For blueprints, try to copy over properties
+		if (Factory->IsA(UActorFactoryBlueprint::StaticClass()))
 		{
-			NewActor = Factory->CreateActor( Asset, Level, OldTransform);
-			// For blueprints, try to copy over properties
-			if (Factory->IsA(UActorFactoryBlueprint::StaticClass()))
+			UBlueprint* Blueprint = CastChecked<UBlueprint>(Asset);
+			// Only try to copy properties if this blueprint is based on the actor
+			UClass* OldActorClass = OldActor->GetClass();
+			if (Blueprint->GeneratedClass->IsChildOf(OldActorClass))
 			{
-				UBlueprint* Blueprint = CastChecked<UBlueprint>(Asset);
-				// Only try to copy properties if this blueprint is based on the actor
-				UClass* OldActorClass = OldActor->GetClass();
-				if (Blueprint->GeneratedClass->IsChildOf(OldActorClass))
-				{
-					NewActor->UnregisterAllComponents();
-					UEditorEngine::CopyPropertiesForUnrelatedObjects(OldActor, NewActor);
-					NewActor->RegisterAllComponents();
-				}
+				NewActor->UnregisterAllComponents();
+				UEditorEngine::CopyPropertiesForUnrelatedObjects(OldActor, NewActor);
+				NewActor->RegisterAllComponents();
 			}
 		}
-		else
-		{
-			FActorSpawnParameters SpawnInfo;
-			SpawnInfo.OverrideLevel = Level;
 
-			const auto Rotation = OldTransform.GetRotation().Rotator();
-			const auto Translation = OldTransform.GetTranslation();
-			NewActor = World->SpawnActor( NewActorClass, &Translation, &Rotation, SpawnInfo );
-		}
 		if ( NewActor != NULL )
 		{
 			// The new actor might not have a root component
@@ -5079,8 +5137,11 @@ void UEditorEngine::ReplaceSelectedActors(UActorFactory* Factory, const FAssetDa
 			// Caches information for finding the new actor using the pre-converted actor.
 			ReattachActorsHelper::CacheActorConvert(OldActor, NewActor, ConvertedMap, AttachmentInfo[ActorIdx]);
 
-			SelectActor(OldActor, false, true);
-			SelectActor(NewActor, true, true);
+			if (SelectedActors->IsSelected(OldActor))
+			{
+				SelectActor(OldActor, false, true);
+				SelectActor(NewActor, true, true);
+			}
 
 			// Find compatible static mesh components and copy instance colors between them.
 			UStaticMeshComponent* NewActorStaticMeshComponent = NewActor->FindComponentByClass<UStaticMeshComponent>();
@@ -5096,6 +5157,11 @@ void UEditorEngine::ReplaceSelectedActors(UActorFactory* Factory, const FAssetDa
 
 			GEditor->Layers->DisassociateActorFromLayers( OldActor );
 			World->EditorDestroyActor(OldActor, true);
+		}
+		else
+		{
+			// If creating the new Actor failed, put the old Actor's name back
+			OldActor->Rename(*OldActorName.ToString());
 		}
 	}
 

@@ -56,19 +56,15 @@ static FStatFont GStatFonts[(int32)EStatFontTypes::NumFonts] =
 	FStatFont( 48, 12, 2 ),
 };
 
-template<>
-struct TTypeFromString<EStatFontTypes>
+void FromString( EStatFontTypes& OutValue, const TCHAR* Buffer )
 {
-	static void FromString( EStatFontTypes& OutValue, const TCHAR* Buffer )
-	{
-		OutValue = EStatFontTypes::Small;
+	OutValue = EStatFontTypes::Small;
 
-		if( FCString::Stricmp( Buffer, TEXT( "Tiny" ) ) == 0 )
-		{
-			OutValue = EStatFontTypes::Tiny;
-		}
+	if( FCString::Stricmp( Buffer, TEXT( "Tiny" ) ) == 0 )
+	{
+		OutValue = EStatFontTypes::Tiny;
 	}
-};
+}
 
 /** Holds various parameters used for rendering stats. */
 struct FStatRenderGlobals
@@ -436,21 +432,27 @@ static int32 RenderMemoryHeadings(class FCanvas* Canvas,int32 X,int32 Y)
 	return GetStatRenderGlobals().GetFontHeight() + (GetStatRenderGlobals().GetFontHeight() / 3);
 }
 
-static FString GetMemoryString(double Value)
+// @param bAutoType true: automatically choose GB/MB/KB/... false: always use MB for easier comparisons
+static FString GetMemoryString(double Value, bool bAutoType = true)
 {
-	if (Value > 1024.0 * 1024.0 * 1024.0)
+	if(bAutoType)
 	{
-		return FString::Printf(TEXT("%.2f GB"), float(Value / (1024.0 * 1024.0 * 1024.0)));
+		if (Value > 1024.0 * 1024.0 * 1024.0)
+		{
+			return FString::Printf(TEXT("%.2f GB"), float(Value / (1024.0 * 1024.0 * 1024.0)));
+		}
+		if (Value > 1024.0 * 1024.0)
+		{
+			return FString::Printf(TEXT("%.2f MB"), float(Value / (1024.0 * 1024.0)));
+		}
+		if (Value > 1024.0)
+		{
+			return FString::Printf(TEXT("%.2f KB"), float(Value / (1024.0)));
+		}
+		return FString::Printf(TEXT("%.2f B"), float(Value));
 	}
-	if (Value > 1024.0 * 1024.0)
-	{
-		return FString::Printf(TEXT("%.2f MB"), float(Value / (1024.0 * 1024.0)));
-	}
-	if (Value > 1024.0)
-	{
-		return FString::Printf(TEXT("%.2f KB"), float(Value / (1024.0)));
-	}
-	return FString::Printf(TEXT("%.2f B"), float(Value));
+
+	return FString::Printf(TEXT("%.2f MB"), float(Value / (1024.0 * 1024.0)));
 }
 
 static int32 RenderMemoryCounter(const FGameThreadHudData& ViewData, const FComplexStatMessage& All,class FCanvas* Canvas,int32 X,int32 Y)
@@ -465,8 +467,11 @@ static int32 RenderMemoryCounter(const FGameThreadHudData& ViewData, const FComp
 	Canvas->DrawShadowedString(X,Y,*ShortenName(*All.GetDescription()),GetStatRenderGlobals().StatFont,GetStatRenderGlobals().StatColor);
 	int32 CurrX = X + GetStatRenderGlobals().AfterNameColumnOffset;
 
+	// always use MB for easier comparisons
+	const bool bAutoType = false;
+
 	// Now append the max value of the stat
-	RightJustify(Canvas,CurrX,Y,*GetMemoryString(MaxMemUsed),GetStatRenderGlobals().StatColor);
+	RightJustify(Canvas,CurrX,Y,*GetMemoryString(MaxMemUsed, bAutoType),GetStatRenderGlobals().StatColor);
 	CurrX += GetStatRenderGlobals().InterColumnOffset;
 	if (ViewData.PoolCapacity.Contains(Region))
 	{
@@ -480,7 +485,7 @@ static int32 RenderMemoryCounter(const FGameThreadHudData& ViewData, const FComp
 	CurrX += GetStatRenderGlobals().InterColumnOffset;
 	if (ViewData.PoolCapacity.Contains(Region))
 	{
-		RightJustify(Canvas,CurrX,Y,*GetMemoryString(double(ViewData.PoolCapacity[Region])),GetStatRenderGlobals().StatColor);
+		RightJustify(Canvas,CurrX,Y,*GetMemoryString(double(ViewData.PoolCapacity[Region]), bAutoType),GetStatRenderGlobals().StatColor);
 	}
 	CurrX += GetStatRenderGlobals().InterColumnOffset;
 

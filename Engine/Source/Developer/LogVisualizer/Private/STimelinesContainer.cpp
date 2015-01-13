@@ -211,6 +211,7 @@ FReply STimelinesContainer::OnKeyDown(const FGeometry& MyGeometry, const FKeyEve
 		SetSelectionState(NotSelectedOne.Pin(), true, true);
 		return FReply::Handled();
 	}
+#if 0 //disable movement between timelines for now
 	else if (InKeyEvent.GetKey() == EKeys::Up || InKeyEvent.GetKey() == EKeys::Down)
 	{
 		TSharedPtr<class STimeline> PreviousTimeline;
@@ -249,8 +250,22 @@ FReply STimelinesContainer::OnKeyDown(const FGeometry& MyGeometry, const FKeyEve
 		}
 		return FReply::Handled();
 	}
-
+#endif
 	return FReply::Unhandled();
+}
+
+void STimelinesContainer::ResetData()
+{
+	for (auto CurrentItem : TimelineItems)
+	{
+		ContainingBorder->RemoveSlot(CurrentItem.ToSharedRef());
+	}
+	TimelineItems.Reset();
+
+	CachedMinTime = FLT_MAX;
+	CachedMaxTime = 0;
+	TimeSliderController->SetClampRange(0, 5);
+	TimeSliderController->SetTimeRange(0, 5);
 }
 
 void STimelinesContainer::Construct(const FArguments& InArgs, TSharedRef<class SVisualLoggerView> InVisualLoggerView, TSharedRef<FSequencerTimeSliderController> InTimeSliderController)
@@ -269,6 +284,10 @@ void STimelinesContainer::Construct(const FArguments& InArgs, TSharedRef<class S
 				SAssignNew(ContainingBorder, SVerticalBox)
 			]
 		];
+
+	CachedMinTime = FLT_MAX;
+	CachedMaxTime = 0;
+
 }
 
 void STimelinesContainer::OnSearchChanged(const FText& Filter)
@@ -297,13 +316,16 @@ void STimelinesContainer::OnNewLogEntry(const FVisualLogDevice::FVisualLogEntryI
 		MakeTimeline(VisualLoggerView, TimeSliderController, Entry);
 	}
 
+	CachedMinTime = CachedMinTime < Entry.Entry.TimeStamp ? CachedMinTime : Entry.Entry.TimeStamp;
+	CachedMaxTime = CachedMaxTime > Entry.Entry.TimeStamp ? CachedMaxTime : Entry.Entry.TimeStamp;
+
 	TRange<float> LocalViewRange = TimeSliderController->GetTimeSliderArgs().ViewRange.Get();
 	const float CurrentMin = TimeSliderController->GetTimeSliderArgs().ClampMin.Get().GetValue();
 	const float CurrentMax = TimeSliderController->GetTimeSliderArgs().ClampMax.Get().GetValue();
 	float ZoomLevel = LocalViewRange.Size<float>() / (CurrentMax - CurrentMin);
 
-	TimeSliderController->GetTimeSliderArgs().ClampMin = FMath::Min(0.0f, CurrentMin);
-	TimeSliderController->GetTimeSliderArgs().ClampMax = FMath::Max(Entry.Entry.TimeStamp, CurrentMax);
+	TimeSliderController->GetTimeSliderArgs().ClampMin = CachedMinTime;
+	TimeSliderController->GetTimeSliderArgs().ClampMax = CachedMaxTime + 0.1;
 	if ( FMath::Abs(ZoomLevel - 1) <= SMALL_NUMBER)
 	{
 		TimeSliderController->GetTimeSliderArgs().ViewRange = TRange<float>(TimeSliderController->GetTimeSliderArgs().ClampMin.Get().GetValue(), TimeSliderController->GetTimeSliderArgs().ClampMax.Get().GetValue());

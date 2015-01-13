@@ -617,7 +617,7 @@ namespace UnrealBuildTool
         public virtual bool GUBP_AlwaysBuildWithTools(UnrealTargetPlatform InHostPlatform, out bool bInternalToolOnly, out bool SeparateNode)
         {
             bInternalToolOnly = false;
-            SeparateNode = false;
+            SeparateNode = false;			
             return false;
         }
         /// <summary>
@@ -625,10 +625,11 @@ namespace UnrealBuildTool
         /// <param name="SeparateNode">If this is set to true, the program will get its own node</param>
         /// </summary>
         /// <returns>true if this target should always be built with the base editor.</returns>        
-        public virtual bool GUBP_AlwaysBuildWithTools(UnrealTargetPlatform InHostPlatform, bool bBuildingRocket, out bool bInternalToolOnly, out bool SeparateNode)
+        public virtual bool GUBP_AlwaysBuildWithTools(UnrealTargetPlatform InHostPlatform, bool bBuildingRocket, out bool bInternalToolOnly, out bool SeparateNode, out bool CrossCompile)
         {
             bInternalToolOnly = false;
             SeparateNode = false;
+			CrossCompile = false;
             return false;
         }
         /// <summary>
@@ -751,7 +752,8 @@ namespace UnrealBuildTool
         {
             var Result = new GUBPProjectOptions();
             // hack to set up the templates without adding anything to their .targets.cs files
-            if (!String.IsNullOrEmpty(TargetName) && TargetName.StartsWith("TP_"))
+			// tweaked to include FP_ folders too - which are temporary
+            if (!String.IsNullOrEmpty(TargetName) && ( TargetName.StartsWith("TP_") || TargetName.StartsWith("FP_")) )
             {
                 Result.bTestWithShared = true;
             }

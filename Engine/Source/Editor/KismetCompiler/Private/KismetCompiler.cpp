@@ -156,7 +156,7 @@ void FKismetCompilerContext::CleanAndSanitizeClass(UBlueprintGeneratedClass* Cla
 	
 	UClass* ParentClass = Blueprint->ParentClass;
 
-	if(UBlueprintGeneratedClass::CompileSkeletonClassesInheritSkeletonClasses() && FKismetEditorUtilities::IsClassABlueprintSkeleton(ClassToClean))
+	if(FKismetEditorUtilities::IsClassABlueprintSkeleton(ClassToClean))
 	{
 		if(UBlueprint* BlueprintParent = Cast<UBlueprint>(Blueprint->ParentClass->ClassGeneratedBy))
 		{
@@ -902,7 +902,7 @@ void FKismetCompilerContext::CheckConnectionResponse(const FPinConnectionRespons
 {
 	if (!Response.CanSafeConnect())
 	{
-		MessageLog.Error(*FString::Printf(*LOCTEXT("FailedBuildingConnection_Error", "COMPILER ERROR: failed building connection with '%s' at @@").ToString(), *Response.Message), Node);
+		MessageLog.Error(*FString::Printf(*LOCTEXT("FailedBuildingConnection_Error", "COMPILER ERROR: failed building connection with '%s' at @@").ToString(), *Response.Message.ToString()), Node);
 	}
 }
 
@@ -3271,14 +3271,7 @@ void FKismetCompilerContext::Compile()
 	NewClass->ClassGeneratedBy = Blueprint;
 
 	UClass* ParentClass = nullptr;
-	if(UBlueprintGeneratedClass::CompileSkeletonClassesInheritSkeletonClasses())
-	{
-		ParentClass = NewClass->ClassWithin;
-	}
-	else
-	{
-		ParentClass = Blueprint->ParentClass;
-	}
+	ParentClass = NewClass->ClassWithin;
 	NewClass->SetSuperStruct(ParentClass);
 	NewClass->ClassFlags |= (ParentClass->ClassFlags & CLASS_Inherit);
 	NewClass->ClassCastFlags |= ParentClass->ClassCastFlags;

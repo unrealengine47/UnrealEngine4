@@ -186,7 +186,7 @@ void SContentBrowser::Construct( const FArguments& InArgs, const FName& InInstan
 							.ButtonStyle(FEditorStyle::Get(), "ToggleButton")
 							.ToolTipText(LOCTEXT("AddContentTooltip", "Get more content."))
 							.ContentPadding(0)
-							.Visibility(EVisibility::Visible)
+							.Visibility(UEditorExperimentalSettings::StaticClass()->GetDefaultObject<UEditorExperimentalSettings>()->bGetFeatureContent == false ? EVisibility::Collapsed : EVisibility::Visible)
 							.OnClicked(this, &SContentBrowser::OnAddContentClicked)
 							[
 								SNew(SHorizontalBox)
@@ -1084,7 +1084,7 @@ void SContentBrowser::OnUpdateHistoryData(FHistoryData& HistoryData) const
 	const FSourcesData& SourcesData = AssetViewPtr->GetSourcesData();
 	const TArray<FAssetData>& SelectedAssets = AssetViewPtr->GetSelectedAssets();
 
-	const FString NewSource = SourcesData.PackagePaths.Num() > 0 ? SourcesData.PackagePaths[0].ToString() : (SourcesData.Collections.Num() > 0 ? SourcesData.Collections[0].Name.ToString() : LOCTEXT("AllAssets", "All Assets").ToString());
+	const FText NewSource = SourcesData.PackagePaths.Num() > 0 ? FText::FromName(SourcesData.PackagePaths[0]) : (SourcesData.Collections.Num() > 0 ? FText::FromName(SourcesData.Collections[0].Name) : LOCTEXT("AllAssets", "All Assets"));
 
 	HistoryData.HistoryDesc = NewSource;
 	HistoryData.SourcesData = SourcesData;
@@ -1331,19 +1331,17 @@ TSharedRef<SWidget> SContentBrowser::MakeCreateAssetContextMenu()
 		];
 }
 
-FString SContentBrowser::GetNewAssetToolTipText() const
+FText SContentBrowser::GetNewAssetToolTipText() const
 {
 	const FSourcesData& SourcesData = AssetViewPtr->GetSourcesData();
 
 	// At least one source is selected
 	if (SourcesData.PackagePaths.Num() > 0)
 	{
-		return FString::Printf( *LOCTEXT("CreateAssetToolTip", "Create an asset in %s.").ToString(), *SourcesData.PackagePaths[0].ToString() );
+		return FText::Format( LOCTEXT("CreateAssetToolTipFmt", "Create an asset in {0}."), FText::FromName(SourcesData.PackagePaths[0]) );
 	}
-	else
-	{
-		return FString();
-	}
+	
+	return FText::GetEmpty();
 }
 
 TSharedRef<SWidget> SContentBrowser::MakeAddFilterMenu()
@@ -1660,28 +1658,22 @@ bool SContentBrowser::CanExecuteDirectoryUp() const
 	return (SelectedPaths.Num() == 1 && !ContentBrowserUtils::IsAssetRootDir(SelectedPaths[0]));
 }
 
-FString SContentBrowser::GetHistoryBackTooltip() const
+FText SContentBrowser::GetHistoryBackTooltip() const
 {
 	if ( HistoryManager.CanGoBack() )
 	{
-		return FString::Printf( *LOCTEXT("HistoryBackTooltip", "Back to %s").ToString(), *HistoryManager.GetBackDesc() );
+		return FText::Format( LOCTEXT("HistoryBackTooltipFmt", "Back to {0}"), HistoryManager.GetBackDesc() );
 	}
-	else
-	{
-		return FString();
-	}
+	return FText::GetEmpty();
 }
 
-FString SContentBrowser::GetHistoryForwardTooltip() const
+FText SContentBrowser::GetHistoryForwardTooltip() const
 {
 	if ( HistoryManager.CanGoForward() )
 	{
-		return FString::Printf( *LOCTEXT("HistoryForwardTooltip", "Forward to %s").ToString(), *HistoryManager.GetForwardDesc() );
+		return FText::Format( LOCTEXT("HistoryForwardTooltipFmt", "Forward to {0}"), HistoryManager.GetForwardDesc() );
 	}
-	else
-	{
-		return FString();
-	}
+	return FText::GetEmpty();
 }
 
 FText SContentBrowser::GetDirectoryUpTooltip() const

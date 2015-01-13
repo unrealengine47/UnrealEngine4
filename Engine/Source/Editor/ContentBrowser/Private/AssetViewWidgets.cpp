@@ -153,7 +153,7 @@ void SAssetViewItem::Construct( const FArguments& InArgs )
 	SourceControlStateDelay = 0.0f;
 	bSourceControlStateRequested = false;
 
-	ISourceControlModule::Get().GetProvider().RegisterSourceControlStateChanged(FSourceControlStateChanged::FDelegate::CreateSP(this, &SAssetViewItem::HandleSourceControlStateChanged));
+	ISourceControlModule::Get().GetProvider().RegisterSourceControlStateChanged_Handle(FSourceControlStateChanged::FDelegate::CreateSP(this, &SAssetViewItem::HandleSourceControlStateChanged));
 
 	// Source control state may have already been cached, make sure the control is in sync with 
 	// cached state as the delegate is not going to be invoked again until source control state 
@@ -716,7 +716,7 @@ EVisibility SAssetViewItem::GetCheckedOutByOtherTextVisibility() const
 	return GetCheckedOutByOtherText().IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible;
 }
 
-FString SAssetViewItem::GetCheckedOutByOtherText() const
+FText SAssetViewItem::GetCheckedOutByOtherText() const
 {
 	if ( AssetItem.IsValid() && AssetItem->GetType() != EAssetItemType::Folder && !GIsSavingPackage && !GIsGarbageCollecting )
 	{
@@ -728,12 +728,12 @@ FString SAssetViewItem::GetCheckedOutByOtherText() const
 		{
 			if ( !UserWhichHasPackageCheckedOut.IsEmpty() )
 			{
-				return SourceControlState->GetDisplayTooltip().ToString();
+				return SourceControlState->GetDisplayTooltip();
 			}
 		}
 	}
 
-	return TEXT("");
+	return FText::GetEmpty();
 }
 
 

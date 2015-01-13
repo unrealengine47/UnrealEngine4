@@ -597,6 +597,8 @@ public:
 
 	virtual void ActorMoveNotify() override;
 
+	virtual void PostUndo() override;
+
 	virtual EEditAction::Type GetActionEditDuplicate() override;
 	virtual EEditAction::Type GetActionEditDelete() override;
 	virtual EEditAction::Type GetActionEditCut() override;
@@ -692,6 +694,9 @@ private:
 
 	bool bToolActive;
 	UMaterial* GizmoMaterial;
+
+	FDelegateHandle OnWorldChangeDelegateHandle;
+	FDelegateHandle OnMaterialCompilationFinishedDelegateHandle;
 };
 
 namespace LandscapeEditorUtils

@@ -52,6 +52,11 @@ public:
 	{
 		return EWindowTitleAlignment::Center;
 	}
+	
+	virtual EWindowTransparency GetWindowTransparencySupport() const override
+	{
+		return EWindowTransparency::PerWindow;
+	}
 
 	virtual ITextInputMethodSystem *GetTextInputMethodSystem() override
 	{

@@ -57,8 +57,6 @@ UNetConnection::UNetConnection(const FObjectInitializer& ObjectInitializer)
 ,	InPacketId			( -1 )
 ,	OutPacketId			( 0 ) // must be initialized as OutAckPacketId + 1 so loss of first packet can be detected
 ,	OutAckPacketId		( -1 )
-,	PartialPacketId		( 0 )
-,	LastPartialPacketId	( -1 )
 ,	LastPingAck			( 0.f )
 ,	LastPingAckPacketId	( -1 )
 ,	ClientWorldPackageName( NAME_None )
@@ -640,6 +638,12 @@ void UNetConnection::ReceivedPacket( FBitReader& Reader )
 	if( PacketId > InPacketId )
 	{
 		const int32 PacketsLost = PacketId - InPacketId - 1;
+		
+		if ( PacketsLost > 10 )
+		{
+			UE_LOG( LogNetTraffic, Warning, TEXT( "High single frame packet loss: %i" ), PacketsLost );
+		}
+
 		InPacketsLost += PacketsLost;
 		Driver->InPacketsLost += PacketsLost;
 		InPacketId = PacketId;
@@ -809,19 +813,8 @@ void UNetConnection::ReceivedPacket( FBitReader& Reader )
 			} 
 			else if ( Bunch.bPartial )
 			{
-				// If this is a partial bunch, use the last processed partial sequence to read the new partial sequence
-				Bunch.ChSequence = MakeRelative( Reader.ReadInt( MAX_CHSEQUENCE ), LastPartialPacketId, MAX_CHSEQUENCE );
-				if ( Bunch.ChSequence > LastPartialPacketId )
-				{
-					LastPartialPacketId = Bunch.ChSequence;
-				}
-				else
-				{
-					// Well behaved clients should never hit this, since we've already thrown out packets that were older
-					// Since PartialPacketId should evolve in sync with PacketId, this should be impossible unless the 
-					// client is misbehaving...
-					UE_LOG( LogNetTraffic, Error, TEXT( "UNetConnection::ReceivedPacket: Invalid partial packet id." ) );
-				}
+				// If this is an unreliable partial bunch, we simply use packet sequence since we already have it
+				Bunch.ChSequence = PacketId;
 			}
 			else
 			{
@@ -873,6 +866,12 @@ void UNetConnection::ReceivedPacket( FBitReader& Reader )
 			{
 				UE_LOG(LogNetTraffic, Verbose, TEXT("   Unreliable Bunch, Channel %i: Size %.1f+%.1f"), Bunch.ChIndex, (HeaderPos-IncomingStartPos)/8.f, (Reader.GetPosBits()-HeaderPos)/8.f );
 			}
+
+			if ( Bunch.bOpen )
+			{
+				UE_LOG(LogNetTraffic, Verbose, TEXT("   bOpen Bunch, Channel %i Sequence %i: Size %.1f+%.1f"), Bunch.ChIndex, Bunch.ChSequence, (HeaderPos-IncomingStartPos)/8.f, (Reader.GetPosBits()-HeaderPos)/8.f );
+			}
+
 			if ( Channels[Bunch.ChIndex] == NULL && ( Bunch.ChIndex != 0 || Bunch.ChType != CHTYPE_Control ) )
 			{
 				// Can't handle other channels until control channel exists.
@@ -951,7 +950,7 @@ void UNetConnection::ReceivedPacket( FBitReader& Reader )
 				}
 
 				// Reliable (either open or later), so create new channel.
-				UE_LOG(LogNetTraffic, Log, TEXT("      Bunch Create %i: ChType %i"), Bunch.ChIndex, Bunch.ChType );
+				UE_LOG(LogNetTraffic, Log, TEXT("      Bunch Create %i: ChType %i, bReliable: %i, bPartial: %i, bPartialInitial: %i, bPartialFinal: %i"), Bunch.ChIndex, Bunch.ChType, (int)Bunch.bReliable, (int)Bunch.bPartial, (int)Bunch.bPartialInitial, (int)Bunch.bPartialFinal );
 				Channel = CreateChannel( (EChannelType)Bunch.ChType, false, Bunch.ChIndex );
 
 				// Notify the server of the new channel.
@@ -974,12 +973,6 @@ void UNetConnection::ReceivedPacket( FBitReader& Reader )
 					}
 					continue;
 				}
-			}
-
-			if( Bunch.bOpen && !Bunch.bPartial )
-			{
-				Channel->OpenAcked = 1;
-				Channel->OpenPacketId = FPacketIdRange(PacketId);
 			}
 
 			// Dispatch the raw, unsequenced bunch to the channel.
@@ -1150,15 +1143,18 @@ int32 UNetConnection::SendRawBunch( FOutBunch& Bunch, bool InAllowMerge )
 	Header.WriteBit( Bunch.bHasGUIDs );
 	Header.WriteBit( Bunch.bHasMustBeMappedGUIDs );
 	Header.WriteBit( Bunch.bPartial );
-	if (Bunch.bReliable || Bunch.bPartial)
+
+	if ( Bunch.bReliable )
 	{
 		Header.WriteIntWrapped(Bunch.ChSequence, MAX_CHSEQUENCE);
-		if (Bunch.bPartial)
-		{
-			Header.WriteBit( Bunch.bPartialInitial );
-			Header.WriteBit( Bunch.bPartialFinal );
-		}
 	}
+
+	if (Bunch.bPartial)
+	{
+		Header.WriteBit( Bunch.bPartialInitial );
+		Header.WriteBit( Bunch.bPartialFinal );
+	}
+
 	if (Bunch.bReliable || Bunch.bOpen)
 	{
 		Header.WriteIntWrapped(Bunch.ChType, CHTYPE_MAX);

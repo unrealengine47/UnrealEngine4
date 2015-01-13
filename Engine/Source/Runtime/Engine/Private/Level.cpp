@@ -170,6 +170,7 @@ FLevelSimplificationDetails::FLevelSimplificationDetails()
  , bGenerateLandscapeRoughnessMap(false)
  , bGenerateLandscapeSpecularMap(false)
  , bBakeFoliageToLandscape(false)
+ , bBakeGrassToLandscape(false)
 {
 }
 
@@ -183,7 +184,8 @@ bool FLevelSimplificationDetails::operator == (const FLevelSimplificationDetails
 		bGenerateLandscapeMetallicMap == Other.bGenerateLandscapeMetallicMap &&
 		bGenerateLandscapeRoughnessMap == Other.bGenerateLandscapeRoughnessMap &&
 		bGenerateLandscapeSpecularMap == Other.bGenerateLandscapeSpecularMap &&
-		bBakeFoliageToLandscape == Other.bBakeFoliageToLandscape;
+		bBakeFoliageToLandscape == Other.bBakeFoliageToLandscape &&
+		bBakeGrassToLandscape == Other.bBakeGrassToLandscape;
 }
 
 TMap<FName, TWeakObjectPtr<UWorld> > ULevel::StreamedLevelsOwningWorld;
@@ -1536,11 +1538,6 @@ void ULevel::InitializeRenderingResources()
 		if( !PrecomputedLightVolume->IsAddedToScene() )
 		{
 			PrecomputedLightVolume->AddToScene(OwningWorld->Scene);
-
-			if (OwningWorld->Scene)
-			{
-				OwningWorld->Scene->OnLevelAddedToWorld(GetOutermost()->GetFName());
-			}
 		}
 	}
 }
@@ -1628,6 +1625,24 @@ bool ULevel::HasAnyActorsOfType(UClass *SearchType)
 }
 
 #if WITH_EDITOR
+
+TArray<UBlueprint*> ULevel::GetLevelBlueprints() const
+{
+	TArray<UBlueprint*> LevelBlueprints;
+	TArray<UObject*> LevelChildren;
+	GetObjectsWithOuter(this, LevelChildren, false, RF_PendingKill);
+
+	for (UObject* LevelChild : LevelChildren)
+	{
+		UBlueprint* LevelChildBP = Cast<UBlueprint>(LevelChild);
+		if (LevelChildBP)
+		{
+			LevelBlueprints.Add(LevelChildBP);
+		}
+	}
+
+	return LevelBlueprints;
+}
 
 ULevelScriptBlueprint* ULevel::GetLevelScriptBlueprint(bool bDontCreate)
 {

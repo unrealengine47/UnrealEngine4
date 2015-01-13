@@ -79,6 +79,7 @@ private:
 
 	TSharedPtr<IMeshPaintGeometryAdapterFactory> SpriteMeshPaintAdapterFactory;
 	FCoreUObjectDelegates::FOnObjectPropertyChanged::FDelegate OnPropertyChangedHandle;
+	FDelegateHandle OnPropertyChangedHandleDelegateHandle;
 
 public:
 	virtual void StartupModule() override
@@ -127,7 +128,7 @@ public:
 
 		// Register to be notified when properties are edited
 		OnPropertyChangedHandle = FCoreUObjectDelegates::FOnObjectPropertyChanged::FDelegate::CreateRaw(this, &FPaper2DEditor::OnPropertyChanged);
-		FCoreUObjectDelegates::OnObjectPropertyChanged.Add(OnPropertyChangedHandle);
+		OnPropertyChangedHandleDelegateHandle = FCoreUObjectDelegates::OnObjectPropertyChanged.Add(OnPropertyChangedHandle);
 
 		// Register the thumbnail renderers
 		UThumbnailManager::Get().RegisterCustomRenderer(UPaperSprite::StaticClass(), UPaperSpriteThumbnailRenderer::StaticClass());
@@ -136,7 +137,11 @@ public:
 		//@TODO: PAPER2D: UThumbnailManager::Get().RegisterCustomRenderer(UPaperTileMap::StaticClass(), UPaperTileMapThumbnailRenderer::StaticClass());
 
 		// Register the editor modes
-		UpdateTileMapEditorModeInstallation();
+		FEditorModeRegistry::Get().RegisterMode<FEdModeTileMap>(
+			FEdModeTileMap::EM_TileMap,
+			LOCTEXT("TileMapEditMode", "Tile Map Editor"),
+			FSlateIcon(),
+			false);
 
 		// Integrate Paper2D actions associated with existing engine types (e.g., Texture2D) into the content browser
 		FPaperContentBrowserExtensions::InstallHooks();
@@ -187,7 +192,7 @@ public:
 			UThumbnailManager::Get().UnregisterCustomRenderer(UPaperFlipbook::StaticClass());
 
 			// Unregister the property modification handler
-			FCoreUObjectDelegates::OnObjectPropertyChanged.Remove(OnPropertyChangedHandle);
+			FCoreUObjectDelegates::OnObjectPropertyChanged.Remove(OnPropertyChangedHandleDelegateHandle);
 		}
 
 		// Unregister the details customization
@@ -226,7 +231,7 @@ private:
 		}
 		else if (UPaperRuntimeSettings* Settings = Cast<UPaperRuntimeSettings>(ObjectBeingModified))
 		{
-			UpdateTileMapEditorModeInstallation();
+			// Handle changes to experimental flags here
 		}
 	}
 
@@ -247,25 +252,6 @@ private:
 		if (ISettingsModule* SettingsModule = FModuleManager::GetModulePtr<ISettingsModule>("Settings"))
 		{
 			SettingsModule->UnregisterSettings("Project", "Plugins", "Paper2D");
-		}
-	}
-
-	// Installs or uninstalls the tile map editing mode depending on settings
-	void UpdateTileMapEditorModeInstallation()
-	{
-		const bool bAlreadyRegistered = FEditorModeRegistry::Get().GetFactoryMap().Contains(FEdModeTileMap::EM_TileMap);
-		const bool bShouldBeRegistered = GetDefault<UPaperRuntimeSettings>()->bEnableTileMapEditing;
-		if (bAlreadyRegistered && !bShouldBeRegistered)
-		{
-			FEditorModeRegistry::Get().UnregisterMode(FEdModeTileMap::EM_TileMap);
-		}
-		else if (!bAlreadyRegistered && bShouldBeRegistered)
-		{
-			FEditorModeRegistry::Get().RegisterMode<FEdModeTileMap>(
-				FEdModeTileMap::EM_TileMap,
-				LOCTEXT("TileMapEditMode", "Tile Map Editor"),
-				FSlateIcon(),
-				false);
 		}
 	}
 };

@@ -721,7 +721,7 @@ void FUDNParser::AddContentToExcerpt(TSharedPtr<SVerticalBox> Box, const FString
 	{
 		AppendExcerpt(Box,
 			SNew(STextBlock)
-			.Text(ContentSource)
+			.Text(FText::FromString(ContentSource))
 			.TextStyle(FEditorStyle::Get(), Style.ContentStyleName)
 			.WrapTextAt(WrapAt)
 		);
@@ -858,7 +858,7 @@ TSharedRef< SWidget > FUDNParser::GenerateExcerptContent( const FString& Link, F
 
 				AppendExcerpt(Box,
 					SNew(STextBlock)
-					.Text(Line.AdditionalContent[0])
+					.Text(FText::FromString(Line.AdditionalContent[0]))
 					.TextStyle(FEditorStyle::Get(), Style.BoldContentStyleName)
 					);
 
@@ -897,7 +897,7 @@ TSharedRef< SWidget > FUDNParser::GenerateExcerptContent( const FString& Link, F
 
 				AppendExcerpt(Box,
 					SNew(STextBlock)
-					.Text(Line.AdditionalContent[0])
+					.Text(FText::FromString(Line.AdditionalContent[0]))
 					.TextStyle(FEditorStyle::Get(), Style.Header1StyleName)
 					);
 
@@ -910,7 +910,7 @@ TSharedRef< SWidget > FUDNParser::GenerateExcerptContent( const FString& Link, F
 
 				AppendExcerpt(Box,
 					SNew(STextBlock)
-					.Text(Line.AdditionalContent[0])
+					.Text(FText::FromString(Line.AdditionalContent[0]))
 					.TextStyle(FEditorStyle::Get(), Style.Header2StyleName)
 					);
 
@@ -967,7 +967,7 @@ TSharedRef< SWidget > FUDNParser::GenerateExcerptContent( const FString& Link, F
 					AppendExcerpt(Box,
 						SNew( SImage )
 						.Image(DynamicBrush.Get())
-						.ToolTipText(Line.AdditionalContent[0])
+						.ToolTipText(FText::FromString(Line.AdditionalContent[0]))
 						);
 
 					DynamicBrushesUsed.AddUnique(DynamicBrush);
@@ -992,7 +992,7 @@ TSharedRef< SWidget > FUDNParser::GenerateExcerptContent( const FString& Link, F
 						[
 							SNew( SImage )
 							.Image(DynamicBrush.Get())
-							.ToolTipText(Line.AdditionalContent[0])
+							.ToolTipText(FText::FromString(Line.AdditionalContent[0]))
 						]
 					);
 

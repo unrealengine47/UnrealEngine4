@@ -103,6 +103,8 @@
 #include "Engine/DataTable.h"
 #include "DataTableEditorUtils.h"
 
+#include "Kismet2/BlueprintEditorUtils.h"
+
 DEFINE_LOG_CATEGORY_STATIC(LogEditorFactories, Log, All);
 
 #define LOCTEXT_NAMESPACE "EditorFactories"
@@ -533,6 +535,24 @@ UObject* ULevelFactory::FactoryCreateText
 									Str, *ObjectClass);
 							}
 						}
+					}
+				}
+
+				// If we're pasting from a class that belongs to a map we need to duplicate the class and use that instead
+				if (FBlueprintEditorUtils::IsAnonymousBlueprintClass(TempClass))
+				{
+					UBlueprint* NewBP = DuplicateObject(CastChecked<UBlueprint>(TempClass->ClassGeneratedBy), World->GetCurrentLevel(), *FString::Printf(TEXT("%s_BPClass"), *ActorUniqueName.ToString()));
+					if (NewBP)
+					{
+						NewBP->ClearFlags(RF_Standalone);
+
+						FKismetEditorUtilities::CompileBlueprint(NewBP, false, true);
+
+						TempClass = NewBP->GeneratedClass;
+
+						// Since we changed the class we can't use an Archetype,
+						// however that is fine since we will have been editing the CDO anyways
+						Archetype = nullptr;
 					}
 				}
 
@@ -7190,13 +7210,13 @@ bool UDataTableFactory::ConfigureProperties()
 
 		TSharedRef<SWidget> MakeRowStructItemWidget(class UScriptStruct* Struct) const
 		{
-			return SNew(STextBlock).Text(Struct ? Struct->GetDisplayNameText().ToString() : FString());
+			return SNew(STextBlock).Text(Struct ? Struct->GetDisplayNameText() : FText::GetEmpty());
 		}
 
-		FString GetSelectedRowOptionText() const
+		FText GetSelectedRowOptionText() const
 		{
 			UScriptStruct* Struct = RowStructCombo.IsValid() ? RowStructCombo->GetSelectedItem() : NULL;
-			return Struct ? Struct->GetDisplayNameText().ToString() : FString();
+			return Struct ? Struct->GetDisplayNameText() : FText::GetEmpty();
 		}
 
 		FReply OnCreate()

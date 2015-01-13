@@ -141,7 +141,8 @@ TSharedRef<SWidget> SAddContentWidget::CreateContentSourceTileView()
 	.OnGenerateTile(this, &SAddContentWidget::CreateContentSourceIconTile)
 	.OnSelectionChanged(this, &SAddContentWidget::ContentSourceTileViewSelectionChanged)
 	.ItemWidth(70)
-	.ItemHeight(115);
+	.ItemHeight(115)
+	.SelectionMode(ESelectionMode::Single);
 	ContentSourceTileView->SetSelection(ViewModel->GetSelectedContentSource(), ESelectInfo::Direct);
 	return ContentSourceTileView.ToSharedRef();
 }
@@ -235,7 +236,7 @@ TSharedRef<SWidget> SAddContentWidget::CreateContentSourceDetail(TSharedPtr<FCon
 			.Padding(FMargin(0, 0, 0, 5))
 			[
 				SNew(STextBlock)
-				.Text(ContentSource->GetClassTypes())
+				.Text(FText::FromString(ContentSource->GetClassTypes()))
 				.Visibility(ContentSource->GetClassTypes().IsEmpty() == false ? EVisibility::Visible : EVisibility::Collapsed)
 				.AutoWrapText(true)
 			]

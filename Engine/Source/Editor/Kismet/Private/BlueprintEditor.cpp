@@ -8,6 +8,7 @@
 #include "Editor/UnrealEd/Public/Kismet2/BlueprintEditorUtils.h"
 #include "GraphEditor.h"
 #include "BlueprintUtilities.h"
+#include "Editor/PropertyEditor/Public/IDetailsView.h"
 #include "Editor/KismetCompiler/Public/KismetCompilerModule.h"
 #include "Editor/ClassViewer/Public/ClassViewerModule.h"
 #include "Editor/UnrealEd/Public/FileHelpers.h"
@@ -659,6 +660,46 @@ void FBlueprintEditor::UpdateSCSPreview(bool bUpdateNow)
 	}
 }
 
+void FBlueprintEditor::OnSCSEditorTreeViewSelectionChanged(const TArray<FSCSEditorTreeNodePtrType>& SelectedNodes)
+{
+	if (SCSViewport.IsValid())
+	{
+		SCSViewport->OnComponentSelectionChanged();
+	}
+}
+
+void FBlueprintEditor::OnSCSEditorUpdateSelectionFromNodes(const TArray<FSCSEditorTreeNodePtrType>& SelectedNodes)
+{
+	// Convert the selection set to an array of UObject* pointers
+	FText InspectorTitle = FText::GetEmpty();
+	TArray<UObject*> InspectorObjects;
+	InspectorObjects.Empty(SelectedNodes.Num());
+	for (auto NodeIt = SelectedNodes.CreateConstIterator(); NodeIt; ++NodeIt)
+	{
+		auto NodePtr = *NodeIt;
+		if(NodePtr.IsValid() && NodePtr->CanEditDefaults())
+		{
+			InspectorTitle = FText::FromString(NodePtr->GetDisplayString());
+			InspectorObjects.Add(NodePtr->GetComponentTemplate());
+		}
+	}
+
+	// Update the details panel
+	if (Inspector.IsValid())
+	{
+		SKismetInspector::FShowDetailsOptions Options(InspectorTitle, true);
+		Inspector->ShowDetailsForObjects(InspectorObjects, Options);
+	}
+}
+
+void FBlueprintEditor::OnSCSEditorHighlightPropertyInDetailsView(const FPropertyPath& InPropertyPath)
+{
+	if(Inspector.IsValid())
+	{
+		Inspector->GetPropertyView()->HighlightProperty(InPropertyPath);
+	}
+}
+
 /** Create new tab for the supplied graph - don't call this directly.*/
 TSharedRef<SGraphEditor> FBlueprintEditor::CreateGraphEditorWidget(TSharedRef<FTabInfo> InTabInfo, UEdGraph* InGraph)
 {
@@ -1023,16 +1064,16 @@ FGraphAppearanceInfo FBlueprintEditor::GetGraphAppearance(UEdGraph* InGraph) con
 	switch (Blueprint->BlueprintType)
 	{
 	case BPTYPE_LevelScript:
-		AppearanceInfo.CornerText = LOCTEXT("AppearanceCornerText_LevelScript", "LEVEL BLUEPRINT").ToString();
+		AppearanceInfo.CornerText = LOCTEXT("AppearanceCornerText_LevelScript", "LEVEL BLUEPRINT");
 		break;
 	case BPTYPE_MacroLibrary:
-		AppearanceInfo.CornerText = LOCTEXT("AppearanceCornerText_Macro", "MACRO").ToString();
+		AppearanceInfo.CornerText = LOCTEXT("AppearanceCornerText_Macro", "MACRO");
 		break;
 	case BPTYPE_Interface:
-		AppearanceInfo.CornerText = LOCTEXT("AppearanceCornerText_Interface", "INTERFACE").ToString();
+		AppearanceInfo.CornerText = LOCTEXT("AppearanceCornerText_Interface", "INTERFACE");
 		break;
 	default:
-		AppearanceInfo.CornerText = LOCTEXT("AppearanceCornerText_Blueprint", "BLUEPRINT").ToString();
+		AppearanceInfo.CornerText = LOCTEXT("AppearanceCornerText_Blueprint", "BLUEPRINT");
 		break;
 	}
 
@@ -1118,8 +1159,14 @@ void FBlueprintEditor::EnsureBlueprintIsUpToDate(UBlueprint* BlueprintObj)
 			BlueprintObj->SimpleConstructionScript->SetFlags(RF_Transactional);
 
 			// Recreate (or create) any widgets that depend on the SCS
-			SCSEditor = SNew(SSCSEditor, SharedThis(this), BlueprintObj->SimpleConstructionScript, BlueprintObj);
-			SCSViewport = SAssignNew(SCSViewport, SSCSEditorViewport) .BlueprintEditor(SharedThis(this));
+			SCSEditor = SAssignNew(SCSEditor, SSCSEditor, BlueprintObj->SimpleConstructionScript)
+				.InEditingMode(this, &FBlueprintEditor::InEditingMode)
+				.PreviewActor(this, &FBlueprintEditor::GetPreviewActor)
+				.OnTreeViewSelectionChanged(this, &FBlueprintEditor::OnSCSEditorTreeViewSelectionChanged)
+				.OnUpdateSelectionFromNodes(this, &FBlueprintEditor::OnSCSEditorUpdateSelectionFromNodes)
+				.OnHighlightPropertyInDetailsView(this, &FBlueprintEditor::OnSCSEditorHighlightPropertyInDetailsView);
+			SCSViewport = SAssignNew(SCSViewport, SSCSEditorViewport)
+				.BlueprintEditor(SharedThis(this));
 		}
 
 		// If we should have a UCS but don't yet, make it
@@ -1223,7 +1270,7 @@ void FBlueprintEditor::CommonInitialization(const TArray<UBlueprint*>& InitBluep
 	}
 
 	// Make sure we know when tabs become active to update details tab
-	FGlobalTabmanager::Get()->OnActiveTabChanged_Subscribe( FOnActiveTabChanged::FDelegate::CreateRaw(this, &FBlueprintEditor::OnActiveTabChanged) );
+	OnActiveTabChangedDelegateHandle = FGlobalTabmanager::Get()->OnActiveTabChanged_Subscribe( FOnActiveTabChanged::FDelegate::CreateRaw(this, &FBlueprintEditor::OnActiveTabChanged) );
 
 	if (InitBlueprints.Num() == 1)
 	{
@@ -1429,27 +1476,37 @@ void FBlueprintEditor::RegisterApplicationModes(const TArray<UBlueprint*>& InBlu
 		}
 		else
 		{
-			AddApplicationMode(
-				FBlueprintEditorApplicationModes::StandardBlueprintEditorMode,
-				MakeShareable(new FBlueprintEditorApplicationMode(SharedThis(this), FBlueprintEditorApplicationModes::StandardBlueprintEditorMode, FBlueprintEditorApplicationModes::GetLocalizedMode)));
-			AddApplicationMode(
-				FBlueprintEditorApplicationModes::BlueprintDefaultsMode,
-				MakeShareable(new FBlueprintDefaultsApplicationMode(SharedThis(this))));
-			AddApplicationMode(
-				FBlueprintEditorApplicationModes::BlueprintComponentsMode,
-				MakeShareable(new FBlueprintComponentsApplicationMode(SharedThis(this))));
-
-			if ( bShouldOpenInDefaultsMode )
+			if ( GetDefault<UEditorExperimentalSettings>()->bUnifiedBlueprintEditor )
 			{
-				SetCurrentMode(FBlueprintEditorApplicationModes::BlueprintDefaultsMode);
-			}
-			else if ( bShouldOpenInComponentsMode && CanAccessComponentsMode() )
-			{
-				SetCurrentMode(FBlueprintEditorApplicationModes::BlueprintComponentsMode);
+				AddApplicationMode(
+					FBlueprintEditorApplicationModes::StandardBlueprintEditorMode,
+					MakeShareable(new FBlueprintEditorUnifiedMode(SharedThis(this), FBlueprintEditorApplicationModes::StandardBlueprintEditorMode, FBlueprintEditorApplicationModes::GetLocalizedMode, CanAccessComponentsMode())));
+				SetCurrentMode(FBlueprintEditorApplicationModes::StandardBlueprintEditorMode);
 			}
 			else
 			{
-				SetCurrentMode(FBlueprintEditorApplicationModes::StandardBlueprintEditorMode);
+				AddApplicationMode(
+					FBlueprintEditorApplicationModes::StandardBlueprintEditorMode,
+					MakeShareable(new FBlueprintEditorApplicationMode(SharedThis(this), FBlueprintEditorApplicationModes::StandardBlueprintEditorMode, FBlueprintEditorApplicationModes::GetLocalizedMode)));
+				AddApplicationMode(
+					FBlueprintEditorApplicationModes::BlueprintDefaultsMode,
+					MakeShareable(new FBlueprintDefaultsApplicationMode(SharedThis(this))));
+				AddApplicationMode(
+					FBlueprintEditorApplicationModes::BlueprintComponentsMode,
+					MakeShareable(new FBlueprintComponentsApplicationMode(SharedThis(this))));
+
+				if ( bShouldOpenInDefaultsMode )
+				{
+					SetCurrentMode(FBlueprintEditorApplicationModes::BlueprintDefaultsMode);
+				}
+				else if ( bShouldOpenInComponentsMode && CanAccessComponentsMode() )
+				{
+					SetCurrentMode(FBlueprintEditorApplicationModes::BlueprintComponentsMode);
+				}
+				else
+				{
+					SetCurrentMode(FBlueprintEditorApplicationModes::StandardBlueprintEditorMode);
+				}
 			}
 		}
 	}
@@ -1763,7 +1820,7 @@ FBlueprintEditor::~FBlueprintEditor()
 		GetBlueprintObj()->OnChanged().RemoveAll( this );
 	}
 
-	FGlobalTabmanager::Get()->OnActiveTabChanged_Unsubscribe( FOnActiveTabChanged::FDelegate::CreateRaw(this, &FBlueprintEditor::OnActiveTabChanged) );
+	FGlobalTabmanager::Get()->OnActiveTabChanged_Unsubscribe( OnActiveTabChangedDelegateHandle );
 
 	if (FEngineAnalytics::IsAvailable())
 	{
@@ -1886,9 +1943,14 @@ void FBlueprintEditor::CreateDefaultTabContents(const TArray<UBlueprint*>& InBlu
 		InBlueprint->ParentClass->IsChildOf(AActor::StaticClass()) && 
 		InBlueprint->SimpleConstructionScript )
 	{
-		SCSEditor = SNew(SSCSEditor, SharedThis(this), InBlueprint->SimpleConstructionScript, InBlueprint);
-		
-		SCSViewport = SAssignNew(SCSViewport, SSCSEditorViewport) .BlueprintEditor(SharedThis(this));
+		SCSEditor = SAssignNew(SCSEditor, SSCSEditor, InBlueprint->SimpleConstructionScript)
+			.InEditingMode(this, &FBlueprintEditor::InEditingMode)
+			.PreviewActor(this, &FBlueprintEditor::GetPreviewActor)
+			.OnTreeViewSelectionChanged(this, &FBlueprintEditor::OnSCSEditorTreeViewSelectionChanged)
+			.OnUpdateSelectionFromNodes(this, &FBlueprintEditor::OnSCSEditorUpdateSelectionFromNodes)
+			.OnHighlightPropertyInDetailsView(this, &FBlueprintEditor::OnSCSEditorHighlightPropertyInDetailsView);
+		SCSViewport = SAssignNew(SCSViewport, SSCSEditorViewport)
+			.BlueprintEditor(SharedThis(this));
 	}
 }
 
@@ -2489,12 +2551,11 @@ void FBlueprintEditor::OnGraphEditorFocused(const TSharedRef<SGraphEditor>& InGr
 
 void FBlueprintEditor::OnGraphEditorDropActor(const TArray< TWeakObjectPtr<AActor> >& Actors, UEdGraph* Graph, const FVector2D& DropLocation)
 {
-	// First we need to check that the dropped actor is in the right sublevel for the reference
-	ULevelScriptBlueprint* LevelBlueprint = Cast<ULevelScriptBlueprint>(GetBlueprintObj());
-	if (LevelBlueprint != NULL)
-	{
-		ULevel* BlueprintLevel = LevelBlueprint->GetLevel();
+	// We need to check that the dropped actor is in the right sublevel for the reference
+	ULevel* BlueprintLevel = FBlueprintEditorUtils::GetLevelFromBlueprint(GetBlueprintObj());
 
+	if (BlueprintLevel && FBlueprintEditorUtils::IsLevelScriptBlueprint(GetBlueprintObj()))
+	{
 		FVector2D NodeLocation = DropLocation;
 		for (int32 i = 0; i < Actors.Num(); i++)
 		{
@@ -6361,14 +6422,14 @@ void FBlueprintEditor::VariableListWasUpdated()
 	StartEditingDefaults(/*bAutoFocus=*/ false);
 }
 
-FString FBlueprintEditor::DefaultEditString() 
+FText FBlueprintEditor::DefaultEditString() 
 {
-	return LOCTEXT("BlueprintEditingDefaults", "Editing defaults").ToString();
+	return LOCTEXT("BlueprintEditingDefaults", "Editing defaults");
 }
 
-FString FBlueprintEditor::GetDefaultEditorTitle()
+FText FBlueprintEditor::GetDefaultEditorTitle()
 {
-	return LOCTEXT("BlueprintDefaultsTabTitle", "Blueprint Defaults").ToString();
+	return LOCTEXT("BlueprintDefaultsTabTitle", "Blueprint Defaults");
 }
 
 bool FBlueprintEditor::GetBoundsForSelectedNodes(class FSlateRect& Rect, float Padding)
@@ -6852,22 +6913,6 @@ void FBlueprintEditor::ToolkitBroughtToFront()
 	}
 }
 
-bool FBlueprintEditor::CanClassGenerateEvents( UClass* InClass )
-{
-	if( InClass )
-	{
-		for( TFieldIterator<UMulticastDelegateProperty> PropertyIt( InClass, EFieldIteratorFlags::IncludeSuper ); PropertyIt; ++PropertyIt )
-		{
-			UProperty* Property = *PropertyIt;
-			if( !Property->HasAnyPropertyFlags( CPF_Parm ) && Property->HasAllPropertyFlags( CPF_BlueprintAssignable ))
-			{
-				return true;
-			}
-		}
-	}
-	return false;
-}
-
 void FBlueprintEditor::OnNodeSpawnedByKeymap()
 {
 	UpdateNodeCreationStats( ENodeCreateAction::Keymap );
@@ -6907,7 +6952,7 @@ TSharedPtr<ISCSEditorCustomization> FBlueprintEditor::CustomizeSCSEditor(USceneC
 	return TSharedPtr<ISCSEditorCustomization>();
 }
 
-FString FBlueprintEditor::GetPIEStatus() const
+FText FBlueprintEditor::GetPIEStatus() const
 {
 	UBlueprint* CurrentBlueprint = GetBlueprintObj();
 	UWorld *DebugWorld = NULL;
@@ -6937,14 +6982,14 @@ FString FBlueprintEditor::GetPIEStatus() const
 
 	if (NetMode == NM_ListenServer || NetMode == NM_DedicatedServer)
 	{
-		return TEXT("SERVER - SIMULATING");
+		return LOCTEXT("PIEStatusServerSimulating", "SERVER - SIMULATING");
 	}
 	else if (NetMode == NM_Client)
 	{
-		return TEXT("CLIENT - SIMULATING");
+		return LOCTEXT("PIEStatusClientSimulating", "CLIENT - SIMULATING");
 	}
 
-	return TEXT("SIMULATING");
+	return LOCTEXT("PIEStatusSimulating", "SIMULATING");
 }
 
 bool FBlueprintEditor::IsEditingAnimGraph() const
@@ -7004,9 +7049,9 @@ float FBlueprintEditor::GetInstructionTextOpacity(UEdGraph* InGraph) const
 	return 1.0f;
 }
 
-FString FBlueprintEditor::GetGraphDecorationString(UEdGraph* InGraph) const
+FText FBlueprintEditor::GetGraphDecorationString(UEdGraph* InGraph) const
 {
-	return TEXT("");
+	return FText::GetEmpty();
 }
 
 bool FBlueprintEditor::IsGraphInCurrentBlueprint(UEdGraph* InGraph) const

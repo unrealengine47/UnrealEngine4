@@ -875,12 +875,13 @@ void UEdGraphSchema_K2::ListFunctionsMatchingSignatureAsDelegates(FGraphContextM
 
 }
 
-bool UEdGraphSchema_K2::IsActorValidForLevelScriptRefs(const AActor* TestActor, const ULevelScriptBlueprint* Blueprint) const
+bool UEdGraphSchema_K2::IsActorValidForLevelScriptRefs(const AActor* TestActor, const UBlueprint* Blueprint) const
 {
 	check(Blueprint);
-	
+
 	return TestActor
-		&& (TestActor->GetLevel() == Blueprint->GetLevel())
+		&& FBlueprintEditorUtils::IsLevelScriptBlueprint(Blueprint)
+		&& (TestActor->GetLevel() == FBlueprintEditorUtils::GetLevelFromBlueprint(Blueprint))
 		&& FKismetEditorUtilities::IsActorValidForLevelScript(TestActor);
 }
 
@@ -905,30 +906,21 @@ void UEdGraphSchema_K2::ReplaceSelectedNode(UEdGraphNode* SourceNode, AActor* Ta
 
 void UEdGraphSchema_K2::AddSelectedReplaceableNodes( UBlueprint* Blueprint, const UEdGraphNode* InGraphNode, FMenuBuilder* MenuBuilder ) const
 {
-	ULevelScriptBlueprint* LevelBlueprint = Cast<ULevelScriptBlueprint>(Blueprint);
-	
-	if (LevelBlueprint)
+	//Only allow replace object reference functionality for literal nodes
+	const UK2Node_Literal* LiteralNode = Cast<UK2Node_Literal>(InGraphNode);
+	if (LiteralNode)
 	{
-		//Only allow replace object reference functionality for literal nodes
-		if( InGraphNode->IsA( UK2Node_Literal::StaticClass() ) )
+		USelection* SelectedActors = GEditor->GetSelectedActors();
+		for(FSelectionIterator Iter(*SelectedActors); Iter; ++Iter)
 		{
-			UK2Node_Literal* LiteralNode = (UK2Node_Literal*)(InGraphNode);
-
-			if( LiteralNode )
+			// We only care about actors that are referenced in the world for literals, and also in the same level as this blueprint
+			AActor* Actor = Cast<AActor>(*Iter);
+			if( LiteralNode->GetObjectRef() != Actor && IsActorValidForLevelScriptRefs(Actor, Blueprint) )
 			{
-				USelection* SelectedActors = GEditor->GetSelectedActors();
-				for(FSelectionIterator Iter(*SelectedActors); Iter; ++Iter)
-				{
-					// We only care about actors that are referenced in the world for literals, and also in the same level as this blueprint
-					AActor* Actor = Cast<AActor>(*Iter);
-					if( LiteralNode->GetObjectRef() != Actor && IsActorValidForLevelScriptRefs(Actor, LevelBlueprint) )
-					{
-						FText Description = FText::Format( LOCTEXT("ChangeToActorName", "Change to <{0}>"), FText::FromString( Actor->GetActorLabel() ) );
-						FText ToolTip = LOCTEXT("ReplaceNodeReferenceToolTip", "Replace node reference");
-						MenuBuilder->AddMenuEntry( Description, ToolTip, FSlateIcon(), FUIAction(
-							FExecuteAction::CreateUObject((UEdGraphSchema_K2*const)this, &UEdGraphSchema_K2::ReplaceSelectedNode, const_cast< UEdGraphNode* >(InGraphNode), Actor) ) );
-					}
-				}
+				FText Description = FText::Format( LOCTEXT("ChangeToActorName", "Change to <{0}>"), FText::FromString( Actor->GetActorLabel() ) );
+				FText ToolTip = LOCTEXT("ReplaceNodeReferenceToolTip", "Replace node reference");
+				MenuBuilder->AddMenuEntry( Description, ToolTip, FSlateIcon(), FUIAction(
+					FExecuteAction::CreateUObject((UEdGraphSchema_K2*const)this, &UEdGraphSchema_K2::ReplaceSelectedNode, const_cast< UEdGraphNode* >(InGraphNode), Actor) ) );
 			}
 		}
 	}
@@ -2716,9 +2708,9 @@ FLinearColor UEdGraphSchema_K2::GetPinTypeColor(const FEdGraphPinType& PinType) 
 	return Settings->DefaultPinTypeColor;
 }
 
-FString UEdGraphSchema_K2::GetPinDisplayName(const UEdGraphPin* Pin) const 
+FText UEdGraphSchema_K2::GetPinDisplayName(const UEdGraphPin* Pin) const 
 {
-	FString DisplayName;
+	FText DisplayName = FText::GetEmpty();
 
 	if (Pin != NULL)
 	{
@@ -2733,15 +2725,15 @@ FString UEdGraphSchema_K2::GetPinDisplayName(const UEdGraphPin* Pin) const
 	
 			// bit of a hack to hide 'execute' and 'then' pin names
 			if ((Pin->PinType.PinCategory == PC_Exec) && 
-				((DisplayName == PN_Execute) || (DisplayName == PN_Then)))
+				((DisplayName.ToString() == PN_Execute) || (DisplayName.ToString() == PN_Then)))
 			{
-				DisplayName = FString(TEXT(""));
+				DisplayName = FText::GetEmpty();
 			}
 		}
 
 		if( GEditor && GetDefault<UEditorStyleSettings>()->bShowFriendlyNames )
 		{
-			DisplayName = FName::NameToDisplayString(DisplayName, Pin->PinType.PinCategory == PC_Boolean);
+			DisplayName = FText::FromString(FName::NameToDisplayString(DisplayName.ToString(), Pin->PinType.PinCategory == PC_Boolean));
 		}
 	}
 	return DisplayName;
@@ -2763,7 +2755,7 @@ void UEdGraphSchema_K2::ConstructBasicPinTooltip(const UEdGraphPin& Pin, const F
 			UEdGraphSchema_K2 const* const K2Schema = Cast<const UEdGraphSchema_K2>(PinNode->GetSchema());
 			if (ensure(K2Schema != NULL)) // ensure that this node belongs to this schema
 			{
-				Args.Add(TEXT("DisplayName"), FText::FromString(GetPinDisplayName(&Pin)));
+				Args.Add(TEXT("DisplayName"), GetPinDisplayName(&Pin));
 				Args.Add(TEXT("LineFeed1"), FText::FromString(TEXT("\n")));
 			}
 		}

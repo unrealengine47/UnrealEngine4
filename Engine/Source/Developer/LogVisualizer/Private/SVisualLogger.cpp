@@ -138,6 +138,13 @@ void SVisualLogger::FVisualLoggerDevice::Serialize(const class UObject* LogOwner
 		return;
 	}
 
+	UWorld* World = LogOwner != nullptr ? GEngine->GetWorldFromContextObject(LogOwner) : NULL;
+	if (LastWorld.Get() != World)
+	{
+		Owner->OnNewWorld(LastWorld.Get());
+		LastWorld = World;
+	}
+
 	Owner->OnNewLogEntry(FVisualLogDevice::FVisualLogEntryItem(OwnerName, OwnerClassName, LogEntry));
 }
 
@@ -193,7 +200,7 @@ SVisualLogger::~SVisualLogger()
 		}
 	}
 
-	UDebugDrawService::Unregister(FDebugDrawDelegate::CreateRaw(VisualLoggerCanvasRenderer.Get(), &FVisualLoggerCanvasRenderer::DrawOnCanvas));
+	UDebugDrawService::Unregister(DrawOnCanvasDelegateHandle);
 	VisualLoggerCanvasRenderer.Reset();
 
 	FVisualLogger::Get().RemoveDevice(InternalDevice.Get());
@@ -235,8 +242,8 @@ void SVisualLogger::Construct(const FArguments& InArgs, const TSharedRef<SDockTa
 	ActionList.MapAction(Commands.StopRecording, FExecuteAction::CreateRaw(this, &SVisualLogger::HandleStopRecordingCommandExecute), FCanExecuteAction::CreateRaw(this, &SVisualLogger::HandleStopRecordingCommandCanExecute), FIsActionChecked(), FIsActionButtonVisible::CreateRaw(this, &SVisualLogger::HandleStopRecordingCommandIsVisible));
 	ActionList.MapAction(Commands.Pause, FExecuteAction::CreateRaw(this, &SVisualLogger::HandlePauseCommandExecute), FCanExecuteAction::CreateRaw(this, &SVisualLogger::HandlePauseCommandCanExecute), FIsActionChecked(), FIsActionButtonVisible::CreateRaw(this, &SVisualLogger::HandlePauseCommandIsVisible));
 	ActionList.MapAction(Commands.Resume, FExecuteAction::CreateRaw(this, &SVisualLogger::HandleResumeCommandExecute), FCanExecuteAction::CreateRaw(this, &SVisualLogger::HandleResumeCommandCanExecute), FIsActionChecked(), FIsActionButtonVisible::CreateRaw(this, &SVisualLogger::HandleResumeCommandIsVisible));
-	ActionList.MapAction(Commands.Load, FExecuteAction::CreateRaw(this, &SVisualLogger::HandleLoadCommandExecute), FCanExecuteAction::CreateRaw(this, &SVisualLogger::HandleLoadCommandCanExecute), FIsActionChecked(), FIsActionButtonVisible::CreateRaw(this, &SVisualLogger::HandleLoadCommandCanExecute));
-	ActionList.MapAction(Commands.Save, FExecuteAction::CreateRaw(this, &SVisualLogger::HandleSaveCommandExecute), FCanExecuteAction::CreateRaw(this, &SVisualLogger::HandleSaveCommandCanExecute), FIsActionChecked(), FIsActionButtonVisible::CreateRaw(this, &SVisualLogger::HandleSaveCommandCanExecute));
+	ActionList.MapAction(Commands.LoadFromVLog, FExecuteAction::CreateRaw(this, &SVisualLogger::HandleLoadCommandExecute), FCanExecuteAction::CreateRaw(this, &SVisualLogger::HandleLoadCommandCanExecute), FIsActionChecked(), FIsActionButtonVisible::CreateRaw(this, &SVisualLogger::HandleLoadCommandCanExecute));
+	ActionList.MapAction(Commands.SaveToVLog, FExecuteAction::CreateRaw(this, &SVisualLogger::HandleSaveCommandExecute), FCanExecuteAction::CreateRaw(this, &SVisualLogger::HandleSaveCommandCanExecute), FIsActionChecked(), FIsActionButtonVisible::CreateRaw(this, &SVisualLogger::HandleSaveCommandCanExecute));
 	ActionList.MapAction(Commands.FreeCamera, 
 		FExecuteAction::CreateRaw(this, &SVisualLogger::HandleCameraCommandExecute), 
 		FCanExecuteAction::CreateRaw(this, &SVisualLogger::HandleCameraCommandCanExecute), 
@@ -247,6 +254,11 @@ void SVisualLogger::Construct(const FArguments& InArgs, const TSharedRef<SDockTa
 		FCanExecuteAction(),
 		FIsActionChecked::CreateLambda([]()->bool{return ULogVisualizerSessionSettings::StaticClass()->GetDefaultObject<ULogVisualizerSessionSettings>()->bEnableGraphsVisualization; }),
 		FIsActionButtonVisible());
+	ActionList.MapAction(Commands.ResetData, 
+		FExecuteAction::CreateRaw(this, &SVisualLogger::ResetData),
+		FCanExecuteAction::CreateRaw(this, &SVisualLogger::HandleSaveCommandCanExecute),
+		FIsActionChecked(), 
+		FIsActionButtonVisible::CreateRaw(this, &SVisualLogger::HandleSaveCommandCanExecute));
 
 
 	// Tab Spawners
@@ -382,7 +394,7 @@ void SVisualLogger::Construct(const FArguments& InArgs, const TSharedRef<SDockTa
 
 	VisualLoggerCanvasRenderer = MakeShareable(new FVisualLoggerCanvasRenderer(VisualLoggerInterface));
 
-	UDebugDrawService::Register(TEXT("VisLog"), FDebugDrawDelegate::CreateRaw(VisualLoggerCanvasRenderer.Get(), &FVisualLoggerCanvasRenderer::DrawOnCanvas));
+	DrawOnCanvasDelegateHandle = UDebugDrawService::Register(TEXT("VisLog"), FDebugDrawDelegate::CreateRaw(VisualLoggerCanvasRenderer.Get(), &FVisualLoggerCanvasRenderer::DrawOnCanvas));
 	//UGameplayDebuggingComponent::OnDebuggingTargetChangedDelegate.AddSP(this, &SVisualLogger::SelectionChanged);
 }
 
@@ -400,8 +412,8 @@ void SVisualLogger::FillFileMenu(FMenuBuilder& MenuBuilder, const TSharedPtr<FTa
 {
 	MenuBuilder.BeginSection("LogFile", LOCTEXT("FileMenu", "Log File"));
 	{
-		MenuBuilder.AddMenuEntry(FVisualLoggerCommands::Get().Load);
-		MenuBuilder.AddMenuEntry(FVisualLoggerCommands::Get().Save);
+		MenuBuilder.AddMenuEntry(FVisualLoggerCommands::Get().LoadFromVLog);
+		MenuBuilder.AddMenuEntry(FVisualLoggerCommands::Get().SaveToVLog);
 	}
 	MenuBuilder.EndSection();
 	MenuBuilder.BeginSection("LogFilters", LOCTEXT("FIlterMenu", "Log Filters"));
@@ -643,6 +655,7 @@ void SVisualLogger::HandleLoadCommandExecute()
 
 	if (bOpened && OpenFilenames.Num() > 0)
 	{
+		OnNewWorld(nullptr);
 		for (int FilenameIndex = 0; FilenameIndex < OpenFilenames.Num(); ++FilenameIndex)
 		{
 			FString CurrentFileName = OpenFilenames[FilenameIndex];
@@ -732,6 +745,28 @@ void SVisualLogger::HandleSaveCommandExecute()
 	}
 }
 
+void SVisualLogger::ResetData()
+{
+	if (MainView.IsValid())
+	{
+		MainView->ResetData();
+	}
+
+	if (VisualLoggerFilters.IsValid())
+	{
+		VisualLoggerFilters->ResetData();
+	}
+}
+
+void SVisualLogger::OnNewWorld(UWorld* NewWorld)
+{
+	InternalDevice->SerLastWorld(NewWorld);
+	if (ULogVisualizerSettings::StaticClass()->GetDefaultObject<ULogVisualizerSettings>()->bResetDataWithNewSession)
+	{
+		ResetData();
+	}
+}
+
 void SVisualLogger::OnNewLogEntry(const FVisualLogDevice::FVisualLogEntryItem& Entry)
 {
 	CollectNewCategories(Entry);
@@ -763,6 +798,7 @@ void SVisualLogger::OnItemSelectionChanged(const FVisualLogDevice::FVisualLogEnt
 	LogsList->OnItemSelectionChanged(EntryItem);
 	StatusView->OnItemSelectionChanged(EntryItem);
 	VisualLoggerCanvasRenderer->OnItemSelectionChanged(EntryItem.Entry);
+	VisualLoggerFilters->OnItemSelectionChanged(EntryItem.Entry);
 	AVisualLoggerRenderingActor* HelperActor = Cast<AVisualLoggerRenderingActor>(VisualLoggerInterface->GetVisualLoggerHelperActor());
 	if (HelperActor)
 	{

@@ -271,25 +271,58 @@ void UUnrealEdEngine::SetActorSelectionFlags (AActor* InActor)
 void UUnrealEdEngine::UpdatePivotLocationForSelection( bool bOnChange )
 {
 	// Pick a new common pivot, or not.
-	int32 ActorCount=0;
-	AActor* SingleActor=NULL;
+	AActor* SingleActor = nullptr;
+	USceneComponent* SingleComponent = nullptr;
 
-	for ( FSelectionIterator It( GetSelectedActorIterator() ) ; It ; ++It )
+	if (GetSelectedComponentCount() > 0)
 	{
-		AActor* Actor = static_cast<AActor*>( *It );
-		checkSlow( Actor->IsA(AActor::StaticClass()) );
-
-		if ( Actor->GetWorld() == GWorld )
+		for (FSelectionIterator It(GetSelectedComponentIterator()); It; ++It)
 		{
-			SingleActor = Actor;
-			bool IsTemplate = Actor->IsTemplate();
-			bool LevelLocked = !FLevelUtils::IsLevelLocked(Actor->GetLevel());
-			check( IsTemplate || LevelLocked );
-			ActorCount++;
+			UActorComponent* Component = CastChecked<UActorComponent>(*It);
+			AActor* ComponentOwner = Component->GetOwner();
+			check(ComponentOwner);
+
+			auto SelectedActors = GetSelectedActors();
+			const bool bIsOwnerSelected = SelectedActors->IsSelected(ComponentOwner);
+			check(bIsOwnerSelected);
+
+			if (ComponentOwner->GetWorld() == GWorld)
+			{
+				SingleActor = ComponentOwner;
+				if (Component->IsA<USceneComponent>())
+				{
+					SingleComponent = CastChecked<USceneComponent>(Component);
+				}
+
+				const bool IsTemplate = ComponentOwner->IsTemplate();
+				const bool LevelLocked = !FLevelUtils::IsLevelLocked(ComponentOwner->GetLevel());
+				check(IsTemplate || LevelLocked);
+			}
+		}
+	}
+	else
+	{
+		for (FSelectionIterator It(GetSelectedActorIterator()); It; ++It)
+		{
+			AActor* Actor = static_cast<AActor*>(*It);
+			checkSlow(Actor->IsA(AActor::StaticClass()));
+
+			if (Actor->GetWorld() == GWorld)
+			{
+				const bool IsTemplate = Actor->IsTemplate();
+				const bool LevelLocked = !FLevelUtils::IsLevelLocked(Actor->GetLevel());
+				check(IsTemplate || LevelLocked);
+
+				SingleActor = Actor;
+			}
 		}
 	}
 	
-	if( ActorCount > 0 ) 
+	if (SingleComponent != NULL)
+	{
+		SetPivot(SingleComponent->GetComponentLocation(), false, true);
+	}
+	else if( SingleActor != NULL ) 
 	{		
 		// For geometry mode use current pivot location as it's set to selected face, not actor
 		FEditorModeTools& Tools = GLevelEditorModeTools();
@@ -318,7 +351,7 @@ void UUnrealEdEngine::UpdatePivotLocationForSelection( bool bOnChange )
 
 
 
-void UUnrealEdEngine::NoteSelectionChange()
+void UUnrealEdEngine::NoteSelectionChange(bool bComponentSelectionChanged)
 {
 	// The selection changed, so make sure the pivot (widget) is located in the right place
 	UpdatePivotLocationForSelection( true );
@@ -333,20 +366,23 @@ void UUnrealEdEngine::NoteSelectionChange()
 		ActiveModes[ModeIndex]->ActorSelectionChangeNotify();
 	}
 
-	USelection* Section = GetSelectedActors();
-	USelection::SelectionChangedEvent.Broadcast(Section);
+	USelection* Selection = bComponentSelectionChanged ? GetSelectedComponents() : GetSelectedActors();
+	USelection::SelectionChangedEvent.Broadcast(Selection);
 
-	//whenever selection changes, recompute whether the selection contains a locked actor
-	bCheckForLockActors = true;
+	
+	if (!bComponentSelectionChanged)
+	{
+		//whenever selection changes, recompute whether the selection contains a locked actor
+		bCheckForLockActors = true;
 
-	//whenever selection changes, recompute whether the selection contains a world info actor
-	bCheckForWorldSettingsActors = true;
+		//whenever selection changes, recompute whether the selection contains a world info actor
+		bCheckForWorldSettingsActors = true;
 
-	UpdateFloatingPropertyWindows();
+		UpdateFloatingPropertyWindows();
+	}
 
 	RedrawLevelEditingViewports();
 }
-
 
 void UUnrealEdEngine::SelectGroup(AGroupActor* InGroupActor, bool bForceSelection/*=false*/, bool bInSelected/*=true*/, bool bNotify/*=true*/)
 {
@@ -484,25 +520,25 @@ void UUnrealEdEngine::SelectActor(AActor* Actor, bool bInSelected, bool bNotify,
 			}
 		}
 
-			if(GEditor->bGroupingActive)
-			{
+		if (GEditor->bGroupingActive)
+		{
 			// if this actor is a group, do a group select/deselect
-				AGroupActor* SelectedGroupActor = Cast<AGroupActor>(Actor);
-				if( SelectedGroupActor )
-				{
+			AGroupActor* SelectedGroupActor = Cast<AGroupActor>(Actor);
+			if (SelectedGroupActor)
+			{
 				SelectGroup(SelectedGroupActor, true, bInSelected, bNotify);
-				}
-				else
-				{
+			}
+			else
+			{
 				// Select/Deselect this actor's entire group, starting from the top locked group.
 				// If none is found, just use the actor.
-					AGroupActor* ActorLockedRootGroup = AGroupActor::GetRootForActor(Actor, true);
-					if( ActorLockedRootGroup )
-					{
+				AGroupActor* ActorLockedRootGroup = AGroupActor::GetRootForActor(Actor, true);
+				if (ActorLockedRootGroup)
+				{
 					SelectGroup(ActorLockedRootGroup, false, bInSelected, bNotify);
-					}
 				}
 			}
+		}
 
 		// Don't do any work if the actor's selection state is already the selected state.
 		const bool bActorSelected = Actor->IsSelected();
@@ -518,7 +554,33 @@ void UUnrealEdEngine::SelectActor(AActor* Actor, bool bInSelected, bool bNotify,
 			}
 
 			GetSelectedActors()->Select( Actor, bInSelected );
-			
+			if (!bInSelected)
+			{
+				for (UActorComponent* Component : Actor->GetComponents())
+				{
+					GetSelectedComponents()->Deselect( Component );
+
+					// Remove the selection override delegates from the deselected components
+					auto PrimComponent = Cast<UPrimitiveComponent>(Component);
+					if (PrimComponent && PrimComponent->SelectionOverrideDelegate.IsBound())
+					{
+						PrimComponent->SelectionOverrideDelegate.Unbind();
+					}
+				}
+			}
+			else
+			{
+				for (UActorComponent* Component : Actor->GetComponents())
+				{
+					// Establish the selection override delegate for each of the actor's components
+					auto PrimComponent = Cast<UPrimitiveComponent>(Component);
+					if (PrimComponent && !PrimComponent->SelectionOverrideDelegate.IsBound())
+					{
+						PrimComponent->SelectionOverrideDelegate = UPrimitiveComponent::FSelectionOverride::CreateUObject(this, &UUnrealEdEngine::IsComponentSelected);
+					}
+				}
+			}
+
 			//A fast path to mark selection rather than reconnecting ALL components for ALL actors that have changed state
 			SetActorSelectionFlags (Actor);
 
@@ -542,6 +604,59 @@ void UUnrealEdEngine::SelectActor(AActor* Actor, bool bInSelected, bool bNotify,
 			}
 		}
 	}
+}
+
+void UUnrealEdEngine::SelectComponent(UActorComponent* Component, bool bInSelected, bool bNotify, bool bSelectEvenIfHidden)
+{
+	// Don't do any work if the component's selection state matches the target selection state
+	const bool bComponentSelected = Component->IsSelected();
+	if (( bComponentSelected && !bInSelected ) || ( !bComponentSelected && bInSelected ))
+	{
+		if (bInSelected)
+		{
+			UE_LOG(LogEditorSelectUtils, Verbose, TEXT("Selected Component: %s"), *Component->GetClass()->GetName());
+		}
+		else
+		{
+			UE_LOG(LogEditorSelectUtils, Verbose, TEXT("Deselected Component: %s"), *Component->GetClass()->GetName());
+		}
+
+		GetSelectedComponents()->Select(Component, bInSelected);
+
+		auto PrimComponent = Cast<UPrimitiveComponent>(Component);
+		if (PrimComponent && !PrimComponent->SelectionOverrideDelegate.IsBound())
+		{
+			PrimComponent->SelectionOverrideDelegate = UPrimitiveComponent::FSelectionOverride::CreateUObject(this, &UUnrealEdEngine::IsComponentSelected);
+		}
+
+		// Update the selection visualization
+		AActor* ComponentOwner = Component->GetOwner();
+		if (ComponentOwner != nullptr)
+		{
+			TInlineComponentArray<UPrimitiveComponent*> PrimitiveComponents;
+			ComponentOwner->GetComponents(PrimitiveComponents);
+
+			for (int32 Idx = 0; Idx < PrimitiveComponents.Num(); ++Idx)
+			{
+				PrimitiveComponents[Idx]->PushSelectionToProxy();
+			}
+		}
+
+		if (bNotify)
+		{
+			NoteSelectionChange(true);
+		}
+	}
+}
+
+bool UUnrealEdEngine::IsComponentSelected(const UPrimitiveComponent* PrimComponent)
+{
+	if (GetSelectedComponentCount() > 0)
+	{
+		return GetSelectedComponents()->IsSelected(PrimComponent);
+	}
+
+	return GetSelectedActors()->IsSelected(PrimComponent->GetOwner());
 }
 
 void UUnrealEdEngine::SelectBSPSurf(UModel* InModel, int32 iSurf, bool bSelected, bool bNoteSelectionChange)

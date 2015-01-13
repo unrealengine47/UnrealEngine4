@@ -286,7 +286,7 @@ void SLevelViewport::ConstructViewportOverlayContent()
 
 void SLevelViewport::ConstructLevelEditorViewportClient( const FArguments& InArgs )
 {
-	LevelViewportClient = MakeShareable( new FLevelEditorViewportClient() );
+	LevelViewportClient = MakeShareable( new FLevelEditorViewportClient(SharedThis(this)) );
 
 	// Default level viewport client values for settings that could appear in layout config ini
 	FLevelEditorViewportInstanceSettings ViewportInstanceSettings;
@@ -2487,7 +2487,7 @@ private:
 	FSlateColor GetBorderColorAndOpacity() const;
 
 	/** @return Gets the name of the preview actor.*/
-	FString OnReadText() const;
+	FText OnReadText() const;
 
 	/** @return Gets the Width of the preview viewport.*/
 	FOptionalSize OnReadWidth() const;
@@ -2802,15 +2802,15 @@ FSlateColor SActorPreview::GetBorderColorAndOpacity() const
 	return Color;
 }
 
-FString SActorPreview::OnReadText() const
+FText SActorPreview::OnReadText() const
 {
 	if( PreviewActorPtr.IsValid() )
 	{
-		return PreviewActorPtr.Get()->GetActorLabel();
+		return FText::FromString(PreviewActorPtr.Get()->GetActorLabel());
 	}
 	else
 	{
-		return TEXT("");
+		return FText::GetEmpty();
 	}
 }
 
@@ -2953,7 +2953,7 @@ void SLevelViewport::PreviewActors( const TArray< AActor* >& ActorsToPreview )
 		{
 			auto CurActor = *ActorIt;
 
-			TSharedPtr< FLevelEditorViewportClient > ActorPreviewLevelViewportClient = MakeShareable( new FLevelEditorViewportClient() );
+			TSharedPtr< FLevelEditorViewportClient > ActorPreviewLevelViewportClient = MakeShareable( new FLevelEditorViewportClient(SharedThis(this)) );
 			{
 				// NOTE: We don't bother setting ViewLocation, ViewRotation, etc, here.  This is because we'll call
 				//       PushControllingActorDataToViewportClient() below which will do this!
@@ -3152,33 +3152,37 @@ FText SLevelViewport::GetCurrentLevelText( bool bDrawOnlyLabel ) const
 	FText LabelName;
 	FText CurrentLevelName;
 
-	if( (&GetLevelViewportClient() == GCurrentLevelEditingViewportClient) && GetWorld() && GetWorld()->GetCurrentLevel() != NULL )
+	
+	if( ActiveViewport.IsValid() && (&GetLevelViewportClient() == GCurrentLevelEditingViewportClient) && GetWorld() && GetWorld()->GetCurrentLevel() != nullptr )
 	{
-		if( bDrawOnlyLabel )
+		if( ActiveViewport->GetPlayInEditorIsSimulate() || !ActiveViewport->GetClient()->GetWorld()->IsGameWorld() )
 		{
-			LabelName = LOCTEXT("CurrentLevelLabel", "Level:");
-		}
-		else
-		{
-			// Get the level name (without the number at the end)
-			FText ActualLevelName = FText::FromString( FPackageName::GetShortFName( GetWorld()->GetCurrentLevel()->GetOutermost()->GetFName() ).GetPlainNameString() );
-
-			if( GetWorld()->GetCurrentLevel() == GetWorld()->PersistentLevel )
+			if(bDrawOnlyLabel)
 			{
-				FFormatNamedArguments Args;
-				Args.Add( TEXT("ActualLevelName"), ActualLevelName );
-				CurrentLevelName = FText::Format( LOCTEXT("LevelName", "{0} (Persistent)"), ActualLevelName );
+				LabelName = LOCTEXT("CurrentLevelLabel", "Level:");
 			}
 			else
 			{
-				CurrentLevelName = ActualLevelName;
+				// Get the level name (without the number at the end)
+				FText ActualLevelName = FText::FromString(FPackageName::GetShortFName(GetWorld()->GetCurrentLevel()->GetOutermost()->GetFName()).GetPlainNameString());
+
+				if(GetWorld()->GetCurrentLevel() == GetWorld()->PersistentLevel)
+				{
+					FFormatNamedArguments Args;
+					Args.Add(TEXT("ActualLevelName"), ActualLevelName);
+					CurrentLevelName = FText::Format(LOCTEXT("LevelName", "{0} (Persistent)"), ActualLevelName);
+				}
+				else
+				{
+					CurrentLevelName = ActualLevelName;
+				}
+			}
+
+			if(bDrawOnlyLabel)
+			{
+				return LabelName;
 			}
 		}
-	}
-
-	if( bDrawOnlyLabel )
-	{
-		return LabelName;
 	}
 
 	return CurrentLevelName;

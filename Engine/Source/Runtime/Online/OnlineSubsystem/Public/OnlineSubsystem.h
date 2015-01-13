@@ -49,8 +49,8 @@ typedef TSharedPtr<class IOnlineSharing, ESPMode::ThreadSafe> IOnlineSharingPtr;
 typedef TSharedPtr<class IOnlineUser, ESPMode::ThreadSafe> IOnlineUserPtr;
 typedef TSharedPtr<class IOnlineMessage, ESPMode::ThreadSafe> IOnlineMessagePtr;
 typedef TSharedPtr<class IOnlinePresence, ESPMode::ThreadSafe> IOnlinePresencePtr;
-typedef TSharedPtr<class IOnlineParty, ESPMode::ThreadSafe> IOnlinePartyPtr;
 typedef TSharedPtr<class IOnlineChat, ESPMode::ThreadSafe> IOnlineChatPtr;
+typedef TSharedPtr<class IOnlineTurnBased, ESPMode::ThreadSafe> IOnlineTurnBasedPtr;
 typedef TSharedPtr<class FOnlineNotificationHandler, ESPMode::ThreadSafe> FOnlineNotificationHandlerPtr;
 typedef TSharedPtr<class FOnlineNotificationTransportManager, ESPMode::ThreadSafe> FOnlineNotificationTransportManagerPtr;
 
@@ -192,12 +192,6 @@ public:
 	virtual IOnlineIdentityPtr GetIdentityInterface() const = 0;
 
 	/** 
-	 * Get the interface for accessing party online services
-	 * @return Interface pointer for the appropriate party service
-	 */
-	virtual IOnlinePartyPtr GetPartyInterface() const = 0;
-
-	/** 
 	 * Get the interface for accessing title file online services
 	 * @return Interface pointer for the appropriate title file service
 	 */
@@ -250,6 +244,7 @@ public:
 	 * @return Interface pointer for the appropriate online user service
 	 */
 	virtual IOnlineChatPtr GetChatInterface() const = 0;
+
 	/**
 	* Get the notification handler instance for this subsystem
 	* @return Pointer for the appropriate notification handler
@@ -258,6 +253,12 @@ public:
 	{
 		return OnlineNotificationHandler;
 	}
+
+	/**
+	* Get the interface for managing turn based multiplayer games
+	* @return Interface pointer for the appropriate online user service
+	*/
+	virtual IOnlineTurnBasedPtr GetTurnBasedInterface() const = 0;
 
 	/**
 	* Get the transport manager instance for this subsystem

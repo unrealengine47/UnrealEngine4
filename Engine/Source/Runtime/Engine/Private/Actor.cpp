@@ -524,6 +524,9 @@ void AActor::ApplyWorldOffset(const FVector& InOffset, bool bWorldShift)
 	if (RootComponent != NULL && RootComponent->AttachParent == NULL)
 	{
 		RootComponent->ApplyWorldOffset(InOffset, bWorldShift);
+
+		UNavigationSystem::UpdateNavOctreeBounds(this);
+		UNavigationSystem::UpdateNavOctreeAll(this);
 	}
 }
 
@@ -748,20 +751,19 @@ void AActor::GetComponentsBoundingCylinder(float& OutCollisionRadius, float& Out
 	float Radius = 0.f;
 	float HalfHeight = 0.f;
 
-	TInlineComponentArray<UPrimitiveComponent*> Components;
-	GetComponents(Components);
-
-	for (int32 CompIdx = 0; CompIdx < Components.Num(); CompIdx++)
+	for (const UActorComponent* ActorComponent : GetComponents())
 	{
-		UPrimitiveComponent* PrimComp = Components[CompIdx];
-
-		// Only use collidable components to find collision bounding box.
-		if ((bIgnoreRegistration || PrimComp->IsRegistered()) && (bNonColliding || PrimComp->IsCollisionEnabled()))
+		const UPrimitiveComponent* PrimComp = Cast<const UPrimitiveComponent>(ActorComponent);
+		if (PrimComp)
 		{
-			float TestRadius, TestHalfHeight;
-			PrimComp->CalcBoundingCylinder(TestRadius, TestHalfHeight);
-			Radius = FMath::Max(Radius, TestRadius);
-			HalfHeight = FMath::Max(HalfHeight, TestHalfHeight);
+			// Only use collidable components to find collision bounding box.
+			if ((bIgnoreRegistration || PrimComp->IsRegistered()) && (bNonColliding || PrimComp->IsCollisionEnabled()))
+			{
+				float TestRadius, TestHalfHeight;
+				PrimComp->CalcBoundingCylinder(TestRadius, TestHalfHeight);
+				Radius = FMath::Max(Radius, TestRadius);
+				HalfHeight = FMath::Max(HalfHeight, TestHalfHeight);
+			}
 		}
 	}
 
@@ -839,17 +841,16 @@ FBox AActor::GetComponentsBoundingBox(bool bNonColliding) const
 {
 	FBox Box(0);
 
-	TInlineComponentArray<UPrimitiveComponent*> Components;
-	GetComponents(Components);
-
-	for(int32 CompIdx = 0; CompIdx < Components.Num(); CompIdx++)
+	for (const UActorComponent* ActorComponent : GetComponents())
 	{
-		UPrimitiveComponent* PrimComp = Components[CompIdx];
-
-		// Only use collidable components to find collision bounding box.
-		if( PrimComp->IsRegistered() && (bNonColliding || PrimComp->IsCollisionEnabled()) )
+		const UPrimitiveComponent* PrimComp = Cast<const UPrimitiveComponent>(ActorComponent);
+		if (PrimComp)
 		{
-			Box += PrimComp->Bounds.GetBox();
+			// Only use collidable components to find collision bounding box.
+			if (PrimComp->IsRegistered() && (bNonColliding || PrimComp->IsCollisionEnabled()))
+			{
+				Box += PrimComp->Bounds.GetBox();
+			}
 		}
 	}
 
@@ -1062,14 +1063,11 @@ float AActor::GetLastRenderTime() const
 {
 	// return most recent of Components' LastRenderTime
 	// @todo UE4 maybe check base component and components attached to it instead?
-	TInlineComponentArray<UPrimitiveComponent*> Components;
-	GetComponents(Components);
-
 	float LastRenderTime = -1000.f;
-	for( int32 i=0; i<Components.Num(); i++ )
+	for (const UActorComponent* ActorComponent : GetComponents())
 	{
-		UPrimitiveComponent* PrimComp = Components[i];
-		if(PrimComp->IsRegistered())
+		const UPrimitiveComponent* PrimComp = Cast<const UPrimitiveComponent>(ActorComponent);
+		if (PrimComp && PrimComp->IsRegistered())
 		{
 			LastRenderTime = FMath::Max(LastRenderTime, PrimComp->LastRenderTime);
 		}
@@ -3480,21 +3478,25 @@ UMaterialInstanceDynamic* AActor::MakeMIDForMaterial(class UMaterialInterface* P
 	return NULL;
 }
 
+// deprecated
 float AActor::GetDistanceTo(AActor* OtherActor)
 {
 	return OtherActor ? (GetActorLocation() - OtherActor->GetActorLocation()).Size() : 0.f;
 }
 
+// deprecated
 float AActor::GetHorizontalDistanceTo(AActor* OtherActor)
 {
 	return OtherActor ? (GetActorLocation() - OtherActor->GetActorLocation()).Size2D() : 0.f;
 }
 
+// deprecated
 float AActor::GetVerticalDistanceTo(AActor* OtherActor)
 {
 	return OtherActor ? FMath::Abs((GetActorLocation().Z - OtherActor->GetActorLocation().Z)) : 0.f;
 }
 
+// deprecated
 float AActor::GetDotProductTo(AActor* OtherActor)
 {
 	if (OtherActor)
@@ -3507,7 +3509,49 @@ float AActor::GetDotProductTo(AActor* OtherActor)
 	return -2.0;
 }
 
+// deprecated
 float AActor::GetHorizontalDotProductTo(AActor* OtherActor)
+{
+	if (OtherActor)
+	{
+		FVector Dir = GetActorForwardVector();
+		FVector Offset = OtherActor->GetActorLocation() - GetActorLocation();
+		Offset = Offset.GetSafeNormal2D();
+		return FVector::DotProduct(Dir, Offset);
+	}
+	return -2.0;
+}
+
+
+
+float AActor::GetDistanceToActor(AActor* OtherActor) const
+{
+	return OtherActor ? (GetActorLocation() - OtherActor->GetActorLocation()).Size() : 0.f;
+}
+
+float AActor::GetHorizontalDistanceToActor(AActor* OtherActor) const
+{
+	return OtherActor ? (GetActorLocation() - OtherActor->GetActorLocation()).Size2D() : 0.f;
+}
+
+float AActor::GetVerticalDistanceToActor(AActor* OtherActor) const
+{
+	return OtherActor ? FMath::Abs((GetActorLocation().Z - OtherActor->GetActorLocation().Z)) : 0.f;
+}
+
+float AActor::GetDotProductToActor(AActor* OtherActor) const
+{
+	if (OtherActor)
+	{
+		FVector Dir = GetActorForwardVector();
+		FVector Offset = OtherActor->GetActorLocation() - GetActorLocation();
+		Offset = Offset.GetSafeNormal();
+		return FVector::DotProduct(Dir, Offset);
+	}
+	return -2.0;
+}
+
+float AActor::GetHorizontalDotProductToActor(AActor* OtherActor) const
 {
 	if (OtherActor)
 	{

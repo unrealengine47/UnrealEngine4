@@ -178,7 +178,7 @@ public:
 				.AutoWidth()
 				[
 					SNew(STextBlock)
-					.Text( Param.DisplayName )
+					.Text( FText::FromString(Param.DisplayName) )
 				]
 				+SHorizontalBox::Slot()
 				.AutoWidth()
@@ -519,7 +519,7 @@ void SBlendSpaceSamplesWidget::ConstructSamplesPanel()
 				[
 					SNew(STextBlock)
 					.Font( GetSmallLayoutFont() )
-					.Text(FString::Printf(TEXT("%3d] "), I+1))
+					.Text(FText::Format(LOCTEXT("BlendSpaceSamplesLabel", "{0}]"), FText::AsNumber(I+1)))
 				]
 				+SHorizontalBox::Slot() .FillWidth(1) .HAlign(HAlign_Left)
 				[
@@ -1184,6 +1184,9 @@ void SBlendSpaceEditorBase::Construct(const FArguments& InArgs)
 	BlendSpace = InArgs._BlendSpace;
 	PersonaPtr = InArgs._Persona;
 	PersonaPtr.Pin()->RegisterOnPostUndo(FPersona::FOnPostUndo::CreateSP( this, &SBlendSpaceEditorBase::PostUndo ) );
+
+	bIsActiveTimerRegistered = true;
+	RegisterActiveTimer(0.f, FWidgetActiveTimerDelegate::CreateSP(this, &SBlendSpaceEditorBase::UpdatePreview));
 }
 
 EActiveTimerReturnType SBlendSpaceEditorBase::UpdatePreview( double InCurrentTime, float InDeltaTime )

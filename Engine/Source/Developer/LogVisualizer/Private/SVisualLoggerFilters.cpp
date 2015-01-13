@@ -388,6 +388,16 @@ void SVisualLoggerFilters::AddFilter(const FString& InFilterName)
 	GraphsFilterCombo->SetVisibility(GraphFilters.Num() > 0 ? EVisibility::Visible : EVisibility::Collapsed);
 }
 
+void SVisualLoggerFilters::ResetData()
+{
+	for (auto& CurrentFilter : Filters)
+	{
+		FilterBox->RemoveSlot(CurrentFilter);
+	}
+	Filters.Reset();
+}
+
+
 void SVisualLoggerFilters::OnFiltersChanged()
 {
 	TArray<FString> EnabledFilters;
@@ -450,6 +460,24 @@ bool SVisualLoggerFilters::IsFilterEnabled(const FString& InGraphName, const FSt
 void SVisualLoggerFilters::OnFiltersSearchChanged(const FText& Filter)
 {
 
+}
+
+void SVisualLoggerFilters::OnItemSelectionChanged(const struct FVisualLogEntry& EntryItem)
+{
+	TArray<FVisualLoggerCategoryVerbosityPair> Categories;
+	FVisualLoggerHelpers::GetCategories(EntryItem, Categories);
+	for (int32 Index = 0; Index < Filters.Num(); ++Index)
+	{
+		SFilterWidget& Filter = Filters[Index].Get();
+		Filter.SetBorderBackgroundColor(FLinearColor(0.2f, 0.2f, 0.2f, 0.2f));
+		for (const FVisualLoggerCategoryVerbosityPair& Category : Categories)
+		{
+			if (Filter.GetFilterName() == Category.CategoryName)
+			{
+				Filter.SetBorderBackgroundColor(FLinearColor(0.3f, 0.3f, 0.3f, 0.8f));
+			}
+		}
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

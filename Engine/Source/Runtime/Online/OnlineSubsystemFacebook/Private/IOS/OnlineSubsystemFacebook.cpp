@@ -10,6 +10,7 @@ FOnlineSubsystemFacebook::FOnlineSubsystemFacebook()
 	: FacebookIdentity(NULL)
 	, FacebookFriends(NULL)
 	, FacebookSharing(NULL)
+	, FacebookUser(NULL)
 {
 
 }
@@ -19,6 +20,7 @@ FOnlineSubsystemFacebook::~FOnlineSubsystemFacebook()
 	FacebookIdentity = NULL;
 	FacebookFriends = NULL;
 	FacebookSharing = NULL; 
+	FacebookUser = NULL;
 }
 
 IOnlineSessionPtr FOnlineSubsystemFacebook::GetSessionInterface() const
@@ -111,12 +113,12 @@ IOnlinePresencePtr FOnlineSubsystemFacebook::GetPresenceInterface() const
 	return NULL;
 }
 
-IOnlinePartyPtr FOnlineSubsystemFacebook::GetPartyInterface() const
+IOnlineChatPtr FOnlineSubsystemFacebook::GetChatInterface() const
 {
 	return NULL;
 }
 
-IOnlineChatPtr FOnlineSubsystemFacebook::GetChatInterface() const
+IOnlineTurnBasedPtr FOnlineSubsystemFacebook::GetTurnBasedInterface() const
 {
 	return NULL;
 }

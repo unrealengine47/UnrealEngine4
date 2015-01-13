@@ -28,6 +28,7 @@
 #include "PhysicsEngine/PhysicsSettings.h"
 #include "Components/WindDirectionalSourceComponent.h"
 #include "Engine/StaticMesh.h"
+#include "SAnimationEditorViewport.h"
 
 namespace {
 	// Value from UE3
@@ -78,8 +79,8 @@ IMPLEMENT_HIT_PROXY( HPersonaBoneProxy, HHitProxy );
 /////////////////////////////////////////////////////////////////////////
 // FAnimationViewportClient
 
-FAnimationViewportClient::FAnimationViewportClient( FPreviewScene& InPreviewScene, TWeakPtr<FPersona> InPersonaPtr )
-	: FEditorViewportClient(nullptr, &InPreviewScene)
+FAnimationViewportClient::FAnimationViewportClient(FPreviewScene& InPreviewScene, TWeakPtr<FPersona> InPersonaPtr, const TSharedRef<SAnimationEditorViewport>& InAnimationEditorViewport)
+	: FEditorViewportClient(nullptr, &InPreviewScene, StaticCastSharedRef<SEditorViewport>(InAnimationEditorViewport))
 	, PersonaPtr( InPersonaPtr )
 	, bManipulating(false)
 	, bInTransaction(false)
@@ -2236,13 +2237,15 @@ float FAnimationViewportClient::GetWindStrengthSliderValue() const
 	return 0;
 }
 
-FString FAnimationViewportClient::GetWindStrengthLabel() const
+FText FAnimationViewportClient::GetWindStrengthLabel() const
 {
 	//Clamp slide value so that minimum value displayed is 0.00 and maximum is 1.0
 	float SliderValue = FMath::Clamp<float>(GetWindStrengthSliderValue(), 0.0f, 1.0f);
 
-	FString Value = FString::Printf(TEXT("%.2f%"),SliderValue);
-	return Value;
+	static const FNumberFormattingOptions FormatOptions = FNumberFormattingOptions()
+		.SetMinimumFractionalDigits(2)
+		.SetMaximumFractionalDigits(2);
+	return FText::AsNumber(SliderValue, &FormatOptions);
 }
 
 void FAnimationViewportClient::SetGravityScale( float SliderPos )
@@ -2263,13 +2266,15 @@ float FAnimationViewportClient::GetGravityScaleSliderValue() const
 	return GravityScaleSliderValue;
 }
 
-FString FAnimationViewportClient::GetGravityScaleLabel() const
+FText FAnimationViewportClient::GetGravityScaleLabel() const
 {
 	//Clamp slide value so that minimum value displayed is 0.00 and maximum is 4.0
 	float SliderValue = FMath::Clamp<float>(GetGravityScaleSliderValue()*4, 0.0f, 4.0f);
 
-	FString Value = FString::Printf(TEXT("%.2f%"),SliderValue);
-	return Value;
+	static const FNumberFormattingOptions FormatOptions = FNumberFormattingOptions()
+		.SetMinimumFractionalDigits(2)
+		.SetMaximumFractionalDigits(2);
+	return FText::AsNumber(SliderValue, &FormatOptions);
 }
 
 void FAnimationViewportClient::ToggleShowNormals()
