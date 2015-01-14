@@ -882,11 +882,8 @@ void UBehaviorTreeComponent::ProcessExecutionRequest()
 		// additional operations for restarting:
 		if (!ExecutionRequest.bTryNextChild)
 		{
-			// mark all decorators less important than current search start node for removal
-			// (all from first node on branch with search start)
-			const int32 StartNodeIdx = ExecutionRequest.ExecuteNode->GetBranchExecutionIndex(ExecutionRequest.SearchStart.ExecutionIndex) - 1;
-			const FBTNodeIndex DeactivateIdx(ExecutionRequest.ExecuteInstanceIdx, FMath::Max(StartNodeIdx, 0));
-			UnregisterAuxNodesUpTo(DeactivateIdx);
+			// mark all decorators less important than current search start for removal
+			UnregisterAuxNodesUpTo(ExecutionRequest.SearchStart);
 
 			// reactivate top search node, so it could use search range correctly
 			BT_SEARCHLOG(SearchData, Verbose, TEXT("Reactivate node: %s [restart]"), *UBehaviorTreeTypes::DescribeNodeHelper(TestNode));

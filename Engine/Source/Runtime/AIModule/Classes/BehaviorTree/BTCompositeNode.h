@@ -153,9 +153,6 @@ class AIMODULE_API UBTCompositeNode : public UBTNode
 	/** find branch containing specified node index */
 	int32 GetMatchingChildIndex(int32 ActiveInstanceIdx, struct FBTNodeIndex& NodeIdx) const;
 
-	/** get first execution index of given branch */
-	uint16 GetBranchExecutionIndex(uint16 NodeInBranchIdx) const;
-
 	/** is child execution allowed by decorators? */
 	bool DoDecoratorsAllowExecution(class UBehaviorTreeComponent* OwnerComp, int32 InstanceIdx, int32 ChildIdx) const;
 
