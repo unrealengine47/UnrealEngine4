@@ -22,6 +22,7 @@
 #include "Engine/SCS_Node.h"
 #endif
 #include "Components/TimelineComponent.h"
+#include "Engine/InheritableComponentHandler.h"
 
 DEFINE_LOG_CATEGORY(LogBlueprint);
 
@@ -363,29 +364,33 @@ void UBlueprint::Serialize(FArchive& Ar)
 
 bool UBlueprint::RenameGeneratedClasses( const TCHAR* InName, UObject* NewOuter, ERenameFlags Flags )
 {
-	FName SkelClassName, GenClassName;
-	GetBlueprintClassNames(GenClassName, SkelClassName, FName(InName));
+	const bool bRenameGeneratedClasses = !(Flags & REN_SkipGeneratedClasses );
 
-	UPackage* NewTopLevelObjectOuter = NewOuter ? NewOuter->GetOutermost() : NULL;
-	if (GeneratedClass != NULL)
+	if(bRenameGeneratedClasses)
 	{
-		bool bMovedOK = GeneratedClass->Rename(*GenClassName.ToString(), NewTopLevelObjectOuter, Flags);
-		if (!bMovedOK)
+		FName SkelClassName, GenClassName;
+		GetBlueprintClassNames(GenClassName, SkelClassName, FName(InName));
+
+		UPackage* NewTopLevelObjectOuter = NewOuter ? NewOuter->GetOutermost() : NULL;
+		if (GeneratedClass != NULL)
 		{
-			return false;
+			bool bMovedOK = GeneratedClass->Rename(*GenClassName.ToString(), NewTopLevelObjectOuter, Flags);
+			if (!bMovedOK)
+			{
+				return false;
+			}
+		}
+
+		// Also move skeleton class, if different from generated class, to new package (again, to create redirector)
+		if (SkeletonGeneratedClass != NULL && SkeletonGeneratedClass != GeneratedClass)
+		{
+			bool bMovedOK = SkeletonGeneratedClass->Rename(*SkelClassName.ToString(), NewTopLevelObjectOuter, Flags);
+			if (!bMovedOK)
+			{
+				return false;
+			}
 		}
 	}
-
-	// Also move skeleton class, if different from generated class, to new package (again, to create redirector)
-	if (SkeletonGeneratedClass != NULL && SkeletonGeneratedClass != GeneratedClass)
-	{
-		bool bMovedOK = SkeletonGeneratedClass->Rename(*SkelClassName.ToString(), NewTopLevelObjectOuter, Flags);
-		if (!bMovedOK)
-		{
-			return false;
-		}
-	}
-
 	return true;
 }
 
@@ -533,6 +538,11 @@ void UBlueprint::PostLoad()
 	}
 
 	FStructureEditorUtils::RemoveInvalidStructureMemberVariableFromBlueprint(this);
+
+	if (InheritableComponentHandler)
+	{
+		InheritableComponentHandler->RemoveInvalidAndUnnecessaryTemplates();
+	}
 }
 
 void UBlueprint::DebuggingWorldRegistrationHelper(UObject* ObjectProvidingWorld, UObject* ValueToRegister)
@@ -839,6 +849,22 @@ bool UBlueprint::ValidateGeneratedClass(const UClass* InClass)
 	if (const USimpleConstructionScript* SimpleConstructionScript = GeneratedClass->SimpleConstructionScript)
 	{
 		if (!ensure(SimpleConstructionScript->GetOuter() == GeneratedClass))
+		{
+			return false;
+		}
+	}
+
+	if (const UInheritableComponentHandler* InheritableComponentHandler = Blueprint->InheritableComponentHandler)
+	{
+		if (!ensure(InheritableComponentHandler->GetOuter() == GeneratedClass))
+		{
+			return false;
+		}
+	}
+
+	if (const UInheritableComponentHandler* InheritableComponentHandler = GeneratedClass->InheritableComponentHandler)
+	{
+		if (!ensure(InheritableComponentHandler->GetOuter() == GeneratedClass))
 		{
 			return false;
 		}
@@ -1184,6 +1210,24 @@ bool UBlueprint::Modify(bool bAlwaysMarkDirty)
 {
 	bCachedDependenciesUpToDate = false;
 	return Super::Modify(bAlwaysMarkDirty);
+}
+
+UInheritableComponentHandler* UBlueprint::GetInheritableComponentHandler(bool bCreateIfNecessary)
+{
+	static const FBoolConfigValueHelper EnableInheritableComponents(TEXT("Kismet"), TEXT("bEnableInheritableComponents"), GEngineIni);
+	if (!EnableInheritableComponents)
+	{
+		return NULL;
+	}
+
+	if (!InheritableComponentHandler && bCreateIfNecessary)
+	{
+		auto BPGC = CastChecked<UBlueprintGeneratedClass>(GeneratedClass);
+		ensure(!BPGC->InheritableComponentHandler);
+		InheritableComponentHandler = NewNamedObject<UInheritableComponentHandler>(BPGC, FName(TEXT("InheritableComponentHandler")));
+		BPGC->InheritableComponentHandler = InheritableComponentHandler;
+	}
+	return InheritableComponentHandler;
 }
 
 #endif

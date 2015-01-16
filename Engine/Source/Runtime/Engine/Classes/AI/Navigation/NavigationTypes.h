@@ -86,9 +86,9 @@ struct FNavigationDirtyArea
 
 struct FNavigationBounds
 {
-	uint32	UniqueID;
-	FBox	AreaBox;	
-	FName	PackageName;
+	uint32						UniqueID;
+	FBox						AreaBox;	 
+	TWeakObjectPtr<ULevel>		Level;		// The level this bounds belongs to
 
 	bool operator==(const FNavigationBounds& Other) const 
 	{ 
@@ -393,10 +393,10 @@ struct ENGINE_API FNavDataConfig : public FNavAgentProperties
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Display)
 	FColor Color;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Querying, config)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Querying)
 	FVector DefaultQueryExtent;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Navigation, config)
+	UPROPERTY(Transient, EditAnywhere, BlueprintReadOnly, Category = Navigation)
 	TSubclassOf<ANavigationData> NavigationDataClass;
 
 	UPROPERTY(config)

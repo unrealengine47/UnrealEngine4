@@ -884,7 +884,7 @@ void FSlateApplication::TickWindowAndChildren( TSharedRef<SWindow> WindowToTick 
 		
 		{
 			SCOPE_CYCLE_COUNTER( STAT_SlateCacheDesiredSize );
-			WindowToTick->SlatePrepass();
+			WindowToTick->SlatePrepass(GetApplicationScale());
 		}
 
 		if (WindowToTick->IsAutosized())
@@ -956,7 +956,7 @@ void FSlateApplication::DrawWindowAndChildren( const TSharedRef<SWindow>& Window
 				
 				if (CursorWidget.IsValid())
 				{
-					CursorWidget->SlatePrepass();
+					CursorWidget->SlatePrepass(GetApplicationScale());
 
 					FVector2D CursorPosInWindowSpace = WindowToDraw->GetWindowGeometryInScreen().AbsoluteToLocal(GetCursorPos());
 					CursorPosInWindowSpace += (CursorWidget->GetDesiredSize() * -0.5);
@@ -1003,7 +1003,7 @@ static void PrepassWindowAndChildren( TSharedRef<SWindow> WindowToPrepass )
 
 	{
 		SCOPE_CYCLE_COUNTER(STAT_SlateCacheDesiredSize);
-		WindowToPrepass->SlatePrepass();
+		WindowToPrepass->SlatePrepass(FSlateApplication::Get().GetApplicationScale());
 	}
 
 	if (WindowToPrepass->IsAutosized())
@@ -1837,8 +1837,9 @@ void FSlateApplication::InvalidateAllViewports()
 
 void FSlateApplication::RegisterGameViewport( TSharedRef<SViewport> InViewport )
 {
+	InViewport->SetActive(true);
 	GameViewportWidget = InViewport;
-
+	
 	FWidgetPath PathToViewport;
 	// If we cannot find the window it could have been destroyed.
 	if (FSlateWindowHelper::FindPathToWidget(SlateWindows, InViewport, PathToViewport, EVisibility::All))
@@ -1859,6 +1860,11 @@ void FSlateApplication::RegisterGameViewport( TSharedRef<SViewport> InViewport )
 void FSlateApplication::UnregisterGameViewport()
 {
 	ResetToDefaultInputSettings();
+
+	if (GameViewportWidget.IsValid())
+	{
+		GameViewportWidget.Pin()->SetActive(false);
+	}
 	GameViewportWidget.Reset();
 }
 
@@ -2626,7 +2632,7 @@ void FSlateApplication::SpawnToolTip( const TSharedRef<IToolTip>& InToolTip, con
 		DesiredToolTipLocation = InSpawnLocation;
 		{
 			// Make sure the desired size is valid
-			NewToolTipWindow->SlatePrepass();
+			NewToolTipWindow->SlatePrepass(FSlateApplication::Get().GetApplicationScale());
 
 			FSlateRect Anchor(DesiredToolTipLocation.X, DesiredToolTipLocation.Y, DesiredToolTipLocation.X, DesiredToolTipLocation.Y);
 			DesiredToolTipLocation = CalculatePopupWindowPosition( Anchor, NewToolTipWindow->GetDesiredSize() );
@@ -3150,12 +3156,6 @@ float FSlateApplication::GetCursorRadius() const
 
 FVector2D FSlateApplication::CalculatePopupWindowPosition( const FSlateRect& InAnchor, const FVector2D& InSize, const EOrientation Orientation ) const
 {
-	// Do nothing if this window has no size
-	if (InSize == FVector2D::ZeroVector)
-	{
-		return FVector2D(InAnchor.Left, InAnchor.Top);
-	}
-
 	FVector2D CalculatedPopUpWindowPosition( 0, 0 );
 
 	FPlatformRect AnchorRect;

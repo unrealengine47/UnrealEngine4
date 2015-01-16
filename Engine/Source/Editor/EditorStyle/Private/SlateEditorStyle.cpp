@@ -1607,6 +1607,7 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 			.SetSelectedTextColor( InvertedForeground )
 			);
 
+		Set( "GameProjectDialog.FeaturePackThumbnail", new IMAGE_BRUSH( "GameProjectDialog/featurepack_avail_32x", FVector2D(32,32) ) );
 		Set( "GameProjectDialog.DefaultGameThumbnail", new IMAGE_BRUSH( "GameProjectDialog/default_game_thumbnail_128x", Icon128x128 ) );
 		Set( "GameProjectDialog.DefaultGameThumbnail.Small", new IMAGE_BRUSH( "GameProjectDialog/default_game_thumbnail", Icon128x128 ) );
 		Set( "GameProjectDialog.BlankProjectThumbnail", new IMAGE_BRUSH( "GameProjectDialog/blank_project_thumbnail", Icon128x128 ) );
@@ -3958,7 +3959,18 @@ void FSlateEditorStyle::FStyle::SetupLevelEditorStyle()
 		Set( "LevelEditor.Recompile", new IMAGE_BRUSH( "Icons/icon_compile_40x", Icon40x40 ) );
 		Set( "LevelEditor.Recompile.Small", new IMAGE_BRUSH( "Icons/icon_compile_40x", Icon20x20 ) );
 
-		Set( "LevelEditor.ViewOptions", new IMAGE_BRUSH( "Icons/icon_view_40x", Icon40x40 ) );
+		Set("LevelEditor.SourceControl", new IMAGE_BRUSH("Icons/icon_source_control_40x", Icon40x40));
+		Set("LevelEditor.SourceControl.Small", new IMAGE_BRUSH("Icons/icon_source_control_40x", Icon20x20));
+		Set("LevelEditor.SourceControl.On", new IMAGE_BRUSH("Icons/icon_source_control_40x_on", Icon40x40));
+		Set("LevelEditor.SourceControl.On.Small", new IMAGE_BRUSH("Icons/icon_source_control_40x_on", Icon20x20));
+		Set("LevelEditor.SourceControl.Off", new IMAGE_BRUSH("Icons/icon_source_control_40x_off", Icon40x40));
+		Set("LevelEditor.SourceControl.Off.Small", new IMAGE_BRUSH("Icons/icon_source_control_40x_off", Icon20x20));
+		Set("LevelEditor.SourceControl.Unknown", new IMAGE_BRUSH("Icons/icon_source_control_40x_unknown", Icon40x40));
+		Set("LevelEditor.SourceControl.Unknown.Small", new IMAGE_BRUSH("Icons/icon_source_control_40x_unknown", Icon20x20));
+		Set("LevelEditor.SourceControl.Problem", new IMAGE_BRUSH("Icons/icon_source_control_40x_problem", Icon40x40));
+		Set("LevelEditor.SourceControl.Problem.Small", new IMAGE_BRUSH("Icons/icon_source_control_40x_problem", Icon20x20));
+
+		Set("LevelEditor.ViewOptions", new IMAGE_BRUSH("Icons/icon_view_40x", Icon40x40));
 		Set( "LevelEditor.ViewOptions.Small", new IMAGE_BRUSH( "Icons/icon_view_40x", Icon20x20 ) );
 
 		Set( "LevelEditor.GameSettings", new IMAGE_BRUSH( "Icons/icon_game_settings_40x", Icon40x40 ) );
@@ -3992,10 +4004,6 @@ void FSlateEditorStyle::FStyle::SetupLevelEditorStyle()
 		Set( "LevelEditor.FoliageMode.Small", new IMAGE_BRUSH( "Icons/icon_Mode_Foliage_40x", Icon20x20 ) );
 		Set( "LevelEditor.FoliageMode.Selected", new IMAGE_BRUSH( "Icons/icon_Mode_Foliage_selected_40x", Icon40x40 ) );
 		Set( "LevelEditor.FoliageMode.Selected.Small", new IMAGE_BRUSH( "Icons/icon_Mode_Foliage_selected_40x", Icon20x20 ) );
-
-		Set("LevelEditor.EcosystemMode", new IMAGE_BRUSH("Icons/icon_Mode_Ecosystem_40x", Icon40x40));
-		Set("LevelEditor.EcosystemMode.Small", new IMAGE_BRUSH("Icons/icon_Mode_Ecosystem_40x", Icon20x20));
-
 
 		Set( "LevelEditor.BspMode", new IMAGE_BRUSH( "Icons/icon_Mode_GeoEdit_40px", Icon40x40 ) );
 		Set( "LevelEditor.BspMode.Small", new IMAGE_BRUSH( "Icons/icon_Mode_GeoEdit_40px", Icon20x20 ) );
@@ -5585,17 +5593,27 @@ void FSlateEditorStyle::FStyle::SetupToolkitStyles()
 	// Rich Curve Editor
 	{
 		Set("RichCurveEditor.ZoomToFitHorizontal", new IMAGE_BRUSH("Icons/icon_CurveEditor_Horizontal_40x", Icon40x40));
+		Set("RichCurveEditor.ZoomToFitHorizontal.Small", new IMAGE_BRUSH("Icons/icon_CurveEditor_Horizontal_40x", Icon20x20));
 		Set("RichCurveEditor.ZoomToFitVertical", new IMAGE_BRUSH("Icons/icon_CurveEditor_Vertical_40x", Icon40x40));
+		Set("RichCurveEditor.ZoomToFitVertical.Small", new IMAGE_BRUSH("Icons/icon_CurveEditor_Vertical_40x", Icon20x20));
 		Set("RichCurveEditor.ZoomToFitAll", new IMAGE_BRUSH("Icons/icon_CurveEditor_All_40x", Icon40x40));
+		Set("RichCurveEditor.ZoomToFitAll.Small", new IMAGE_BRUSH("Icons/icon_CurveEditor_All_40x", Icon20x20));
 		Set("RichCurveEditor.ZoomToFitSelected", new IMAGE_BRUSH("Icons/icon_CurveEditor_Selected_40x", Icon40x40));
+		Set("RichCurveEditor.ZoomToFitSelected.Small", new IMAGE_BRUSH("Icons/icon_CurveEditor_Selected_40x", Icon20x20));
 
 		Set("RichCurveEditor.ToggleSnapping", new IMAGE_BRUSH("Icons/icon_CurveEditor_ToggleSnap_40x", Icon40x40));
+		Set("RichCurveEditor.ToggleSnapping.Small", new IMAGE_BRUSH("Icons/icon_CurveEditor_ToggleSnap_40x", Icon20x20));
 
 		Set("RichCurveEditor.InterpolationCubicAuto", new IMAGE_BRUSH("Icons/icon_CurveEditor_Auto_40x", Icon40x40));
+		Set("RichCurveEditor.InterpolationCubicAuto.Small", new IMAGE_BRUSH("Icons/icon_CurveEditor_Auto_40x", Icon20x20));
 		Set("RichCurveEditor.InterpolationCubicUser", new IMAGE_BRUSH("Icons/icon_CurveEditor_User_40x", Icon40x40));
+		Set("RichCurveEditor.InterpolationCubicUser.Small", new IMAGE_BRUSH("Icons/icon_CurveEditor_User_40x", Icon20x20));
 		Set("RichCurveEditor.InterpolationCubicBreak", new IMAGE_BRUSH("Icons/icon_CurveEditor_Break_40x", Icon40x40));
+		Set("RichCurveEditor.InterpolationCubicBreak.Small", new IMAGE_BRUSH("Icons/icon_CurveEditor_Break_40x", Icon20x20));
 		Set("RichCurveEditor.InterpolationLinear", new IMAGE_BRUSH("Icons/icon_CurveEditor_Linear_40x", Icon40x40));
+		Set("RichCurveEditor.InterpolationLinear.Small", new IMAGE_BRUSH("Icons/icon_CurveEditor_Linear_40x", Icon20x20));
 		Set("RichCurveEditor.InterpolationConstant", new IMAGE_BRUSH("Icons/icon_CurveEditor_Constant_40x", Icon40x40));
+		Set("RichCurveEditor.InterpolationConstant.Small", new IMAGE_BRUSH("Icons/icon_CurveEditor_Constant_40x", Icon20x20));
 	}
 
 	// PhAT

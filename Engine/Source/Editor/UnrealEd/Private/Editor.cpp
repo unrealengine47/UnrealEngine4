@@ -3,7 +3,7 @@
 
 #include "UnrealEd.h"
 #include "Matinee/MatineeActor.h"
-#include "Engine/InteractiveFoliageActor.h"
+#include "InteractiveFoliageActor.h"
 #include "Animation/SkeletalMeshActor.h"
 #include "Animation/VertexAnim/VertexAnimation.h"
 #include "Engine/WorldComposition.h"
@@ -1204,7 +1204,16 @@ void UEditorEngine::Tick( float DeltaSeconds, bool bIdleMode )
 						}
 					}
 				}
-
+				
+				// Simulate world composition streaming while in editor world
+				if (EditorContext.World()->WorldComposition)
+				{
+					if (EditorContext.World()->WorldComposition->UpdateEditorStreamingState(ViewLocation))
+					{
+						bProcessViewer = true;
+					}
+				}
+				
 				// Call UpdateLevelStreaming if the visibility of any streaming levels was modified.
 				if ( bProcessViewer )
 				{
@@ -1579,6 +1588,11 @@ float UEditorEngine::GetMaxTickRate( float DeltaTime, bool bAllowFrameRateSmooth
 	float MaxTickRate = 0.0f;
 	if( !ShouldThrottleCPUUsage() )
 	{
+		// do not limit fps in VR Preview mode
+		if (bUseVRPreviewForPlayWorld)
+		{
+			return 0.0f;
+		}
 		const float SuperMaxTickRate = Super::GetMaxTickRate( DeltaTime, bAllowFrameRateSmoothing );
 		if( SuperMaxTickRate != 0.0f )
 		{
@@ -5154,6 +5168,10 @@ void UEditorEngine::ReplaceActors(UActorFactory* Factory, const FAssetData& Asse
 			NewActor->InvalidateLightingCache();
 			NewActor->PostEditMove(true);
 			NewActor->MarkPackageDirty();
+
+			// Replace references in the level script Blueprint with the new Actor
+			ULevelScriptBlueprint* LSB = NewActor->GetLevel()->GetLevelScriptBlueprint(true);
+			FBlueprintEditorUtils::ReplaceAllActorRefrences(LSB, OldActor, NewActor);
 
 			GEditor->Layers->DisassociateActorFromLayers( OldActor );
 			World->EditorDestroyActor(OldActor, true);

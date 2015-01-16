@@ -1777,7 +1777,7 @@ void AActor::DispatchBlockingHit(UPrimitiveComponent* MyComp, UPrimitiveComponen
 	// If component is still alive, call delegate on component
 	if(!MyComp->IsPendingKill())
 	{
-		MyComp->OnComponentHit.Broadcast(OtherActor, MyComp, OtherComp, FVector(0,0,0), Hit);
+		MyComp->OnComponentHit.Broadcast(OtherActor, OtherComp, FVector(0,0,0), Hit);
 	}
 }
 
@@ -2750,17 +2750,17 @@ FRotator AActor::K2_GetActorRotation() const
 
 FVector AActor::GetActorForwardVector() const
 {
-	return GetTransform().GetUnitAxis(EAxis::X);
+	return GetActorQuat().RotateVector(FVector::ForwardVector);
 }
 
 FVector AActor::GetActorUpVector() const
 {
-	return GetTransform().GetUnitAxis(EAxis::Z);
+	return GetActorQuat().RotateVector(FVector::UpVector);
 }
 
 FVector AActor::GetActorRightVector() const
 {
-	return GetTransform().GetUnitAxis(EAxis::Y);
+	return GetActorQuat().RotateVector(FVector::RightVector);
 }
 
 USceneComponent* AActor::K2_GetRootComponent() const
@@ -3062,7 +3062,7 @@ void AActor::DispatchPhysicsCollisionHit(const FRigidBodyCollisionInfo& MyInfo, 
 
 	if(MyInfo.Component.IsValid() && MyInfo.Component.Get()->OnComponentHit.IsBound())
 	{
-		MyInfo.Component.Get()->OnComponentHit.Broadcast(OtherInfo.Actor.Get(), MyInfo.Component.Get(), OtherInfo.Component.Get(), RigidCollisionData.TotalNormalImpulse, Result);
+		MyInfo.Component.Get()->OnComponentHit.Broadcast(OtherInfo.Actor.Get(), OtherInfo.Component.Get(), RigidCollisionData.TotalNormalImpulse, Result);
 	}
 }
 
@@ -3478,26 +3478,22 @@ UMaterialInstanceDynamic* AActor::MakeMIDForMaterial(class UMaterialInterface* P
 	return NULL;
 }
 
-// deprecated
-float AActor::GetDistanceTo(AActor* OtherActor)
+float AActor::GetDistanceTo(const AActor* OtherActor) const
 {
 	return OtherActor ? (GetActorLocation() - OtherActor->GetActorLocation()).Size() : 0.f;
 }
 
-// deprecated
-float AActor::GetHorizontalDistanceTo(AActor* OtherActor)
+float AActor::GetHorizontalDistanceTo(const AActor* OtherActor) const
 {
 	return OtherActor ? (GetActorLocation() - OtherActor->GetActorLocation()).Size2D() : 0.f;
 }
 
-// deprecated
-float AActor::GetVerticalDistanceTo(AActor* OtherActor)
+float AActor::GetVerticalDistanceTo(const AActor* OtherActor) const
 {
 	return OtherActor ? FMath::Abs((GetActorLocation().Z - OtherActor->GetActorLocation().Z)) : 0.f;
 }
 
-// deprecated
-float AActor::GetDotProductTo(AActor* OtherActor)
+float AActor::GetDotProductTo(const AActor* OtherActor) const
 {
 	if (OtherActor)
 	{
@@ -3509,8 +3505,7 @@ float AActor::GetDotProductTo(AActor* OtherActor)
 	return -2.0;
 }
 
-// deprecated
-float AActor::GetHorizontalDotProductTo(AActor* OtherActor)
+float AActor::GetHorizontalDotProductTo(const AActor* OtherActor) const
 {
 	if (OtherActor)
 	{
@@ -3522,46 +3517,6 @@ float AActor::GetHorizontalDotProductTo(AActor* OtherActor)
 	return -2.0;
 }
 
-
-
-float AActor::GetDistanceToActor(AActor* OtherActor) const
-{
-	return OtherActor ? (GetActorLocation() - OtherActor->GetActorLocation()).Size() : 0.f;
-}
-
-float AActor::GetHorizontalDistanceToActor(AActor* OtherActor) const
-{
-	return OtherActor ? (GetActorLocation() - OtherActor->GetActorLocation()).Size2D() : 0.f;
-}
-
-float AActor::GetVerticalDistanceToActor(AActor* OtherActor) const
-{
-	return OtherActor ? FMath::Abs((GetActorLocation().Z - OtherActor->GetActorLocation().Z)) : 0.f;
-}
-
-float AActor::GetDotProductToActor(AActor* OtherActor) const
-{
-	if (OtherActor)
-	{
-		FVector Dir = GetActorForwardVector();
-		FVector Offset = OtherActor->GetActorLocation() - GetActorLocation();
-		Offset = Offset.GetSafeNormal();
-		return FVector::DotProduct(Dir, Offset);
-	}
-	return -2.0;
-}
-
-float AActor::GetHorizontalDotProductToActor(AActor* OtherActor) const
-{
-	if (OtherActor)
-	{
-		FVector Dir = GetActorForwardVector();
-		FVector Offset = OtherActor->GetActorLocation() - GetActorLocation();
-		Offset = Offset.GetSafeNormal2D();
-		return FVector::DotProduct(Dir, Offset);
-	}
-	return -2.0;
-}
 
 #if WITH_EDITOR
 const int32 AActor::GetNumUncachedStaticLightingInteractions() const

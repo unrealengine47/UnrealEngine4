@@ -6,6 +6,8 @@
 
 #include "InstancedStaticMeshComponent.generated.h"
 
+DECLARE_STATS_GROUP(TEXT("Foliage"), STATGROUP_Foliage, STATCAT_Advanced);
+
 class FStaticLightingTextureMapping_InstancedStaticMesh;
 class FInstancedLightMap2D;
 class FInstancedShadowMap2D;
@@ -88,6 +90,9 @@ class ENGINE_API UInstancedStaticMeshComponent : public UStaticMeshComponent
 	UPROPERTY()
 	TArray<int32> RemovedInstances;
 
+	/** Tracks outstanding proxysize, as this is a bit hard to do with the fire-and-forget grass. */
+	SIZE_T ProxySize;
+
 	/** Add an instance to this component. Transform is given in local space of this component.  */
 	UFUNCTION(BlueprintCallable, Category="Components|InstancedStaticMesh")
 	virtual int32 AddInstance(const FTransform& InstanceTransform);
@@ -157,7 +162,11 @@ public:
 	
 	virtual bool DoCustomNavigableGeometryExport(struct FNavigableGeometryExport* GeomExport) const override;
 	// End UPrimitiveComponent Interface
-
+	
+	// Begin UNavRelevantInterface interface.
+	virtual void GetNavigationData(FNavigationRelevantData& Data) const override;
+	// End UPrimitiveComponent interface.
+	
 	//Begin UObject Interface
 	virtual void Serialize(FArchive& Ar) override;
 	virtual SIZE_T GetResourceSize(EResourceSizeMode::Type Mode) override;
@@ -208,3 +217,19 @@ protected:
 	friend FInstancedShadowMap2D;
 };
 
+/** InstancedStaticMeshInstance hit proxy */
+struct HInstancedStaticMeshInstance : public HHitProxy
+{
+	UInstancedStaticMeshComponent* Component;
+	int32 InstanceIndex;
+
+	DECLARE_HIT_PROXY(ENGINE_API);
+	HInstancedStaticMeshInstance(UInstancedStaticMeshComponent* InComponent, int32 InInstanceIndex) : HHitProxy(HPP_World), Component(InComponent), InstanceIndex(InInstanceIndex) {}
+
+	virtual void AddReferencedObjects(FReferenceCollector& Collector) override;
+
+	virtual EMouseCursor::Type GetMouseCursor()
+	{
+		return EMouseCursor::CardinalCross;
+	}
+};

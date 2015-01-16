@@ -223,6 +223,17 @@ namespace UnrealBuildTool
         public List<string> PlatformSpecificDynamicallyLoadedModuleNames = new List<string>();
 
 		/// <summary>
+		/// Property for the directory containing this module. Useful for adding paths to third party dependencies.
+		/// </summary>
+		public string ModuleDirectory
+		{
+			get
+			{
+				return Path.GetDirectoryName(RulesCompiler.GetModuleFilename(GetType().Name));
+			}
+		}
+
+		/// <summary>
 		/// Add the given ThirdParty modules as static private dependencies
 		///	Statically linked to this module, meaning they utilize exports from the other module
 		///	Private, meaning the include paths for the included modules will not be exposed when giving this modules include paths
@@ -1731,7 +1742,7 @@ namespace UnrealBuildTool
 		/// <param name="Target">Information about the target associated with this target</param>
 		/// <returns>The build target object for the specified build rules source file</returns>
 		public static UEBuildTarget CreateTarget(string TargetName, TargetInfo Target,
-			List<string> InAdditionalDefinitions, string InRemoteRoot, List<OnlyModule> InOnlyModules, bool bInEditorRecompile)
+			List<string> InAdditionalDefinitions, string InRemoteRoot, List<OnlyModule> InOnlyModules, bool bInEditorRecompile, string InOverridenAppName)
 		{
 			var CreateTargetStartTime = DateTime.UtcNow;
 
@@ -1819,7 +1830,8 @@ namespace UnrealBuildTool
 							InAdditionalDefinitions:InAdditionalDefinitions, 
 							InRemoteRoot:InRemoteRoot, 
 							InOnlyModules:InOnlyModules,
-							bInEditorRecompile:bInEditorRecompile);
+							bInEditorRecompile:bInEditorRecompile,
+							InOverridenAppName: InOverridenAppName);
 					}
 					break;
 			}

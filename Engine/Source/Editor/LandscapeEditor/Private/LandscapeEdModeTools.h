@@ -4,7 +4,7 @@
 
 #include "Landscape.h"
 #include "LandscapeHeightfieldCollisionComponent.h"
-#include "Foliage/InstancedFoliageActor.h"
+#include "InstancedFoliageActor.h"
 #include "AI/Navigation/NavigationSystem.h"
 
 //
@@ -603,6 +603,9 @@ struct FHeightmapAccessor
 				Component->InvalidateLightingCache();
 			}
 
+			// Flush dynamic foliage (grass)
+			LandscapeInfo->GetLandscapeProxy()->FlushFoliageComponents(&Components);
+
 			// Notify foliage to move any attached instances
 			bool bUpdateFoliage = false;
 			for (ULandscapeComponent* Component : Components)
@@ -652,10 +655,6 @@ struct FHeightmapAccessor
 				// No foliage, just update landscape.
 				LandscapeEdit->SetHeightData(X1, Y1, X2, Y2, Data, 0, true);
 			}
-		}
-		else
-		{
-			ChangedComponents.Empty();
 		}
 	}
 
@@ -783,6 +782,9 @@ struct FXYOffsetmapAccessor
 				}
 			}
 
+			// Flush dynamic foliage (grass)
+			LandscapeInfo->GetLandscapeProxy()->FlushFoliageComponents(&Components);
+
 			// Notify foliage to move any attached instances
 			bool bUpdateFoliage = false;
 			for (ULandscapeComponent* Component : Components)
@@ -827,10 +829,6 @@ struct FXYOffsetmapAccessor
 				LandscapeEdit->SetXYOffsetData(X1, Y1, X2, Y2, Data, 0); // XY Offset always need to be update before the height update
 				LandscapeEdit->SetHeightData(X1, Y1, X2, Y2, NewHeights.GetData(), 0, true);
 			}
-		}
-		else
-		{
-			ChangedComponents.Empty();
 		}
 	}
 
@@ -903,9 +901,9 @@ struct FAlphamapAccessor
 	~FAlphamapAccessor()
 	{
 		// Recreate collision for modified components to update the physical materials
-		for (auto It = ModifiedComponents.CreateConstIterator(); It; ++It)
+		for (ULandscapeComponent* Component : ModifiedComponents)
 		{
-			ULandscapeHeightfieldCollisionComponent* CollisionComponent = (*It)->CollisionComponent.Get();
+			ULandscapeHeightfieldCollisionComponent* CollisionComponent = Component->CollisionComponent.Get();
 			if (CollisionComponent)
 			{
 				CollisionComponent->RecreateCollision(false);
@@ -913,7 +911,7 @@ struct FAlphamapAccessor
 				// We need to trigger navigation mesh build, in case user have painted holes on a landscape
 				if (LayerInfo == ALandscapeProxy::VisibilityLayer)
 				{
-					UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(*It);
+					UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(Component);
 					if (NavSys)
 					{
 						NavSys->UpdateNavOctree(CollisionComponent);
@@ -938,6 +936,9 @@ struct FAlphamapAccessor
 		TSet<ULandscapeComponent*> Components;
 		if (LandscapeEdit.GetComponentsInRegion(X1, Y1, X2, Y2, &Components))
 		{
+			// Flush dynamic foliage (grass)
+			LandscapeInfo->GetLandscapeProxy()->FlushFoliageComponents(&Components);
+
 			LandscapeEdit.SetAlphaData(LayerInfo, X1, Y1, X2, Y2, Data, 0, PaintingRestriction, bBlendWeight, bUseTotalNormalize);
 			ModifiedComponents.Append(Components);
 		}
@@ -1006,9 +1007,35 @@ struct FFullWeightmapAccessor
 {
 	enum { bUseInterp = bInUseInterp };
 	FFullWeightmapAccessor(ULandscapeInfo* InLandscapeInfo)
-		: LandscapeEdit(InLandscapeInfo)
+		: LandscapeInfo(InLandscapeInfo)
+		, LandscapeEdit(InLandscapeInfo)
 	{
 	}
+
+	~FFullWeightmapAccessor()
+	{
+		// Recreate collision for modified components to update the physical materials
+		for (ULandscapeComponent* Component : ModifiedComponents)
+		{
+			ULandscapeHeightfieldCollisionComponent* CollisionComponent = Component->CollisionComponent.Get();
+			if (CollisionComponent)
+			{
+				CollisionComponent->RecreateCollision(false);
+
+				// We need to trigger navigation mesh build, in case user have painted holes on a landscape
+				if (LandscapeInfo->GetLayerInfoIndex(ALandscapeProxy::VisibilityLayer) != INDEX_NONE)
+				{
+					UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(Component);
+					if (NavSys)
+					{
+						NavSys->UpdateNavOctree(CollisionComponent);
+					}
+				}
+			}
+		}
+	}
+
+
 	void GetData(int32& X1, int32& Y1, int32& X2, int32& Y2, TMap<FIntPoint, TArray<uint8>>& Data)
 	{
 		// Do not Support for interpolation....
@@ -1023,9 +1050,14 @@ struct FFullWeightmapAccessor
 
 	void SetData(int32 X1, int32 Y1, int32 X2, int32 Y2, const uint8* Data, ELandscapeLayerPaintingRestriction::Type PaintingRestriction)
 	{
-		if (LandscapeEdit.GetComponentsInRegion(X1, Y1, X2, Y2))
+		TSet<ULandscapeComponent*> Components;
+		if (LandscapeEdit.GetComponentsInRegion(X1, Y1, X2, Y2, &Components))
 		{
+			// Flush dynamic foliage (grass)
+			LandscapeInfo->GetLandscapeProxy()->FlushFoliageComponents(&Components);
+
 			LandscapeEdit.SetAlphaData(DirtyLayerInfos, X1, Y1, X2, Y2, Data, 0, PaintingRestriction);
+			ModifiedComponents.Append(Components);
 		}
 		DirtyLayerInfos.Empty();
 	}
@@ -1036,8 +1068,11 @@ struct FFullWeightmapAccessor
 	}
 
 	TSet<ULandscapeLayerInfoObject*> DirtyLayerInfos;
+
 private:
+	ULandscapeInfo* LandscapeInfo;
 	FLandscapeEditDataInterface LandscapeEdit;
+	TSet<ULandscapeComponent*> ModifiedComponents;
 };
 
 struct FLandscapeFullWeightCache : public TLandscapeEditCache < FFullWeightmapAccessor<false>, TArray<uint8> >

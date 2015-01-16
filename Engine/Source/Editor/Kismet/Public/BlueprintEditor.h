@@ -152,7 +152,7 @@ public:
 	// End of FGCObject interface
 
 	// IBlueprintEditor interface
-	virtual void RefreshEditors() override;
+	virtual void RefreshEditors(ERefreshBlueprintEditorReason::Type Reason = ERefreshBlueprintEditorReason::UnknownReason) override;
 	virtual void JumpToHyperlink(const UObject* ObjectReference, bool bRequestRename = false) override;
 	virtual void SummonSearchUI(bool bSetFindWithinBlueprint, FString NewSearchTerms = FString(), bool bSelectFirstResult = false) override;
 	virtual TArray<TSharedPtr<class FSCSEditorTreeNode> > GetSelectedSCSEditorTreeNodes() const override;
@@ -358,14 +358,17 @@ public:
 	/** Refresh the preview viewport to reflect changes in the SCS */
 	void UpdateSCSPreview(bool bUpdateNow = false);
 
+	/** Delegate invoked when the SCS editor widget needs to create a new component node for a component class type */
+	USCS_Node* OnSCSEditorAddNewComponent(UClass* InComponentClass);
+
+	/** Delegate invoked when the SCS editor widget needs to create a new component node for an existing component instance */
+	USCS_Node* OnSCSEditorAddExistingComponent(UActorComponent* InComponentInstance);
+
 	/** Delegate invoked when the tree view selection is changed in the SCS editor widget */
 	void OnSCSEditorTreeViewSelectionChanged(const TArray< TSharedPtr<class FSCSEditorTreeNode> >& SelectedNodes);
 
 	/** Delegate to update the Inspector (details) panel from the given set of selected nodes */
 	void OnSCSEditorUpdateSelectionFromNodes(const TArray< TSharedPtr<class FSCSEditorTreeNode> >& SelectedNodes);
-
-	/** Delegate invoked when the given property should be highlighted in the Inspector (details) panel */
-	void OnSCSEditorHighlightPropertyInDetailsView(const class FPropertyPath& InPropertyPath);
 
 	/** Pin visibility accessors */
 	void SetPinVisibility(SGraphEditor::EPinVisibility Visibility);
@@ -570,7 +573,12 @@ protected:
 	void OnGraphActionMenuClosed(bool bActionExecuted, bool bContextSensitiveChecked, bool bGraphPinContext);
 
 	/** Called when the Blueprint we are editing has changed */
-	virtual void OnBlueprintChanged(UBlueprint* InBlueprint);
+	virtual void OnBlueprintChangedImpl(UBlueprint* InBlueprint, bool bIsJustBeingCompiled = false);
+
+	/** Called when the Blueprint we are editing has changed, forwards to impl */
+	void OnBlueprintChanged(UBlueprint* InBlueprint) { return OnBlueprintChangedImpl(InBlueprint); }
+
+	void OnBlueprintCompiled(UBlueprint* InBlueprint);
 
 	/** Handles the unloading of Blueprints (by closing the editor, if it operating on the Blueprint being unloaded)*/
 	void OnBlueprintUnloaded(UBlueprint* InBlueprint);

@@ -129,7 +129,7 @@ class ULandscapeComponent : public UPrimitiveComponent
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=LandscapeComponent)
 	int32 SectionBaseY;
 
-	/** Total number of quads for this component */
+	/** Total number of quads for this component, has to be >0 */
 	UPROPERTY()
 	int32 ComponentSizeQuads;
 
@@ -250,7 +250,7 @@ public:
 	/** Platform Data where don't support texture sampling in vertex buffer */
 	FLandscapeComponentDerivedData PlatformData;
 
-	/** Grass data for cooked platforms, also used temporarily when cooking */
+	/** Grass data for generation **/
 	TSharedPtr<FGrassMap, ESPMode::ThreadSafe> GrassMap;
 
 	virtual ~ULandscapeComponent();
@@ -258,6 +258,7 @@ public:
 	// Begin UObject interface.	
 	virtual void PostInitProperties() override;	
 	virtual void Serialize(FArchive& Ar) override;
+	virtual SIZE_T GetResourceSize(EResourceSizeMode::Type Mode) override;
 	virtual void BeginDestroy() override;
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 	virtual void PostDuplicate(bool bDuplicateForPIE) override;

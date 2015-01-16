@@ -1,12 +1,16 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
+
 #include "EdGraph/EdGraphPin.h"
 #include "EdGraph/EdGraphNode.h"
 #include "BlueprintCore.h"
 #include "Blueprint.generated.h"
 
-/** States a blueprint can be in */
+
+/**
+ * Enumerates states a blueprint can be in.
+ */
 UENUM()
 enum EBlueprintStatus
 {
@@ -25,7 +29,10 @@ enum EBlueprintStatus
 	BS_MAX,
 };
 
-/** Types of blueprints */
+
+/**
+ * Enumerates types of blueprints.
+ */
 UENUM()
 enum EBlueprintType
 {
@@ -58,6 +65,7 @@ namespace EKismetCompileType
 		Cpp,
 	};
 };
+
 
 struct FKismetCompilerOptions
 {
@@ -125,6 +133,7 @@ struct FBPVariableMetaDataEntry
 	
 };
 
+
 /** Struct indicating a variable in the generated class */
 USTRUCT()
 struct FBPVariableDescription
@@ -184,6 +193,7 @@ struct FBPVariableDescription
 	
 };
 
+
 /** Struct containing information about what interfaces are implemented in this blueprint */
 USTRUCT()
 struct FBPInterfaceDescription
@@ -200,11 +210,10 @@ struct FBPInterfaceDescription
 
 
 	FBPInterfaceDescription()
-		: Interface(NULL)
-	{
-	}
-
+		: Interface(nullptr)
+	{ }
 };
+
 
 USTRUCT()
 struct FEditedDocumentInfo
@@ -223,28 +232,22 @@ struct FEditedDocumentInfo
 	float SavedZoomAmount;
 
 	FEditedDocumentInfo()
-		: EditedObject(NULL)
+		: EditedObject(nullptr)
 		, SavedViewOffset(0.0f, 0.0f)
 		, SavedZoomAmount(-1.0f)
-	{
-
-	}
+	{ }
 
 	FEditedDocumentInfo(UObject* InEditedObject)
 		: EditedObject(InEditedObject)
 		, SavedViewOffset(0.0f, 0.0f)
 		, SavedZoomAmount(-1.0f)
-	{
-
-	}
+	{ }
 
 	FEditedDocumentInfo(UObject* InEditedObject, FVector2D& InSavedViewOffset, float InSavedZoomAmount)
 		: EditedObject(InEditedObject)
 		, SavedViewOffset(InSavedViewOffset)
 		, SavedZoomAmount(InSavedZoomAmount)
-	{
-
-	}
+	{ }
 
 	friend bool operator==( const FEditedDocumentInfo& LHS, const FEditedDocumentInfo& RHS )
 	{
@@ -252,7 +255,6 @@ struct FEditedDocumentInfo
 	}
 };
 
-///////////////
 
 /**
  * Blueprints are special assets that provide an intuitive, node-based interface that can be used to create new types of Actors
@@ -379,6 +381,10 @@ class ENGINE_API UBlueprint : public UBlueprintCore
 	UPROPERTY()
 	TArray<class UTimelineTemplate*> Timelines;
 
+	/** Stores data to override (in children classes) components (created by SCS) from parent classes */
+	UPROPERTY()
+	class UInheritableComponentHandler* InheritableComponentHandler;
+
 	/** The type of this blueprint */
 	UPROPERTY(AssetRegistrySearchable)
 	TEnumAsByte<enum EBlueprintType> BlueprintType;
@@ -426,7 +432,12 @@ public:
 	FChangedEvent& OnChanged() { return ChangedEvent; }
 
 	/**	This should NOT be public */
-	void BroadcastChanged() { ChangedEvent.Broadcast( this ); }
+	void BroadcastChanged() { ChangedEvent.Broadcast(this); }
+
+	/** Broadcasts a notification whenever the blueprint has changed. */
+	DECLARE_EVENT_OneParam(UBlueprint, FCompiledEvent, class UBlueprint*);
+	FCompiledEvent& OnCompiled() { return CompiledEvent; }
+	void BroadcastCompiled() { CompiledEvent.Broadcast(this); }
 
 #if WITH_EDITORONLY_DATA
 protected:
@@ -435,7 +446,9 @@ protected:
 
 	/** Current world being debugged for this blueprint */
 	TWeakObjectPtr< class UWorld > CurrentWorldBeingDebugged;
+
 public:
+
 	/** Information for thumbnail rendering */
 	UPROPERTY(VisibleAnywhere, Instanced, Category=Thumbnail)
 	class UThumbnailInfo* ThumbnailInfo;
@@ -513,22 +526,23 @@ public:
 	virtual void GetReparentingRules(TSet< const UClass* >& AllowedChildrenOfClasses, TSet< const UClass* >& DisallowedChildrenOfClasses) const;
 
 private:
+
 	/** Sets the current object being debugged */
 	void DebuggingWorldRegistrationHelper(UObject* ObjectProvidingWorld, UObject* ValueToRegister);
-
 	
 public:
-	/** @return the current object being debugged, which can be NULL */
+
+	/** @return the current object being debugged, which can be nullptr */
 	virtual UObject* GetObjectBeingDebugged();
 
 	virtual class UWorld* GetWorldBeingDebugged();
 
 	/** Renames only the generated classes. Should only be used internally or when testing for rename. */
-	virtual bool RenameGeneratedClasses(const TCHAR* NewName = NULL, UObject* NewOuter = NULL, ERenameFlags Flags = REN_None);
+	virtual bool RenameGeneratedClasses(const TCHAR* NewName = nullptr, UObject* NewOuter = nullptr, ERenameFlags Flags = REN_None);
 
 	// Begin UObject interface (WITH_EDITOR)
 	virtual void PostDuplicate(bool bDuplicateForPIE) override;
-	virtual bool Rename(const TCHAR* NewName = NULL, UObject* NewOuter = NULL, ERenameFlags Flags = REN_None) override;
+	virtual bool Rename(const TCHAR* NewName = nullptr, UObject* NewOuter = nullptr, ERenameFlags Flags = REN_None) override;
 	virtual UClass* RegenerateClass(UClass* ClassToRegenerate, UObject* PreviousCDO, TArray<UObject*>& ObjLoaded) override;
 	virtual void PostLoad() override;
 	virtual void PostLoadSubobjects( FObjectInstancingGraph* OuterInstanceGraph ) override;
@@ -549,6 +563,8 @@ public:
 	virtual bool SupportsInputEvents() const;
 
 	bool ChangeOwnerOfTemplates();
+
+	UInheritableComponentHandler* GetInheritableComponentHandler(bool bCreateIfNecessary);
 
 #endif	//#if WITH_EDITOR
 
@@ -644,6 +660,9 @@ private:
 	/** Broadcasts a notification whenever the blueprint has changed. */
 	FChangedEvent ChangedEvent;
 
+	/** Broadcasts a notification whenever the blueprint is compiled. */
+	FCompiledEvent CompiledEvent;
+
 #if WITH_EDITOR
 public:
 	/** If this blueprint is currently being compiled, the CurrentMessageLog will be the log currently being used to send logs to. */
@@ -660,6 +679,7 @@ public:
 
 };
 
+
 #if WITH_EDITOR
 template<>
 inline FName UBlueprint::GetFieldNameFromClassByGuid<UFunction>(const UClass* InClass, const FGuid FunctionGuid)
@@ -672,4 +692,5 @@ inline bool UBlueprint::GetGuidFromClassByFieldName<UFunction>(const UClass* InC
 {
 	return GetFunctionGuidFromClassByFieldName(InClass, FunctionName, FunctionGuid);
 }
+
 #endif // #if WITH_EDITOR

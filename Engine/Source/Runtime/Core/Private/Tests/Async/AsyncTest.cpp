@@ -30,7 +30,15 @@ bool FAsyncTest::RunTest(const FString& Parameters)
 		auto Future = Async<int>(EAsyncExecution::Thread, Task);
 		int Result = Future.Get();
 
-		TestEqual(TEXT("Task graph task must return expected value"), Result, 123);
+		TestEqual(TEXT("Threaded task must return expected value"), Result, 123);
+	}
+
+	// thread pool task
+	{
+		auto Future = Async<int>(EAsyncExecution::ThreadPool, Task);
+		int Result = Future.Get();
+
+		TestEqual(TEXT("Thread pool task must return expected value"), Result, 123);
 	}
 
 	return true;

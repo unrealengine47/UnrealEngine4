@@ -30,6 +30,7 @@
 #include "Editor/Kismet/Public/FindInBlueprintManager.h"
 
 #include "BlueprintEditor.h"
+#include "BlueprintEditorSettings.h"
 #include "Editor/UnrealEd/Public/Kismet2/Kismet2NameValidators.h"
 
 #include "DefaultValueHelper.h"
@@ -46,9 +47,14 @@
 #include "NotificationManager.h"
 #include "Editor/Blutility/Public/IBlutilityModule.h"
 
+#include "Engine/InheritableComponentHandler.h"
 #define LOCTEXT_NAMESPACE "Blueprint"
 
 DEFINE_LOG_CATEGORY(LogBlueprintDebug);
+
+DECLARE_CYCLE_STAT(TEXT("Notify Blueprint Changed"), EKismetCompilerStats_NotifyBlueprintChanged, STATGROUP_KismetCompiler);
+DECLARE_CYCLE_STAT(TEXT("Mark Blueprint as Structurally Modified"), EKismetCompilerStats_MarkBlueprintasStructurallyModified, STATGROUP_KismetCompiler);
+DECLARE_CYCLE_STAT(TEXT("Refresh External DependencyNodes"), EKismetCompilerStats_RefreshExternalDependencyNodes, STATGROUP_KismetCompiler);
 
 FBlueprintEditorUtils::FFixLevelScriptActorBindingsEvent FBlueprintEditorUtils::FixLevelScriptActorBindingsEvent;
 
@@ -319,7 +325,7 @@ void FBlueprintEditorUtils::RefreshAllNodes(UBlueprint* Blueprint)
 
 void FBlueprintEditorUtils::RefreshExternalBlueprintDependencyNodes(UBlueprint* Blueprint, UStruct* RefreshOnlyChild)
 {
-	BP_SCOPED_COMPILER_EVENT_NAME(TEXT("Refresh External Dependency Nodes"));
+	BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_RefreshExternalDependencyNodes);
 
 	if (!Blueprint || !Blueprint->HasAllFlags(RF_LoadCompleted))
 	{
@@ -1135,6 +1141,21 @@ UClass* FBlueprintEditorUtils::RegenerateBlueprintClass(UBlueprint* Blueprint, U
 		// Make sure the simple construction script is loaded, since the outer hierarchy isn't compatible with PreloadMembers past the root node
 		FBlueprintEditorUtils::PreloadConstructionScript(Blueprint);
 
+		// Preload Overriden Components
+		if (Blueprint->InheritableComponentHandler)
+		{
+			if (Blueprint->InheritableComponentHandler->HasAllFlags(RF_NeedLoad))
+			{
+				auto Linker = Blueprint->InheritableComponentHandler->GetLinker();
+				if (Linker)
+				{
+					Linker->Preload(Blueprint->InheritableComponentHandler);
+				}
+			}
+
+			Blueprint->InheritableComponentHandler->PreloadAllTempates();
+		}
+
 		// Purge any NULL graphs
 		FBlueprintEditorUtils::PurgeNullGraphs(Blueprint);
 
@@ -1411,6 +1432,9 @@ void FBlueprintEditorUtils::PostDuplicateBlueprint(UBlueprint* Blueprint)
 			USimpleConstructionScript* SCSRootNode = Blueprint->SimpleConstructionScript;
 			Blueprint->SimpleConstructionScript = NULL;
 
+			UInheritableComponentHandler* InheritableComponentHandler = Blueprint->InheritableComponentHandler;
+			Blueprint->InheritableComponentHandler = NULL;
+
 			TArray<UActorComponent*> Templates = Blueprint->ComponentTemplates;
 			Blueprint->ComponentTemplates.Empty();
 
@@ -1493,9 +1517,19 @@ void FBlueprintEditorUtils::PostDuplicateBlueprint(UBlueprint* Blueprint)
 				OldToNewMap.Add(OldTimeline, NewTimeline);
 			}
 
+			if (InheritableComponentHandler)
+			{
+				NewBPGC->InheritableComponentHandler = Cast<UInheritableComponentHandler>(StaticDuplicateObject(InheritableComponentHandler, NewBPGC, *InheritableComponentHandler->GetName()));
+				if (NewBPGC->InheritableComponentHandler)
+				{
+					NewBPGC->InheritableComponentHandler->UpdateOwnerClass(NewBPGC);
+				}
+			}
+
 			Blueprint->SimpleConstructionScript = NewBPGC->SimpleConstructionScript;
 			Blueprint->ComponentTemplates = NewBPGC->ComponentTemplates;
 			Blueprint->Timelines = NewBPGC->Timelines;
+			Blueprint->InheritableComponentHandler = NewBPGC->InheritableComponentHandler;
 
 			Compiler.CompileBlueprint(Blueprint, CompileOptions, Results);
 
@@ -1602,7 +1636,7 @@ void FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(UBlueprint* Blue
 		FCompilerResultsLog Results;
 		Results.bLogInfoOnly = Blueprint->bIsRegeneratingOnLoad;
 
-		BP_SCOPED_COMPILER_EVENT_NAME(TEXT("Mark Blueprint as Structurally Modified"));
+		BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_MarkBlueprintasStructurallyModified);
 
 		TArray<UEdGraph*> AllGraphs;
 		Blueprint->GetAllGraphs(AllGraphs);
@@ -1630,7 +1664,8 @@ void FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(UBlueprint* Blue
 		}
 		UpdateDelegatesInBlueprint(Blueprint);
 
-		{ BP_SCOPED_COMPILER_EVENT_NAME(TEXT("Notify Blueprint Changed"));
+		{
+			BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_NotifyBlueprintChanged);
 
 			// Notify any interested parties that the blueprint has changed
 			Blueprint->BroadcastChanged();
@@ -2379,6 +2414,11 @@ bool FBlueprintEditorUtils::IsDataOnlyBlueprint(const UBlueprint* Blueprint)
 
 	// No implemented interfaces
 	if( Blueprint->ImplementedInterfaces.Num() > 0 )
+	{
+		return false;
+	}
+
+	if (Blueprint->InheritableComponentHandler && !Blueprint->InheritableComponentHandler->IsEmpty())
 	{
 		return false;
 	}
@@ -5568,6 +5608,39 @@ int32 FBlueprintEditorUtils::FindNumReferencesToActorFromLevelScript(ULevelScrip
 	return RefCount;
 }
 
+void FBlueprintEditorUtils::ReplaceAllActorRefrences(ULevelScriptBlueprint* InLevelScriptBlueprint, AActor* InOldActor, AActor* InNewActor)
+{
+	InLevelScriptBlueprint->Modify();
+	FBlueprintEditorUtils::MarkBlueprintAsModified(InLevelScriptBlueprint);
+
+	// Literal nodes are the common "get" type nodes and need to be updated with the new object reference
+	TArray< UK2Node_Literal* > LiteralNodes;
+	FBlueprintEditorUtils::GetAllNodesOfClass(InLevelScriptBlueprint, LiteralNodes);
+
+	for( UK2Node_Literal* LiteralNode : LiteralNodes )
+	{
+		if(LiteralNode->GetObjectRef() == InOldActor)
+		{
+			LiteralNode->Modify();
+			LiteralNode->SetObjectRef(InNewActor);
+			LiteralNode->ReconstructNode();
+		}
+	}
+
+	// Actor Bound Events reference the actors as well and need to be updated
+	TArray< UK2Node_ActorBoundEvent* > ActorEventNodes;
+	FBlueprintEditorUtils::GetAllNodesOfClass(InLevelScriptBlueprint, ActorEventNodes);
+
+	for( UK2Node_ActorBoundEvent* ActorEventNode : ActorEventNodes )
+	{
+		if(ActorEventNode->GetReferencedLevelActor() == InOldActor)
+		{
+			ActorEventNode->Modify();
+			ActorEventNode->EventOwner = InNewActor;
+			ActorEventNode->ReconstructNode();
+		}
+	}
+}
 
 void  FBlueprintEditorUtils::ModifyActorReferencedGraphNodes(ULevelScriptBlueprint* LevelScriptBlueprint, const AActor* InActor)
 {

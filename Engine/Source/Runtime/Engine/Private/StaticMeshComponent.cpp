@@ -516,7 +516,7 @@ void UStaticMeshComponent::GetStreamingTextureInfo(TArray<FStreamingTexturePrimi
 		}
 
 		const FSphere BoundingSphere	= Bounds.GetSphere();
-		const float LocalTexelFactor	= StaticMesh->GetStreamingTextureFactor(0) * StreamingDistanceMultiplier;
+		const float LocalTexelFactor	= StaticMesh->GetStreamingTextureFactor(0) * FMath::Max(0.0f, StreamingDistanceMultiplier);
 		const float LocalLightmapFactor	= bHasValidLightmapCoordinates ? StaticMesh->GetStreamingTextureFactor(StaticMesh->LightMapCoordinateIndex) : 1.0f;
 		const float WorldTexelFactor	= SplineDeformFactor * LocalTexelFactor * ComponentToWorld.GetMaximumAxisScale();
 		const float WorldLightmapFactor	= SplineDeformFactor * LocalLightmapFactor * ComponentToWorld.GetMaximumAxisScale();
@@ -1607,12 +1607,9 @@ bool UStaticMeshComponent::DoCustomNavigableGeometryExport(struct FNavigableGeom
 		UNavCollision* NavCollision = StaticMesh->NavCollision;
 		if (NavCollision->bIsDynamicObstacle)
 		{
-			FCompositeNavModifier Modifiers;
-			NavCollision->GetNavigationModifier(Modifiers, ComponentToWorld);
-			GeomExport->AddNavModifiers(Modifiers);
 			return false;
 		}
-				
+		
 		if (NavCollision->bHasConvexGeometry)
 		{
 			const FVector Scale3D = ComponentToWorld.GetScale3D();
@@ -1632,6 +1629,20 @@ bool UStaticMeshComponent::DoCustomNavigableGeometryExport(struct FNavigableGeom
 	}
 
 	return true;
+}
+
+void UStaticMeshComponent::GetNavigationData(FNavigationRelevantData& Data) const
+{
+	Super::GetNavigationData(Data);
+
+	if (StaticMesh && StaticMesh->NavCollision)	
+	{
+		UNavCollision* NavCollision = StaticMesh->NavCollision;
+		if (NavCollision->bIsDynamicObstacle)
+		{
+			NavCollision->GetNavigationModifier(Data.Modifiers, ComponentToWorld);
+		}
+	}
 }
 
 #if WITH_EDITOR

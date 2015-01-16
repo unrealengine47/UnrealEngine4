@@ -11,8 +11,7 @@
 DEFINE_LOG_CATEGORY_STATIC(LogWorldComposition, Log, All);
 
 #if WITH_EDITOR
-UWorldComposition::FWorldCompositionEvent UWorldComposition::OnWorldCompositionCreated;
-UWorldComposition::FWorldCompositionEvent UWorldComposition::OnWorldCompositionDestroyed;
+UWorldComposition::FEnableWorldCompositionEvent UWorldComposition::EnableWorldCompositionEvent;
 #endif // WITH_EDITOR
 
 UWorldComposition::UWorldComposition(const FObjectInitializer& ObjectInitializer)
@@ -587,7 +586,7 @@ void UWorldComposition::UpdateStreamingState()
 		{
 			FVector ViewLocation;
 			FRotator ViewRotation;
-			Player->PlayerController->GetActorEyesViewPoint(ViewLocation, ViewRotation);
+			Player->PlayerController->GetPlayerViewPoint(ViewLocation, ViewRotation);
 			CentroidLocation+= ViewLocation;
 			NumViews++;
 		}
@@ -605,6 +604,52 @@ void UWorldComposition::UpdateStreamingState()
 		UpdateStreamingState(CentroidLocation);
 	}
 }
+
+#if WITH_EDITOR
+bool UWorldComposition::UpdateEditorStreamingState(const FVector& InLocation)
+{
+	UWorld* OwningWorld = GetWorld();
+	bool bStateChanged = false;
+	
+	// Handle only editor worlds
+	if (!OwningWorld->IsGameWorld() && 
+		!OwningWorld->IsVisibilityRequestPending())
+	{
+		// Get the list of visible and hidden levels from current view point
+		TArray<FDistanceVisibleLevel> DistanceVisibleLevels;
+		TArray<FDistanceVisibleLevel> DistanceHiddenLevels;
+		GetDistanceVisibleLevels(InLocation, DistanceVisibleLevels, DistanceHiddenLevels);
+
+		// Hidden levels
+		for (const auto& Level : DistanceHiddenLevels)
+		{
+			ULevelStreaming* EditorStreamingLevel = OwningWorld->GetLevelStreamingForPackageName(TilesStreaming[Level.TileIdx]->GetWorldAssetPackageFName());
+			if (EditorStreamingLevel && 
+				EditorStreamingLevel->IsLevelLoaded() &&
+				EditorStreamingLevel->bShouldBeVisibleInEditor != false)
+			{
+				EditorStreamingLevel->bShouldBeVisibleInEditor = false;
+				bStateChanged = true;
+			}
+		}
+
+		// Visible levels
+		for (const auto& Level : DistanceVisibleLevels)
+		{
+			ULevelStreaming* EditorStreamingLevel = OwningWorld->GetLevelStreamingForPackageName(TilesStreaming[Level.TileIdx]->GetWorldAssetPackageFName());
+			if (EditorStreamingLevel &&
+				EditorStreamingLevel->IsLevelLoaded() &&
+				EditorStreamingLevel->bShouldBeVisibleInEditor != true)
+			{
+				EditorStreamingLevel->bShouldBeVisibleInEditor = true;
+				bStateChanged = true;
+			}
+		}
+	}
+
+	return bStateChanged;
+}
+#endif// WITH_EDITOR
 
 void UWorldComposition::EvaluateWorldOriginLocation(const FVector& ViewLocation)
 {

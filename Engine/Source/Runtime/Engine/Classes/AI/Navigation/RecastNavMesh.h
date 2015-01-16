@@ -363,7 +363,7 @@ struct FNavMeshTileData
 		return NavData->RawNavData;
 	}
 
-	FORCEINLINE const uint8* GetDataSafe() const
+	FORCEINLINE uint8* GetDataSafe()
 	{
 		return NavData.IsValid() ? NavData->RawNavData : NULL;
 	}
@@ -376,6 +376,9 @@ struct FNavMeshTileData
 	FORCEINLINE bool IsValid() const { return NavData.IsValid() && GetData() != nullptr && DataSize > 0; }
 
 	uint8* Release();
+
+	// Duplicate shared state so we will have own copy of the data
+	void MakeUnique();
 };
 
 DECLARE_MULTICAST_DELEGATE(FOnNavMeshUpdate);
@@ -470,11 +473,11 @@ class ENGINE_API ARecastNavMesh : public ANavigationData
 	float TileSizeUU;
 
 	/** horizontal size of voxelization cell */
-	UPROPERTY(EditAnywhere, Category=Generation, config, meta=(ClampMin = "1.0"))
+	UPROPERTY(EditAnywhere, Category = Generation, config, meta = (ClampMin = "1.0", ClampMax = "1024.0"))
 	float CellSize;
 
 	/** vertical size of voxelization cell */
-	UPROPERTY(EditAnywhere, Category=Generation, config, meta=(ClampMin = "1.0"))
+	UPROPERTY(EditAnywhere, Category = Generation, config, meta = (ClampMin = "1.0", ClampMax = "1024.0"))
 	float CellHeight;
 
 	/** Radius of smallest agent to traverse this navmesh */
@@ -504,7 +507,7 @@ class ENGINE_API ARecastNavMesh : public ANavigationData
 	float MergeRegionSize;
 
 	/** How much navigable shapes can get simplified - the higher the value the more freedom */
-	UPROPERTY(EditAnywhere, Category=Generation, config)
+	UPROPERTY(EditAnywhere, Category = Generation, config, meta = (ClampMin = "0.0"))
 	float MaxSimplificationError;
 
 	/** navmesh draw distance in game (always visible in editor) */
@@ -596,8 +599,8 @@ public:
 			, HitTime(FLT_MAX)
 			, HitNormal(0.f)
 		{
-			FMemory::MemZero(CorridorPolys);
-			FMemory::MemZero(CorridorCost);
+			FMemory::Memzero(CorridorPolys);
+			FMemory::Memzero(CorridorCost);
 		}
 
 		FORCEINLINE int32 GetMaxCorridorSize() const { return MAX_PATH_CORRIDOR_POLYS; }
@@ -634,6 +637,7 @@ public:
 
 	// Begin UObject Interface
 	virtual void PostInitProperties() override;
+	virtual void PostLoad() override;
 	virtual SIZE_T GetResourceSize(EResourceSizeMode::Type Mode) override;	
 
 #if WITH_EDITOR
@@ -697,6 +701,15 @@ public:
 	/** Retrieves number of tiles in this navmesh */
 	int32 GetNavMeshTilesCount() const;
 
+	/**  */
+	void RemoveTileCacheLayers(int32 TileX, int32 TileY);
+	
+	/**  */
+	void AddTileCacheLayers(int32 TileX, int32 TileY, const TArray<FNavMeshTileData>& Layers);
+	
+	/**  */
+	TArray<FNavMeshTileData> GetTileCacheLayers(int32 TileX, int32 TileY) const;
+	
 	void GetEdgesForPathCorridor(const TArray<NavNodeRef>* PathCorridor, TArray<struct FNavigationPortalEdge>* PathCorridorEdges) const;
 
 	// @todo docuement
@@ -853,6 +866,9 @@ public:
 	/** @return true is specified segment is fully on navmesh (respecting the optional filter) */
 	bool IsSegmentOnNavmesh(const FVector& SegmentStart, const FVector& SegmentEnd, TSharedPtr<const FNavigationQueryFilter> Filter = NULL, const UObject* Querier = NULL) const;
 
+	/** Check if poly is a custom link */
+	bool IsCustomLink(NavNodeRef PolyRef) const;
+
 	/** finds stringpulled path from given corridor */
 	bool FindStraightPath(const FVector& StartLoc, const FVector& EndLoc, const TArray<NavNodeRef>& PathCorridor, TArray<FNavPathPoint>& PathPoints, TArray<uint32>* CustomLinks = NULL) const;
 
@@ -864,7 +880,8 @@ public:
 	
 	virtual bool NeedsRebuild() const override;
 	virtual bool SupportsRuntimeGeneration() const override;
-	virtual void ConstructGenerator() override;
+	virtual bool SupportsStreaming() const override;
+	virtual void ConditionalConstructGenerator() override;
 
 protected:
 	// @todo docuement

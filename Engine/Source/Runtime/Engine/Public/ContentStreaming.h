@@ -32,8 +32,6 @@ DECLARE_MEMORY_STAT_POOL_EXTERN(TEXT("Textures Streamed In, Frame"),STAT_Request
 DECLARE_MEMORY_STAT_POOL_EXTERN(TEXT("Textures Streamed In, Total"),STAT_RequestSizeTotal,STATGROUP_StreamingDetails,FPlatformMemory::MCR_TexturePool, );
 DECLARE_MEMORY_STAT_POOL_EXTERN(TEXT("Lightmaps Streamed In, Total"),STAT_LightmapRequestSizeTotal,STATGROUP_StreamingDetails,FPlatformMemory::MCR_TexturePool, );
 DECLARE_CYCLE_STAT_EXTERN(TEXT("Game Thread Update Time"),STAT_GameThreadUpdateTime,STATGROUP_Streaming, );
-DECLARE_CYCLE_STAT_EXTERN(TEXT("Rendering Thread Update Time"),STAT_RenderingThreadUpdateTime,STATGROUP_StreamingDetails, );
-DECLARE_CYCLE_STAT_EXTERN(TEXT("Rendering Thread Finalize Time"),STAT_RenderingThreadFinalizeTime,STATGROUP_StreamingDetails, );
 DECLARE_FLOAT_ACCUMULATOR_STAT_EXTERN(TEXT("Streaming Latency, Average (sec)"),STAT_StreamingLatency,STATGROUP_StreamingDetails, );
 DECLARE_FLOAT_ACCUMULATOR_STAT_EXTERN(TEXT("Streaming Bandwidth, Average (MB/s)"),STAT_StreamingBandwidth,STATGROUP_StreamingDetails, );
 DECLARE_FLOAT_ACCUMULATOR_STAT_EXTERN(TEXT("Dynamic Streaming Total Time (sec)"),STAT_DynamicStreamingTotal,STATGROUP_StreamingDetails, );
@@ -337,13 +335,13 @@ struct IStreamingManager
 	}
 
 	/** Returns the number of view infos. */
-	int32 GetNumViews() const
+	ENGINE_API int32 GetNumViews() const
 	{
 		return CurrentViewInfos.Num();
 	}
 
 	/** Returns the view info by the specified index. */
-	const FStreamingViewInfo& GetViewInformation( int32 ViewIndex ) const
+	ENGINE_API const FStreamingViewInfo& GetViewInformation( int32 ViewIndex ) const
 	{
 		return CurrentViewInfos[ ViewIndex ];
 	}
@@ -417,7 +415,7 @@ protected:
 	};
 
 	/** Current collection of views that need to be taken into account for streaming. Emptied every frame. */
-	static TArray<FStreamingViewInfo> CurrentViewInfos;
+	ENGINE_API static TArray<FStreamingViewInfo> CurrentViewInfos;
 
 	/** Pending views. Emptied every frame. */
 	static TArray<FStreamingViewInfo> PendingViewInfos;

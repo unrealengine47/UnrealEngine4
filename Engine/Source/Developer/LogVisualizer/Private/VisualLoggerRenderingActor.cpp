@@ -180,7 +180,7 @@ void AVisualLoggerRenderingActor::ObjectSelectionChanged(TSharedPtr<class STimel
 	}
 }
 
-void AVisualLoggerRenderingActor::OnItemSelectionChanged(const FVisualLogDevice::FVisualLogEntryItem& EntryItem, TSharedPtr<IVisualLoggerInterface> VisualLoggerInterface)
+void AVisualLoggerRenderingActor::OnItemSelectionChanged(const FVisualLogDevice::FVisualLogEntryItem& EntryItem)
 {
 	const FVisualLogEntry* Entry = &EntryItem.Entry;
 	const FVisualLogShapeElement* ElementToDraw = Entry->ElementsToDraw.GetData();
@@ -200,7 +200,7 @@ void AVisualLoggerRenderingActor::OnItemSelectionChanged(const FVisualLogDevice:
 #endif
 
 	const float Length = 100;
-	const FVector DirectionNorm = FVector(0, 0, 1).GetSafeNormal();
+	const FVector DirectionNorm = FVector(0, 0, 1).SafeNormal();
 	FVector YAxis, ZAxis;
 	DirectionNorm.FindBestAxisVectors(YAxis, ZAxis);
 	Cones.Add(FDebugRenderSceneProxy::FCone(FScaleMatrix(FVector(Length)) * FMatrix(DirectionNorm, YAxis, ZAxis, Entry->Location), 5, 5, FColor::Red));
@@ -225,7 +225,7 @@ void AVisualLoggerRenderingActor::OnItemSelectionChanged(const FVisualLogDevice:
 	for (const auto CurrentData : Entry->DataBlocks)
 	{
 		const FName TagName = CurrentData.TagName;
-		const bool bIsValidByFilter = VisualLoggerInterface->IsValidCategory(CurrentData.Category.ToString(), ELogVerbosity::All) && VisualLoggerInterface->IsValidCategory(CurrentData.TagName.ToString(), ELogVerbosity::All);
+		const bool bIsValidByFilter = FLogVisualizer::Get().GetVisualLoggerInterface()->IsValidCategory(CurrentData.Category.ToString(), ELogVerbosity::All) && FLogVisualizer::Get().GetVisualLoggerInterface()->IsValidCategory(CurrentData.TagName.ToString(), ELogVerbosity::All);
 		FVisualLogExtensionInterface* Extension = FVisualLogger::Get().GetExtensionForTag(TagName);
 		if (!Extension)
 		{
@@ -244,7 +244,7 @@ void AVisualLoggerRenderingActor::OnItemSelectionChanged(const FVisualLogDevice:
 
 	for (int32 ElementIndex = 0; ElementIndex < ElementsCount; ++ElementIndex, ++ElementToDraw)
 	{
-		if (VisualLoggerInterface.IsValid() && !VisualLoggerInterface->IsValidCategory(ElementToDraw->Category.ToString(), ElementToDraw->Verbosity))
+		if (!FLogVisualizer::Get().GetVisualLoggerInterface()->IsValidCategory(ElementToDraw->Category.ToString(), ElementToDraw->Verbosity))
 		{
 			continue;
 		}
@@ -375,7 +375,7 @@ void AVisualLoggerRenderingActor::OnItemSelectionChanged(const FVisualLogDevice:
 			for (int32 Index = 0; Index + 2 < ElementToDraw->Points.Num(); Index += 3)
 			{
 				const FVector Orgin = ElementToDraw->Points[Index];
-				const FVector Direction = ElementToDraw->Points[Index + 1].GetSafeNormal();
+				const FVector Direction = ElementToDraw->Points[Index + 1].SafeNormal();
 				const FVector Angles = ElementToDraw->Points[Index + 2];
 				const float Length = Angles.X;
 

@@ -42,7 +42,7 @@
 #include "EnumEditorUtils.h"
 #include "StructureEditorUtils.h"
 
-#include "Foliage/InstancedFoliageActor.h"
+#include "InstancedFoliageActor.h"
 
 #include "Particles/ParticleSystem.h"
 
@@ -148,7 +148,7 @@ UObject* UTexture2DFactoryNew::FactoryCreateNew( UClass* InClass, UObject* InPar
 		Object->Source.GetMipData( TexturePixels, 0 );
 
 		uint8* DestData = Object->Source.LockMip(0);
-		FMemory::MemSet(DestData, TexturePixels.Num() * sizeof( uint8 ) );
+		FMemory::Memset(DestData, TexturePixels.Num() * sizeof( uint8 ), 255 );
 		Object->Source.UnlockMip(0);
 
 		Object->PostEditChange();

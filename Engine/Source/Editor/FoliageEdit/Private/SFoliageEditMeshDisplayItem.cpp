@@ -5,7 +5,7 @@
 #include "SFoliageEdit.h"
 #include "FoliageEditActions.h"
 #include "FoliageEdMode.h"
-#include "Foliage/FoliageType.h"
+#include "FoliageType.h"
 #include "Editor/UnrealEd/Public/AssetThumbnail.h"
 #include "Dialogs/DlgPickAssetPath.h"
 #include "Editor/PropertyEditor/Public/PropertyEditorModule.h"
@@ -1706,11 +1706,6 @@ void SFoliageEditMeshDisplayItem::Construct(const FArguments& InArgs)
 }
 END_SLATE_FUNCTION_BUILD_OPTIMIZATION
 
-void SFoliageEditMeshDisplayItem::NotifyPostChange(const FPropertyChangedEvent& PropertyChangedEvent, UProperty* PropertyThatChanged)
-{
-	FoliageEditPtr.Pin()->GetFoliageEditMode()->ReallocateClusters(FoliageSettingsPtr);
-}
-
 void SFoliageEditMeshDisplayItem::BindCommands()
 {
 	const FFoliageEditCommands& Commands = FFoliageEditCommands::Get();
@@ -1961,7 +1956,7 @@ bool SFoliageEditMeshDisplayItem::IsPropertyVisible(const FPropertyAndParent& Pr
 	const FName CategoryName = FObjectEditorUtils::GetCategoryFName(&PropertyAndParent.Property);
 	
 	FString Subcategory = "";
-	if ( (CategoryName != FName("Ecosystem")) && PropertyAndParent.Property.HasMetaData(FName("Subcategory")))
+	if ( (CategoryName != FName("Procedural")) && PropertyAndParent.Property.HasMetaData(FName("Subcategory")))
 	{
 		Subcategory = PropertyAndParent.Property.GetMetaData(FName("Subcategory"));
 	}

@@ -26,7 +26,6 @@ Level.cpp: Level-related functions
 #include "LevelUtils.h"
 #include "TargetPlatform.h"
 #include "ContentStreaming.h"
-#include "Foliage/InstancedFoliageActor.h"
 #include "Engine/NavigationObjectBase.h"
 #include "Engine/ShadowMapTexture2D.h"
 #include "Components/ModelComponent.h"
@@ -285,6 +284,8 @@ struct FLegacyCoverIndexPair
 
 void ULevel::Serialize( FArchive& Ar )
 {
+	DECLARE_SCOPE_CYCLE_COUNTER(TEXT("ULevel::Serialize"), STAT_Level_Serialize, STATGROUP_LoadTime);
+
 	Super::Serialize( Ar );
 
 	Ar << Actors;
@@ -556,7 +557,7 @@ void ULevel::PostLoad()
 		if (LevelScriptBlueprint && OuterWorld && LevelScriptBlueprint->GetFName() != OuterWorld->GetFName())
 		{
 			// Use LevelScriptBlueprint->GetOuter() instead of NULL to make sure the generated top level objects are moved appropriately
-			LevelScriptBlueprint->Rename(*OuterWorld->GetName(), LevelScriptBlueprint->GetOuter(), REN_DoNotDirty | REN_DontCreateRedirectors | REN_ForceNoResetLoaders | REN_NonTransactional);
+			LevelScriptBlueprint->Rename(*OuterWorld->GetName(), LevelScriptBlueprint->GetOuter(), REN_DoNotDirty | REN_DontCreateRedirectors | REN_ForceNoResetLoaders | REN_NonTransactional | REN_SkipGeneratedClasses);
 		}
 	}
 #endif
@@ -1275,11 +1276,9 @@ void ULevel::BuildStreamingData(UTexture2D* UpdateSpecificTextureOnly/*=NULL*/)
 			if ( !bIsClassDefaultObject && Primitive->IsRegistered() )
 			{
 				const AActor* const Owner				= Primitive->GetOwner();
-				const bool bIsFoliage					= Owner && Owner->IsA(AInstancedFoliageActor::StaticClass()) && Primitive->IsA(UInstancedStaticMeshComponent::StaticClass()); 
 				const bool bIsStatic					= Owner == NULL 
 															|| Primitive->Mobility == EComponentMobility::Static 
-															|| Primitive->Mobility == EComponentMobility::Stationary
-															|| bIsFoliage; // treat Foliage components as static, regardless of mobility settings
+															|| Primitive->Mobility == EComponentMobility::Stationary;
 
 				TArray<FStreamingTexturePrimitiveInfo> PrimitiveStreamingTextures;
 

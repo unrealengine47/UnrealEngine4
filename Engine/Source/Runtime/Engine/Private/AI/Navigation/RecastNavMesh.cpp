@@ -37,12 +37,14 @@
 
 #endif // WITH_RECAST
 
+static const int32 ArbitraryMaxVoxelTileSize = 1024;
+
 FNavMeshTileData::FNavData::~FNavData()
 {
 #if WITH_RECAST
 	dtFree(RawNavData);
 #else
-	delete RawNavData;
+	FMemory::Free(RawNavData);
 #endif
 }
 
@@ -77,6 +79,21 @@ uint8* FNavMeshTileData::Release()
 	DataSize = 0; 
 	LayerIndex = 0; 
 	return RawData;
+}
+
+void FNavMeshTileData::MakeUnique()
+{
+	if (DataSize > 0 && !NavData.IsUnique())
+	{
+		INC_MEMORY_STAT_BY(STAT_Navigation_TileCacheMemory, DataSize);
+#if WITH_RECAST
+		uint8* UniqueRawData = (uint8*)dtAlloc(sizeof(uint8)*DataSize, DT_ALLOC_PERM);
+#else
+		uint8* UniqueRawData = (uint8*)FMemory::Malloc(sizeof(uint8)*DataSize);
+#endif
+		FMemory::Memcpy(UniqueRawData, NavData->RawNavData, DataSize);
+		NavData = MakeShareable(new FNavData(UniqueRawData));
+	}
 }
 
 float ARecastNavMesh::DrawDistanceSq = 0.0f;
@@ -453,6 +470,13 @@ void ARecastNavMesh::CleanUp()
 	DestroyRecastPImpl();
 }
 
+void ARecastNavMesh::PostLoad()
+{
+	Super::PostLoad();
+	// tilesize validation. This is temporary and should get removed by 4.9
+	TileSizeUU = FMath::Clamp(TileSizeUU, CellSize, ArbitraryMaxVoxelTileSize * CellSize);
+}
+
 void ARecastNavMesh::PostInitProperties()
 {
 	if (HasAnyFlags(RF_ClassDefaultObject) == true)
@@ -477,6 +501,8 @@ void ARecastNavMesh::PostInitProperties()
 	}
 	
 	Super::PostInitProperties();
+
+	TileSizeUU = FMath::Clamp(TileSizeUU, CellSize, ArbitraryMaxVoxelTileSize * CellSize);
 
 	if (HasAnyFlags(RF_ClassDefaultObject) == false)
 	{
@@ -822,6 +848,32 @@ int32 ARecastNavMesh::GetNavMeshTilesCount() const
 	return NumTiles;
 }
 
+void ARecastNavMesh::RemoveTileCacheLayers(int32 TileX, int32 TileY)
+{
+	if (RecastNavMeshImpl)
+	{
+		RecastNavMeshImpl->RemoveTileCacheLayers(TileX, TileY);
+	}
+}
+	
+void ARecastNavMesh::AddTileCacheLayers(int32 TileX, int32 TileY, const TArray<FNavMeshTileData>& Layers)
+{
+	if (RecastNavMeshImpl)
+	{
+		RecastNavMeshImpl->AddTileCacheLayers(TileX, TileY, Layers);
+	}
+}
+	
+TArray<FNavMeshTileData> ARecastNavMesh::GetTileCacheLayers(int32 TileX, int32 TileY) const
+{
+	if (RecastNavMeshImpl)
+	{
+		return RecastNavMeshImpl->GetTileCacheLayers(TileX, TileY);
+	}
+	
+	return TArray<FNavMeshTileData>();
+}
+
 bool ARecastNavMesh::IsResizable() const
 {
 	return !bFixedTilePoolSize;
@@ -1160,6 +1212,17 @@ bool ARecastNavMesh::GetLinkEndPoints(NavNodeRef LinkPolyID, FVector& PointA, FV
 	return bSuccess;
 }
 
+bool ARecastNavMesh::IsCustomLink(NavNodeRef LinkPolyID) const
+{
+	bool bSuccess = false;
+	if (RecastNavMeshImpl)
+	{
+		bSuccess = RecastNavMeshImpl->IsCustomLink(LinkPolyID);
+	}
+
+	return bSuccess;
+}
+
 bool ARecastNavMesh::GetClusterBounds(NavNodeRef ClusterRef, FBox& OutBounds) const
 {
 	bool bSuccess = false;
@@ -1317,7 +1380,7 @@ void ARecastNavMesh::OnNavMeshGenerationFinished()
 	if (World != nullptr && World->IsPendingKill() == false)
 	{
 #if WITH_EDITOR	
-		// For static navmeshes create navigation data holders in each streaming level
+		// For navmeshes that support streaming create navigation data holders in each streaming level
 		// so parts of navmesh can be streamed in/out with those levels
 		if (!World->IsGameWorld())
 		{
@@ -1331,11 +1394,11 @@ void ARecastNavMesh::OnNavMeshGenerationFinished()
 
 				URecastNavMeshDataChunk* NavDataChunk = GetNavigationDataChunk(Level);
 
-				if (!bRebuildAtRuntime)
+				if (SupportsStreaming())
 				{
-					// We use nav volumes that belongs to this streaming level to find tiles we want to save
+					// We use navigation volumes that belongs to this streaming level to find tiles we want to save
 					TArray<int32> LevelTiles;
-					TArray<FBox> LevelNavBounds = GetNavigableBoundsInLevel(Level->GetOutermost()->GetFName());
+					TArray<FBox> LevelNavBounds = GetNavigableBoundsInLevel(Level);
 					RecastNavMeshImpl->GetNavMeshTilesIn(LevelNavBounds, LevelTiles);
 
 					if (LevelTiles.Num())
@@ -1348,7 +1411,7 @@ void ARecastNavMesh::OnNavMeshGenerationFinished()
 							Level->NavDataChunks.Add(NavDataChunk);
 						}
 
-						NavDataChunk->GatherTiles(RecastNavMeshImpl->DetourNavMesh, LevelTiles);
+						NavDataChunk->GatherTiles(RecastNavMeshImpl, LevelTiles);
 						NavDataChunk->MarkPackageDirty();
 						continue;
 					}
@@ -1427,12 +1490,14 @@ void ARecastNavMesh::OnStreamingLevelAdded(ULevel* InLevel)
 {
 	QUICK_SCOPE_CYCLE_COUNTER(STAT_RecastNavMesh_OnStreamingLevelAdded);
 	
-	if (!bRebuildAtRuntime && GetWorld()->IsGameWorld())
+	bWantsUpdate = true;
+
+	if (SupportsStreaming() && GetWorld()->IsGameWorld())
 	{
 		URecastNavMeshDataChunk* NavDataChunk = GetNavigationDataChunk(InLevel);
 		if (NavDataChunk)
 		{
-			TArray<uint32> AttachedIndices = NavDataChunk->AttachTiles(RecastNavMeshImpl->DetourNavMesh);
+			TArray<uint32> AttachedIndices = NavDataChunk->AttachTiles(RecastNavMeshImpl);
 			if (AttachedIndices.Num() > 0)
 			{
 				InvalidateAffectedPaths(AttachedIndices);
@@ -1446,12 +1511,12 @@ void ARecastNavMesh::OnStreamingLevelRemoved(ULevel* InLevel)
 {
 	QUICK_SCOPE_CYCLE_COUNTER(STAT_RecastNavMesh_OnStreamingLevelRemoved);
 	
-	if (!bRebuildAtRuntime && GetWorld()->IsGameWorld())
+	if (SupportsStreaming() && GetWorld()->IsGameWorld())
 	{
 		URecastNavMeshDataChunk* NavDataChunk = GetNavigationDataChunk(InLevel);
 		if (NavDataChunk)
 		{
-			TArray<uint32> DetachedIndices = NavDataChunk->DetachTiles(RecastNavMeshImpl->DetourNavMesh);
+			TArray<uint32> DetachedIndices = NavDataChunk->DetachTiles(RecastNavMeshImpl);
 			if (DetachedIndices.Num() > 0)
 			{
 				InvalidateAffectedPaths(DetachedIndices);
@@ -1755,17 +1820,9 @@ void ARecastNavMesh::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 					TileSizeUU = FMath::Max(16.f * AgentRadius, RECAST_MIN_TILE_SIZE);
 				}
 
-				// tile's dimension can't exceed 2^16 x cell size, as it's being stored on 2 bytes
-				const int32 DimensionVX = FMath::CeilToInt(TileSizeUU / CellSize);
-				if (DimensionVX > MAX_uint16)
-				{
-					TileSizeUU = MAX_uint16 * CellSize;
-				}
-				// also it can't be 0, and if it's 1 then we should make sure tile size is equal to cell size
-				else if (DimensionVX <= 1)
-				{
-					TileSizeUU = CellSize;
-				}
+				// tile's can't be too big, otherwise we'll crash while tryng to allocate
+				// memory during navmesh generation
+				TileSizeUU = FMath::Clamp(TileSizeUU, CellSize, ArbitraryMaxVoxelTileSize * CellSize);
 			}
 
 			if (HasAnyFlags(RF_ClassDefaultObject) == false)
@@ -1795,14 +1852,23 @@ bool ARecastNavMesh::NeedsRebuild() const
 
 bool ARecastNavMesh::SupportsRuntimeGeneration() const
 {
-	// Generator should be enabled in the editor and if navmesh supports runtime generation
-	return (bRebuildAtRuntime || (GetWorld() && !GetWorld()->IsGameWorld()));
+	// Generator should be disabled for Static navmesh
+	return (RuntimeGeneration != ERuntimeGenerationType::Static);
 }
 
-void ARecastNavMesh::ConstructGenerator()
+bool ARecastNavMesh::SupportsStreaming() const
+{
+	// Actually nothing prevents us to support streaming with dynamic generation
+	// Right now streaming in sub-level causes navmesh to build itself, so no point to stream tiles in
+	return (RuntimeGeneration != ERuntimeGenerationType::Dynamic);
+}
+
+void ARecastNavMesh::ConditionalConstructGenerator()
 {
 	NavDataGenerator.Reset();
-	if (SupportsRuntimeGeneration())
+	
+	const bool bRequiresGenerator = SupportsRuntimeGeneration() || !GetWorld()->IsGameWorld();
+	if (bRequiresGenerator)
 	{
 		NavDataGenerator.Reset(new FRecastNavMeshGenerator(*this));
 	}

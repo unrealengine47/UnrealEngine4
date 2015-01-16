@@ -44,6 +44,7 @@ enum ELoadFlags
 	LOAD_ForDiff					= 0x00020000,	// Loading for diffing.
 	LOAD_NoSeekFreeLinkerDetatch	= 0x00040000,	// Do not detach linkers for this package when seek-free loading
 	LOAD_PackageForPIE				= 0x00080000,   // This package is being loaded for PIE, it must be flagged as such immediately
+	LOAD_DeferDependencyLoads       = 0x00100000,   // Do not load external (blueprint) dependencies (instead, track them for deferred loading)
 };
 
 //
@@ -1273,6 +1274,7 @@ typedef uint32 ERenameFlags;
 #define REN_DontCreateRedirectors (0x0010) // Don't create an object redirector, even if the class is marked RF_Public
 #define REN_NonTransactional	(0x0020) // Don't call Modify() on the objects, so they won't be stored in the transaction buffer
 #define REN_ForceGlobalUnique	(0x0040) // Force unique names across all packages not just while the scope of the new outer
+#define REN_SkipGeneratedClasses (0x0080) // Prevent renaming of any child generated classes and CDO's in blueprints
 
 /*-----------------------------------------------------------------------------
 	Misc.

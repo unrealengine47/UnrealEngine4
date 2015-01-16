@@ -57,6 +57,9 @@ struct ENGINE_API FMaterialRelevance
 	UPROPERTY()
 		uint32 bSubsurfaceProfile : 1;
 
+	UPROPERTY()
+		uint32 bHasWorldPositionOffset : 1;
+
 	/** Default constructor. */
 	FMaterialRelevance()
 		: bOpaque(false)
@@ -66,6 +69,7 @@ struct ENGINE_API FMaterialRelevance
 		, bNormalTranslucency(false)
 		, bDisableDepthTest(false)
 		, bSubsurfaceProfile(false)
+		, bHasWorldPositionOffset(false)
 	{}
 
 	/** Bitwise OR operator.  Sets any relevance bits which are present in either FMaterialRelevance. */
@@ -78,6 +82,7 @@ struct ENGINE_API FMaterialRelevance
 		bNormalTranslucency |= B.bNormalTranslucency;
 		bDisableDepthTest |= B.bDisableDepthTest;
 		bSubsurfaceProfile |= B.bSubsurfaceProfile;
+		bHasWorldPositionOffset |= B.bHasWorldPositionOffset;
 		return *this;
 	}
 
@@ -349,7 +354,8 @@ public:
 	ENGINE_API FMaterialRelevance GetRelevance_Concurrent(ERHIFeatureLevel::Type InFeatureLevel) const;
 private:
 	// might get called from game or render thread
-	ENGINE_API FMaterialRelevance GetRelevance_Internal(const UMaterial* Material, ERHIFeatureLevel::Type InFeatureLevel) const;
+	template<bool IsGameThread>
+	FMaterialRelevance GetRelevance_Internal(const UMaterial* Material, ERHIFeatureLevel::Type InFeatureLevel) const;
 public:
 
 	int32 GetWidth() const;

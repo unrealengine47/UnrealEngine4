@@ -782,6 +782,8 @@ UClass* StaticLoadClass( UClass* BaseClass, UObject* InOuter, const TCHAR* InNam
 */
 UPackage* LoadPackageInternal(UPackage* InOuter, const TCHAR* InLongPackageName, uint32 LoadFlags, ULinkerLoad* ImportLinker)
 {
+	DECLARE_SCOPE_CYCLE_COUNTER(TEXT("LoadPackageInternal"), STAT_LoadPackageInternal, STATGROUP_ObjectVerbose);
+
 	UPackage* Result = NULL;
 
 	FString FileToLoad;
@@ -876,7 +878,19 @@ UPackage* LoadPackageInternal(UPackage* InOuter, const TCHAR* InLongPackageName,
 
 		SlowTask.EnterProgressFrame(30);
 
-		if( !(LoadFlags & LOAD_Verify) )
+		uint32 DoNotLoadExportsFlags = LOAD_Verify;
+#if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
+		// if this linker already has the DeferDependencyLoads flag, then we're
+		// already loading it earlier up the load chain (don't let it invoke any
+		// deeper loads that may introduce a circular dependency)
+		if ((Linker->LoadFlags & LOAD_DeferDependencyLoads))
+		{
+			DoNotLoadExportsFlags |= LOAD_DeferDependencyLoads;
+		}
+		// @TODO: what of cases where DeferDependencyLoads was specified, but not already set on the Linker?
+#endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
+
+		if ((LoadFlags & DoNotLoadExportsFlags) == 0)
 		{
 			// Make sure we pass the property that's currently being serialized by the linker that owns the import 
 			// that triggered this LoadPackage call
@@ -1663,7 +1677,7 @@ UObject* StaticAllocateObject
 	bool* bOutRecycledSubobject
 )
 {
-//	SCOPE_CYCLE_COUNTER(STAT_AllocateObject);
+	SCOPE_CYCLE_COUNTER(STAT_AllocateObject);
 	checkSlow(InOuter != INVALID_OBJECT); // not legal
 	check(!InClass || (InClass->ClassWithin && InClass->ClassConstructor));
 #if WITH_EDITOR
@@ -1906,7 +1920,7 @@ FObjectInitializer::~FObjectInitializer()
 	check(GIsInConstructor >= 0);
 	GConstructedObject = LastConstructedObject;
 
-//	SCOPE_CYCLE_COUNTER(STAT_PostConstructInitializeProperties);
+	SCOPE_CYCLE_COUNTER(STAT_PostConstructInitializeProperties);
 	check(Obj);
 	const bool bIsCDO = Obj->HasAnyFlags(RF_ClassDefaultObject);
 	UClass* Class = Obj->GetClass();
@@ -2196,7 +2210,7 @@ UObject* StaticConstructObject
 	// Don't call the constructor on recycled subobjects, they haven't been destroyed.
 	if (!bRecycledSubobject)
 	{		
-		FScopeCycleCounterUObject ConstructorScope(Result);
+		FScopeCycleCounterUObject ConstructorScope(Result, GET_STATID(STAT_ConstructObject));
 		(*InClass->ClassConstructor)( FObjectInitializer(Result, InTemplate, bCopyTransientsFromClassDefaults, true, InInstanceGraph) );
 	}
 	

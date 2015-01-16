@@ -25,7 +25,7 @@ LandscapeEdit.cpp: Landscape editing
 #include "LandscapeSplineControlPoint.h"
 #include "LandscapeSplineSegment.h"
 #include "LandscapeGizmoActiveActor.h"
-#include "Foliage/InstancedFoliageActor.h"
+#include "InstancedFoliageActor.h"
 #include "LevelUtils.h"
 #include "MessageLog.h"
 #include "MapErrors.h"
@@ -345,6 +345,10 @@ void ULandscapeComponent::PostEditUndo()
 		EditToolRenderData->UpdateDebugColorMaterial();
 		EditToolRenderData->UpdateSelectionMaterial(EditToolRenderData->SelectedType);
 	}
+
+	TSet<ULandscapeComponent*> Components;
+	Components.Add(this);
+	GetLandscapeProxy()->FlushFoliageComponents(&Components);
 }
 
 void ULandscapeComponent::FixupWeightmaps()

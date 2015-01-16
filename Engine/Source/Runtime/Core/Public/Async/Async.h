@@ -91,7 +91,7 @@ public:
 	 */
 	static ESubsequentsMode::Type GetSubsequentsMode()
 	{
-		return ESubsequentsMode::TrackSubsequents;
+		return ESubsequentsMode::FireAndForget;
 	}
 
 private:
@@ -156,6 +156,51 @@ private:
 
 
 /**
+ * Template for asynchronous functions that are executed in the queued thread pool.
+ */
+template<typename ResultType>
+class TAsyncQueuedWork
+	: public IQueuedWork
+{
+public:
+
+	/**
+	 * Creates and initializes a new instance.
+	 *
+	 * @param InFunction The function to execute asynchronously.
+	 * @param InPromise The promise object used to return the function's result.
+	 */
+	TAsyncQueuedWork(TFunction<ResultType()>&& InFunction, TPromise<ResultType>&& InPromise)
+		: Function(InFunction)
+		, Promise(MoveTemp(InPromise))
+	{ }
+
+public:
+
+	// IQueuedWork interface
+
+	virtual void DoThreadedWork() override
+	{
+		Promise.SetValue(Function());
+		delete this;
+	}
+
+	virtual void Abandon() override
+	{
+		// not supported
+	}
+
+private:
+
+	/** The function to execute on the Task Graph. */
+	TFunction<ResultType()> Function;
+
+	/** The promise to assign the result to. */
+	TPromise<ResultType> Promise;
+};
+
+
+/**
  * Executes a given function asynchronously.
  *
  * @param Execution The execution method to use, i.e. on Task Graph or in a separate thread.
@@ -185,6 +230,12 @@ TFuture<ResultType> Async(EAsyncExecution Execution, TFunction<ResultType()> Fun
 			check(RunnableThread != nullptr);
 
 			ThreadPromise.SetValue(RunnableThread);
+		}
+		break;
+
+	case EAsyncExecution::ThreadPool:
+		{
+			GThreadPool->AddQueuedWork(new TAsyncQueuedWork<ResultType>(MoveTemp(Function), MoveTemp(Promise)));
 		}
 		break;
 

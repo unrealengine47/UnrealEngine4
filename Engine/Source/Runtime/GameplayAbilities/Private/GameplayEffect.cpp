@@ -9,6 +9,7 @@
 #include "AbilitySystemInterface.h"
 #include "GameplayModMagnitudeCalculation.h"
 #include "GameplayEffectExecutionCalculation.h"
+#include "VisualLogger.h"
 
 const float UGameplayEffect::INFINITE_DURATION = -1.f;
 const float UGameplayEffect::INSTANT_APPLICATION = 0.f;
@@ -941,14 +942,14 @@ void FGameplayEffectAttributeCaptureSpecContainer::UnregisterLinkedAggregatorCal
 /** This is the core function that turns the ActiveGE 'on' or 'off */
 void FActiveGameplayEffect::CheckOngoingTagRequirements(const FGameplayTagContainer& OwnerTags, FActiveGameplayEffectsContainer& OwningContainer)
 {
-	bool ShouldBeInhibited = !Spec.Def->OngoingTagRequirements.RequirementsMet(OwnerTags);
+	bool bShouldBeInhibited = !Spec.Def->OngoingTagRequirements.RequirementsMet(OwnerTags);
 
-	if (IsInhibited != ShouldBeInhibited)
+	if (bIsInhibited != bShouldBeInhibited)
 	{
 		// All OnDirty callbacks must be inhibited until we update this entire GameplayEffect.
 		FScopedAggregatorOnDirtyBatch	AggregatorOnDirtyBatcher;
 
-		if (ShouldBeInhibited)
+		if (bShouldBeInhibited)
 		{
 			// Remove our ActiveGameplayEffects modifiers with our Attribute Aggregators
 			OwningContainer.RemoveActiveGameplayEffectGrantedTagsAndModifiers(*this);
@@ -958,7 +959,7 @@ void FActiveGameplayEffect::CheckOngoingTagRequirements(const FGameplayTagContai
 			OwningContainer.AddActiveGameplayEffectGrantedTagsAndModifiers(*this);
 		}
 
-		IsInhibited = ShouldBeInhibited;
+		bIsInhibited = bShouldBeInhibited;
 	}
 }
 
@@ -1044,6 +1045,13 @@ void FActiveGameplayEffect::PostReplicatedChange(const struct FActiveGameplayEff
 //	FActiveGameplayEffectsContainer
 //
 // --------------------------------------------------------------------------------------------------------------------------------------------------------
+// 
+FActiveGameplayEffectsContainer::FActiveGameplayEffectsContainer()
+	: Owner(nullptr)
+	, ScopedLockCount(0)
+	, PendingRemoves(0)
+{
+}
 
 void FActiveGameplayEffectsContainer::RegisterWithOwner(UAbilitySystemComponent* InOwner)
 {
@@ -1103,12 +1111,12 @@ void FActiveGameplayEffectsContainer::ExecuteActiveEffectsFrom(FGameplayEffectSp
 			const UGameplayEffectExecutionCalculation* ExecCDO = CurExecDef.CalculationClass->GetDefaultObject<UGameplayEffectExecutionCalculation>();
 			check(ExecCDO);
 
-			TArray<FGameplayModifierEvaluatedData> OutModifiers;
-
 			// Run the custom execution
 			FGameplayEffectCustomExecutionParameters ExecutionParams(SpecToUse, CurExecDef.CalculationModifiers, Owner);
-			bool bRunConditionalEffects = ExecCDO->Execute(ExecutionParams, OutModifiers);
+			FGameplayEffectCustomExecutionOutput ExecutionOutput;
+			ExecCDO->Execute(ExecutionParams, ExecutionOutput);
 
+			const bool bRunConditionalEffects = ExecutionOutput.ShouldTriggerConditionalGameplayEffects();
 			if (bRunConditionalEffects)
 			{
 				// If successful, apply conditional specs
@@ -1121,8 +1129,19 @@ void FActiveGameplayEffectsContainer::ExecuteActiveEffectsFrom(FGameplayEffectSp
 			}
 
 			// Execute any mods the custom execution yielded
+			TArray<FGameplayModifierEvaluatedData> OutModifiers;
+			ExecutionOutput.GetOutputModifiers(OutModifiers);
+
+			const bool bApplyStackCountToEmittedMods = !ExecutionOutput.IsStackCountHandledManually();
+			const int32 SpecStackCount = SpecToUse.StackCount;
+
 			for (FGameplayModifierEvaluatedData& CurExecMod : OutModifiers)
 			{
+				// If the execution didn't manually handle the stack count, automatically apply it here
+				if (bApplyStackCountToEmittedMods && SpecStackCount > 1)
+				{
+					CurExecMod.Magnitude *= SpecStackCount;
+				}
 				InvokeGameplayCueExecute |= InternalExecuteMod(SpecToUse, CurExecMod);
 			}
 		}
@@ -1157,10 +1176,21 @@ void FActiveGameplayEffectsContainer::ExecuteActiveEffectsFrom(FGameplayEffectSp
 
 void FActiveGameplayEffectsContainer::ExecutePeriodicGameplayEffect(FActiveGameplayEffectHandle Handle)
 {
-	FScopedActiveGameplayEffectLock AGELock;
+	GAMEPLAYEFFECT_SCOPE_LOCK();
 	FActiveGameplayEffect* ActiveEffect = GetActiveGameplayEffect(Handle);
 	if (ActiveEffect)
 	{
+		if (UE_LOG_ACTIVE(VLogAbilitySystem, Log))
+		{
+			ABILITY_VLOG(Owner->OwnerActor, Log, TEXT("Executed Periodic Effect %s"), *ActiveEffect->Spec.Def->GetFName().ToString());
+			for (FGameplayModifierInfo Modifier : ActiveEffect->Spec.Def->Modifiers)
+			{
+				float Magnitude = 0.f;
+				Modifier.ModifierMagnitude.AttemptCalculateMagnitude(ActiveEffect->Spec, Magnitude);
+				ABILITY_VLOG(Owner->OwnerActor, Log, TEXT("         %s: %s %f"), *Modifier.Attribute.GetName(), *EGameplayModOpToString(Modifier.ModifierOp), Magnitude);
+			}
+		}
+
 		// Execute
 		ExecuteActiveEffectsFrom(ActiveEffect->Spec);
 	}
@@ -1179,29 +1209,9 @@ FActiveGameplayEffect* FActiveGameplayEffectsContainer::GetActiveGameplayEffect(
 	return nullptr;
 }
 
-int32 FScopedActiveGameplayEffectLock::AGELockCount = 0;
-TArray<TSharedPtr<FActiveGameplayEffectAction>> FScopedActiveGameplayEffectLock::DeferredAGEActions;
-FScopedActiveGameplayEffectLock::FScopedActiveGameplayEffectLock()
-{
-	++AGELockCount;
-}
-
-FScopedActiveGameplayEffectLock::~FScopedActiveGameplayEffectLock()
-{
-	--AGELockCount;
-	if (!IsLockInEffect())
-	{
-		for (int32 i = 0; i < NumActions(); ++i)
-		{
-			GetAction(i)->PerformAction();
-		}
-		ClearActions();
-	}
-}
-
 FAggregatorRef& FActiveGameplayEffectsContainer::FindOrCreateAttributeAggregator(FGameplayAttribute Attribute)
 {
-	FAggregatorRef *RefPtr = AttributeAggregatorMap.Find(Attribute);
+	FAggregatorRef* RefPtr = AttributeAggregatorMap.Find(Attribute);
 	if (RefPtr)
 	{
 		return *RefPtr;
@@ -1281,6 +1291,7 @@ void FActiveGameplayEffectsContainer::OnMagnitudeDependencyChange(FActiveGamepla
 {
 	if (Handle.IsValid())
 	{
+		GAMEPLAYEFFECT_SCOPE_LOCK();
 		FActiveGameplayEffect* ActiveEffect = GetActiveGameplayEffect(Handle);
 		if (ActiveEffect)
 		{
@@ -1289,7 +1300,7 @@ void FActiveGameplayEffectsContainer::OnMagnitudeDependencyChange(FActiveGamepla
 			FGameplayEffectSpec& Spec = ActiveEffect->Spec;
 
 			// We must update attribute aggregators only if we are actually 'on' right now, and if we are non periodic (periodic effects do their thing on execute callbacks)
-			bool MustUpdateAttributeAggregators = (ActiveEffect->IsInhibited == false && (Spec.GetPeriod() <= UGameplayEffect::NO_PERIOD));
+			bool MustUpdateAttributeAggregators = (ActiveEffect->bIsInhibited == false && (Spec.GetPeriod() <= UGameplayEffect::NO_PERIOD));
 
 			// As we update our modifier magnitudes, we will update our owner's attribute aggregators. When we do this, we have to clear them first of all of our (Handle's) previous mods.
 			// Since we could potentially have two mods to the same attribute, one that gets updated, and one that doesnt - we need to do this in two passes.
@@ -1320,7 +1331,7 @@ void FActiveGameplayEffectsContainer::OnMagnitudeDependencyChange(FActiveGamepla
 void FActiveGameplayEffectsContainer::OnStackCountChange(FActiveGameplayEffect& ActiveEffect)
 {
 	const FGameplayEffectSpec& Spec = ActiveEffect.Spec;
-	TSet<FGameplayAttribute>	AttributesToUpdate;
+	TSet<FGameplayAttribute> AttributesToUpdate;
 	
 	for (int32 ModIdx = 0; ModIdx < Spec.Modifiers.Num(); ++ModIdx)
 	{
@@ -1463,7 +1474,6 @@ void FActiveGameplayEffectsContainer::SetBaseAttributeValueFromReplication(FGame
 
 float FActiveGameplayEffectsContainer::GetGameplayEffectDuration(FActiveGameplayEffectHandle Handle) const
 {
-	// Could make this a map for quicker lookup
 	for (int32 idx = 0; idx < GameplayEffects.Num(); ++idx)
 	{
 		if (GameplayEffects[idx].Handle == Handle)
@@ -1478,7 +1488,6 @@ float FActiveGameplayEffectsContainer::GetGameplayEffectDuration(FActiveGameplay
 
 float FActiveGameplayEffectsContainer::GetGameplayEffectMagnitude(FActiveGameplayEffectHandle Handle, FGameplayAttribute Attribute) const
 {
-	// Could make this a map for quicker lookup
 	for (FActiveGameplayEffect Effect : GameplayEffects)
 	{
 		if (Effect.Handle == Handle)
@@ -1595,6 +1604,7 @@ bool FActiveGameplayEffectsContainer::InternalExecuteMod(FGameplayEffectSpec& Sp
 		 */
 		if (AttributeSet->PreGameplayEffectExecute(ExecuteData))
 		{
+			float OldValueOfProperty = Owner->GetNumericAttribute(ModEvalData.Attribute);
 			ApplyModToAttribute(ModEvalData.Attribute, ModEvalData.ModifierOp, ModEvalData.Magnitude, &ExecuteData);
 
 			FGameplayEffectModifiedAttribute* ModifiedAttribute = Spec.GetModifiedAttribute(ModEvalData.Attribute);
@@ -1607,6 +1617,15 @@ bool FActiveGameplayEffectsContainer::InternalExecuteMod(FGameplayEffectSpec& Sp
 
 			/** This should apply 'gamewide' rules. Such as clamping Health to MaxHealth or granting +3 health for every point of strength, etc */
 			AttributeSet->PostGameplayEffectExecute(ExecuteData);
+
+#if ENABLE_VISUAL_LOG
+			DebugExecutedGameplayEffectData DebugData;
+			DebugData.GameplayEffectName = Spec.Def->GetName();
+			DebugData.ActivationState = "INSTANT";
+			DebugData.Attribute = ModEvalData.Attribute;
+			DebugData.Magnitude = Owner->GetNumericAttribute(ModEvalData.Attribute) - OldValueOfProperty;
+			DebugExecutedGameplayEffects.Add(DebugData);
+#endif // ENABLE_VISUAL_LOG
 
 			bExecuted = true;
 		}
@@ -1642,6 +1661,8 @@ void FActiveGameplayEffectsContainer::ApplyModToAttribute(const FGameplayAttribu
 FActiveGameplayEffect* FActiveGameplayEffectsContainer::ApplyGameplayEffectSpec(const FGameplayEffectSpec& Spec, FPredictionKey InPredictionKey)
 {
 	SCOPE_CYCLE_COUNTER(STAT_ApplyGameplayEffectSpec);
+
+	GAMEPLAYEFFECT_SCOPE_LOCK();
 
 	if (Owner && Owner->OwnerActor && IsNetAuthority())
 	{
@@ -1716,6 +1737,17 @@ FActiveGameplayEffect* FActiveGameplayEffectsContainer::ApplyGameplayEffectSpec(
 	}
 	else
 	{
+		if (ScopedLockCount > 0 && GameplayEffects.GetSlack() <= 0)
+		{
+			// TODO: Instead of failing we could add to a pending add list. For that to work though all other places that look at GameplayEffects list, they will need to look at
+			// the pending list as well.
+			
+			ABILITY_LOG(Error, TEXT("******************************************************"));
+			ABILITY_LOG(Error, TEXT("FActiveGameplayEffectsContainer::ApplyGameplayEffectSpec is attemping to add GameplayEffect %s while locked and having no more slack!"));
+			ABILITY_LOG(Error, TEXT("******************************************************"));
+			ensure(false);
+		}
+
 		FActiveGameplayEffectHandle NewHandle = FActiveGameplayEffectHandle::GenerateNewHandle(Owner);
 		AppliedActiveGE = new(GameplayEffects) FActiveGameplayEffect(NewHandle, Spec, GetWorldTime(), GetGameStateTime(), InPredictionKey);
 	}
@@ -1817,6 +1849,8 @@ FActiveGameplayEffect* FActiveGameplayEffectsContainer::ApplyGameplayEffectSpec(
 /** This is called anytime a new ActiveGameplayEffect is added, on both client and server in all cases */
 void FActiveGameplayEffectsContainer::InternalOnActiveGameplayEffectAdded(FActiveGameplayEffect& Effect)
 {
+	GAMEPLAYEFFECT_SCOPE_LOCK();
+
 	// Add our ongoing tag requirements to the dependency map. We will actually check for these tags below.
 	for (const FGameplayTag& Tag : Effect.Spec.Def->OngoingTagRequirements.IgnoreTags)
 	{
@@ -1832,12 +1866,14 @@ void FActiveGameplayEffectsContainer::InternalOnActiveGameplayEffectAdded(FActiv
 	FGameplayTagContainer OwnerTags;
 	Owner->GetOwnedGameplayTags(OwnerTags);
 	
-	Effect.IsInhibited = true; // Effect has to start inhibited, if it should be uninhibited, CheckOnGoingTagRequirements will handle that state change
+	Effect.bIsInhibited = true; // Effect has to start inhibited, if it should be uninhibited, CheckOnGoingTagRequirements will handle that state change
 	Effect.CheckOngoingTagRequirements(OwnerTags, *this);
 }
 
 void FActiveGameplayEffectsContainer::AddActiveGameplayEffectGrantedTagsAndModifiers(FActiveGameplayEffect& Effect)
 {
+	GAMEPLAYEFFECT_SCOPE_LOCK();
+
 	// Register this ActiveGameplayEffects modifiers with our Attribute Aggregators
 	if (Effect.Spec.GetPeriod() <= UGameplayEffect::NO_PERIOD)
 	{
@@ -1876,13 +1912,18 @@ bool FActiveGameplayEffectsContainer::RemoveActiveGameplayEffect(FActiveGameplay
 	{
 		if (GameplayEffects[Idx].Handle == Handle)
 		{
-			//Block removal if we're scope-locked
-			if (FScopedActiveGameplayEffectLock::IsLockInEffect())
+			if (UE_LOG_ACTIVE(VLogAbilitySystem, Log))
 			{
-				FScopedActiveGameplayEffectLock::AddAction()->InitForRemoveGE(TWeakObjectPtr<UAbilitySystemComponent>(Owner), Handle, StacksToRemove);
-				return true;		//We are assuming the "ensure(Idx < GameplayEffects.Num())" would be passed.
+				ABILITY_VLOG(Owner->OwnerActor, Log, TEXT("Removed %s"), *GameplayEffects[Idx].Spec.Def->GetFName().ToString());
+				for (FGameplayModifierInfo Modifier : GameplayEffects[Idx].Spec.Def->Modifiers)
+				{
+					float Magnitude = 0.f;
+					Modifier.ModifierMagnitude.AttemptCalculateMagnitude(GameplayEffects[Idx].Spec, Magnitude);
+					ABILITY_VLOG(Owner->OwnerActor, Log, TEXT("         %s: %s %f"), *Modifier.Attribute.GetName(), *EGameplayModOpToString(Modifier.ModifierOp), Magnitude);
+				}
 			}
-			InternalRemoveActiveGameplayEffect(Idx, StacksToRemove);
+
+			InternalRemoveActiveGameplayEffect(Idx, StacksToRemove, true);
 			return true;
 		}
 	}
@@ -1891,15 +1932,14 @@ bool FActiveGameplayEffectsContainer::RemoveActiveGameplayEffect(FActiveGameplay
 }
 
 /** Called by server to actually remove a GameplayEffect */
-bool FActiveGameplayEffectsContainer::InternalRemoveActiveGameplayEffect(int32 Idx, int32 StacksToRemove)
+bool FActiveGameplayEffectsContainer::InternalRemoveActiveGameplayEffect(int32 Idx, int32 StacksToRemove, bool bPrematureRemoval)
 {
 	SCOPE_CYCLE_COUNTER(STAT_RemoveActiveGameplayEffect);
-
-	check(!FScopedActiveGameplayEffectLock::IsLockInEffect());
 	
 	if (ensure(Idx < GameplayEffects.Num()))
 	{
 		FActiveGameplayEffect& Effect = GameplayEffects[Idx];
+		ensure(!Effect.IsPendingRemove);
 
 		if (StacksToRemove > 0 && Effect.Spec.StackCount > StacksToRemove)
 		{
@@ -1908,6 +1948,9 @@ bool FActiveGameplayEffectsContainer::InternalRemoveActiveGameplayEffect(int32 I
 			OnStackCountChange(Effect);
 			return false;
 		}
+
+		// Mark the effect as pending removal
+		Effect.IsPendingRemove = true;
 
 		bool ShouldInvokeGameplayCueEvent = true;
 		const bool bIsNetAuthority = IsNetAuthority();
@@ -1944,16 +1987,31 @@ bool FActiveGameplayEffectsContainer::InternalRemoveActiveGameplayEffect(int32 I
 		// Remove this handle from the global map
 		Effect.Handle.RemoveFromGlobalMap();
 
+		// Attempt to apply expiration effects, if necessary
+		InternalApplyExpirationEffects(Effect.Spec, bPrematureRemoval);
+
+		bool ModifiedArray = false;
+
 		// Finally remove the ActiveGameplayEffect
-		GameplayEffects.RemoveAtSwap(Idx);
-		MarkArrayDirty();
+		if (ScopedLockCount > 0)
+		{
+			// We are locked, so this removal is now pending.
+			PendingRemoves++;
+		}
+		else
+		{
+			// Not locked, so do the removal right away.
+			GameplayEffects.RemoveAtSwap(Idx);
+			MarkArrayDirty();
+			ModifiedArray = true;
+		}
 
 		// Hack: force netupdate on owner. This isn't really necessary in real gameplay but is nice
 		// during debugging where breakpoints or pausing can mess up network update times. Open issue
 		// with network team.
 		Owner->GetOwner()->ForceNetUpdate();
 		
-		return true;
+		return ModifiedArray;
 	}
 
 	ABILITY_LOG(Warning, TEXT("InternalRemoveActiveGameplayEffect called with invalid index: %d"), Idx);
@@ -1963,7 +2021,7 @@ bool FActiveGameplayEffectsContainer::InternalRemoveActiveGameplayEffect(int32 I
 /** Called by client and server: This does cleanup that has to happen whether the effect is being removed locally or due to replication */
 void FActiveGameplayEffectsContainer::InternalOnActiveGameplayEffectRemoved(const FActiveGameplayEffect& Effect)
 {
-	// Remove our tag requirements from the dependancy map
+	// Remove our tag requirements from the dependency map
 	RemoveActiveEffectTagDependency(Effect.Spec.Def->OngoingTagRequirements.IgnoreTags, Effect.Handle);
 	RemoveActiveEffectTagDependency(Effect.Spec.Def->OngoingTagRequirements.RequireTags, Effect.Handle);
 
@@ -2028,6 +2086,46 @@ void FActiveGameplayEffectsContainer::RemoveActiveEffectTagDependency(const FGam
 	}
 }
 
+void FActiveGameplayEffectsContainer::InternalApplyExpirationEffects(const FGameplayEffectSpec& ExpiringSpec, bool bPrematureRemoval)
+{
+	GAMEPLAYEFFECT_SCOPE_LOCK();
+
+	check(Owner);
+
+	// Don't allow prediction of expiration effects
+	if (IsNetAuthority())
+	{
+		const UGameplayEffect* ExpiringGE = ExpiringSpec.Def;
+		if (ExpiringGE)
+		{
+			// Determine the appropriate type of effect to apply depending on whether the effect is being prematurely removed or not
+			const TArray<TSubclassOf<UGameplayEffect>>& ExpiryEffects = (bPrematureRemoval ? ExpiringGE->PrematureExpirationEffectClasses : ExpiringGE->RoutineExpirationEffectClasses);
+
+			for (const TSubclassOf<UGameplayEffect>& CurExpiryEffect : ExpiryEffects)
+			{
+				if (CurExpiryEffect)
+				{
+					const UGameplayEffect* CurExpiryCDO = CurExpiryEffect->GetDefaultObject<UGameplayEffect>();
+					check(CurExpiryCDO);
+									
+					const FGameplayEffectContextHandle& ExpiringSpecContextHandle = ExpiringSpec.GetEffectContext();
+					FGameplayEffectContextHandle NewContextHandle = FGameplayEffectContextHandle(UAbilitySystemGlobals::Get().AllocGameplayEffectContext());
+					
+					// Pass along old instigator to new effect context
+					// @todo: Creation of this spec needs to include tags, etc. from the original spec as well
+					if (NewContextHandle.IsValid())
+					{
+						NewContextHandle.AddInstigator(ExpiringSpecContextHandle.GetInstigator(), ExpiringSpecContextHandle.GetEffectCauser());
+					}
+				
+					FGameplayEffectSpec NewExpirySpec(CurExpiryCDO, NewContextHandle, ExpiringSpec.GetLevel());
+					Owner->ApplyGameplayEffectSpecToSelf(NewExpirySpec);
+				}
+			}
+		}
+	}
+}
+
 void FActiveGameplayEffectsContainer::OnOwnerTagChange(FGameplayTag TagChange, int32 NewCount)
 {
 	// It may be beneficial to do a scoped lock on attribute re-evaluation during this function
@@ -2035,6 +2133,8 @@ void FActiveGameplayEffectsContainer::OnOwnerTagChange(FGameplayTag TagChange, i
 	auto Ptr = ActiveEffectTagDependencies.Find(TagChange);
 	if (Ptr)
 	{
+		GAMEPLAYEFFECT_SCOPE_LOCK();
+
 		FGameplayTagContainer OwnerTags;
 		Owner->GetOwnedGameplayTags(OwnerTags);
 
@@ -2090,8 +2190,8 @@ void FActiveGameplayEffectsContainer::PreDestroy()
 
 int32 FActiveGameplayEffectsContainer::GetGameStateTime() const
 {
-	UWorld *World = Owner->GetWorld();
-	AGameState * GameState = World->GetGameState<AGameState>();
+	UWorld* World = Owner->GetWorld();
+	AGameState* GameState = World->GetGameState<AGameState>();
 	if (GameState)
 	{
 		return GameState->ElapsedTime;
@@ -2108,6 +2208,7 @@ float FActiveGameplayEffectsContainer::GetWorldTime() const
 
 void FActiveGameplayEffectsContainer::CheckDuration(FActiveGameplayEffectHandle Handle)
 {
+	GAMEPLAYEFFECT_SCOPE_LOCK();
 	for (int32 Idx = 0; Idx < GameplayEffects.Num(); ++Idx)
 	{
 		FActiveGameplayEffect& Effect = GameplayEffects[Idx];
@@ -2135,7 +2236,7 @@ void FActiveGameplayEffectsContainer::CheckDuration(FActiveGameplayEffectHandle 
 					TimerManager.ClearTimer(Effect.PeriodHandle);
 				}
 
-				InternalRemoveActiveGameplayEffect(Idx, -1);
+				InternalRemoveActiveGameplayEffect(Idx, -1, false);
 			}
 			else
 			{
@@ -2233,26 +2334,13 @@ TArray<float> FActiveGameplayEffectsContainer::GetActiveEffectsDuration(const FA
 }
 
 void FActiveGameplayEffectsContainer::RemoveActiveEffects(const FActiveGameplayEffectQuery Query, int32 StacksToRemove)
-{
-	const bool bLockInEffect = FScopedActiveGameplayEffectLock::IsLockInEffect();
-
-	for (int32 idx=0; idx < GameplayEffects.Num(); ++idx)
+{	
+	for (int32 idx=GameplayEffects.Num()-1; idx >= 0; --idx)
 	{
 		const FActiveGameplayEffect& Effect = GameplayEffects[idx];
 		if (Query.Matches(Effect))
 		{
-			// Defer removal if we're scope-locked
-			if (bLockInEffect)
-			{
-				FScopedActiveGameplayEffectLock::AddAction()->InitForRemoveGE(TWeakObjectPtr<UAbilitySystemComponent>(Owner), Effect.Handle, StacksToRemove);
-			}
-			else
-			{
-				if (InternalRemoveActiveGameplayEffect(idx, StacksToRemove))
-				{
-					idx--;
-				}
-			}
+			InternalRemoveActiveGameplayEffect(idx, StacksToRemove, true);			
 		}
 	}
 }
@@ -2287,6 +2375,66 @@ bool FActiveGameplayEffectsContainer::HasPredictedEffectWithPredictedKey(FPredic
 
 	return false;
 }
+
+#if ENABLE_VISUAL_LOG
+void FActiveGameplayEffectsContainer::GrabDebugSnapshot(FVisualLogEntry* Snapshot) const
+{
+	FVisualLogStatusCategory ActiveEffectsCategory;
+	ActiveEffectsCategory.Category = TEXT("Effects");
+
+	TMultiMap<FGameplayAttribute, FActiveGameplayEffectsContainer::DebugExecutedGameplayEffectData> EffectMap;
+
+	// Add all of the active gameplay effects
+	for (const FActiveGameplayEffect& Effect : GameplayEffects)
+	{
+		ensure(Effect.Spec.Modifiers.Num() == Effect.Spec.Def->Modifiers.Num());
+		for (int32 Idx = 0; Idx < Effect.Spec.Modifiers.Num(); ++Idx)
+		{
+			FActiveGameplayEffectsContainer::DebugExecutedGameplayEffectData Data;
+			Data.Attribute = Effect.Spec.Def->Modifiers[Idx].Attribute;
+			Data.ActivationState = Effect.bIsInhibited ? TEXT("INHIBITED") : TEXT("ACTIVE");
+			Data.GameplayEffectName = Effect.Spec.Def->GetName();
+			Data.Magnitude = Effect.Spec.Modifiers[Idx].GetEvaluatedMagnitude();
+
+			EffectMap.Add(Data.Attribute, Data);
+		}
+	}
+
+	// Add the executed gameplay effects if we recorded them
+	for (FActiveGameplayEffectsContainer::DebugExecutedGameplayEffectData Data : DebugExecutedGameplayEffects)
+	{
+		EffectMap.Add(Data.Attribute, Data);
+	}
+
+	// For each attribute that was modified go through all of its modifiers and list them
+	TArray<FGameplayAttribute> AttributeKeys;
+	EffectMap.GetKeys(AttributeKeys);
+
+	for (const FGameplayAttribute& Attribute : AttributeKeys)
+	{
+		float CombinedModifierValue = 0.f;
+		ActiveEffectsCategory.Add(TEXT(" --- Attribute --- "), Attribute.GetName());
+
+		TArray<FActiveGameplayEffectsContainer::DebugExecutedGameplayEffectData> AttributeEffects;
+		EffectMap.MultiFind(Attribute, AttributeEffects);
+
+		for (const FActiveGameplayEffectsContainer::DebugExecutedGameplayEffectData& DebugData : AttributeEffects)
+		{
+			ActiveEffectsCategory.Add(DebugData.GameplayEffectName, DebugData.ActivationState);
+			ActiveEffectsCategory.Add(TEXT("Magnitude"), FString::Printf(TEXT("%f"), DebugData.Magnitude));
+
+			if (DebugData.ActivationState != "INHIBITED")
+			{
+				CombinedModifierValue += DebugData.Magnitude;
+			}
+		}
+
+		ActiveEffectsCategory.Add(TEXT("Total Modification"), FString::Printf(TEXT("%f"), CombinedModifierValue));
+	}
+
+	Snapshot->Status.Add(ActiveEffectsCategory);
+}
+#endif // ENABLE_VISUAL_LOG
 
 // --------------------------------------------------------------------------------------------------------------------------------------------------------
 //
@@ -2342,6 +2490,12 @@ void FActiveGameplayEffectHandle::RemoveFromGlobalMap()
 
 bool FActiveGameplayEffectQuery::Matches(const FActiveGameplayEffect& Effect) const
 {
+	// Anything in the ignore handle list is an immediate non-match
+	if (IgnoreHandles.Contains(Effect.Handle))
+	{
+		return false;
+	}
+
 	if (CustomMatch.IsBound())
 	{
 		return CustomMatch.Execute(Effect);
@@ -2463,22 +2617,54 @@ void FInheritedTagContainer::RemoveTag(FGameplayTag TagToRemove)
 	CombinedTags.RemoveTag(TagToRemove);
 }
 
-void FActiveGameplayEffectAction::PerformAction()
+void FActiveGameplayEffectsContainer::IncrementLock()
 {
-	check(bIsInitialized);
-	if (OwningASC.IsValid())
+	if (ScopedLockCount++ == 0)
 	{
-		if (bRemove)
+		// If we transitioned from unlocked to locked, make sure we have enough slack for additions.
+		// 4 is arbitrary determined. We should add instrumentation to get a better ideal/default number.
+		static const int32 GAMEPLAYEFFECT_MIN_SLACK = 4;
+
+		if (GameplayEffects.GetSlack() < GAMEPLAYEFFECT_MIN_SLACK)
 		{
-			OwningASC.Get()->RemoveActiveGameplayEffect(Handle, StacksToRemove);
-		}
-		else
-		{
-			UAbilitySystemComponent* ASC = OwningASC.Get();
-			check(!ASC->ActiveGameplayEffects.GameplayEffectsPendingAdd.IsEmpty());
-			FActiveGameplayEffect TempEffect;
-			ASC->ActiveGameplayEffects.GameplayEffectsPendingAdd.Dequeue(TempEffect);
-			ASC->ActiveGameplayEffects.GameplayEffects.Add(TempEffect);
+			GameplayEffects.Reserve( GameplayEffects.Num() + GAMEPLAYEFFECT_MIN_SLACK );
 		}
 	}
+}
+
+void FActiveGameplayEffectsContainer::DecrementLock()
+{
+	if (--ScopedLockCount == 0 && PendingRemoves > 0)
+	{
+		// If we are transitioned from locked to unlocked, we now need to actually delete and pending kill gameplay effects
+		for (int32 idx=GameplayEffects.Num()-1; idx >= 0 && PendingRemoves > 0; --idx)
+		{
+			FActiveGameplayEffect& Effect = GameplayEffects[idx];
+
+			if (Effect.IsPendingRemove)
+			{
+				GameplayEffects.RemoveAtSwap(idx, 1, false);
+				PendingRemoves--;
+			}
+		}
+
+		if (!ensure(PendingRemoves == 0))
+		{
+			ABILITY_LOG(Warning, TEXT("~FScopedActiveGameplayEffectLock has %d pending removes after a scope lock removal"), PendingRemoves);
+			PendingRemoves = 0;
+		}
+
+		MarkArrayDirty();
+	}
+}
+
+FScopedActiveGameplayEffectLock::FScopedActiveGameplayEffectLock(FActiveGameplayEffectsContainer& InContainer)
+	: Container(InContainer)
+{
+	Container.IncrementLock();
+}
+
+FScopedActiveGameplayEffectLock::~FScopedActiveGameplayEffectLock()
+{
+	Container.DecrementLock();
 }

@@ -34,6 +34,7 @@ public:
 		, _ExternalScrollbar()
 		, _ScrollbarVisibility(EVisibility::Visible)
 		, _AllowOverscroll(EAllowOverscroll::Yes)
+		, _ConsumeMouseWheel( EConsumeMouseWheel::WhenScrollingPossible )
 		{}
 
 		SLATE_EVENT( FOnGenerateRow, OnGenerateTile )
@@ -64,6 +65,8 @@ public:
 
 		SLATE_ARGUMENT( EAllowOverscroll, AllowOverscroll );
 
+		SLATE_ARGUMENT( EConsumeMouseWheel, ConsumeMouseWheel );
+
 	SLATE_END_ARGS()
 
 	/**
@@ -85,6 +88,7 @@ public:
 		this->bClearSelectionOnClick = InArgs._ClearSelectionOnClick;
 
 		this->AllowOverscroll = InArgs._AllowOverscroll;
+		this->ConsumeMouseWheel = InArgs._ConsumeMouseWheel;
 
 		// Check for any parameters that the coder forgot to specify.
 		FString ErrorString;
@@ -191,6 +195,7 @@ public:
 			const double EndOfListOffset = NumItemsPaddedToFillLastRow - NumItemsWide * RowsPerScreen;
 			const double ClampedScrollOffset = FMath::Clamp(STableViewBase::ScrollOffset, 0.0, EndOfListOffset);
 			const bool bAtEndOfList = (STableViewBase::ScrollOffset >= ClampedScrollOffset);
+			const float LayoutScaleMultiplier = MyGeometry.GetAccumulatedLayoutTransform().GetScale();
 			
 			// Once we run out of vertical and horizontal space, we stop generating widgets.
 			float WidthUsedSoFar = 0.0f;
@@ -224,7 +229,7 @@ public:
 					}
 				}
 
-				const float GeneratedItemHeight = SListView<ItemType>::GenerateWidgetForItem( CurItem, ItemIndex, StartIndex );
+				const float GeneratedItemHeight = SListView<ItemType>::GenerateWidgetForItem(CurItem, ItemIndex, StartIndex, LayoutScaleMultiplier);
 
 				// The widget used up some of the available horizontal space.
 				WidthUsedSoFar += ItemWidth;

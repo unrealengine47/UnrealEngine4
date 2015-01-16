@@ -74,6 +74,13 @@ class ENGINE_API UWorldComposition : public UObject
 	/** Adds or removes level streaming objects to world based on distance settings from current view point */
 	void UpdateStreamingState(const FVector& InLocation);
 
+#if WITH_EDITOR
+	/** Simulates streaming in editor world, only visibility, no loading/unloading, no LOD sub-levels 
+	 *  @returns Whether streaming levels state was updated by this call
+	 */
+	bool UpdateEditorStreamingState(const FVector& InLocation);
+#endif// WITH_EDITOR
+
 	/**
 	 * Evaluates current world origin location against provided view location
 	 * Issues request for world origin rebasing in case location is far enough from current origin
@@ -135,11 +142,9 @@ class ENGINE_API UWorldComposition : public UObject
 	/** Collect tiles package names to cook  */
 	void CollectTilesToCook(TArray<FString>& PackageNames);
 
-	DECLARE_MULTICAST_DELEGATE_OneParam(FWorldCompositionEvent, UWorld*);
-	// Callback on world composition creation
-	static FWorldCompositionEvent OnWorldCompositionCreated;
-	// Callback on world composition destruction 
-	static FWorldCompositionEvent OnWorldCompositionDestroyed;
+	// Delegate to enable/disable world composition in the world
+	DECLARE_DELEGATE_RetVal_TwoParams(bool, FEnableWorldCompositionEvent, UWorld*, bool);
+	static FEnableWorldCompositionEvent EnableWorldCompositionEvent;
 
 #endif //WITH_EDITOR
 

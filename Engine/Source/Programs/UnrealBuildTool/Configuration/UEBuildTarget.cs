@@ -95,30 +95,29 @@ namespace UnrealBuildTool
 	/// <summary>
 	/// A container for a binary files (dll, exe) with its associated debug info.
 	/// </summary>
-	public class FileManifest
+	public class BuildManifest
 	{
-		public readonly List<string> FileManifestItems = new List<string>();
+		public readonly List<string> BuildProducts = new List<string>();
 
-		public FileManifest()
+		public BuildManifest()
 		{
 		}
 
-		public void AddFileName( string FilePath )
+		public void AddBuildProduct(string FileName)
 		{
-			FileManifestItems.Add( Path.GetFullPath( FilePath ) );
-		}
-
-		public void AddBinaryNames(string OutputFilePath, string DebugInfoExtension)
-		{
-			// Only add unique files to the manifest. Multiple games have many shared binaries.
-			if( !FileManifestItems.Any( x => Path.GetFullPath( OutputFilePath ) == x ) )
+			string FullFileName = Path.GetFullPath(FileName);
+			if (!BuildProducts.Contains(FullFileName))
 			{
-				string FullPath = Path.GetFullPath(OutputFilePath);
-				FileManifestItems.Add( FullPath );
-				if (!string.IsNullOrEmpty(DebugInfoExtension))
-				{
-					FileManifestItems.Add(Path.ChangeExtension(FullPath, DebugInfoExtension));
-				}
+				BuildProducts.Add(FullFileName);
+			}
+		}
+
+		public void AddBuildProduct(string FileName, string DebugInfoExtension)
+		{
+			AddBuildProduct(FileName);
+			if(!String.IsNullOrEmpty(DebugInfoExtension))
+			{
+				AddBuildProduct(Path.ChangeExtension(FileName, DebugInfoExtension));
 			}
 		}
 	}
@@ -165,6 +164,7 @@ namespace UnrealBuildTool
 		public bool bIsEditorRecompile;
 		public string RemoteRoot;
 		public List<OnlyModule> OnlyModules;
+		public string OverridenAppName;
 	}
 
 
@@ -214,6 +214,7 @@ namespace UnrealBuildTool
 			var Configuration = UnrealTargetConfiguration.Unknown;
 			string RemoteRoot = null;
 			var OnlyModules = new List<OnlyModule>();
+			string OverridenAppName = null;
 
 			// If true, the recompile was launched by the editor.
 			bool bIsEditorRecompile = false;
@@ -233,7 +234,8 @@ namespace UnrealBuildTool
 				}
 				else if (Arguments[ArgumentIndex].ToLowerInvariant().StartsWith("-overridetargetappname="))
 				{
-					AdditionalDefinitions.Add(Arguments[ArgumentIndex]);
+					string OverrideTargetAppNameSwitch = "-overridetargetappname=";
+					OverridenAppName = Arguments[ArgumentIndex].Substring(OverrideTargetAppNameSwitch.Length);
 				}
 				else
 				{
@@ -462,6 +464,7 @@ namespace UnrealBuildTool
 			string RemoteRoot = Desc.RemoteRoot;
 			List<OnlyModule> OnlyModules = Desc.OnlyModules;
 			bool bIsEditorRecompile = Desc.bIsEditorRecompile;
+			string OverridenAppName = Desc.OverridenAppName;
 
 			UEBuildTarget BuildTarget = null;
 			if( !ProjectFileGenerator.bGenerateProjectFiles )
@@ -485,7 +488,8 @@ namespace UnrealBuildTool
 				InAdditionalDefinitions:AdditionalDefinitions, 
 				InRemoteRoot:RemoteRoot, 
 				InOnlyModules:OnlyModules, 
-				bInEditorRecompile:bIsEditorRecompile);
+				bInEditorRecompile:bIsEditorRecompile,
+				InOverridenAppName:OverridenAppName);
 			if (Target == null)
 			{
 				if (UEBuildConfiguration.bCleanProject)
@@ -763,21 +767,17 @@ namespace UnrealBuildTool
 			List<string> InAdditionalDefinitions,
 			string InRemoteRoot,
 			List<OnlyModule> InOnlyModules,
-			bool bInEditorRecompile)
+			bool bInEditorRecompile,
+			string InOverridenAppName = "" )
 		{
-			string CmdlineAppName = null;
-			const string OverrideTargetAppNameSwitch = "-overridetargetappname=";
-			if ((CmdlineAppName = InAdditionalDefinitions.Find(x => x.StartsWith(OverrideTargetAppNameSwitch))) != null)
-			{
-				OverridenAppName = CmdlineAppName.Substring(OverrideTargetAppNameSwitch.Length);
-			}
-
-				AppName = InAppName;
+			AppName = InAppName;
 			GameName = InGameName;
 			Platform = InPlatform;
 			Configuration = InConfiguration;
 			Rules = InRulesObject;
 			bEditorRecompile = bInEditorRecompile;
+			OverridenAppName = InOverridenAppName;
+
 
 			{
 				bCompileMonolithic = (Rules != null) ? Rules.ShouldCompileMonolithic(InPlatform, InConfiguration) : false;
@@ -991,7 +991,7 @@ namespace UnrealBuildTool
 		/// <param name="Binaries">Target binaries</param>
 		/// <param name="Platform">Tareet platform</param>
 		/// <param name="Manifest">Manifest</param>
-		protected void CleanTarget(List<UEBuildBinary> Binaries, CPPTargetPlatform Platform, FileManifest Manifest)
+		protected void CleanTarget(List<UEBuildBinary> Binaries, CPPTargetPlatform Platform, BuildManifest Manifest)
 		{
 			{
 				var TargetFilename = RulesCompiler.GetTargetFilename(GameName);
@@ -1014,8 +1014,8 @@ namespace UnrealBuildTool
 
 				// Collect all files to delete.
 				var AdditionalFileExtensions = new string[] { ".lib", ".exp", ".dll.response" };
-				var AllFilesToDelete = new List<string>(Manifest.FileManifestItems);
-				foreach (var FileManifestItem in Manifest.FileManifestItems)
+				var AllFilesToDelete = new List<string>(Manifest.BuildProducts);
+				foreach (var FileManifestItem in Manifest.BuildProducts)
 				{
 					var FileExt = Path.GetExtension(FileManifestItem);
 					if (FileExt == ".dll" || FileExt == ".exe")
@@ -1315,11 +1315,11 @@ namespace UnrealBuildTool
 				ManifestPath = "../Intermediate/Build/Manifest.xml";
 			}
 
-			FileManifest Manifest = new FileManifest();
+			BuildManifest Manifest = new BuildManifest();
 			if (UEBuildConfiguration.bMergeManifests)
 			{
 				// Load in existing manifest (if any)
-				Manifest = Utils.ReadClass<FileManifest>(ManifestPath);
+				Manifest = Utils.ReadClass<BuildManifest>(ManifestPath);
 			}
 
 			UnrealTargetPlatform TargetPlatform = CPPTargetPlatformToUnrealTargetPlatform( Platform );
@@ -1346,7 +1346,7 @@ namespace UnrealBuildTool
 				// Create and add the binary and associated debug info
 				foreach (string OutputFilePath in Binary.Config.OutputFilePaths)
 				{
-					Manifest.AddBinaryNames(OutputFilePath, DebugInfoExtension);
+					Manifest.AddBuildProduct(OutputFilePath, DebugInfoExtension);
 				}
 
 				if (Binary.Config.Type == UEBuildBinaryType.Executable &&
@@ -1355,17 +1355,17 @@ namespace UnrealBuildTool
 				{
 					foreach (string OutputFilePath in Binary.Config.OutputFilePaths)
 					{
-						Manifest.AddBinaryNames(UEBuildBinary.GetAdditionalConsoleAppPath(OutputFilePath), DebugInfoExtension);
+						Manifest.AddBuildProduct(UEBuildBinary.GetAdditionalConsoleAppPath(OutputFilePath), DebugInfoExtension);
 					}
 				}
 
-                ToolChain.AddFilesToManifest(ref Manifest,Binary);
+                ToolChain.AddFilesToManifest(Manifest, Binary);
 			}
 			{
 				string DebugInfoExtension = BuildPlatform.GetDebugInfoExtension(UEBuildBinaryType.StaticLibrary);
 				foreach (var RedistLib in SpecialRocketLibFilesThatAreBuildProducts)
 				{
-					Manifest.AddBinaryNames(RedistLib, DebugInfoExtension);
+					Manifest.AddBuildProduct(RedistLib, DebugInfoExtension);
 				}
 			}
 
@@ -1376,7 +1376,7 @@ namespace UnrealBuildTool
 			}
 			if (UEBuildConfiguration.bGenerateManifest)
 			{
-				Utils.WriteClass<FileManifest>(Manifest, ManifestPath, "");
+				Utils.WriteClass<BuildManifest>(Manifest, ManifestPath, "");
 			}
 		}
 
@@ -1939,9 +1939,8 @@ namespace UnrealBuildTool
 				BindArtificialModuleToBinary(NewModule, ExecutableBinary);
 
 				// Create the cpp file
-				List<string> LinkerFixupsFileContents = new List<string>();
 				NewModule.bSkipDefinitionsForCompileEnvironment = false;
-				GenerateLinkerFixupsContents(ExecutableBinary, LinkerFixupsFileContents, NewModule.CreateModuleCompileEnvironment(GlobalCompileEnvironment), HeaderFilename, LinkerFixupsName, PrivateDependencyModuleNames);
+				var LinkerFixupsFileContents = GenerateLinkerFixupsContents(ExecutableBinary, NewModule.CreateModuleCompileEnvironment(GlobalCompileEnvironment), HeaderFilename, LinkerFixupsName, PrivateDependencyModuleNames);
 				NewModule.bSkipDefinitionsForCompileEnvironment = true;
 
 				// Determine if the file changed. Write it if it either doesn't exist or the contents are different.
@@ -1963,9 +1962,11 @@ namespace UnrealBuildTool
 			}
 		}
 
-		private void GenerateLinkerFixupsContents(UEBuildBinary ExecutableBinary, List<string> LinkerFixupsFileContents, CPPEnvironment CompileEnvironment, string HeaderFilename, string LinkerFixupsName, List<string> PrivateDependencyModuleNames)
+		private  List<string> GenerateLinkerFixupsContents(UEBuildBinary ExecutableBinary, CPPEnvironment CompileEnvironment, string HeaderFilename, string LinkerFixupsName, List<string> PrivateDependencyModuleNames)
 		{
-			LinkerFixupsFileContents.Add("#include \"" + HeaderFilename + "\"");
+			var Result = new List<string>();
+
+			Result.Add("#include \"" + HeaderFilename + "\"");
 
 			// To reduce the size of the command line for the compiler, we're going to put all definitions inside of the cpp file.
 			foreach (var Definition in CompileEnvironment.Config.Definitions)
@@ -1982,30 +1983,32 @@ namespace UnrealBuildTool
 				{
 					MacroName = Definition;
 				}
-				LinkerFixupsFileContents.Add("#ifndef " + MacroName);
-				LinkerFixupsFileContents.Add(String.Format("\t#define {0} {1}", MacroName, MacroValue));
-				LinkerFixupsFileContents.Add("#endif");
+				Result.Add("#ifndef " + MacroName);
+				Result.Add(String.Format("\t#define {0} {1}", MacroName, MacroValue));
+				Result.Add("#endif");
 			}
 
 			// Add a function that is not referenced by anything that invokes all the empty functions in the different static libraries
-			LinkerFixupsFileContents.Add("void " + LinkerFixupsName + "()");
-			LinkerFixupsFileContents.Add("{");
+			Result.Add("void " + LinkerFixupsName + "()");
+			Result.Add("{");
 
 			// Fill out the body of the function with the empty function calls. This is what causes the static libraries to be considered relevant
 			var DependencyModules = ExecutableBinary.GetAllDependencyModules(bIncludeDynamicallyLoaded: false, bForceCircular: false);
 			foreach(string ModuleName in DependencyModules.OfType<UEBuildModuleCPP>().Where(CPPModule => CPPModule.AutoGenerateCppInfo != null).Select(CPPModule => CPPModule.Name).Distinct())
 			{
-				LinkerFixupsFileContents.Add("    extern void EmptyLinkFunctionForGeneratedCode" + ModuleName + "();");
-				LinkerFixupsFileContents.Add("    EmptyLinkFunctionForGeneratedCode" + ModuleName + "();");
+				Result.Add("    extern void EmptyLinkFunctionForGeneratedCode" + ModuleName + "();");
+				Result.Add("    EmptyLinkFunctionForGeneratedCode" + ModuleName + "();");
 			}
 			foreach (var DependencyModuleName in PrivateDependencyModuleNames)
 			{
-				LinkerFixupsFileContents.Add("    extern void EmptyLinkFunctionForStaticInitialization" + DependencyModuleName + "();");
-				LinkerFixupsFileContents.Add("    EmptyLinkFunctionForStaticInitialization" + DependencyModuleName + "();");
+				Result.Add("    extern void EmptyLinkFunctionForStaticInitialization" + DependencyModuleName + "();");
+				Result.Add("    EmptyLinkFunctionForStaticInitialization" + DependencyModuleName + "();");
 			}
 
 			// End the function body that was started above
-			LinkerFixupsFileContents.Add("}");
+			Result.Add("}");
+
+			return Result;
 		}
 
 		/// <summary>

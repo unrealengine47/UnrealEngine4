@@ -93,6 +93,10 @@ public:
 	/** The currently selected layer index */
 	UPROPERTY()
 	int32 SelectedLayerIndex;
+
+	/** The background color displayed in the tile map editor */
+	UPROPERTY(Category=Setup, EditAnywhere)
+	FLinearColor BackgroundColor;
 #endif
 
 	/** The naming index to start at when trying to create a new layer */
@@ -108,8 +112,19 @@ public:
 #endif
 	// End of UObject interface
 
+	// Returns the tile coordinates of the specified local space position
+	void GetTileCoordinatesFromLocalSpacePosition(const FVector& Position, int32& OutTileX, int32& OutTileY) const;
 
-	FVector GetTilePositionInLocalSpace(int32 TileX, int32 TileY, int32 LayerIndex = 0) const;
+	// Returns the top left corner of the specified tile in local space
+	FVector GetTilePositionInLocalSpace(float TileX, float TileY, int32 LayerIndex = 0) const;
+
+	// Returns the center of the specified tile in local space
+	FVector GetTileCenterInLocalSpace(float TileX, float TileY, int32 LayerIndex = 0) const;
+
+
+	void GetTileToLocalParameters(FVector& OutCornerPosition, FVector& OutStepX, FVector& OutStepY, FVector& OutOffsetYFactor) const;
+	void GetLocalToTileParameters(FVector& OutCornerPosition, FVector& OutStepX, FVector& OutStepY, FVector& OutOffsetYFactor) const;
+
 
 	FBoxSphereBounds GetRenderBounds() const;
 

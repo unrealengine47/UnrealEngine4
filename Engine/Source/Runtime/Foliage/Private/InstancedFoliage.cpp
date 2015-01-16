@@ -4,13 +4,11 @@
 	InstancedFoliage.cpp: Instanced foliage implementation.
 =============================================================================*/
 
-#include "EnginePrivate.h"
-#include "StaticMeshResources.h"
+#include "FoliagePrivate.h"
+#include "InstancedFoliage.h"
 #include "MessageLog.h"
 #include "UObjectToken.h"
 #include "MapErrors.h"
-#include "Foliage/InstancedFoliageActor.h"
-#include "Foliage/FoliageType_InstancedStaticMesh.h"
 #include "Components/ModelComponent.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Serialization/CustomVersion.h"
@@ -23,7 +21,6 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogInstancedFoliage, Log, All);
 
-IMPLEMENT_HIT_PROXY(HInstancedStaticMeshInstance, HHitProxy);
 
 // Custom serialization version for all packages containing Instance Foliage
 struct FFoliageCustomVersion
@@ -36,6 +33,8 @@ struct FFoliageCustomVersion
 		FoliageUsingHierarchicalISMC = 1,
 		// Changed Component to not RF_Transactional
 		HierarchicalISMCNonTransactional = 2,
+		// Added FoliageTypeUpdateGuid
+		AddedFoliageTypeUpdateGuid = 3,
 		// -----<new versions can be added above this line>-------------------------------------------------
 		VersionPlusOne,
 		LatestVersion = VersionPlusOne - 1
@@ -138,6 +137,11 @@ FArchive& operator<<(FArchive& Ar, FFoliageMeshInfo& MeshInfo)
 		Ar << MeshInfo.Instances;
 	}
 
+	if (Ar.CustomVer(FFoliageCustomVersion::GUID) >= FFoliageCustomVersion::AddedFoliageTypeUpdateGuid)
+	{
+		Ar << MeshInfo.FoliageTypeUpdateGuid;
+	}
+
 	// Serialize the transient data for undo.
 	if (Ar.IsTransacting())
 	{
@@ -192,6 +196,7 @@ UFoliageType::UFoliageType(const FObjectInitializer& ObjectInitializer)
 	VertexColorMask = FOLIAGEVERTEXCOLORMASK_Disabled;
 	VertexColorMaskThreshold = 0.5f;
 
+	bEnableStaticLighting = true;
 	CastShadow = true;
 	bCastDynamicShadow = true;
 	bCastStaticShadow = true;
@@ -202,7 +207,7 @@ UFoliageType::UFoliageType(const FObjectInitializer& ObjectInitializer)
 	bReceivesDecals = false;
 
 	bOverrideLightMapRes = false;
-	OverriddenLightMapRes = 32;
+	OverriddenLightMapRes = 8;
 
 	BodyInstance.SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
 
@@ -225,6 +230,8 @@ UFoliageType::UFoliageType(const FObjectInitializer& ObjectInitializer)
 	FRichCurve* Curve = ScaleCurve.GetRichCurve();
 	Curve->AddKey(0.f, 0.f);
 	Curve->AddKey(1.f, 1.f);
+
+	UpdateGuid = FGuid::NewGuid();
 }
 
 
@@ -278,8 +285,19 @@ void UFoliageType::PostEditChangeProperty(struct FPropertyChangedEvent& Property
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
 	// Ensure that OverriddenLightMapRes is a factor of 4
-	OverriddenLightMapRes = FMath::Max(OverriddenLightMapRes + 3 & ~3, 4);
+	OverriddenLightMapRes = OverriddenLightMapRes > 4 ? OverriddenLightMapRes + 3 & ~3 : 4;
 	++ChangeCount;
+
+	UpdateGuid = FGuid::NewGuid();
+
+	// Notify any currently-loaded InstancedFoliageActors
+	if (IsFoliageReallocationRequiredForPropertyChange(PropertyChangedEvent))
+	{
+		for (TObjectIterator<AInstancedFoliageActor> It(RF_ClassDefaultObject | RF_PendingKill); It; ++It)
+		{
+			It->NotifyFoliageTypeChanged(this);
+		}
+	}
 }
 #endif
 
@@ -376,7 +394,7 @@ void FFoliageMeshInfo::AddInstance(AInstancedFoliageActor* InIFA, UFoliageType* 
 	{
 		Component = ConstructObject<UHierarchicalInstancedStaticMeshComponent>(UHierarchicalInstancedStaticMeshComponent::StaticClass(), InIFA, NAME_None, RF_Transactional);
 
-		Component->Mobility = EComponentMobility::Static;
+		Component->Mobility = InSettings->bEnableStaticLighting ? EComponentMobility::Static : EComponentMobility::Movable;
 
 		Component->StaticMesh = InSettings->GetStaticMesh();
 		Component->bSelectable = true;
@@ -593,6 +611,7 @@ int32 FFoliageMeshInfo::GetInstanceCount() const
 void FFoliageMeshInfo::ReallocateClusters(AInstancedFoliageActor* InIFA, UFoliageType* InSettings)
 {
 	// Detach all components
+
 	InIFA->UnregisterAllComponents();
 
 	if (Component != nullptr)
@@ -607,6 +626,9 @@ void FFoliageMeshInfo::ReallocateClusters(AInstancedFoliageActor* InIFA, UFoliag
 	InstanceHash->Empty();
 	ComponentHash.Empty();
 	SelectedIndices.Empty();
+
+	// Copy the UpdateGuid from the foliage type
+	FoliageTypeUpdateGuid = InSettings->UpdateGuid;
 
 	// Re-add
 	for (FFoliageInstance& Instance : OldInstances)
@@ -771,7 +793,6 @@ AInstancedFoliageActor::AInstancedFoliageActor(const FObjectInitializer& ObjectI
 	PrimaryActorTick.bCanEverTick = false;
 }
 
-#if WITH_EDITOR
 AInstancedFoliageActor* AInstancedFoliageActor::GetInstancedFoliageActorForCurrentLevel(UWorld* InWorld, bool bCreateIfNone)
 {
 	for (TActorIterator<AInstancedFoliageActor> It(InWorld); It; ++It)
@@ -790,7 +811,7 @@ AInstancedFoliageActor* AInstancedFoliageActor::GetInstancedFoliageActorForCurre
 }
 
 
-AInstancedFoliageActor* AInstancedFoliageActor::GetInstancedFoliageActorForLevel(ULevel* InLevel)
+AInstancedFoliageActor* AInstancedFoliageActor::GetInstancedFoliageActorForLevel(ULevel* InLevel, bool bCreateIfNone /* = true */)
 {
 	if (!InLevel)
 	{
@@ -805,9 +826,73 @@ AInstancedFoliageActor* AInstancedFoliageActor::GetInstancedFoliageActorForLevel
 			return InstancedFoliageActor;
 		}
 	}
+
+	if (bCreateIfNone)
+	{
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.OverrideLevel = InLevel;
+
+		return InLevel->GetWorld()->SpawnActor<AInstancedFoliageActor>(SpawnParams);
+	}
+
 	return nullptr;
 }
 
+
+int32 AInstancedFoliageActor::GetOverlappingSphereCount(const UFoliageType* FoliageType, const FSphere& Sphere) const
+{
+	if (const FFoliageMeshInfo* MeshInfo = FindMesh(FoliageType))
+	{
+		if (MeshInfo->Component)
+		{
+			return MeshInfo->Component->GetOverlappingSphereCount(Sphere);
+		}
+	}
+
+	return 0;
+}
+
+
+UFoliageType* AInstancedFoliageActor::GetSettingsForMesh(const UStaticMesh* InMesh, FFoliageMeshInfo** OutMeshInfo)
+{
+	UFoliageType* Type = nullptr;
+	FFoliageMeshInfo* MeshInfo = nullptr;
+
+	for (auto& MeshPair : FoliageMeshes)
+	{
+		UFoliageType* Settings = MeshPair.Key;
+		if (Settings && Settings->GetStaticMesh() == InMesh)
+		{
+			Type = MeshPair.Key;
+			MeshInfo = &*MeshPair.Value;
+			break;
+		}
+	}
+
+	if (OutMeshInfo)
+	{
+		*OutMeshInfo = MeshInfo;
+	}
+	return Type;
+}
+
+
+FFoliageMeshInfo* AInstancedFoliageActor::FindMesh(const UFoliageType* InType)
+{
+	TUniqueObj<FFoliageMeshInfo>* MeshInfoEntry = FoliageMeshes.Find(InType);
+	FFoliageMeshInfo* MeshInfo = MeshInfoEntry ? &MeshInfoEntry->Get() : nullptr;
+	return MeshInfo;
+}
+
+const FFoliageMeshInfo* AInstancedFoliageActor::FindMesh(const UFoliageType* InType) const
+{
+	const TUniqueObj<FFoliageMeshInfo>* MeshInfoEntry = FoliageMeshes.Find(InType);
+	const FFoliageMeshInfo* MeshInfo = MeshInfoEntry ? &MeshInfoEntry->Get() : nullptr;
+	return MeshInfo;
+}
+
+
+#if WITH_EDITOR
 void AInstancedFoliageActor::MoveInstancesForMovedComponent(UActorComponent* InComponent)
 {
 	bool bUpdatedInstances = false;
@@ -1011,13 +1096,6 @@ TMap<UFoliageType*, TArray<const FFoliageInstancePlacementInfo*>> AInstancedFoli
 	return Result;
 }
 
-FFoliageMeshInfo* AInstancedFoliageActor::FindMesh(UFoliageType* InType)
-{
-	TUniqueObj<FFoliageMeshInfo>* MeshInfoEntry = FoliageMeshes.Find(InType);
-	FFoliageMeshInfo* MeshInfo = MeshInfoEntry ? &MeshInfoEntry->Get() : nullptr;
-	return MeshInfo;
-}
-
 FFoliageMeshInfo* AInstancedFoliageActor::FindOrAddMesh(UFoliageType* InType)
 {
 	TUniqueObj<FFoliageMeshInfo>* MeshInfoEntry = FoliageMeshes.Find(InType);
@@ -1025,7 +1103,7 @@ FFoliageMeshInfo* AInstancedFoliageActor::FindOrAddMesh(UFoliageType* InType)
 	return MeshInfo;
 }
 
-FFoliageMeshInfo* AInstancedFoliageActor::AddMesh(UStaticMesh* InMesh, UFoliageType** OutSettings)
+FFoliageMeshInfo* AInstancedFoliageActor::AddMesh(UStaticMesh* InMesh, UFoliageType** OutSettings, const UFoliageType_InstancedStaticMesh* DefaultSettings)
 {
 	check(GetSettingsForMesh(InMesh) == nullptr);
 
@@ -1033,10 +1111,10 @@ FFoliageMeshInfo* AInstancedFoliageActor::AddMesh(UStaticMesh* InMesh, UFoliageT
 
 	UFoliageType_InstancedStaticMesh* Settings = nullptr;
 #if WITH_EDITORONLY_DATA
-	if (InMesh->FoliageDefaultSettings)
+	if (DefaultSettings)
 	{
 		// TODO: Can't we just use this directly?
-		Settings = DuplicateObject<UFoliageType_InstancedStaticMesh>(InMesh->FoliageDefaultSettings, this);
+		Settings = DuplicateObject<UFoliageType_InstancedStaticMesh>(DefaultSettings, this);
 	}
 	else
 #endif
@@ -1104,6 +1182,7 @@ FFoliageMeshInfo* AInstancedFoliageActor::AddMesh(UFoliageType* InType)
 	}
 
 	FFoliageMeshInfo* MeshInfo = &*FoliageMeshes.Add(InType);
+	MeshInfo->FoliageTypeUpdateGuid = InType->UpdateGuid;
 	InType->IsSelected = true;
 
 	return MeshInfo;
@@ -1125,29 +1204,6 @@ void AInstancedFoliageActor::RemoveMesh(UFoliageType* InSettings)
 	FoliageMeshes.Remove(InSettings);
 	RegisterAllComponents();
 	CheckSelection();
-}
-
-UFoliageType* AInstancedFoliageActor::GetSettingsForMesh(UStaticMesh* InMesh, FFoliageMeshInfo** OutMeshInfo)
-{
-	UFoliageType* Type = nullptr;
-	FFoliageMeshInfo* MeshInfo = nullptr;
-
-	for (auto& MeshPair : FoliageMeshes)
-	{
-		UFoliageType* Settings = MeshPair.Key;
-		if (Settings && Settings->GetStaticMesh() == InMesh)
-		{
-			Type = MeshPair.Key;
-			MeshInfo = &*MeshPair.Value;
-			break;
-		}
-	}
-
-	if (OutMeshInfo)
-	{
-		*OutMeshInfo = MeshInfo;
-	}
-	return Type;
 }
 
 void AInstancedFoliageActor::SelectInstance(UInstancedStaticMeshComponent* InComponent, int32 InInstanceIndex, bool bToggle)
@@ -1480,6 +1536,9 @@ void AInstancedFoliageActor::Serialize(FArchive& Ar)
 				FoliageType = (UFoliageType_InstancedStaticMesh*)StaticDuplicateObject(FoliageType, this, nullptr, RF_AllFlags & ~(RF_Standalone | RF_Public));
 				FoliageType->Mesh = OldMeshInfo.Key;
 			}
+#if WITH_EDITORONLY_DATA
+			NewMeshInfo.FoliageTypeUpdateGuid = FoliageType->UpdateGuid;
+#endif
 			FoliageMeshes.Add(FoliageType, TUniqueObj<FFoliageMeshInfo>(MoveTemp(NewMeshInfo)));
 		}
 	}
@@ -1567,6 +1626,16 @@ void AInstancedFoliageActor::PostLoad()
 				MeshInfo.ReallocateClusters(this, MeshPair.Key);
 			}
 
+			// Update foliage components if the foliage settings object was changed while the level was not loaded.
+			if (MeshInfo.FoliageTypeUpdateGuid != FoliageType->UpdateGuid)
+			{
+				if (MeshInfo.FoliageTypeUpdateGuid.IsValid())
+				{
+					MeshInfo.ReallocateClusters(this, MeshPair.Key);
+				}
+				MeshInfo.FoliageTypeUpdateGuid = FoliageType->UpdateGuid;
+			}
+
 			// Update the hash.
 			for (int32 InstanceIdx = 0; InstanceIdx < MeshInfo.Instances.Num(); InstanceIdx++)
 			{
@@ -1600,6 +1669,38 @@ void AInstancedFoliageActor::PostLoad()
 	}
 #endif
 }
+
+#if WITH_EDITOR
+
+void AInstancedFoliageActor::NotifyFoliageTypeChanged(UFoliageType* FoliageType)
+{
+	FFoliageMeshInfo* MeshInfo = FindMesh(FoliageType);
+	if (MeshInfo)
+	{
+		MeshInfo->ReallocateClusters(this, FoliageType);
+	}
+}
+
+void AInstancedFoliageActor::OnLevelActorMoved(AActor* InActor)
+{
+	if (!InActor->GetWorld()->IsPlayInEditor())
+	{
+		if(AInstancedFoliageActor* IFA = AInstancedFoliageActor::GetInstancedFoliageActorForLevel(InActor->GetLevel()))
+		{
+			if (IFA == this)	//IFA for each level is registered so we'll get hit multiple times for each sublevel. @TODO: Should we only register the persistant level IFA?
+			{
+				TInlineComponentArray<UActorComponent*> Components;
+				InActor->GetComponents(Components);
+
+				for (int32 Idx = 0; Idx < Components.Num(); ++Idx)
+				{
+					IFA->MoveInstancesForMovedComponent(Components[Idx]);
+				}
+			}
+		}
+	}
+}
+#endif
 
 //
 // Serialize all our UObjects for RTGC 
@@ -1635,10 +1736,37 @@ void AInstancedFoliageActor::AddReferencedObjects(UObject* InThis, FReferenceCol
 	Super::AddReferencedObjects(This, Collector);
 }
 
-/** InstancedStaticMeshInstance hit proxy */
-void HInstancedStaticMeshInstance::AddReferencedObjects(FReferenceCollector& Collector)
+void AInstancedFoliageActor::PostRegisterAllComponents()
 {
-	Collector.AddReferencedObject(Component);
+	Super::PostRegisterAllComponents();
+
+#if WITH_EDITOR
+	if (!IsTemplate())
+	{
+		ULevel* Level = GetLevel();
+		
+		Level->OnApplyLevelTransform.Remove(OnApplyLevelTransformDelegateHandle); 
+		OnApplyLevelTransformDelegateHandle = Level->OnApplyLevelTransform.AddUObject(this, &AInstancedFoliageActor::ApplyLevelTransform);
+
+		GEngine->OnActorMoved().Remove(OnLevelActorMovedDelegateHandle);
+		OnLevelActorMovedDelegateHandle = GEngine->OnActorMoved().AddUObject(this, &AInstancedFoliageActor::OnLevelActorMoved);
+
+	}
+#endif// WITH_EDITOR
+}
+
+void AInstancedFoliageActor::PostUnregisterAllComponents()
+{
+#if WITH_EDITOR
+	if (!IsTemplate())
+	{
+		ULevel* Level = GetLevel();
+		Level->OnApplyLevelTransform.Remove(OnApplyLevelTransformDelegateHandle);
+		GEngine->OnActorMoved().Remove(OnLevelActorMovedDelegateHandle);
+	}
+#endif// WITH_EDITOR
+
+	Super::PostUnregisterAllComponents();
 }
 
 void AInstancedFoliageActor::ApplyWorldOffset(const FVector& InOffset, bool bWorldShift)

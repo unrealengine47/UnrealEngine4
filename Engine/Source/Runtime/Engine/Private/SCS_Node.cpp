@@ -8,6 +8,7 @@
 #endif
 #include "Engine/SCS_Node.h"
 #include "Engine/SimpleConstructionScript.h"
+#include "Engine/InheritableComponentHandler.h"
 
 //////////////////////////////////////////////////////////////////////////
 // USCS_Node
@@ -30,8 +31,22 @@ UActorComponent* USCS_Node::ExecuteNodeOnActor(AActor* Actor, USceneComponent* P
 	check(Actor != nullptr);
 	check((ParentComponent != nullptr && !ParentComponent->IsPendingKill()) || (RootTransform != nullptr)); // must specify either a parent component or a world transform
 
+	UActorComponent* OverridenComponentTemplate = nullptr;
+	{
+		auto ActualBPGC = Cast<UBlueprintGeneratedClass>(Actor->GetClass());
+		while (!OverridenComponentTemplate && ActualBPGC)
+		{
+			if (ActualBPGC->InheritableComponentHandler)
+			{
+				OverridenComponentTemplate = ActualBPGC->InheritableComponentHandler->GetOverridenComponentTemplate(this);
+			}
+			ActualBPGC = Cast<UBlueprintGeneratedClass>(ActualBPGC->GetSuperClass());
+		}
+	}
+	UActorComponent* ActualComponentTemplate = OverridenComponentTemplate ? OverridenComponentTemplate : ComponentTemplate;
+
 	// Create a new component instance based on the template
-	UActorComponent* NewActorComp = Actor->CreateComponentFromTemplate(ComponentTemplate, VariableName.ToString());
+	UActorComponent* NewActorComp = Actor->CreateComponentFromTemplate(ActualComponentTemplate, VariableName.ToString());
 	if(NewActorComp != nullptr)
 	{
 		// SCS created components are net addressable
@@ -302,18 +317,22 @@ void USCS_Node::SetParent(USceneComponent* InParentComponent)
 	}
 }
 
-USceneComponent* USCS_Node::GetParentComponentTemplate(UBlueprint* InBlueprint) const
+USceneComponent* USCS_Node::GetParentComponentTemplate() const
 {
 	USceneComponent* ParentComponentTemplate = NULL;
 	if(ParentComponentOrVariableName != NAME_None)
 	{
-		check(InBlueprint != NULL && InBlueprint->GeneratedClass != NULL);
+		USimpleConstructionScript* SCS = GetSCS();
+		check(SCS != nullptr);
+
+		UBlueprint* Blueprint = SCS->GetBlueprint();
+		check(Blueprint != nullptr && Blueprint->GeneratedClass != nullptr);
 
 		// If the parent component template is found in the 'Components' array of the CDO (i.e. native)
 		if(bIsParentComponentNative)
 		{
 			// Access the Blueprint CDO
-			AActor* CDO = InBlueprint->GeneratedClass->GetDefaultObject<AActor>();
+			AActor* CDO = Blueprint->GeneratedClass->GetDefaultObject<AActor>();
 			if(CDO != NULL)
 			{
 				// Find the component template in the CDO that matches the specified name
@@ -337,7 +356,7 @@ USceneComponent* USCS_Node::GetParentComponentTemplate(UBlueprint* InBlueprint) 
 		{
 			// Get the Blueprint hierarchy
 			TArray<UBlueprint*> ParentBPStack;
-			UBlueprint::GetBlueprintHierarchyFromClass(InBlueprint->GeneratedClass, ParentBPStack);
+			UBlueprint::GetBlueprintHierarchyFromClass(Blueprint->GeneratedClass, ParentBPStack);
 
 			// Find the parent Blueprint in the hierarchy
 			for(int32 StackIndex = ParentBPStack.Num() - 1; StackIndex > 0; --StackIndex)

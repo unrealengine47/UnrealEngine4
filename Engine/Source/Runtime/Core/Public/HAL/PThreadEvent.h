@@ -93,6 +93,10 @@ public:
 		}
 	}
 
+public:
+
+	// FEvent interface
+
 	virtual bool Create( bool _bIsManualReset = false ) override
 	{
 		check(!bInitialized);
@@ -113,6 +117,11 @@ public:
 			}
 		}
 		return RetVal;
+	}
+
+	virtual bool IsManualReset() override
+	{
+		return bIsManualReset;
 	}
 
 	virtual void Trigger() override

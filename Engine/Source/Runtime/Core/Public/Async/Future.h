@@ -15,14 +15,15 @@ public:
 
 	/** Default constructor. */
 	FFutureState()
-		: CompletionEvent(FPlatformProcess::CreateSynchEvent(true))
+		: CompletionEvent(FPlatformProcess::GetSynchEventFromPool(true))
 		, Complete(false)
 	{ }
 
 	/** Destructor. */
 	~FFutureState()
 	{
-		delete CompletionEvent;
+		FPlatformProcess::ReturnSynchEventToPool(CompletionEvent);
+		CompletionEvent = nullptr;
 	}
 
 public:
@@ -47,8 +48,6 @@ public:
 	 */
 	bool WaitFor(const FTimespan& Duration) const
 	{
-		FScopeLock Lock(&CriticalSection);
-
 		if (CompletionEvent->Wait(Duration))
 		{
 			return true;
@@ -70,9 +69,6 @@ private:
 
 	/** Holds an event signaling that the result is available. */
 	FEvent* CompletionEvent;
-
-	/** Critical section for locking access to this class. */
-	mutable FCriticalSection CriticalSection;
 
 	/** Whether the asynchronous result is available. */
 	bool Complete;

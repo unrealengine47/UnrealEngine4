@@ -143,7 +143,7 @@ void MainVertexShader(
 	float4 PrevTranslatedWorldPosition = VertexFactoryGetPreviousWorldPosition( Input, VFIntermediates );	
 
 	VertexParameters = GetMaterialVertexParameters(Input, VFIntermediates, PrevTranslatedWorldPosition.xyz, TangentToLocal);
-	PrevTranslatedWorldPosition.xyz += GetMaterialWorldPositionOffset(VertexParameters);
+	PrevTranslatedWorldPosition.xyz += GetMaterialPreviousWorldPositionOffset(VertexParameters);
 	
 #if USING_TESSELLATION
 	Output.Position = TranslatedWorldPosition;

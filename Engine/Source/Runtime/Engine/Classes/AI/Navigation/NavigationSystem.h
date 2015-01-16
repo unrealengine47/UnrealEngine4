@@ -202,10 +202,6 @@ public:
 private:
 	TWeakObjectPtr<UCrowdManager> CrowdManager;
 
-	// required navigation data 
-	UPROPERTY(config)
-	TArray<FStringClassReference> RequiredNavigationDataClassNames;
-
 	/** set to true when navigation processing was blocked due to missing nav bounds */
 	uint32 bNavDataRemovedDueToMissingNavBounds:1;
 
@@ -311,6 +307,11 @@ public:
 protected:
 	/** spawn new crowd manager */
 	virtual void CreateCrowdManager();
+
+	/** Used to properly set navigation class for indicated agent and propagate information to other places
+	 *	(like project settings) that may need this information 
+	 */
+	void SetSupportedAgentsNavigationClass(int32 AgentIndex, TSubclassOf<ANavigationData> NavigationDataClass);
 
 public:
 	//----------------------------------------------------------------------//
@@ -465,9 +466,9 @@ protected:
 	void RegisterNavigationDataInstances();
 
 	/** called in places where we need to spawn the NavOctree, but is checking additional conditions if we really want to do that
-	 *	depending on project setup among others 
+	 *	depending on navigation data setup among others 
 	 *	@return true if NavOctree instance has been created, or if one is already present */
-	virtual bool ConditionallyCreateNavOctree();
+	bool ConditionalPopulateNavOctree();
 
 	/** Processes registration of candidates queues via RequestRegistration and stored in NavDataRegistrationQueue */
 	void ProcessRegistrationCandidates();
@@ -510,10 +511,6 @@ public:
 
 	const FNavigationOctree* GetNavOctree() const { return NavOctree; }
 
-	/** called to gather navigation relevant actors that have been created while
-	 *	Navigation System was not present */
-	void PopulateNavOctree();
-
 	FORCEINLINE void SetObjectsNavOctreeId(UObject* Object, FOctreeElementId Id) { ObjectToOctreeId.Add(Object, Id); }
 	FORCEINLINE const FOctreeElementId* GetObjectsNavOctreeId(const UObject* Object) const { return ObjectToOctreeId.Find(Object); }
 	FORCEINLINE	void RemoveObjectsNavOctreeId(UObject* Object) { ObjectToOctreeId.Remove(Object); }
@@ -536,8 +533,8 @@ public:
 	//----------------------------------------------------------------------//
 	// Custom navigation links
 	//----------------------------------------------------------------------//
-	void RegisterCustomLink(INavLinkCustomInterface* CustomLink);
-	void UnregisterCustomLink(INavLinkCustomInterface* CustomLink);
+	void RegisterCustomLink(INavLinkCustomInterface& CustomLink);
+	void UnregisterCustomLink(INavLinkCustomInterface& CustomLink);
 	
 	/** find custom link by unique ID */
 	INavLinkCustomInterface* GetCustomLink(uint32 UniqueLinkId) const;
@@ -823,5 +820,27 @@ private:
 
 	/** Processes pathfinding requests given in PathFindingQueries.*/
 	void PerformAsyncQueries(TArray<FAsyncPathFindingQuery> PathFindingQueries);
+
+	/** */
+	void DestroyNavOctree();
+
+	/** Whether Navigation system needs to populate nav octree. 
+	 *  Depends on runtime generation settings of each navigation data, always true in the editor
+	 */
+	bool RequiresNavOctree() const;
+
+	/** Return "Strongest" runtime generation type required by registered navigation data objects
+	 *  Depends on runtime generation settings of each navigation data, always ERuntimeGenerationType::Dynamic in the editor world
+	 */
+	ERuntimeGenerationType GetRuntimeGenerationType() const;
+
+	//----------------------------------------------------------------------//
+	// DEPRECATED
+	//----------------------------------------------------------------------//
+public:
+	DEPRECATED(4.8, "This version is deprecated. Please use the one taking reference to INavLinkCustomInterface rather than a pointer instead.")
+	void RegisterCustomLink(INavLinkCustomInterface* CustomLink);
+	DEPRECATED(4.8, "This version is deprecated. Please use the one taking reference to INavLinkCustomInterface rather than a pointer instead.")
+	void UnregisterCustomLink(INavLinkCustomInterface* CustomLink);
 };
 

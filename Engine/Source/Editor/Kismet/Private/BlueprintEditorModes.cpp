@@ -325,11 +325,12 @@ void FBlueprintComponentsApplicationMode::PostActivateMode()
 	TSharedPtr<FBlueprintEditor> BP = MyBlueprintEditor.Pin();
 	if (BP.IsValid())
 	{
+		BP->EnableSCSPreview(true);
+		BP->UpdateSCSPreview(true);
+		BP->GetInspector()->EnableComponentDetailsCustomization(true);
+
 		auto SCSEditor = BP->GetSCSEditor();
 		SCSEditor->UpdateTree();
-		BP->EnableSCSPreview(true);
-		BP->UpdateSCSPreview();
-		BP->GetInspector()->EnableComponentDetailsCustomization(true);
 
 		// Reselect the cached components
 		TArray<TSharedPtr<FSCSEditorTreeNode>> Selection;
@@ -661,6 +662,20 @@ void FBlueprintEditorUnifiedMode::PostActivateMode()
 	TSharedPtr<FBlueprintEditor> BP = MyBlueprintEditor.Pin();
 	BP->RestoreEditedObjectState();
 	BP->SetupViewForBlueprintEditingMode();
+
+	TSharedPtr<SSCSEditorViewport> PreviewViewportPtr = BP->GetSCSViewport();
+	if(PreviewViewportPtr.IsValid())
+	{
+		// Ensure that the preview actor is instanced
+		PreviewViewportPtr->RequestRefresh(true, true);
+
+		TSharedPtr<SSCSEditor> SCSEditorPtr = BP->GetSCSEditor();
+		if(SCSEditorPtr.IsValid())
+		{
+			// Update the components tree view
+			SCSEditorPtr->UpdateTree();
+		}
+	}
 
 	FApplicationMode::PostActivateMode();
 }

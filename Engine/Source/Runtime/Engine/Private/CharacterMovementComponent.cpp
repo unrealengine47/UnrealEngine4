@@ -3766,7 +3766,7 @@ void UCharacterMovementComponent::PhysNavWalking(float deltaTime, int32 Iteratio
 	float SearchHeight = 100.0f;
 	if (MyNavAgent)
 	{
-		const FNavAgentProperties& AgentProps = MyNavAgent->GetNavAgentProperties();
+		const FNavAgentProperties& AgentProps = MyNavAgent->GetNavAgentPropertiesRef();
 		NavData = NavSys->GetNavDataForProps(AgentProps);
 		SearchRadius = AgentProps.AgentRadius * 2.0f;
 		SearchHeight = AgentProps.AgentHeight * 0.5f;
@@ -3836,6 +3836,14 @@ void UCharacterMovementComponent::PhysNavWalking(float deltaTime, int32 Iteratio
 		{
 			MoveUpdatedComponent(AdjustedDelta, CharacterOwner->GetActorRotation(), true);
 		}
+
+		// Update velocity to reflect actual move
+		if (!bJustTeleported && !HasRootMotion())
+		{
+			Velocity = (GetActorFeetLocation() - OldLocation) / deltaTime;
+		}
+
+		bJustTeleported = false;
 	}
 	else
 	{

@@ -83,11 +83,12 @@ void FAssetEditorToolkit::InitAssetEditor( const EToolkitMode::Type Mode, const 
 
 		// Create a new SlateToolkitHost
 		NewMajorTab = SNew(SDockTab) 
-						.ContentPadding(0.0f) 
-						.TabRole(ETabRole::MajorTab)
-						.ToolTip( IDocumentation::Get()->CreateToolTip( Label, nullptr, DocLink, GetToolkitFName().ToString() ) )
-						.Icon( this, &FAssetEditorToolkit::GetDefaultTabIcon )
-						.Label( Label );
+			.ContentPadding(0.0f) 
+			.TabRole(ETabRole::MajorTab)
+			.ToolTip( IDocumentation::Get()->CreateToolTip( Label, nullptr, DocLink, GetToolkitFName().ToString() ) )
+			.Icon( this, &FAssetEditorToolkit::GetDefaultTabIcon )
+			.Label( Label );
+
 		{
 			static_assert(sizeof(EAssetEditorToolkitTabLocation) == sizeof(int32), "EAssetEditorToolkitTabLocation is the incorrect size");
 
@@ -528,7 +529,7 @@ void FAssetEditorToolkit::FindInContentBrowser_Execute()
 
 void FAssetEditorToolkit::BrowseDocumentation_Execute() const
 {
-	IDocumentation::Get()->Open(GetDocumentationLink());
+	IDocumentation::Get()->Open(GetDocumentationLink(), FDocumentationSourceInfo(TEXT("help_menu_asset")));
 }
 
 void FAssetEditorToolkit::ViewReferences_Execute()

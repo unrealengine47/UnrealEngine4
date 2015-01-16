@@ -180,6 +180,11 @@ void UAbilitySystemComponent::ApplyModToAttribute(const FGameplayAttribute &Attr
 	}
 }
 
+void UAbilitySystemComponent::ApplyModToAttributeUnsafe(const FGameplayAttribute &Attribute, TEnumAsByte<EGameplayModOp::Type> ModifierOp, float ModifierMagnitude)
+{
+	ActiveGameplayEffects.ApplyModToAttribute(Attribute, ModifierOp, ModifierMagnitude);
+}
+
 FGameplayEffectSpecHandle UAbilitySystemComponent::MakeOutgoingSpec(TSubclassOf<UGameplayEffect> GameplayEffectClass, float Level, FGameplayEffectContextHandle Context) const
 {
 	SCOPE_CYCLE_COUNTER(STAT_GetOutgoingSpec);
@@ -319,6 +324,14 @@ int32 UAbilitySystemComponent::GetNumActiveGameplayEffects() const
 	return ActiveGameplayEffects.GetNumGameplayEffects();
 }
 
+void UAbilitySystemComponent::GetAllActiveGameplayEffectSpecs(TArray<FGameplayEffectSpec>& OutSpecCopies)
+{
+	for (const auto& ActiveEffect : ActiveGameplayEffects.GameplayEffects)
+	{
+		OutSpecCopies.Add(ActiveEffect.Spec);
+	}
+}
+
 const FGameplayTagContainer* UAbilitySystemComponent::GetGameplayEffectSourceTagsFromHandle(FActiveGameplayEffectHandle Handle) const
 {
 	return ActiveGameplayEffects.GetGameplayEffectSourceTagsFromHandle(Handle);
@@ -447,11 +460,28 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToTa
 		PredictionKey = FPredictionKey();
 	}
 
-	return Target->ApplyGameplayEffectSpecToSelf(Spec, PredictionKey);
+	FActiveGameplayEffectHandle ReturnHandle;
+
+	if (!UAbilitySystemGlobals::Get().PredictTargetGameplayEffects)
+	{
+		// If we don't want to predict target effects, clear prediction key
+		PredictionKey = FPredictionKey();
+	}
+
+	if (Target)
+	{
+		ReturnHandle = Target->ApplyGameplayEffectSpecToSelf(Spec, PredictionKey);
+	}
+
+	return ReturnHandle;
 }
 
 FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSelf(OUT FGameplayEffectSpec &Spec, FPredictionKey PredictionKey)
 {
+	// Scope lock the container after the addition has taken place to prevent the new effect from potentially getting mangled during the remainder
+	// of the add operation
+	FScopedActiveGameplayEffectLock ScopeLock(ActiveGameplayEffects);
+
 	// Check Network Authority
 	if (!HasNetworkAuthorityToApplyGameplayEffect(PredictionKey))
 	{
@@ -612,7 +642,12 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSe
 	if (IsOwnerActorAuthoritative() && Spec.Def->RemoveGameplayEffectsWithTags.CombinedTags.Num() > 0)
 	{
 		// Clear tags is always removing all stacks.
-		ActiveGameplayEffects.RemoveActiveEffects(FActiveGameplayEffectQuery(&Spec.Def->RemoveGameplayEffectsWithTags.CombinedTags), -1);
+		FActiveGameplayEffectQuery ClearQuery(&Spec.Def->RemoveGameplayEffectsWithTags.CombinedTags);
+		if (MyHandle.IsValid())
+		{
+			ClearQuery.IgnoreHandles.Add(MyHandle);
+		}
+		ActiveGameplayEffects.RemoveActiveEffects(ClearQuery, -1);
 	}
 
 	// todo: this is ignoring the returned handles, should we put them into a TArray and return all of the handles?
@@ -640,20 +675,7 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSe
 
 void UAbilitySystemComponent::ExecutePeriodicEffect(FActiveGameplayEffectHandle	Handle)
 {
-	FActiveGameplayEffect* GameplayEffect = ActiveGameplayEffects.GetActiveGameplayEffect(Handle);
-	if (GameplayEffect)
-	{
-		ABILITY_VLOG(OwnerActor, Log, TEXT("Executed Periodic Effect %s"), *GameplayEffect->Spec.Def->GetFName().ToString());
-
-		for (FGameplayModifierInfo Modifier : GameplayEffect->Spec.Def->Modifiers)
-		{
-			float Magnitude = 0.f;
-			Modifier.ModifierMagnitude.AttemptCalculateMagnitude(GameplayEffect->Spec, Magnitude);
-			ABILITY_VLOG(OwnerActor, Log, TEXT("         %s: %s %f"), *Modifier.Attribute.GetName(), *EGameplayModOpToString(Modifier.ModifierOp), Magnitude);
-		}
-
-		ActiveGameplayEffects.ExecutePeriodicGameplayEffect(Handle);
-	}
+	ActiveGameplayEffects.ExecutePeriodicGameplayEffect(Handle);
 }
 
 void UAbilitySystemComponent::ExecuteGameplayEffect(FGameplayEffectSpec &Spec, FPredictionKey PredictionKey)
@@ -681,19 +703,6 @@ void UAbilitySystemComponent::CheckDurationExpired(FActiveGameplayEffectHandle H
 
 bool UAbilitySystemComponent::RemoveActiveGameplayEffect(FActiveGameplayEffectHandle Handle, int32 StacksToRemove)
 {
-	FActiveGameplayEffect* GameplayEffect = ActiveGameplayEffects.GetActiveGameplayEffect(Handle);
-	if (GameplayEffect)
-	{
-		ABILITY_VLOG(OwnerActor, Log, TEXT("Removed %s"), *GameplayEffect->Spec.Def->GetFName().ToString());
-
-		for (FGameplayModifierInfo Modifier : GameplayEffect->Spec.Def->Modifiers)
-		{
-			float Magnitude = 0.f;
-			Modifier.ModifierMagnitude.AttemptCalculateMagnitude(GameplayEffect->Spec, Magnitude);
-			ABILITY_VLOG(OwnerActor, Log, TEXT("         %s: %s %f"), *Modifier.Attribute.GetName(), *EGameplayModOpToString(Modifier.ModifierOp), Magnitude);
-		}
-	}
-
 	return ActiveGameplayEffects.RemoveActiveGameplayEffect(Handle, StacksToRemove);
 }
 
@@ -1030,6 +1039,16 @@ void UAbilitySystemComponent::GetSubobjectsWithStableNamesForNetworking(TArray<U
 	}
 }
 
+void UAbilitySystemComponent::PreNetReceive()
+{
+	ActiveGameplayEffects.IncrementLock();
+}
+	
+void UAbilitySystemComponent::PostNetReceive()
+{
+	ActiveGameplayEffects.DecrementLock();
+}
+
 void UAbilitySystemComponent::OnRep_GameplayEffects()
 {
 
@@ -1187,7 +1206,7 @@ void UAbilitySystemComponent::DisplayDebug(class UCanvas* Canvas, const class FD
 				}
 			}
 
-			Canvas->SetDrawColor(ActiveGE.IsInhibited ? FColor(128, 128, 128): FColor::White );
+			Canvas->SetDrawColor(ActiveGE.bIsInhibited ? FColor(128, 128, 128): FColor::White );
 
 			YPos += Canvas->DrawText(GEngine->GetTinyFont(), FString::Printf(TEXT("%s %s %s"), *ASC_CleanupName(GetNameSafe(ActiveGE.Spec.Def)), *DurationStr, *StackString ), 4.f, YPos);
 
@@ -1219,7 +1238,7 @@ void UAbilitySystemComponent::DisplayDebug(class UCanvas* Canvas, const class FD
 
 				YPos += Canvas->DrawText(GEngine->GetTinyFont(), FString::Printf(TEXT("Mod: %s. %s. %.2f"), *ModInfo.Attribute.GetName(), *EGameplayModOpToString(ModInfo.ModifierOp), ModSpec.GetEvaluatedMagnitude() ), 7.f, YPos);
 
-				Canvas->SetDrawColor(ActiveGE.IsInhibited ? FColor(128, 128, 128): FColor::White );
+				Canvas->SetDrawColor(ActiveGE.bIsInhibited ? FColor(128, 128, 128): FColor::White );
 			}
 
 			YPos += YL;

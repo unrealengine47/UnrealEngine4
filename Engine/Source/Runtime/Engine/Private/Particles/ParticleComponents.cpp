@@ -2051,11 +2051,14 @@ void UParticleSystem::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 {
 	UpdateTime_Delta = 1.0f / UpdateTime_FPS;
 
+	//If the property is NULL then we don't really know what's happened. 
+	//Could well be a module change, requiring all instances to be destroyed and recreated.
+	bool bEmptyInstances = PropertyChangedEvent.Property == NULL;
 	for (TObjectIterator<UParticleSystemComponent> It;It;++It)
 	{
 		if (It->Template == this)
 		{
-			It->UpdateInstances();
+			It->UpdateInstances(bEmptyInstances);
 		}
 	}
 
@@ -3945,7 +3948,7 @@ int32 UParticleSystemComponent::GetCurrentDetailMode() const
 void UParticleSystemComponent::ComputeTickComponent_Concurrent()
 {
 	SCOPE_CYCLE_COUNTER(STAT_ParticleComputeTickTime);
-	FScopeCycleCounterUObject AdditionalScope(AdditionalStatObject());
+	FScopeCycleCounterUObject AdditionalScope(AdditionalStatObject(), GET_STATID(STAT_ParticleComputeTickTime));
 	// Tick Subemitters.
 	int32 EmitterIndex;
 	for (EmitterIndex = 0; EmitterIndex < EmitterInstances.Num(); EmitterIndex++)
@@ -4731,12 +4734,12 @@ void UParticleSystemComponent::ResetToDefaults()
 	}
 }
 
-void UParticleSystemComponent::UpdateInstances()
+void UParticleSystemComponent::UpdateInstances(bool bEmptyInstances)
 {
 	if (GIsEditor && IsRegistered())
 	{
 		ForceAsyncWorkCompletion(STALL);
-		ResetParticles();
+		ResetParticles(bEmptyInstances);
 
 		InitializeSystem();
 		if (bAutoActivate)

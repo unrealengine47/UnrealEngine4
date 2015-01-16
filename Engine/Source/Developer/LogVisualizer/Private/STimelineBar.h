@@ -11,7 +11,6 @@ class STimelineBar : public SLeafWidget
 public:
 	SLATE_BEGIN_ARGS(STimelineBar){}
 		SLATE_EVENT(FOnItemSelectionChanged, OnItemSelectionChanged)
-		SLATE_ATTRIBUTE(TWeakPtr<IVisualLoggerInterface>, VisualLoggerInterface)
 	SLATE_END_ARGS()
 
 	/** Constructs this widget with InArgs */
@@ -25,16 +24,17 @@ public:
 
 	void Construct(const FArguments& InArgs, TSharedPtr<FSequencerTimeSliderController> InTimeSliderController, TSharedPtr<class STimeline> TimelineOwner);
 	virtual int32 OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyClippingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const override;
-	FVector2D ComputeDesiredSize() const;
+	FVector2D ComputeDesiredSize(float) const;
 	void SnapScrubPosition(float ScrubPosition);
 	void SnapScrubPosition(int32 NewItemIndex);
 	int32 GetClosestItem(float Time) const;
 
 	void OnSelect();
 	void OnDeselect();
+	void GotoNextItem(int32 MoveDistance = 1);
+	void GotoPreviousItem(int32 MoveDistance = 1);
 
 protected:
-	TWeakPtr<IVisualLoggerInterface> VisualLoggerInterface;
 	TSharedPtr<class FSequencerTimeSliderController> TimeSliderController;
 	TWeakPtr<class STimeline> TimelineOwner;
 	mutable int32 CurrentItemIndex;
