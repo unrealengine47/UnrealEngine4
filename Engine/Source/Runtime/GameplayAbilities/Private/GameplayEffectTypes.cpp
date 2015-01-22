@@ -6,6 +6,34 @@
 #include "GameplayEffectTypes.h"
 #include "AbilitySystemComponent.h"
 
+float GameplayEffectUtilities::GetModifierBiasByModifierOp(EGameplayModOp::Type ModOp)
+{
+	static const float ModifierOpBiases[EGameplayModOp::Max] = {0.f, 1.f, 1.f, 0.f};
+	check(ModOp >= 0 && ModOp < EGameplayModOp::Max);
+
+	return ModifierOpBiases[ModOp];
+}
+
+float GameplayEffectUtilities::ComputeStackedModifierMagnitude(float BaseComputedMagnitude, int32 StackCount, EGameplayModOp::Type ModOp)
+{
+	const float OperationBias = GameplayEffectUtilities::GetModifierBiasByModifierOp(ModOp);
+
+	StackCount = FMath::Clamp<int32>(StackCount, 0, StackCount);
+
+	float StackMag = BaseComputedMagnitude;
+	
+	// Override modifiers don't care about stack count at all. All other modifier ops need to subtract out their bias value in order to handle
+	// stacking correctly
+	if (ModOp != EGameplayModOp::Override)
+	{
+		StackMag -= OperationBias;
+		StackMag *= StackCount;
+		StackMag += OperationBias;
+	}
+
+	return StackMag;
+}
+
 bool FGameplayEffectAttributeCaptureDefinition::operator==(const FGameplayEffectAttributeCaptureDefinition& Other) const
 {
 	return ((AttributeToCapture == Other.AttributeToCapture) && (AttributeSource == Other.AttributeSource) && (bSnapshot == Other.bSnapshot));
@@ -134,24 +162,25 @@ void FGameplayEffectContext::GetOwnedGameplayTags(OUT FGameplayTagContainer& Act
 
 bool FGameplayEffectContextHandle::NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess)
 {
-	UScriptStruct* ScriptStruct = Data.IsValid() ? Data->GetScriptStruct() : NULL;
-	Ar << ScriptStruct;
+	bool ValidData = Data.IsValid();
+	Ar << ValidData;
 
-	if (ScriptStruct)
+	if (ValidData)
 	{
 		if (Ar.IsLoading())
 		{
 			// For now, just always reset/reallocate the data when loading.
 			// Longer term if we want to generalize this and use it for property replication, we should support
 			// only reallocating when necessary
-
-			FGameplayEffectContext * NewData = (FGameplayEffectContext*)FMemory::Malloc(ScriptStruct->GetCppStructOps()->GetSize());
-			ScriptStruct->InitializeStruct(NewData);
-
-			Data = TSharedPtr<FGameplayEffectContext>(NewData);
+			
+			if (Data.IsValid() == false)
+			{
+				Data = TSharedPtr<FGameplayEffectContext>(UAbilitySystemGlobals::Get().AllocGameplayEffectContext());
+			}
 		}
 
 		void* ContainerPtr = Data.Get();
+		UScriptStruct* ScriptStruct = Data->GetScriptStruct();
 
 		if (ScriptStruct->StructFlags & STRUCT_NetSerializeNative)
 		{
@@ -164,18 +193,6 @@ bool FGameplayEffectContextHandle::NetSerialize(FArchive& Ar, class UPackageMap*
 			//	2) if there are any UStructProperties in the topmost struct's fields, we will assert in UStructProperty::NetSerializeItem.
 
 			ABILITY_LOG(Fatal, TEXT("FGameplayEffectContextHandle::NetSerialize called on data struct %s without a native NetSerialize"), *ScriptStruct->GetName());
-
-			for (TFieldIterator<UProperty> It(ScriptStruct); It; ++It)
-			{
-				if (It->PropertyFlags & CPF_RepSkip)
-				{
-					continue;
-				}
-
-				void * PropertyData = It->ContainerPtrToValuePtr<void*>(ContainerPtr);
-
-				It->NetSerializeItem(Ar, Map, PropertyData);
-			}
 		}
 	}
 

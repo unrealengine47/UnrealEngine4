@@ -18,9 +18,9 @@ class FOLIAGE_API UProceduralFoliageTile : public UObject
 	GENERATED_UCLASS_BODY()
 
 	UPROPERTY()
-	UProceduralFoliage* ProceduralFoliage;
+	const UProceduralFoliage* ProceduralFoliage;
 
-	void Simulate(UProceduralFoliage* ProceduralFoliage, const int32 MaxNumSteps = -1);
+	void Simulate(const UProceduralFoliage* ProceduralFoliage, const int32 RandomSeed, const int32 MaxNumSteps = -1);
 	void RemoveInstances();
 	void RemoveInstance(FProceduralFoliageInstance* Inst);
 
@@ -29,11 +29,16 @@ class FOLIAGE_API UProceduralFoliageTile : public UObject
 	void CreateInstancesToSpawn(TArray<FProceduralFoliageInstance>& OutInstances, const FTransform& WorldTM, UWorld* World, const float HalfHeight) const;
 	void AddInstances(const TArray<FProceduralFoliageInstance*>& NewInstances, const FTransform& LocalTM, const FBox2D& InnerLocalAABB);
 
+	virtual SIZE_T GetResourceSize(EResourceSizeMode::Type Mode) override;
+
 	virtual void BeginDestroy() override;
 
-	void InitSimulation(UProceduralFoliage* ProceduralFoliage);
+	void InitSimulation(const UProceduralFoliage* ProceduralFoliage, const int32 RandomSeed);
 
 	void InstancesToArray();
+
+	/** Empty arrays and sets */
+	void Empty();
 private:
 	
 	void StepSimulation();

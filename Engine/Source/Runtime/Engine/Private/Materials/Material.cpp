@@ -8,6 +8,7 @@
 #include "Materials/MaterialFunction.h"
 #include "Materials/MaterialExpressionCollectionParameter.h"
 #include "Materials/MaterialExpressionComment.h"
+#include "Materials/MaterialExpressionCustomOutput.h"
 #include "Materials/MaterialExpressionDynamicParameter.h"
 #include "Materials/MaterialExpressionFontSampleParameter.h"
 #include "Materials/MaterialExpressionMaterialFunctionCall.h"
@@ -115,6 +116,18 @@ int32 FMaterialResource::CompilePropertyAndSetMaterialProperty(EMaterialProperty
 
 	// output should always be the right type for this property
 	return Compiler->ForceCast(Ret, GetMaterialPropertyType(Property));
+}
+
+void FMaterialResource::GatherCustomOutputExpressions(TArray<UMaterialExpressionCustomOutput*>& OutCustomOutputs) const
+{
+	for (UMaterialExpression* Expression : Material->Expressions)
+	{
+		UMaterialExpressionCustomOutput* CustomOutput = Cast<UMaterialExpressionCustomOutput>(Expression);
+		if (CustomOutput)
+		{
+			OutCustomOutputs.Add(CustomOutput);
+		}
+	}
 }
 
 void FMaterialResource::GetShaderMapId(EShaderPlatform Platform, FMaterialShaderMapId& OutId) const
@@ -1737,6 +1750,20 @@ void UMaterial::Serialize(FArchive& Ar)
 	DoMaterialAttributeReorder(&SubsurfaceColor,		Ar.UE4Ver());
 	DoMaterialAttributeReorder(&AmbientOcclusion,		Ar.UE4Ver());
 	DoMaterialAttributeReorder(&Refraction,				Ar.UE4Ver());
+
+	if (Ar.UE4Ver() < VER_UE4_MATERIAL_MASKED_BLENDMODE_TIDY)
+	{
+		//Set based on old value. Real check may not be possible here in cooked builds?
+		//Cached using acutal check in PostEditChangProperty().
+		if (BlendMode == BLEND_Masked && !bIsMasked_DEPRECATED)
+		{
+			bCanMaskedBeAssumedOpaque = true;
+		}
+		else
+		{
+			bCanMaskedBeAssumedOpaque = false;
+		}
+	}
 }
 
 void UMaterial::PostDuplicate(bool bDuplicateForPIE)
@@ -2278,8 +2305,8 @@ void UMaterial::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEve
 		}
 	}
 
-	// Check if the material is masked and uses a custom opacity (that's not 1.0f).
-	bIsMasked = (((EBlendMode(BlendMode) == BLEND_Masked) && (OpacityMask.Expression || (OpacityMask.UseConstant && OpacityMask.Constant < 0.999f))) || bUseMaterialAttributes);
+	//If we can be sure this material would be the same opaque as it is masked then allow it to be assumed opaque.
+	bCanMaskedBeAssumedOpaque = !OpacityMask.Expression && !(OpacityMask.UseConstant && OpacityMask.Constant < 0.999f) && !bUseMaterialAttributes;
 
 	bool bRequiresCompilation = true;
 	if( PropertyThatChanged ) 
@@ -3444,7 +3471,21 @@ float UMaterial::GetOpacityMaskClipValue(bool bIsInGameThread) const
 
 EBlendMode UMaterial::GetBlendMode(bool bIsInGameThread) const
 {
-	return BlendMode;
+	if (EBlendMode(BlendMode) == BLEND_Masked)
+	{
+		if (bCanMaskedBeAssumedOpaque)
+		{
+			return BLEND_Opaque;
+		}
+		else
+		{
+			return BLEND_Masked;
+		}
+	}
+	else
+	{
+		return BlendMode;
+	}
 }
 
 EMaterialShadingModel UMaterial::GetShadingModel(bool bIsInGameThread) const
@@ -3473,7 +3514,7 @@ bool UMaterial::IsTwoSided(bool bIsInGameThread) const
 
 bool UMaterial::IsMasked(bool bIsInGameThread) const
 {
-	return bIsMasked != 0;
+	return GetBlendMode() == BLEND_Masked;
 }
 
 USubsurfaceProfile* UMaterial::GetSubsurfaceProfile_Internal() const

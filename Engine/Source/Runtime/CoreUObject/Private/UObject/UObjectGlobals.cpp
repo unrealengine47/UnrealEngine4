@@ -169,6 +169,21 @@ UObject* StaticFindObject( UClass* ObjectClass, UObject* InObjectPackage, const 
 	FName ObjectName(*InName, FNAME_Add, true);
 	MatchingObject = StaticFindObjectFast( ObjectClass, ObjectPackage, ObjectName, ExactClass, bAnyPackage );
 
+	// This is another look-up for native enums, structs or delegate signatures, cause they're path changed
+	// and old packages can have invalid ones. The path now does not have a UCLASS as an outer. All mentioned
+	// types are just children of package of the file there were defined in.
+	if (!MatchingObject && ObjectPackage != nullptr &&
+		!FPlatformProperties::RequiresCookedData() && // Cooked platforms will have all paths resolved.
+			(
+				ObjectClass == UEnum::StaticClass()	// Enums
+				|| ObjectClass == UScriptStruct::StaticClass() // Structs
+				|| (ObjectClass == UFunction::StaticClass() && FString(OrigInName).EndsWith(HEADER_GENERATED_DELEGATE_SIGNATURE_SUFFIX)) // Delegates
+			)
+		)
+	{
+		MatchingObject = StaticFindObject(ObjectClass, ObjectPackage->GetOutermost(), *ObjectName.ToString(), ExactClass);
+	}
+
 	return MatchingObject;
 }
 
@@ -2202,7 +2217,7 @@ UObject* StaticConstructObject
 	const bool bIsNativeFromCDO = InClass->HasAnyClassFlags(CLASS_Native | CLASS_Intrinsic) && 
 		(
 			!InTemplate || 
-			(InName != NAME_None && InTemplate == UObject::GetArchetypeFromRequiredInfo(InClass, InOuter, InName, !!(InFlags & RF_ClassDefaultObject)))
+			(InName != NAME_None && InTemplate == UObject::GetArchetypeFromRequiredInfo(InClass, InOuter, InName, InFlags))
 		);
 	bool bRecycledSubobject = false;
 	Result = StaticAllocateObject(InClass, InOuter, InName, InFlags, bIsNativeFromCDO, &bRecycledSubobject);
@@ -2592,7 +2607,7 @@ FArchive& FScriptInterface::Serialize(FArchive& Ar, UClass* InterfaceType)
 /** A struct used as stub for deleted ones. */
 UScriptStruct* GetFallbackStruct()
 {
-	static UScriptStruct* FallbackStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("FallbackStruct"));
+	static UScriptStruct* FallbackStruct = GetBaseStructure(TEXT("FallbackStruct"));
 	return FallbackStruct;
 }
 
@@ -2652,5 +2667,17 @@ UObject* FObjectInitializer::CreateEditorOnlyDefaultSubobject(UObject* Outer, FN
 		return EditorSubobject;
 	}
 #endif
+	return nullptr;
+}
+
+COREUOBJECT_API UFunction* FindDelegateSignature(FName DelegateSignatureName)
+{
+	FString StringName = DelegateSignatureName.ToString();
+
+	if (StringName.EndsWith(HEADER_GENERATED_DELEGATE_SIGNATURE_SUFFIX))
+	{
+		return FindObject<UFunction>(ANY_PACKAGE, *StringName);
+	}
+
 	return nullptr;
 }

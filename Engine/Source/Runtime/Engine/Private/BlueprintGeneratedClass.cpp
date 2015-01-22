@@ -158,6 +158,11 @@ struct FConditionalRecompileClassHepler
 		{
 			// If my parent is native, my layout wasn't changed.
 			const UClass* ParentClass = *GeneratingBP->ParentClass;
+			if (!GeneratingBP->GeneratedClass || (GeneratingBP->GeneratedClass->GetSuperClass() != ParentClass))
+			{
+				return ENeededAction::Recompile;
+			}
+
 			if (ParentClass && ParentClass->HasAllClassFlags(CLASS_Native))
 			{
 				return ENeededAction::None;
@@ -301,10 +306,10 @@ void UBlueprintGeneratedClass::CreateComponentsForActor(AActor* Actor) const
 			continue;
 		}
 
-		FName NewName = *(FString::Printf(TEXT("TimelineComp__%d"), Actor->SerializedComponents.Num() ) );
+		FName NewName = *(FString::Printf(TEXT("TimelineComp__%d"), Actor->BlueprintCreatedComponents.Num() ) );
 		UTimelineComponent* NewTimeline = NewNamedObject<UTimelineComponent>(Actor, NewName);
 		NewTimeline->bCreatedByConstructionScript = true; // Indicate it comes from a blueprint so it gets cleared when we rerun construction scripts
-		Actor->SerializedComponents.Add(NewTimeline); // Add to array so it gets saved
+		Actor->BlueprintCreatedComponents.Add(NewTimeline); // Add to array so it gets saved
 		NewTimeline->SetNetAddressable();	// This component has a stable name that can be referenced for replication
 
 		NewTimeline->SetPropertySetObject(Actor); // Set which object the timeline should drive properties on
@@ -554,7 +559,7 @@ void UBlueprintGeneratedClass::AddReferencedObjectsInUbergraphFrame(UObject* InT
 				if (PointerToUberGraphFrame->RawPointer)
 				{
 					FSimpleObjectReferenceCollectorArchive ObjectReferenceCollector(InThis, Collector);
-					BPGC->UberGraphFunction->SerializeBin(ObjectReferenceCollector, PointerToUberGraphFrame->RawPointer, 0);
+					BPGC->UberGraphFunction->SerializeBin(ObjectReferenceCollector, PointerToUberGraphFrame->RawPointer);
 				}
 			}
 		}

@@ -550,12 +550,8 @@ public:
 	float MinLightW;
 	float MaxDistanceToCastInLightW;
 
-	/** Whether the shadow is for a directional light. */
-	bool bDirectionalLight;
-
 	/** Default constructor. */
 	FProjectedShadowInitializer()
-	:	bDirectionalLight(false)
 	{}
 };
 
@@ -570,7 +566,7 @@ public:
 class ENGINE_API FWholeSceneProjectedShadowInitializer : public FProjectedShadowInitializer
 {
 public:
-	int32 SplitIndex;
+	int32 InitShadowSplitIndex;
 	
 	FShadowCascadeSettings CascadeSettings;
 
@@ -581,9 +577,9 @@ public:
 	bool bRayTracedDistanceFieldShadow;
 
 	FWholeSceneProjectedShadowInitializer()
-	:	SplitIndex(INDEX_NONE)
-	,	bOnePassPointLightShadow(false)
-	,	bRayTracedDistanceFieldShadow(false)
+		: InitShadowSplitIndex(INDEX_NONE)
+		, bOnePassPointLightShadow(false)
+		, bRayTracedDistanceFieldShadow(false)
 	{}	
 };
 
@@ -692,7 +688,7 @@ public:
 	/** Whether this light should create per object shadows for dynamic objects. */
 	virtual bool ShouldCreatePerObjectShadowsForDynamicObjects() const;
 
-	virtual int32 GetNumViewDependentWholeSceneShadows(const FSceneView& View) const { return 0; }
+	virtual uint32 GetNumViewDependentWholeSceneShadows(const FSceneView& View) const { return 0; }
 
 	/**
 	 * Sets up a projected shadow initializer that's dependent on the current view for shadows from the entire scene.
@@ -700,7 +696,7 @@ public:
 	 */
 	virtual bool GetViewDependentWholeSceneProjectedShadowInitializer(
 		const class FSceneView& View, 
-		int32 SplitIndex,
+		uint32 InShadowSplitIndex,
 		class FWholeSceneProjectedShadowInitializer& OutInitializer) const
 	{
 		return false;
@@ -730,7 +726,7 @@ public:
 	}
 
 	// @param OutCascadeSettings can be 0
-	virtual FSphere GetShadowSplitBounds(const class FSceneView& View, int32 SplitIndex, FShadowCascadeSettings* OutCascadeSettings) const { return FSphere(FVector::ZeroVector, 0); }
+	virtual FSphere GetShadowSplitBounds(const class FSceneView& View, uint32 InShadowSplitIndex, FShadowCascadeSettings* OutCascadeSettings) const { return FSphere(FVector::ZeroVector, 0); }
 	virtual FSphere GetShadowSplitBoundsDepthRange(const FSceneView& View, float SplitNear, float SplitFar, FShadowCascadeSettings* OutCascadeSettings) const { return FSphere(FVector::ZeroVector, 0); }
 
 	virtual bool GetScissorRect(FIntRect& ScissorRect, const FSceneView& View) const
@@ -1489,6 +1485,7 @@ public:
 	 *	@return	bool				true if the primitive info was found and set
 	 */
 	bool GetPrimitiveMotionBlurInfo(const FPrimitiveSceneInfo* PrimitiveSceneInfo, FMatrix& OutPreviousLocalToWorld);
+	bool GetPrimitiveMotionBlurInfo(const FPrimitiveSceneInfo* PrimitiveSceneInfo, FMatrix& OutPreviousLocalToWorld) const;
 
 	/** Request to clear all stored motion blur data for this scene. */
 	void SetClearMotionBlurInfo();
@@ -1509,6 +1506,7 @@ private:
 	 * @return 0 if not found, otherwise pointer into MotionBlurInfos, don't store for longer
 	 */
 	FMotionBlurInfo* FindMBInfoIndex(FPrimitiveComponentId ComponentId);
+	const FMotionBlurInfo* FindMBInfoIndex(FPrimitiveComponentId ComponentId) const;
 };
 
 
@@ -1554,7 +1552,7 @@ extern ENGINE_API void DrawFlatArrow(class FPrimitiveDrawInterface* PDI,const FV
 
 // Line drawing utility functions.
 extern ENGINE_API void DrawWireBox(class FPrimitiveDrawInterface* PDI, const FBox& Box, const FLinearColor& Color, uint8 DepthPriority, float Thickness = 0, float DepthBias = 0.0f, bool bScreenSpace = false);
-extern ENGINE_API void DrawWireBox(class FPrimitiveDrawInterface* PDI, const FMatrix& Matrix, const FBox& Box, const FLinearColor& Color, uint8 DepthPriority );
+extern ENGINE_API void DrawWireBox(class FPrimitiveDrawInterface* PDI, const FMatrix& Matrix, const FBox& Box, const FLinearColor& Color, uint8 DepthPriority, float Thickness = 0, float DepthBias = 0.0f, bool bScreenSpace = false);
 extern ENGINE_API void DrawCircle(class FPrimitiveDrawInterface* PDI, const FVector& Base, const FVector& X, const FVector& Y, const FLinearColor& Color, float Radius, int32 NumSides, uint8 DepthPriority, float Thickness = 0, float DepthBias = 0.0f, bool bScreenSpace = false);
 extern ENGINE_API void DrawArc(FPrimitiveDrawInterface* PDI, const FVector Base, const FVector X, const FVector Y, const float MinAngle, const float MaxAngle, const float Radius, const int32 Sections, const FLinearColor& Color, uint8 DepthPriority);
 extern ENGINE_API void DrawWireSphere(class FPrimitiveDrawInterface* PDI, const FVector& Base, const FLinearColor& Color, float Radius, int32 NumSides, uint8 DepthPriority, float Thickness = 0, float DepthBias = 0.0f, bool bScreenSpace = false);

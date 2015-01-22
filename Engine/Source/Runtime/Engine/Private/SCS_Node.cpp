@@ -32,13 +32,16 @@ UActorComponent* USCS_Node::ExecuteNodeOnActor(AActor* Actor, USceneComponent* P
 	check((ParentComponent != nullptr && !ParentComponent->IsPendingKill()) || (RootTransform != nullptr)); // must specify either a parent component or a world transform
 
 	UActorComponent* OverridenComponentTemplate = nullptr;
+	static const FBoolConfigValueHelper EnableInheritableComponents(TEXT("Kismet"), TEXT("bEnableInheritableComponents"), GEngineIni);
+	if (EnableInheritableComponents)
 	{
+		const FComponentKey ComponentKey(this);
 		auto ActualBPGC = Cast<UBlueprintGeneratedClass>(Actor->GetClass());
 		while (!OverridenComponentTemplate && ActualBPGC)
 		{
 			if (ActualBPGC->InheritableComponentHandler)
 			{
-				OverridenComponentTemplate = ActualBPGC->InheritableComponentHandler->GetOverridenComponentTemplate(this);
+				OverridenComponentTemplate = ActualBPGC->InheritableComponentHandler->GetOverridenComponentTemplate(ComponentKey);
 			}
 			ActualBPGC = Cast<UBlueprintGeneratedClass>(ActualBPGC->GetSuperClass());
 		}
@@ -317,22 +320,18 @@ void USCS_Node::SetParent(USceneComponent* InParentComponent)
 	}
 }
 
-USceneComponent* USCS_Node::GetParentComponentTemplate() const
+USceneComponent* USCS_Node::GetParentComponentTemplate(UBlueprint* InBlueprint) const
 {
 	USceneComponent* ParentComponentTemplate = NULL;
 	if(ParentComponentOrVariableName != NAME_None)
 	{
-		USimpleConstructionScript* SCS = GetSCS();
-		check(SCS != nullptr);
-
-		UBlueprint* Blueprint = SCS->GetBlueprint();
-		check(Blueprint != nullptr && Blueprint->GeneratedClass != nullptr);
+		check(InBlueprint != NULL && InBlueprint->GeneratedClass != NULL);
 
 		// If the parent component template is found in the 'Components' array of the CDO (i.e. native)
 		if(bIsParentComponentNative)
 		{
 			// Access the Blueprint CDO
-			AActor* CDO = Blueprint->GeneratedClass->GetDefaultObject<AActor>();
+			AActor* CDO = InBlueprint->GeneratedClass->GetDefaultObject<AActor>();
 			if(CDO != NULL)
 			{
 				// Find the component template in the CDO that matches the specified name
@@ -356,7 +355,7 @@ USceneComponent* USCS_Node::GetParentComponentTemplate() const
 		{
 			// Get the Blueprint hierarchy
 			TArray<UBlueprint*> ParentBPStack;
-			UBlueprint::GetBlueprintHierarchyFromClass(Blueprint->GeneratedClass, ParentBPStack);
+			UBlueprint::GetBlueprintHierarchyFromClass(InBlueprint->GeneratedClass, ParentBPStack);
 
 			// Find the parent Blueprint in the hierarchy
 			for(int32 StackIndex = ParentBPStack.Num() - 1; StackIndex > 0; --StackIndex)
@@ -384,23 +383,6 @@ USceneComponent* USCS_Node::GetParentComponentTemplate() const
 	}
 
 	return ParentComponentTemplate;
-}
-
-bool USCS_Node::IsValidVariableNameString(const FString& InString)
-{
-	// First test to make sure the string is not empty and does not equate to the DefaultSceneRoot node name
-	bool bIsValid = !InString.IsEmpty() && !InString.Equals(USimpleConstructionScript::DefaultSceneRootVariableName.ToString());
-	if(bIsValid && ComponentTemplate != NULL)
-	{
-		// Next test to make sure the string doesn't conflict with the format that MakeUniqueObjectName() generates
-		FString MakeUniqueObjectNamePrefix = FString::Printf(TEXT("%s_"), *ComponentTemplate->GetClass()->GetName());
-		if(InString.StartsWith(MakeUniqueObjectNamePrefix))
-		{
-			bIsValid = !InString.Replace(*MakeUniqueObjectNamePrefix, TEXT("")).IsNumeric();
-		}
-	}
-
-	return bIsValid;
 }
 
 void USCS_Node::GenerateListOfExistingNames( TArray<FName>& CurrentNames ) const
@@ -477,6 +459,29 @@ FName USCS_Node::GenerateNewComponentName( TArray<FName>& CurrentNames, FName De
 		}
 	}
 	return NewName;
+}
+
+void USCS_Node::PostLoad()
+{
+	Super::PostLoad();
+
+	ValidateGuid();
+}
+
+void USCS_Node::ValidateGuid()
+{
+	// Backward compatibility: node requires a guid. 
+	// The guid for the node should be always the same (event when it's not saved). The guid is created using persistent name.
+	if (!VariableGuid.IsValid())
+	{
+		const FName PersistentVariableName = GetVariableName();
+		if (PersistentVariableName != NAME_None)
+		{
+			const FString NameVariableString = PersistentVariableName.ToString();
+			const uint32 PersistentCrc = FCrc::StrCrc32(*NameVariableString);
+			VariableGuid = FGuid(PersistentCrc, 0, 0, 0);
+		}
+	}
 }
 
 #endif

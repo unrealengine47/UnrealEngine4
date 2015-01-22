@@ -74,11 +74,11 @@ FKismetCompilerContext::FKismetCompilerContext(UBlueprint* SourceSketch, FCompil
 
 	MacroSpawnX = MinimumSpawnX;
 	MacroSpawnY = -2000;
-
-	VectorStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("Vector"));
-	RotatorStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("Rotator"));
-	TransformStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("Transform"));
-	LinearColorStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("LinearColor"));
+	
+	VectorStruct = GetBaseStructure(TEXT("Vector"));
+	RotatorStruct = GetBaseStructure(TEXT("Rotator"));
+	TransformStruct = GetBaseStructure(TEXT("Transform"));
+	LinearColorStruct = GetBaseStructure(TEXT("LinearColor"));
 }
 
 FKismetCompilerContext::~FKismetCompilerContext()
@@ -1757,6 +1757,11 @@ void FKismetCompilerContext::FinishCompilingClass(UClass* Class)
 				Property->RepNotifyFunc = NAME_None;
 			}
 		}
+		if( Property->HasAnyPropertyFlags( CPF_Config ))
+		{
+			// If we have properties that are set from the config, then the class needs to also have CLASS_Config flags
+			Class->ClassFlags |= CLASS_Config;
+		}
 	}
 
 	// Set class metadata as needed
@@ -3272,9 +3277,10 @@ void FKismetCompilerContext::Compile()
 
 	if (CompileOptions.CompileType == EKismetCompileType::Full)
 	{
-		if (Blueprint->InheritableComponentHandler)
+		auto InheritableComponentHandler = Blueprint->GetInheritableComponentHandler(false);
+		if (InheritableComponentHandler)
 		{
-			Blueprint->InheritableComponentHandler->RemoveInvalidAndUnnecessaryTemplates();
+			InheritableComponentHandler->ValidateTemplates();
 		}
 	}
 

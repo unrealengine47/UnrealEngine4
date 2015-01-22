@@ -14,6 +14,8 @@ const FName FoliageEditAppIdentifier = FName(TEXT("FoliageEdApp"));
 #include "ProceduralFoliageComponentDetails.h"
 #include "ActorFactoryProceduralFoliage.h"
 #include "ComponentVisualizer.h"
+#include "ProceduralFoliageActor.h"
+#include "ProceduralFoliageComponent.h"
 
 /**
  * Foliage Edit Mode module
@@ -46,6 +48,10 @@ public:
 		// Actor Factories
 		UActorFactoryProceduralFoliage* ProceduralFoliageActorFactory = ConstructObject<UActorFactoryProceduralFoliage>(UActorFactoryProceduralFoliage::StaticClass());
 		GEditor->ActorFactories.Add(ProceduralFoliageActorFactory);
+
+#if WITH_EDITOR
+		SubscribeEvents();
+#endif
 	}
 
 	/**
@@ -60,6 +66,10 @@ public:
 			return;
 		}
 
+#if WITH_EDITOR
+		UnsubscribeEvents();
+#endif
+
 		// Unregister the details customization
 		if (FModuleManager::Get().IsModuleLoaded("PropertyEditor"))
 		{
@@ -68,6 +78,33 @@ public:
 			PropertyModule.NotifyCustomizationModuleChanged();
 		}
 	}
+
+#if WITH_EDITOR
+
+	void OnLevelActorDeleted(AActor* Actor)
+	{
+		if (AProceduralFoliageActor* PFA = Cast<AProceduralFoliageActor>(Actor))
+		{
+			if (UProceduralFoliageComponent* ProceduralComponent = PFA->ProceduralComponent)
+			{
+				ProceduralComponent->RemoveProceduralContent();
+			}
+		}
+	}
+
+	void SubscribeEvents()
+	{
+		GEngine->OnLevelActorDeleted().Remove(OnLevelActorDeletedDelegateHandle);
+		OnLevelActorDeletedDelegateHandle = GEngine->OnLevelActorDeleted().AddRaw(this, &FFoliageEditModule::OnLevelActorDeleted);
+	}
+
+	void UnsubscribeEvents()
+	{
+		GEngine->OnLevelActorDeleted().Remove(OnLevelActorDeletedDelegateHandle);
+	}
+
+	FDelegateHandle OnLevelActorDeletedDelegateHandle;
+#endif
 };
 
 IMPLEMENT_MODULE( FFoliageEditModule, FoliageEdit );

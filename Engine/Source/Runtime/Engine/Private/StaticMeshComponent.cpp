@@ -23,19 +23,14 @@
 
 #define LOCTEXT_NAMESPACE "StaticMeshComponent"
 
-class FStaticMeshComponentInstanceData : public FComponentInstanceDataBase
+class FStaticMeshComponentInstanceData : public FSceneComponentInstanceData
 {
 public:
 	FStaticMeshComponentInstanceData(const UStaticMeshComponent* SourceComponent)
-		: FComponentInstanceDataBase(SourceComponent)
+		: FSceneComponentInstanceData(SourceComponent)
 		, StaticMesh(SourceComponent->StaticMesh)
 		, bHasCachedStaticLighting(false)
 	{
-	}
-
-	virtual bool MatchesComponent(const UActorComponent* Component) const override
-	{
-		return (CastChecked<UStaticMeshComponent>(Component)->StaticMesh == StaticMesh && FComponentInstanceDataBase::MatchesComponent(Component));
 	}
 
 	/** Add vertex color data for a specified LOD before RerunConstructionScripts is called */
@@ -1509,10 +1504,10 @@ void UStaticMeshComponent::GetUsedMaterials(TArray<UMaterialInterface*>& OutMate
 	}
 }
 
-int32 UStaticMeshComponent::GetSerializedComponentIndex() const
+int32 UStaticMeshComponent::GetBlueprintCreatedComponentIndex() const
 {
 	int32 ComponentIndex = 0;
-	for(const auto& Component : GetOwner()->SerializedComponents)
+	for(const auto& Component : GetOwner()->BlueprintCreatedComponents)
 	{
 		if(Component == this)
 		{
@@ -1574,11 +1569,18 @@ FComponentInstanceDataBase* UStaticMeshComponent::GetComponentInstanceData() con
 
 void UStaticMeshComponent::ApplyComponentInstanceData(FComponentInstanceDataBase* ComponentInstanceData)
 {
+	Super::ApplyComponentInstanceData(ComponentInstanceData);
+
 	check(ComponentInstanceData);
 
 	// Note: ApplyComponentInstanceData is called while the component is registered so the rendering thread is already using this component
 	// That means all component state that is modified here must be mirrored on the scene proxy, which will be recreated to receive the changes later due to MarkRenderStateDirty.
 	FStaticMeshComponentInstanceData* StaticMeshInstanceData  = static_cast<FStaticMeshComponentInstanceData*>(ComponentInstanceData);
+
+	if (StaticMesh != StaticMeshInstanceData->StaticMesh)
+	{
+		return;
+	}
 
 	// See if data matches current state
 	if(	StaticMeshInstanceData->bHasCachedStaticLighting && StaticMeshInstanceData->CachedStaticLighting.Transform.Equals(ComponentToWorld) )

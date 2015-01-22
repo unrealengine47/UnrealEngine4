@@ -52,9 +52,9 @@ public:
 	 */
 	class USCS_Node* GetSCSNode() const { return SCSNodePtr.Get(); }
 	/**
-	 * @return The component template represented by this object.
+	 * @return The component template or instance represented by this object.
 	 */
-	UActorComponent* GetComponentTemplate() const { return ComponentTemplatePtr.Get(); }
+	UActorComponent* GetComponentTemplate() const;
 	/**
 	 * Finds the component instance represented by this node contained within a given Actor instance.
 	 *
@@ -91,9 +91,17 @@ public:
 	 */
 	bool IsNative() const { return GetSCSNode() == NULL && GetComponentTemplate() != NULL; }
 	/** 
-	 * @return Whether or not this object represents a component template that was inherited from a parent Blueprint class.
+	 * @return Whether or not this object represents a component template that was inherited from a parent Blueprint class SCS.
 	 */
 	bool IsInherited() const { return bIsInherited; }
+	/**
+	 * @return Whether or not this object represents a component instance rather than a template.
+	 */
+	bool IsInstanced() const { return bIsInstanced; }
+	/**
+	 * @return Whether or not this object represents a component instance that was created by the user and not by a native or Blueprint-generated class.
+	 */
+	bool IsUserInstanced() const;
 	/** 
 	 * @return Whether or not this object represents the default SCS scene root component.
 	 */
@@ -101,15 +109,15 @@ public:
 	/** 
 	 * @return Whether or not this object represents a node that can be deleted from the SCS tree.
 	 */
-	bool CanDelete() const { return !IsNative() && !IsInherited() && !IsDefaultSceneRoot(); }
+	bool CanDelete() const { return IsUserInstanced() || (!IsNative() && !IsInherited() && !IsDefaultSceneRoot()); }
 	/** 
 	 * @return Whether or not this object represents a node that can be renamed from the SCS tree.
 	 */
-	bool CanRename() const { return !IsNative() && !IsInherited() && !IsDefaultSceneRoot(); }
+	bool CanRename() const { return IsUserInstanced() || (!IsNative() && !IsInherited() && !IsDefaultSceneRoot()); }
 	/** 
 	 * @return Whether or not this object represents a node that can be reparented to other nodes based on its context.
 	 */
-	bool CanReparent() const { return !IsNative() && !IsInherited() && !IsDefaultSceneRoot() && Cast<USceneComponent>(GetComponentTemplate()) != NULL; }
+	bool CanReparent() const { return (IsUserInstanced() || (!IsNative() && !IsInherited() && !IsDefaultSceneRoot())) && Cast<USceneComponent>(GetComponentTemplate()) != NULL; }
 	/** 
 	 * @return Whether or not we can edit default properties for the component template represented by this object.
 	 */
@@ -168,6 +176,16 @@ public:
 	FSCSEditorTreeNodePtrType FindChild(const UActorComponent* InComponentTemplate, bool bRecursiveSearch = false, uint32* OutDepth = NULL) const;
 
 	/** 
+	 * Attempts to find a reference to the child node that matches the given component variable or instance name.
+	 *
+	 * @param InVariableOrInstanceName The component variable or instance name to match.
+	 * @param bRecursiveSearch Whether or not to recursively search child nodes (default == false).
+	 * @param OutDepth If non-NULL, the depth of the child node will be returned in this parameter on success (default == NULL).
+	 * @return The child node with a component variable or instance name that matches the given name, or an invalid node reference if no match was found.
+	 */
+	FSCSEditorTreeNodePtrType FindChild(const FName& InVariableOrInstanceName, bool bRecursiveSearch = false, uint32* OutDepth = NULL) const;
+
+	/** 
 	 * Removes the given node from the list of child nodes.
 	 *
 	 * @param InChildNodePtr The child node to remove.
@@ -191,6 +209,7 @@ public:
 
 private:
 	bool bIsInherited;
+	bool bIsInstanced;
 	TWeakObjectPtr<class USCS_Node> SCSNodePtr;
 	TWeakObjectPtr<UActorComponent> ComponentTemplatePtr;
 	FSCSEditorTreeNodePtrType ParentNodePtr;
@@ -199,6 +218,10 @@ private:
 	/** Handles rename requests */
 	bool bNonTransactionalRename;
 	FOnRenameRequested RenameRequestedDelegate;
+
+	bool bWasInstancedFromNativeClass;
+	FName InstancedComponentName;
+	TWeakObjectPtr<AActor> InstancedComponentOwnerPtr;
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -375,6 +398,15 @@ typedef SSCSEditorDragDropTree SSCSTreeType;
 class KISMET_API SSCSEditor : public SCompoundWidget
 {
 public:
+	/* Editor mode */
+	enum EEditorMode
+	{
+		/* View/edit the SCS in a BGPC */
+		BlueprintSCS,
+		/* View/edit the Actor instance */
+		ActorInstance
+	};
+
 	DECLARE_DELEGATE_RetVal_OneParam(class USCS_Node*, FOnAddNewComponent, class UClass*);
 	DECLARE_DELEGATE_RetVal_OneParam(class USCS_Node*, FOnAddExistingComponent, class UActorComponent*);
 	DECLARE_DELEGATE_OneParam(FOnTreeViewSelectionChanged, const TArray<FSCSEditorTreeNodePtrType>&);
@@ -382,21 +414,21 @@ public:
 	DECLARE_DELEGATE_OneParam(FOnHighlightPropertyInDetailsView, const class FPropertyPath&);
 
 	SLATE_BEGIN_ARGS( SSCSEditor )
-		:_InEditingMode(true)
+		:_EditorMode(BlueprintSCS)
 		,_ActorContext(nullptr)
+		,_PreviewActor(nullptr)
+		,_AllowEditing(true)
 		,_HideComponentClassCombo(false)
-		,_OnAddNewComponent()
-		,_OnAddExistingComponent()
 		,_OnTreeViewSelectionChanged()
 		,_OnUpdateSelectionFromNodes()
 		,_OnHighlightPropertyInDetailsView()
 		{}
 
-		SLATE_ATTRIBUTE(bool, InEditingMode)
+		SLATE_ATTRIBUTE(EEditorMode, EditorMode)
 		SLATE_ATTRIBUTE(class AActor*, ActorContext)
+		SLATE_ATTRIBUTE(class AActor*, PreviewActor)
+		SLATE_ATTRIBUTE(bool, AllowEditing)
 		SLATE_ATTRIBUTE(bool, HideComponentClassCombo)
-		SLATE_EVENT(FOnAddNewComponent, OnAddNewComponent)
-		SLATE_EVENT(FOnAddExistingComponent, OnAddExistingComponent)
 		SLATE_EVENT(FOnTreeViewSelectionChanged, OnTreeViewSelectionChanged)
 		SLATE_EVENT(FOnUpdateSelectionFromNodes, OnUpdateSelectionFromNodes)
 		SLATE_EVENT(FOnHighlightPropertyInDetailsView, OnHighlightPropertyInDetailsView)
@@ -414,8 +446,8 @@ public:
 	/** Used by tree control - get children for a specified node */
 	void OnGetChildrenForTree(FSCSEditorTreeNodePtrType InNodePtr, TArray<FSCSEditorTreeNodePtrType>& OutChildren);
 
-	/** Returns true if in editing mode */
-	bool InEditingMode() const;
+	/** Returns true if editing is allowed */
+	bool IsEditingAllowed() const;
 
 	/** Adds a component to the SCS Table
 	   @param NewComponentClass	(In) The class to add
@@ -423,13 +455,20 @@ public:
 	   @return The reference of the newly created ActorComponent */
 	UActorComponent* AddNewComponent(UClass* NewComponentClass, UObject* Asset);
 
-	/** Adds a new Node to the component Table
-	   @param NewNode	(In) The node to add
+	/** Adds a new SCS Node to the component Table
+	   @param NewNode	(In) The SCS node to add
 	   @param Asset		(In) Optional asset to assign to the component
 	   @param bMarkBlueprintModified (In) Whether or not to mark the Blueprint as structurally modified
 	   @param bSetFocusToNewItem (In) Select the new item and activate the inline rename widget (default is true)
 	   @return The reference of the newly created ActorComponent */
 	UActorComponent* AddNewNode(USCS_Node* NewNode, UObject* Asset, bool bMarkBlueprintModified, bool bSetFocusToNewItem = true);
+
+	/** Adds a new component instance node to the component Table
+		@param NewNode	(In) The component instance node to add
+		@param Asset	(In) Optional asset to assign to the component
+		@param bSetFocusToNewItem (In) Select the new item and activate the inline rename widget (default is true)
+		@return The reference of the newly created ActorComponent */
+	UActorComponent* AddNewNode(UActorComponent* NewNode, UObject* Asset, bool bSetFocusToNewItem = true);
 	
 	/** Returns true if the specified component is currently selected */
 	bool IsComponentSelected(const UPrimitiveComponent* PrimComponent) const;
@@ -535,6 +574,9 @@ public:
 	 */
 	void GetSelectedItemsForContextMenu(TArray<FComponentEventConstructionData>& OutSelectedItems) const;
 
+	/** Provides access to the Blueprint context that's being edited */
+	class UBlueprint* GetBlueprint() const;
+
 protected:
 	FString GetSelectedClassText() const;
 
@@ -583,7 +625,7 @@ protected:
 	void OnDuplicateComponent();
 
 	/** Helper method to add a tree node for the given SCS node */
-	FSCSEditorTreeNodePtrType AddTreeNode(USCS_Node* InSCSNode, FSCSEditorTreeNodePtrType InParentNodePtr);
+	FSCSEditorTreeNodePtrType AddTreeNode(USCS_Node* InSCSNode, FSCSEditorTreeNodePtrType InParentNodePtr, const bool bIsInherited);
 
 	/** Helper method to add a tree node for the given scene component */
 	FSCSEditorTreeNodePtrType AddTreeNode(USceneComponent* InSceneComponent);
@@ -593,6 +635,9 @@ protected:
 
 	/** Helper method to recursively find a tree node for the given scene component starting at the given tree node */
 	FSCSEditorTreeNodePtrType FindTreeNode(const UActorComponent* InComponent, FSCSEditorTreeNodePtrType InStartNodePtr = FSCSEditorTreeNodePtrType()) const;
+
+	/** Helper method to recursively find a tree node for the given variable or instance name starting at the given tree node */
+	FSCSEditorTreeNodePtrType FindTreeNode(const FName& InVariableOrInstanceName, FSCSEditorTreeNodePtrType InStartNodePtr = FSCSEditorTreeNodePtrType()) const;
 
 	/** Callback when a component item is scrolled into view */
 	void OnItemScrolledIntoView( FSCSEditorTreeNodePtrType InItem, const TSharedPtr<ITableRow>& InWidget);
@@ -612,23 +657,23 @@ public:
 	/** Command list for handling actions in the SSCSEditor */
 	TSharedPtr< FUICommandList > CommandList;
 
-	/** Weak reference to an SCS node that has been requested to be renamed */
-	TWeakObjectPtr<USCS_Node> DeferredRenameRequest;
+	/** Name of a node that has been requested to be renamed */
+	FName DeferredRenameRequest;
 
 	/** Whether or not the deferred rename request was flagged as transactional */
 	bool bIsDeferredRenameRequestTransactional;
 
+	/** Attribute to indicate which editor mode we're in. */
+	TAttribute<EEditorMode> EditorMode;
+
 	/** Attribute that provides access to the Actor context for which we are viewing/editing the SCS. */
 	TAttribute<class AActor*> ActorContext;
 
-	/** Attribute to control whether or not to allow editing. */
-	TAttribute<bool> bInEditingMode;
+	/** Attribute that provides access to a "preview" Actor context (may not be same as the Actor context that's being edited. */
+	TAttribute<class AActor*> PreviewActor;
 
-	/** Delegate to invoke when a new SCS node needs to be created for a component class type. */
-	FOnAddNewComponent OnAddNewComponent;
-
-	/** Delegate to invoke when a new SCS node needs to be created for an existing component instance. */
-	FOnAddExistingComponent OnAddExistingComponent;
+	/** Attribute to indicate whether or not editing is allowed. */
+	TAttribute<bool> AllowEditing;
 
 	/** Delegate to invoke on tree view selection change. */
 	FOnTreeViewSelectionChanged OnTreeViewSelectionChanged;

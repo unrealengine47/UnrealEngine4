@@ -31,7 +31,7 @@ UActorComponent* UInheritableComponentHandler::CreateOverridenComponentTemplate(
 	}
 	ensure(Cast<UBlueprintGeneratedClass>(GetOuter()));
 	auto NewComponentTemplate = ConstructObject<UActorComponent>(
-		BestArchetype->GetClass(), GetOuter(), BestArchetype->GetFName(), RF_ArchetypeObject, BestArchetype);
+		BestArchetype->GetClass(), GetOuter(), BestArchetype->GetFName(), RF_ArchetypeObject | RF_Public | RF_InheritableComponentTemplate, BestArchetype);
 
 	FComponentOverrideRecord NewRecord;
 	NewRecord.ComponentKey = Key;
@@ -39,27 +39,6 @@ UActorComponent* UInheritableComponentHandler::CreateOverridenComponentTemplate(
 	Records.Add(NewRecord);
 
 	return NewComponentTemplate;
-}
-
-void UInheritableComponentHandler::UpdateOverridenComponentTemplate(FComponentKey Key)
-{
-	auto FoundRecord = FindRecord(Key);
-	if (!FoundRecord)
-	{
-		UE_LOG(LogBlueprint, Warning, TEXT("UpdateOverridenComponentTemplate '%s': cannot find overriden template for component '%s' from '%s'"),
-			*GetPathNameSafe(this), *Key.VariableName.ToString(), *GetPathNameSafe(Key.OwnerClass));
-		return;
-	}
-
-	check(FoundRecord->ComponentTemplate);
-
-	// TODO: save diff against current (previous) archetype. This part is tricky:
-	// the diff should be made before the archetype is updated
-	// OR the diff should be made from saved archetype
-
-	// TODO: copy data from best archetype (it should be new/updated one)
-
-	// TODO: restore custom data from diff
 }
 
 void UInheritableComponentHandler::UpdateOwnerClass(UBlueprintGeneratedClass* OwnerClass)
@@ -74,13 +53,28 @@ void UInheritableComponentHandler::UpdateOwnerClass(UBlueprintGeneratedClass* Ow
 	}
 }
 
-void UInheritableComponentHandler::RemoveInvalidAndUnnecessaryTemplates()
+void UInheritableComponentHandler::ValidateTemplates()
 {
 	for (int32 Index = 0; Index < Records.Num();)
 	{
 		bool bIsValidAndNecessary = false;
 		{
-			const FComponentOverrideRecord& Record = Records[Index];
+			FComponentOverrideRecord& Record = Records[Index];
+			
+			if (Record.ComponentKey.OwnerClass && Record.ComponentKey.VariableGuid.IsValid())
+			{
+				// Update variable, based on value
+				auto SCSNode = Record.ComponentKey.FindSCSNode();
+				const FName ActualName = SCSNode ? SCSNode->GetVariableName() : NAME_None;
+				if ((ActualName != NAME_None) && (ActualName != Record.ComponentKey.VariableName))
+				{
+					UE_LOG(LogBlueprint, Log, TEXT("ValidateTemplates '%s': variable old name '%s' new name '%s'"),
+						*GetPathNameSafe(this), *Record.ComponentKey.VariableName.ToString(), *ActualName.ToString());
+					Record.ComponentKey.VariableName = ActualName;
+					MarkPackageDirty();
+				}
+			}
+
 			if (IsRecordValid(Record))
 			{
 				if (IsRecordNecessary(Record))
@@ -89,13 +83,13 @@ void UInheritableComponentHandler::RemoveInvalidAndUnnecessaryTemplates()
 				}
 				else
 				{
-					UE_LOG(LogBlueprint, Log, TEXT("RemoveInvalidAndUnnecessaryTemplates '%s': overriden template is unnecessary - component '%s' from '%s'"),
+					UE_LOG(LogBlueprint, Log, TEXT("ValidateTemplates '%s': overriden template is unnecessary - component '%s' from '%s'"),
 						*GetPathNameSafe(this), *Record.ComponentKey.VariableName.ToString(), *GetPathNameSafe(Record.ComponentKey.OwnerClass));
 				}
 			}
 			else
 			{
-				UE_LOG(LogBlueprint, Warning, TEXT("RemoveInvalidAndUnnecessaryTemplates '%s': overriden template is invalid - component '%s' from '%s'"),
+				UE_LOG(LogBlueprint, Warning, TEXT("ValidateTemplates '%s': overriden template is invalid - component '%s' from '%s'"),
 					*GetPathNameSafe(this), *Record.ComponentKey.VariableName.ToString(), *GetPathNameSafe(Record.ComponentKey.OwnerClass));
 			}
 		}
@@ -239,6 +233,19 @@ UActorComponent* UInheritableComponentHandler::FindBestArchetype(FComponentKey K
 	return ClosestArchetype;
 }
 
+bool UInheritableComponentHandler::RenameTemplate(FComponentKey OldKey, FName NewName)
+{
+	for (auto& Record : Records)
+	{
+		if (Record.ComponentKey.Match(OldKey))
+		{
+			Record.ComponentKey.VariableName = NewName;
+			return true;
+		}
+	}
+	return false;
+}
+
 #endif
 
 UActorComponent* UInheritableComponentHandler::GetOverridenComponentTemplate(FComponentKey Key) const
@@ -247,7 +254,7 @@ UActorComponent* UInheritableComponentHandler::GetOverridenComponentTemplate(FCo
 	return Record ? Record->ComponentTemplate : nullptr;
 }
 
-const FComponentOverrideRecord* UInheritableComponentHandler::FindRecord(FComponentKey Key) const
+const FComponentOverrideRecord* UInheritableComponentHandler::FindRecord(const FComponentKey Key) const
 {
 	for (auto& Record : Records)
 	{
@@ -261,21 +268,30 @@ const FComponentOverrideRecord* UInheritableComponentHandler::FindRecord(FCompon
 
 // FComponentOverrideRecord
 
-FComponentKey::FComponentKey(USCS_Node* ParentNode) : OwnerClass(nullptr)
+FComponentKey::FComponentKey(USCS_Node* SCSNode) : OwnerClass(nullptr)
 {
-	auto ParentSCS = ParentNode ? ParentNode->GetSCS() : nullptr;
-	OwnerClass = ParentSCS ? Cast<UBlueprintGeneratedClass>(ParentSCS->GetOwnerClass()) : nullptr;
-	VariableName = (ParentNode && OwnerClass) ? ParentNode->GetVariableName() : NAME_None;
+	if (SCSNode)
+	{
+		auto ParentSCS = SCSNode->GetSCS();
+		OwnerClass = ParentSCS ? Cast<UBlueprintGeneratedClass>(ParentSCS->GetOwnerClass()) : nullptr;
+		VariableGuid = SCSNode->VariableGuid;
+		VariableName = SCSNode->GetVariableName();
+	}
 }
 
-bool FComponentKey::Match(FComponentKey OtherKey) const
+bool FComponentKey::Match(const FComponentKey OtherKey) const
 {
-	return (OwnerClass == OtherKey.OwnerClass) && (VariableName == OtherKey.VariableName);
+	return (OwnerClass == OtherKey.OwnerClass) && (VariableGuid == OtherKey.VariableGuid);
+}
+
+USCS_Node* FComponentKey::FindSCSNode() const
+{
+	auto ParentSCS = OwnerClass ? OwnerClass->SimpleConstructionScript : nullptr;
+	return ParentSCS ? ParentSCS->FindSCSNodeByGuid(VariableGuid) : nullptr;
 }
 
 UActorComponent* FComponentKey::GetOriginalTemplate() const
 {
-	auto ParentSCS = OwnerClass ? OwnerClass->SimpleConstructionScript : nullptr;
-	auto SCSNode = ParentSCS ? ParentSCS->FindSCSNode(VariableName) : nullptr;
+	auto SCSNode = FindSCSNode();
 	return SCSNode ? SCSNode->ComponentTemplate : nullptr;
 }

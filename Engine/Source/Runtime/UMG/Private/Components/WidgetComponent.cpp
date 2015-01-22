@@ -568,19 +568,14 @@ void UWidgetComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, 
 #endif // !UE_SERVER
 }
 
-class FWidgetComponentInstanceData : public FComponentInstanceDataBase
+class FWidgetComponentInstanceData : public FSceneComponentInstanceData
 {
 public:
 	FWidgetComponentInstanceData( const UWidgetComponent* SourceComponent )
-		: FComponentInstanceDataBase(SourceComponent)
+		: FSceneComponentInstanceData(SourceComponent)
 		, WidgetClass ( SourceComponent->GetWidgetClass() )
 		, RenderTarget( SourceComponent->GetRenderTarget() )
 	{}
-
-	virtual bool MatchesComponent( const UActorComponent* Component ) const override
-	{
-		return (CastChecked<UWidgetComponent>(Component)->GetWidgetClass() == WidgetClass && FComponentInstanceDataBase::MatchesComponent(Component));
-	}
 
 public:
 	TSubclassOf<UUserWidget> WidgetClass;
@@ -600,11 +595,18 @@ FComponentInstanceDataBase* UWidgetComponent::GetComponentInstanceData() const
 
 void UWidgetComponent::ApplyComponentInstanceData(FComponentInstanceDataBase* ComponentInstanceData)
 {
+	Super::ApplyComponentInstanceData(ComponentInstanceData);
+
 	check(ComponentInstanceData);
 
 	// Note: ApplyComponentInstanceData is called while the component is registered so the rendering thread is already using this component
 	// That means all component state that is modified here must be mirrored on the scene proxy, which will be recreated to receive the changes later due to MarkRenderStateDirty.
 	FWidgetComponentInstanceData* WidgetInstanceData  = static_cast<FWidgetComponentInstanceData*>(ComponentInstanceData);
+
+	if (GetWidgetClass() != WidgetClass)
+	{
+		return;
+	}
 
 	RenderTarget = WidgetInstanceData->RenderTarget;
 	if( MaterialInstance )

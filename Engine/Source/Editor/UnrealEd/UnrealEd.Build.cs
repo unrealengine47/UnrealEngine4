@@ -72,6 +72,7 @@ public class UnrealEd : ModuleRules
 				"UnrealEdMessages",
                 "AIModule",
 				"BlueprintGraph",
+                "Http",
 			}
 		);
 
@@ -193,7 +194,7 @@ public class UnrealEd : ModuleRules
 			}
 		);
 
-		if (Target.Platform == UnrealTargetPlatform.Win64 || Target.Platform == UnrealTargetPlatform.Win32)
+		if (Target.Platform == UnrealTargetPlatform.Win64 || Target.Platform == UnrealTargetPlatform.Win32 || Target.Platform == UnrealTargetPlatform.Mac)
 		{
 			DynamicallyLoadedModuleNames.Add("AndroidPlatformEditor");
 		}

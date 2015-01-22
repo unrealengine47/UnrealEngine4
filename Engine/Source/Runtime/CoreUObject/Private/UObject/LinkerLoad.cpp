@@ -630,9 +630,10 @@ ULinkerLoad::ULinkerLoad( const FObjectInitializer& ObjectInitializer, UPackage*
 #endif // WITH_EDITOR
 #if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 ,	DeferredExportIndex(INDEX_NONE)
+,	ResolvingDeferredPlaceholder(nullptr)
 #endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 {
-	check(!HasAnyFlags(RF_ClassDefaultObject));
+	check(!HasAnyFlags(RF_ClassDefaultObject)); 
 
 	INC_DWORD_STAT(STAT_LinkerCount);
 	INC_DWORD_STAT(STAT_LiveLinkerCount);
@@ -2879,7 +2880,19 @@ void ULinkerLoad::Preload( UObject* Object )
 					SCOPE_CYCLE_COUNTER(STAT_LinkerLoadDeferred);
 					if ((LoadFlags & LOAD_DeferDependencyLoads) != (*LoadFlagsGuard & LOAD_DeferDependencyLoads))
 					{
+#if TEST_CHECK_DEPENDENCY_LOAD_DEFERRING
+						bool const bCircumventValidationChecks = !FBlueprintSupport::UseDeferredDependencyVerificationChecks();
+						// since class serialization reads in the class's CDO, 
+						// then we can be certain that the CDO export object 
+						// exists (and DeferredExportIndex should reference it)
+						// ... FinalizeBlueprint() depends on this (and since 
+						// ResolveDeferredDependencies() can be recursive, we 
+						// check it out here, before it is called)
+						checkSlow(bCircumventValidationChecks || (DeferredExportIndex != INDEX_NONE));
+#endif // TEST_CHECK_DEPENDENCY_LOAD_DEFERRING
+
 						ResolveDeferredDependencies(ObjectAsClass);
+						FinalizeBlueprint(ObjectAsClass);
 					}
 #endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 				}
@@ -3212,7 +3225,7 @@ UObject* ULinkerLoad::CreateExport( int32 Index )
 		}
 
 		// Find the Archetype object for the one we are loading.
-		UObject* Template = GetArchetypeFromRequiredInfo(LoadClass, ThisParent, Export.ObjectName, !!(Export.ObjectFlags&RF_ClassDefaultObject));
+		UObject* Template = GetArchetypeFromRequiredInfo(LoadClass, ThisParent, Export.ObjectName, Export.ObjectFlags);
 
 		check(Template);
 		checkfSlow(((Export.ObjectFlags&RF_ClassDefaultObject)!=0 || Template->IsA(LoadClass)), TEXT("Mismatch between template %s and load class %s.  If this is a legacy blueprint or map, it may need to be resaved with bRecompileOnLoad turned off."), *Template->GetPathName(), *LoadClass->GetPathName());
@@ -3449,6 +3462,10 @@ UObject* ULinkerLoad::CreateImport( int32 Index )
 	FObjectImport& Import = ImportMap[ Index ];
 	
 #if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
+	// if this Import could possibly introduce a circular load (and we're 
+	// actively trying to avoid that at this point in the load process), then 
+	// this will stub in the Import with a placeholder object, to be replace 
+	// later on (this will return true if the import was actually deferred)
 	DeferPotentialCircularImport(Index);
 #endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 

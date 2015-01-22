@@ -41,7 +41,7 @@ USceneComponent* FComponentEditorUtils::GetSceneComponent( UObject* Object, UObj
 							USCS_Node* SCS_Node = SCSNodes[ SCSNodeIndex ];
 							if( SCS_Node && SCS_Node->ComponentTemplate == SubObject )
 							{
-								return SCS_Node->GetParentComponentTemplate();
+								return SCS_Node->GetParentComponentTemplate(Blueprint);
 							}
 						}
 					}
@@ -88,6 +88,23 @@ void FComponentEditorUtils::GetArchetypeInstances( UObject* Object, TArray<UObje
 			DefaultObject->GetArchetypeInstances(ArchetypeInstances);
 		}
 	}
+}
+
+bool FComponentEditorUtils::IsValidVariableNameString(const UActorComponent* InComponent, const FString& InString)
+{
+	// First test to make sure the string is not empty and does not equate to the DefaultSceneRoot node name
+	bool bIsValid = !InString.IsEmpty() && !InString.Equals(USimpleConstructionScript::DefaultSceneRootVariableName.ToString());
+	if(bIsValid && InComponent != NULL)
+	{
+		// Next test to make sure the string doesn't conflict with the format that MakeUniqueObjectName() generates
+		FString MakeUniqueObjectNamePrefix = FString::Printf(TEXT("%s_"), *InComponent->GetClass()->GetName());
+		if(InString.StartsWith(MakeUniqueObjectNamePrefix))
+		{
+			bIsValid = !InString.Replace(*MakeUniqueObjectNamePrefix, TEXT("")).IsNumeric();
+		}
+	}
+
+	return bIsValid;
 }
 
 void FComponentEditorUtils::PropagateTransformPropertyChange(

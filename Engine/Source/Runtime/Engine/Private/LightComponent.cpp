@@ -863,11 +863,11 @@ void ULightComponent::InvalidateLightingCacheInner(bool bRecreateLightGuids)
 }
 
 /** Used to store lightmap data during RerunConstructionScripts */
-class FPrecomputedLightInstanceData : public FComponentInstanceDataBase
+class FPrecomputedLightInstanceData : public FSceneComponentInstanceData
 {
 public:
 	FPrecomputedLightInstanceData(const ULightComponent* SourceComponent)
-		: FComponentInstanceDataBase(SourceComponent)
+		: FSceneComponentInstanceData(SourceComponent)
 		, Transform(SourceComponent->ComponentToWorld)
 		, LightGuid(SourceComponent->LightGuid)
 		, ShadowMapChannel(SourceComponent->ShadowMapChannel)
@@ -877,13 +877,6 @@ public:
 			
 	virtual ~FPrecomputedLightInstanceData()
 	{}
-
-	// Begin FComponentInstanceDataBase interface
-	virtual bool MatchesComponent(const UActorComponent* Component) const override
-	{
-		return Transform.Equals(CastChecked<ULightComponent>(Component)->ComponentToWorld);
-	}
-	// End FComponentInstanceDataBase interface
 
 	FTransform Transform;
 	FGuid LightGuid;
@@ -906,8 +899,15 @@ FComponentInstanceDataBase* ULightComponent::GetComponentInstanceData() const
 
 void ULightComponent::ApplyComponentInstanceData(FComponentInstanceDataBase* ComponentInstanceData)
 {
+	Super::ApplyComponentInstanceData(ComponentInstanceData);
+
 	check(ComponentInstanceData);
 	FPrecomputedLightInstanceData* LightMapData  = static_cast<FPrecomputedLightInstanceData*>(ComponentInstanceData);
+
+	if (!LightMapData->Transform.Equals(ComponentToWorld))
+	{
+		return;
+	}
 
 	LightGuid = LightMapData->LightGuid;
 	ShadowMapChannel = LightMapData->ShadowMapChannel;

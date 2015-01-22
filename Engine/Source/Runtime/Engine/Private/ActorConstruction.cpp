@@ -123,7 +123,7 @@ static TArray<FRandomStream*> FindRandomStreams(AActor* InActor)
 {
 	check(InActor);
 	TArray<FRandomStream*> OutStreams;
-	UScriptStruct* RandomStreamStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("RandomStream"));
+	UScriptStruct* RandomStreamStruct = GetBaseStructure(TEXT("RandomStream"));
 	for( TFieldIterator<UStructProperty> It(InActor->GetClass()) ; It ; ++It )
 	{
 		UStructProperty* StructProp = *It;
@@ -224,7 +224,7 @@ void AActor::DestroyConstructedComponents()
 				// Rename component to avoid naming conflicts in the case where we rerun the SCS and name the new components the same way.
 				FName const NewBaseName( *(FString::Printf(TEXT("TRASH_%s"), *Component->GetClass()->GetName())) );
 				FName const NewObjectName = MakeUniqueObjectName(this, GetClass(), NewBaseName);
-				Component->Rename(*NewObjectName.ToString(), this, REN_ForceNoResetLoaders);
+				Component->Rename(*NewObjectName.ToString(), this, REN_ForceNoResetLoaders|REN_DontCreateRedirectors);
 			}
 		}
 	}
@@ -542,7 +542,7 @@ void AActor::ProcessUserConstructionScript()
 void AActor::FinishAndRegisterComponent(UActorComponent* Component)
 {
 	Component->RegisterComponent();
-	SerializedComponents.Add(Component);
+	BlueprintCreatedComponents.Add(Component);
 }
 
 UActorComponent* AActor::CreateComponentFromTemplate(UActorComponent* Template, const FString& InName)
@@ -551,13 +551,13 @@ UActorComponent* AActor::CreateComponentFromTemplate(UActorComponent* Template, 
 	if(Template != NULL)
 	{
 		// Note we aren't copying the the RF_ArchetypeObject flag. Also note the result is non-transactional by default.
-		NewActorComp = (UActorComponent*)StaticDuplicateObject(Template, this, *InName, RF_AllFlags & ~(RF_ArchetypeObject|RF_Transactional|RF_WasLoaded) );
+		NewActorComp = (UActorComponent*)StaticDuplicateObject(Template, this, *InName, RF_AllFlags & ~(RF_ArchetypeObject|RF_Transactional|RF_WasLoaded|RF_Public) );
 		//NewActorComp = ConstructObject<UActorComponent>(Template->GetClass(), this, *InName, RF_NoFlags, Template);
 
 		NewActorComp->bCreatedByConstructionScript = true;
 
 		// Need to do this so component gets saved - Components array is not serialized
-		SerializedComponents.Add(NewActorComp);
+		BlueprintCreatedComponents.Add(NewActorComp);
 	}
 	return NewActorComp;
 }

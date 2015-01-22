@@ -1573,6 +1573,29 @@ public class GUBP : BuildCommand
         }
     }
 
+	public static class HeadersNode
+	{
+		public static void ZipHeaders(IEnumerable<string> HeaderFiles, string ZipFileName)
+		{
+			string NormalizedPrefix = CommandUtils.ConvertSeparators(PathSeparator.Slash, CmdEnv.LocalRoot).TrimEnd('/') + "/";
+
+			Ionic.Zip.ZipFile Zip = new Ionic.Zip.ZipFile();
+			foreach(string HeaderFile in HeaderFiles)
+			{
+				string NormalizedDirectoryName = CommandUtils.ConvertSeparators(PathSeparator.Slash, Path.GetDirectoryName(HeaderFile));
+				if(NormalizedDirectoryName.StartsWith(NormalizedPrefix))
+				{
+					Zip.AddFile(HeaderFile, NormalizedDirectoryName.Substring(NormalizedPrefix.Length));
+				}
+				else
+				{
+					throw new AutomationException("Header file '{0}' was not under root directory ('{1}')", NormalizedDirectoryName, NormalizedPrefix);
+				}
+			}
+			Zip.Save(ZipFileName);
+		}
+	}
+
     public class RootEditorHeadersNode : HostPlatformNode
     {
         public RootEditorHeadersNode(UnrealTargetPlatform InHostPlatform)
@@ -1595,11 +1618,10 @@ public class GUBP : BuildCommand
         }
         public override void DoBuild(GUBP bp)
         {
-            BuildProducts = new List<string>();
-
+			HashSet<string> HeaderFiles = new HashSet<string>(StringComparer.InvariantCultureIgnoreCase);
             foreach (var FileToCopy in CommandUtils.FindFiles("*.h", true, CommandUtils.CombinePaths(CmdEnv.LocalRoot, @"Engine\Intermediate\Build\", HostPlatform.ToString(), "Inc")))
             {
-                AddBuildProduct(FileToCopy);
+				HeaderFiles.Add(FileToCopy);
             }
             var Targets = new List<string> { bp.Branch.BaseEngineProject.Properties.Targets[TargetRules.TargetType.Editor].TargetName };
             foreach (var ProgramTarget in bp.Branch.BaseEngineProject.Properties.Programs)
@@ -1613,7 +1635,7 @@ public class GUBP : BuildCommand
             {
                 foreach (var FileToCopy in CommandUtils.FindFiles("*.h", true, CommandUtils.CombinePaths(CmdEnv.LocalRoot, @"Engine\Intermediate\Build\", HostPlatform.ToString(), Target, "Inc")))
                 {
-                    AddBuildProduct(FileToCopy);
+					HeaderFiles.Add(FileToCopy);
                 }
             }
 
@@ -1625,10 +1647,14 @@ public class GUBP : BuildCommand
             {
                 foreach (var FileToCopy in CommandUtils.FindFiles("*", true, CommandUtils.CombinePaths(EnginePlugin.Directory, @"Intermediate\Build", HostPlatform.ToString(), "Inc")))
                 {
-                    AddBuildProduct(FileToCopy);
+					HeaderFiles.Add(FileToCopy);
                 }
             }
-            RemoveOveralppingBuildProducts();
+
+			// Create a zip file containing the headers. 
+			string ZipFileName = CommandUtils.CombinePaths(CmdEnv.LocalRoot, "Engine\\Intermediate\\Build", HostPlatform.ToString(), "RootEditorHeaders.zip");
+			HeadersNode.ZipHeaders(HeaderFiles, ZipFileName);
+            BuildProducts = new List<string>{ ZipFileName };
         }
     }
 
@@ -1661,14 +1687,15 @@ public class GUBP : BuildCommand
             {
                 throw new AutomationException("these rocket header node require real mac path.");
             }
-            BuildProducts = new List<string>();
+
+			HashSet<string> HeaderFiles = new HashSet<string>(StringComparer.InvariantCultureIgnoreCase);
 			if (TargetPlatform != HostPlatform)
 			{
 				// host platform overlaps with the editor, so we don't want them here
 				var PlatformDir = TargetPlatform.ToString();
 				foreach (var FileToCopy in CommandUtils.FindFiles("*.h", true, CommandUtils.CombinePaths(CmdEnv.LocalRoot, @"Engine\Intermediate\Build\", PlatformDir, "Inc")))
 				{
-					AddBuildProduct(FileToCopy);
+					HeaderFiles.Add(FileToCopy);
 				}
 
 				// these may not be any new build products here, but we will check anyway
@@ -1680,15 +1707,15 @@ public class GUBP : BuildCommand
 				{
 					foreach (var FileToCopy in CommandUtils.FindFiles("*", true, CommandUtils.CombinePaths(EnginePlugin.Directory, @"Intermediate\Build", PlatformDir, "Inc")))
 					{
-						AddBuildProduct(FileToCopy);
+						HeaderFiles.Add(FileToCopy);
 					}
 				}
 			}
-            RemoveOveralppingBuildProducts();
-            if (BuildProducts.Count == 0)
-            {
-                SaveRecordOfSuccessAndAddToBuildProducts(); // could be empty
-            }
+
+			// Create a zip containing all the headers
+			string ZipFileName = CommandUtils.CombinePaths(CmdEnv.LocalRoot, "Engine\\Intermediate\\Build", TargetPlatform.ToString(), "MonolithicHeaders.zip");
+			HeadersNode.ZipHeaders(HeaderFiles, ZipFileName);
+            BuildProducts = new List<string>{ ZipFileName };
         }
     }
 
@@ -5153,7 +5180,7 @@ public class GUBP : BuildCommand
             var FilteredActivePlatforms = new List<UnrealTargetPlatform>();
             foreach (var Plat in ActivePlatforms)
             {
-                if (Plat != UnrealTargetPlatform.HTML5 && 
+                if (
                     (Plat != UnrealTargetPlatform.PS4 || ParseParam("WithPS4")) &&
                     Plat != UnrealTargetPlatform.WinRT &&
                     Plat != UnrealTargetPlatform.WinRT_ARM &&
@@ -6490,10 +6517,10 @@ public class GUBP : BuildCommand
             {
                 ECProps.Add(string.Format("SortKey/{0}={1}", NodePair.Key, NodePair.Value));
             }
-			foreach (var NodePair in FullNodeDependedOnBy)
-			{
-				ECProps.Add(string.Format("DependedOnBy/{0}={1}", NodePair.Key, NodePair.Value));
-			}
+			//foreach (var NodePair in FullNodeDependedOnBy)
+			//{
+			//	ECProps.Add(string.Format("DependedOnBy/{0}={1}", NodePair.Key, NodePair.Value));
+			//}
 			foreach (var NodePair in FullNodeDependentPromotions)
 			{
 				ECProps.Add(string.Format("DependentPromotions/{0}={1}", NodePair.Key, NodePair.Value));

@@ -1,10 +1,25 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "CoreUObjectPrivate.h"
+#include "LinkerPlaceholderClass.h"
 
 /*-----------------------------------------------------------------------------
 	UInterfaceProperty.
 -----------------------------------------------------------------------------*/
+
+UInterfaceProperty::~UInterfaceProperty()
+{
+#if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
+	if (InterfaceClass->IsValidLowLevelFast(/*bRecursive =*/false))
+	{
+		if (ULinkerPlaceholderClass* PlaceholderClass = Cast<ULinkerPlaceholderClass>(InterfaceClass))
+		{
+			PlaceholderClass->RemoveTrackedReference(this);
+		}
+	}
+#endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
+}
+
 /**
  * Returns the text to use for exporting this property to header file.
  *
@@ -87,7 +102,7 @@ bool UInterfaceProperty::Identical( const void* A, const void* B, uint32 PortFla
 	return (InterfaceA->GetObject() == InterfaceB->GetObject() && InterfaceA->GetInterface() == InterfaceB->GetInterface());
 }
 
-void UInterfaceProperty::SerializeItem( FArchive& Ar, void* Value, int32 MaxReadBytes, void const* Defaults ) const
+void UInterfaceProperty::SerializeItem( FArchive& Ar, void* Value, void const* Defaults ) const
 {
 	FScriptInterface* InterfaceValue = (FScriptInterface*)Value;
 
@@ -198,6 +213,16 @@ void UInterfaceProperty::Serialize( FArchive& Ar )
 
 	Ar << InterfaceClass;
 
+#if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
+	if (Ar.IsLoading() || Ar.IsObjectReferenceCollector())
+	{
+		if (ULinkerPlaceholderClass* PlaceholderClass = Cast<ULinkerPlaceholderClass>(InterfaceClass))
+		{
+			PlaceholderClass->AddTrackedReference(this);
+		}
+	}
+#endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
+
 	if ( !InterfaceClass && !HasAnyFlags(RF_ClassDefaultObject) )
  	{
 		// If we failed to load the InterfaceClass and we're not a CDO, that means we relied on a class that has been removed or doesn't exist.
@@ -213,6 +238,23 @@ void UInterfaceProperty::Serialize( FArchive& Ar )
 		++a;
  	}
 }
+
+
+#if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
+void UInterfaceProperty::SetInterfaceClass(UClass* NewInterfaceClass)
+{
+	if (ULinkerPlaceholderClass* NewPlaceholderClass = Cast<ULinkerPlaceholderClass>(NewInterfaceClass))
+	{
+		NewPlaceholderClass->AddTrackedReference(this);
+	}
+
+	if (ULinkerPlaceholderClass* OldPlaceholderClass = Cast<ULinkerPlaceholderClass>(InterfaceClass))
+	{
+		OldPlaceholderClass->RemoveTrackedReference(this);
+	}
+	InterfaceClass = NewInterfaceClass;
+}
+#endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 
 bool UInterfaceProperty::SameType(const UProperty* Other) const
 {

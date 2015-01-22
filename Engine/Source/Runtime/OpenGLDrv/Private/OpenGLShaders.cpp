@@ -386,6 +386,23 @@ ShaderType* CompileOpenGLShader(const TArray<uint8>& Code)
 #endif
 
 #if PLATFORM_ANDROID 
+		// Temporary patch to remove #extension GL_OES_standard_derivaties if not supported
+		if (!FOpenGL::SupportsStandardDerivativesExtension())
+		{
+			const ANSICHAR * FoundPointer = FCStringAnsi::Strstr(GlslCodeOriginal.GetData(), "#extension GL_OES_standard_derivatives");
+			if (FoundPointer != nullptr)
+			{
+				// Replace the extension enable with dFdx, dFdy, and fwidth definitions so shader will compile.
+				// Currently SimpleElementPixelShader.usf is the most likely place this will come from for mobile
+				// as it is used for distance field text rendering (GammaDistanceFieldMain) so use a constant
+				// for the texture step rate of 1/512.  This will not work for other use cases.
+				ReplaceCString(GlslCodeOriginal, "#extension GL_OES_standard_derivatives : enable",
+					"#define dFdx(a) (0.001953125)\n"
+					"#define dFdy(a) (0.001953125)\n"
+					"#define fwidth(a) (0.00390625)\n");
+			}
+		}
+
 		if (IsES2Platform(GMaxRHIShaderPlatform))
 		{
 			// This #define fixes compiler errors on Android (which doesn't seem to support textureCubeLodEXT)
@@ -429,28 +446,31 @@ ShaderType* CompileOpenGLShader(const TArray<uint8>& Code)
 					ReplaceCString(GlslCodeOriginal, "varying", "in");
 				}
 			}
-			else if ( (TypeEnum == GL_FRAGMENT_SHADER) &&
-				FOpenGL::RequiresDontEmitPrecisionForTextureSamplers() )
+			else 
 			{
-				// Daniel: This device has some shader compiler compatibility issues force them to be disabled
-				//			The cross compiler will put the DONTEMITEXTENSIONSHADERTEXTURELODENABLE define around incompatible sections of code
-				AppendCString(GlslCode,
-					"#define DONTEMITEXTENSIONSHADERTEXTURELODENABLE \n"
-					"#define DONTEMITSAMPLERDEFAULTPRECISION \n"
-					"#define texture2DLodEXT(a, b, c) texture2D(a, b) \n"
-					"#define textureCubeLodEXT(a, b, c) textureCube(a, b) \n");
-			}
-			else if ( ( TypeEnum == GL_FRAGMENT_SHADER) && 
-				FOpenGL::RequiresTextureCubeLodEXTToTextureCubeLodDefine() )
-			{
-				AppendCString(GlslCode,
-					"#define textureCubeLodEXT textureCubeLod \n");
-			}
-			else if(!FOpenGL::SupportsShaderTextureLod() || !FOpenGL::SupportsShaderTextureCubeLod())
-			{
-				AppendCString(GlslCode,
-					"#define texture2DLodEXT(a, b, c) texture2D(a, b) \n"
-					"#define textureCubeLodEXT(a, b, c) textureCube(a, b) \n");
+				if ((TypeEnum == GL_FRAGMENT_SHADER))
+				{
+					// Apply #defines to deal with incompatible sections of code
+
+					if (FOpenGL::RequiresDontEmitPrecisionForTextureSamplers())
+					{
+						AppendCString(GlslCode,
+							"#define DONTEMITSAMPLERDEFAULTPRECISION \n");
+					}
+
+					if (!FOpenGL::SupportsShaderTextureLod() || !FOpenGL::SupportsShaderTextureCubeLod())
+					{
+						AppendCString(GlslCode,
+							"#define DONTEMITEXTENSIONSHADERTEXTURELODENABLE \n"
+							"#define texture2DLodEXT(a, b, c) texture2D(a, b) \n"
+							"#define textureCubeLodEXT(a, b, c) textureCube(a, b) \n");
+					}
+					else if (FOpenGL::RequiresTextureCubeLodEXTToTextureCubeLodDefine())
+					{
+						AppendCString(GlslCode,
+							"#define textureCubeLodEXT textureCubeLod \n");
+					}
+				}
 			}
 		}
 
@@ -478,7 +498,18 @@ ShaderType* CompileOpenGLShader(const TArray<uint8>& Code)
 		glShaderSource(Resource, 1, (const GLchar**)&GlslCodeString, &GlslCodeLength);
 		glCompileShader(Resource);
 
-		GetOpenGLCompiledShaderCache().Add(Key,Resource);
+#if PLATFORM_ANDROID 
+		// On Android the same shader is compiled with different hacks to find the right one(s) to apply so don't cache unless successful
+		GLint CompileStatus;
+		glGetShaderiv(Resource, GL_COMPILE_STATUS, &CompileStatus);
+		if (CompileStatus == GL_TRUE)
+		{
+			GetOpenGLCompiledShaderCache().Add(Key, Resource);
+		}
+#else
+		// Cache it; compile status will be checked later on link (always caching will prevent multiple attempts to compile a failed shader)
+		GetOpenGLCompiledShaderCache().Add(Key, Resource);
+#endif
 	}
 
 	Shader = new ShaderType();

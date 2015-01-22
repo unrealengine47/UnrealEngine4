@@ -12,6 +12,7 @@
 #include "Components/ModelComponent.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Serialization/CustomVersion.h"
+#include "ProceduralFoliageComponent.h"
 
 #define LOCTEXT_NAMESPACE "InstancedFoliage"
 
@@ -35,6 +36,8 @@ struct FFoliageCustomVersion
 		HierarchicalISMCNonTransactional = 2,
 		// Added FoliageTypeUpdateGuid
 		AddedFoliageTypeUpdateGuid = 3,
+		// Use a GUID to determine whic procedural actor spawned us
+		ProceduralGuid = 4,
 		// -----<new versions can be added above this line>-------------------------------------------------
 		VersionPlusOne,
 		LatestVersion = VersionPlusOne - 1
@@ -83,6 +86,13 @@ FArchive& operator<<(FArchive& Ar, FFoliageInstance& Instance)
 	}
 	
 	Ar << Instance.ZOffset;
+
+#if WITH_EDITORONLY_DATA
+	if (!Ar.ArIsFilterEditorOnly && Ar.CustomVer(FFoliageCustomVersion::GUID) >= FFoliageCustomVersion::ProceduralGuid)
+	{
+		Ar << Instance.ProceduralGuid;
+	}
+#endif
 
 	return Ar;
 }
@@ -137,7 +147,7 @@ FArchive& operator<<(FArchive& Ar, FFoliageMeshInfo& MeshInfo)
 		Ar << MeshInfo.Instances;
 	}
 
-	if (Ar.CustomVer(FFoliageCustomVersion::GUID) >= FFoliageCustomVersion::AddedFoliageTypeUpdateGuid)
+	if (!Ar.ArIsFilterEditorOnly && Ar.CustomVer(FFoliageCustomVersion::GUID) >= FFoliageCustomVersion::AddedFoliageTypeUpdateGuid)
 	{
 		Ar << MeshInfo.FoliageTypeUpdateGuid;
 	}
@@ -745,6 +755,7 @@ void FFoliageMeshInfo::SelectInstances(AInstancedFoliageActor* InIFA, bool bSele
 		if (bSelect)
 		{
 			// Apply selections to the component
+			Component->ReleasePerInstanceRenderData();
 			Component->MarkRenderStateDirty();
 
 			if (Component->SelectedInstances.Num() != Component->PerInstanceSMData.Num())
@@ -762,6 +773,7 @@ void FFoliageMeshInfo::SelectInstances(AInstancedFoliageActor* InIFA, bool bSele
 		{
 			if (Component->SelectedInstances.Num())
 			{
+				Component->ReleasePerInstanceRenderData();
 				Component->MarkRenderStateDirty();
 
 				for (int32 i : InInstances)
@@ -959,15 +971,16 @@ void AInstancedFoliageActor::DeleteInstancesForComponent(UActorComponent* InComp
 	}
 }
 
-void AInstancedFoliageActor::DeleteInstancesForSpawner(UActorComponent* InComponent)
+void AInstancedFoliageActor::DeleteInstancesForProceduralFoliageComponent(const UProceduralFoliageComponent* ProceduralFoliageComponent)
 {
+	const FGuid& ProceduralGuid = ProceduralFoliageComponent->GetProceduralGuid();
 	for (auto& MeshPair : FoliageMeshes)
 	{
 		FFoliageMeshInfo& MeshInfo = *MeshPair.Value;
 		TArray<int32> InstancesToRemove;
 		for (int32 InstanceIdx = 0; InstanceIdx < MeshInfo.Instances.Num(); InstanceIdx++)
 		{
-			if (MeshInfo.Instances[InstanceIdx].Spawner == InComponent)
+			if (MeshInfo.Instances[InstanceIdx].ProceduralGuid == ProceduralGuid)
 			{
 				InstancesToRemove.Add(InstanceIdx);
 			}
@@ -1223,6 +1236,7 @@ void AInstancedFoliageActor::SelectInstance(UInstancedStaticMeshComponent* InCom
 				if (MeshInfo.Component->SelectedInstances.Num() > 0)
 				{
 					MeshInfo.Component->SelectedInstances.Empty();
+					MeshInfo.Component->ReleasePerInstanceRenderData();
 					MeshInfo.Component->MarkRenderStateDirty();
 				}
 			}
@@ -1248,6 +1262,7 @@ void AInstancedFoliageActor::SelectInstance(UInstancedStaticMeshComponent* InCom
 				if (InInstanceIndex < InComponent->SelectedInstances.Num())
 				{
 					InComponent->SelectedInstances[InInstanceIndex] = false;
+					InComponent->ReleasePerInstanceRenderData();
 					InComponent->MarkRenderStateDirty();
 				}
 
@@ -1271,6 +1286,7 @@ void AInstancedFoliageActor::SelectInstance(UInstancedStaticMeshComponent* InCom
 						InComponent->SelectedInstances.Init(false, InComponent->PerInstanceSMData.Num());
 					}
 					InComponent->SelectedInstances[InInstanceIndex] = true;
+					InComponent->ReleasePerInstanceRenderData();
 					InComponent->MarkRenderStateDirty();
 
 					SelectedMesh = Type;
@@ -1312,6 +1328,7 @@ void AInstancedFoliageActor::ApplySelectionToComponents(bool bApply)
 
 				// Apply any selections in the component
 				MeshInfo.Component->SelectedInstances.Init(false, MeshInfo.Component->PerInstanceSMData.Num());
+				MeshInfo.Component->ReleasePerInstanceRenderData();
 				MeshInfo.Component->MarkRenderStateDirty();
 				for (int32 i : MeshInfo.SelectedIndices)
 				{
@@ -1325,6 +1342,7 @@ void AInstancedFoliageActor::ApplySelectionToComponents(bool bApply)
 			{
 				// remove any selections in the component
 				MeshInfo.Component->SelectedInstances.Empty();
+				MeshInfo.Component->ReleasePerInstanceRenderData();
 				MeshInfo.Component->MarkRenderStateDirty();
 			}
 		}

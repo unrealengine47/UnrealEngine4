@@ -376,6 +376,14 @@ public:
 			return (PrimitiveId == Other.PrimitiveId && Light == Other.Light && SplitIndex == Other.SplitIndex && bTranslucentShadow == Other.bTranslucentShadow);
 		}
 
+		FProjectedShadowKey(const FProjectedShadowInfo& ProjectedShadowInfo)
+			: PrimitiveId(ProjectedShadowInfo.ParentSceneInfo ? ProjectedShadowInfo.ParentSceneInfo->PrimitiveComponentId : FPrimitiveComponentId())
+			, Light(ProjectedShadowInfo.LightSceneInfo->Proxy->GetLightComponent())
+			, SplitIndex(ProjectedShadowInfo.ShadowSplitIndex)
+			, bTranslucentShadow(ProjectedShadowInfo.bTranslucentShadow)
+		{
+		}
+
 		FProjectedShadowKey(FPrimitiveComponentId InPrimitiveId, const ULightComponent* InLight, int32 InSplitIndex, bool bInTranslucentShadow):
 			PrimitiveId(InPrimitiveId),
 			Light(InLight),
@@ -1626,5 +1634,7 @@ private:
 	/** This scene's feature level */
 	ERHIFeatureLevel::Type FeatureLevel;
 };
+
+#include "BasePassRendering.inl"
 
 #endif // __SCENEPRIVATE_H__

@@ -200,16 +200,6 @@ struct TStructOpsTypeTraits<FGuid> : public TStructOpsTypeTraitsBase
 IMPLEMENT_STRUCT(Guid);
 
 template<>
-struct TStructOpsTypeTraits<FNetworkGUID> : public TStructOpsTypeTraitsBase
-{
-	enum 
-	{
-		WithNetSerializer = true,
-	};
-};
-IMPLEMENT_STRUCT(NetworkGUID);
-
-template<>
 struct TStructOpsTypeTraits<FTransform> : public TStructOpsTypeTraitsBase
 {
 };
@@ -634,7 +624,7 @@ bool UProperty::ShouldSerializeValue( FArchive& Ar ) const
 //
 bool UProperty::NetSerializeItem( FArchive& Ar, UPackageMap* Map, void* Data, TArray<uint8> * MetaData ) const
 {
-	SerializeItem( Ar, Data, 0, NULL );
+	SerializeItem( Ar, Data, NULL );
 	return 1;
 }
 

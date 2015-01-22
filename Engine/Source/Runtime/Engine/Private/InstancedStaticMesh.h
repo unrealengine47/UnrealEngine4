@@ -53,6 +53,7 @@
 
 extern TAutoConsoleVariable<float> CVarFoliageMinimumScreenSize;
 extern TAutoConsoleVariable<float> CVarFoliageLODDistanceScale;
+extern TAutoConsoleVariable<float> CVarRandomLODRange;
 
 
 // This must match the maximum a user could specify in the material (see 
@@ -107,12 +108,17 @@ public:
 	}
 	FORCEINLINE uint32 GetNumInstances() const
 	{
-		return InstanceData ? InstanceData->GetNumInstances() : 0;
+		return InstanceData ? InstanceData->Num() : 0;
 	}
 
 	const void* GetRawData() const
 	{
 		return InstanceData->GetDataPointer();
+	}
+
+	const FInstanceStream* GetData() const
+	{
+		return InstanceData->GetData();
 	}
 
 	// FRenderResource interface.
@@ -142,13 +148,6 @@ private:
 
 struct FInstancingUserData
 {
-	struct FInstanceStream
-	{
-		FVector4 InstanceShadowmapUVBias;
-		FVector4 InstanceTransform[3];
-		FVector4 InstanceLightmapUVBias;
-	};
-
 	class FInstancedStaticMeshRenderData* RenderData;
 	class FStaticMeshRenderData* MeshRenderData;
 
@@ -168,14 +167,14 @@ struct FInstancedStaticMeshVertexFactory : public FLocalVertexFactory
 public:
 	struct DataType : public FLocalVertexFactory::DataType
 	{
-		/** The stream to read shadow map bias (and random instance ID) from. */
-		FVertexStreamComponent InstancedShadowMapBiasComponent;
+		/** The stream to read the mesh transform from. */
+		FVertexStreamComponent InstanceOriginComponent;
 
 		/** The stream to read the mesh transform from. */
-		FVertexStreamComponent InstancedTransformComponent[3];
+		FVertexStreamComponent InstanceTransformComponent[3];
 
 		/** The stream to read the Lightmap Bias and Random instance ID from. */
-		FVertexStreamComponent InstancedLightmapUVBiasComponent;
+		FVertexStreamComponent InstanceLightmapAndShadowMapUVBiasComponent;
 	};
 
 	/**
@@ -252,9 +251,9 @@ class FInstancedStaticMeshVertexFactoryShaderParameters : public FLocalVertexFac
 		InstancingViewZConstantParameter.Bind(ParameterMap, TEXT("InstancingViewZConstant"));
 		InstancingWorldViewOriginZeroParameter.Bind(ParameterMap, TEXT("InstancingWorldViewOriginZero"));
 		InstancingWorldViewOriginOneParameter.Bind(ParameterMap, TEXT("InstancingWorldViewOriginOne"));
-		CPUInstanceShadowMapBias.Bind(ParameterMap, TEXT("CPUInstanceShadowMapBias"));
+		CPUInstanceOrigin.Bind(ParameterMap, TEXT("CPUInstanceOrigin"));
 		CPUInstanceTransform.Bind(ParameterMap, TEXT("CPUInstanceTransform"));
-		CPUInstanceLightmapUVBias.Bind(ParameterMap, TEXT("CPUInstanceLightmapUVBias"));
+		CPUInstanceLightmapAndShadowMapBias.Bind(ParameterMap, TEXT("CPUInstanceLightmapAndShadowMapBias"));
 	}
 
 	virtual void SetMesh(FRHICommandList& RHICmdList, FShader* VertexShader,const class FVertexFactory* VertexFactory,const class FSceneView& View,const struct FMeshBatchElement& BatchElement,uint32 DataFlags) const override;
@@ -268,9 +267,9 @@ class FInstancedStaticMeshVertexFactoryShaderParameters : public FLocalVertexFac
 		Ar << InstancingViewZConstantParameter;
 		Ar << InstancingWorldViewOriginZeroParameter;
 		Ar << InstancingWorldViewOriginOneParameter;
-		Ar << CPUInstanceShadowMapBias;
+		Ar << CPUInstanceOrigin;
 		Ar << CPUInstanceTransform;
-		Ar << CPUInstanceLightmapUVBias;
+		Ar << CPUInstanceLightmapAndShadowMapBias;
 	}
 
 	virtual uint32 GetSize() const { return sizeof(*this); }
@@ -283,10 +282,55 @@ private:
 	FShaderParameter InstancingWorldViewOriginZeroParameter;
 	FShaderParameter InstancingWorldViewOriginOneParameter;
 
-	FShaderParameter CPUInstanceShadowMapBias;
+	FShaderParameter CPUInstanceOrigin;
 	FShaderParameter CPUInstanceTransform;
-	FShaderParameter CPUInstanceLightmapUVBias;
+	FShaderParameter CPUInstanceLightmapAndShadowMapBias;
 };
+
+/*-----------------------------------------------------------------------------
+	FPerInstanceRenderData
+	Holds render data that can persist between scene proxy reconstruction
+-----------------------------------------------------------------------------*/
+struct FPerInstanceRenderData
+{
+	// Should be always constructed on main thread
+	FPerInstanceRenderData(UInstancedStaticMeshComponent* InComponent, ERHIFeatureLevel::Type InFeaureLevel)
+		: InstanceBuffer(InFeaureLevel)
+	{
+		// Create hit proxies for each instance if the component wants
+		if (GIsEditor && InComponent->bHasPerInstanceHitProxies)
+		{
+			HitProxies.Empty(InComponent->PerInstanceSMData.Num());
+			for (int32 InstanceIdx=0; InstanceIdx < InComponent->PerInstanceSMData.Num(); InstanceIdx++)
+			{
+				HitProxies.Add(new HInstancedStaticMeshInstance(InComponent, InstanceIdx));
+			}
+		}
+			
+		// initialize the instance buffer from the component's instances
+		InstanceBuffer.Init(InComponent, HitProxies);
+		BeginInitResource(&InstanceBuffer);
+	}
+
+	FPerInstanceRenderData(UInstancedStaticMeshComponent* InComponent, FStaticMeshInstanceData& Other, ERHIFeatureLevel::Type InFeaureLevel)
+		: InstanceBuffer(InFeaureLevel)
+	{
+		InstanceBuffer.InitFromPreallocatedData(InComponent, Other);
+		BeginInitResource(&InstanceBuffer);
+	}
+	
+	// Should be always destructed on render thread
+	~FPerInstanceRenderData()
+	{
+		InstanceBuffer.ReleaseResource();
+	}
+		
+	/** Instance buffer */
+	FStaticMeshInstanceBuffer			InstanceBuffer;
+	/** Hit proxies for the instances */
+	TArray<TRefCountPtr<HHitProxy>>		HitProxies;
+};
+
 
 /*-----------------------------------------------------------------------------
 	FInstancedStaticMeshRenderData
@@ -298,39 +342,40 @@ public:
 
 	FInstancedStaticMeshRenderData(UInstancedStaticMeshComponent* InComponent, ERHIFeatureLevel::Type InFeatureLevel)
 	  : Component(InComponent)
-	  , InstanceBuffer(InFeatureLevel)
+	  , PerInstanceRenderData(InComponent->PerInstanceRenderData)
 	  , LODModels(Component->StaticMesh->RenderData->LODResources)
 	  , FeatureLevel(InFeatureLevel)
 	{
 		// Allocate the vertex factories for each LOD
 		InitVertexFactories();
 
-		// Create hit proxies for each instance if the component wants
-		if( GIsEditor && InComponent->bHasPerInstanceHitProxies )
+		if (!PerInstanceRenderData.IsValid())
 		{
-			HitProxies.Empty(Component->PerInstanceSMData.Num());
-			for( int32 InstanceIdx=0;InstanceIdx<Component->PerInstanceSMData.Num();InstanceIdx++ )
-			{
-				HitProxies.Add(new HInstancedStaticMeshInstance(InComponent, InstanceIdx));
-			}
+			// initialize the instance buffer from the component's instances
+			InComponent->PerInstanceRenderData = MakeShareable(new FPerInstanceRenderData(InComponent, InFeatureLevel));
+			PerInstanceRenderData = InComponent->PerInstanceRenderData;
+			InComponent->bPerInstanceRenderDataWasPrebuilt = false;
 		}
 
-		// initialize the instance buffer from the component's instances
-		InstanceBuffer.Init(Component, HitProxies);
-		NumInstances = InstanceBuffer.GetNumInstances();
+		NumInstances = PerInstanceRenderData->InstanceBuffer.GetNumInstances();
 		InitResources();
 	}
 
 	FInstancedStaticMeshRenderData(UInstancedStaticMeshComponent* InComponent, ERHIFeatureLevel::Type InFeatureLevel, FStaticMeshInstanceData& Other)
 		: Component(InComponent)
-		, InstanceBuffer(InFeatureLevel)
+		, PerInstanceRenderData(InComponent->PerInstanceRenderData)
 		, LODModels(Component->StaticMesh->RenderData->LODResources)
 		, FeatureLevel(InFeatureLevel)
 	{
 		InitVertexFactories();
-		// initialize the instance buffer from the component's instances
-		InstanceBuffer.InitFromPreallocatedData(Component, Other);
-		NumInstances = InstanceBuffer.GetNumInstances();
+		// initialize the instance buffer from the prebuilt instances
+		if (!PerInstanceRenderData.IsValid())
+		{
+			InComponent->PerInstanceRenderData = MakeShareable(new FPerInstanceRenderData(InComponent, Other, InFeatureLevel));
+			PerInstanceRenderData = InComponent->PerInstanceRenderData;
+			InComponent->bPerInstanceRenderDataWasPrebuilt = true;
+		}
+		NumInstances = PerInstanceRenderData->InstanceBuffer.GetNumInstances();
 		InitResources();
 	}
 
@@ -340,8 +385,6 @@ public:
 
 	void InitResources()
 	{
-		BeginInitResource(&InstanceBuffer);
-
 		// Initialize the static mesh's vertex factory.
 		ENQUEUE_UNIQUE_RENDER_COMMAND_THREEPARAMETER(
 			CallInitStaticMeshVertexFactory,
@@ -378,7 +421,6 @@ public:
 			}
 		}
 
-		InstanceBuffer.ReleaseResource();
 		for( int32 LODIndex=0;LODIndex<VertexFactories.Num();LODIndex++ )
 		{
 			VertexFactories[LODIndex].ReleaseResource();
@@ -393,8 +435,8 @@ public:
 	/** Source component */
 	UInstancedStaticMeshComponent* Component;
 
-	/** Instance buffer */
-	FStaticMeshInstanceBuffer InstanceBuffer;
+	/** Per instance render data, could be shared with component */
+	TSharedPtr<FPerInstanceRenderData, ESPMode::ThreadSafe> PerInstanceRenderData;
 
 	/** Vertex factory */
 	TArray<FInstancedStaticMeshVertexFactory> VertexFactories;
@@ -402,13 +444,10 @@ public:
 	/** LOD render data from the static mesh. */
 	TIndirectArray<FStaticMeshLODResources>& LODModels;
 
-	/** Hit proxies for the instances */
-	TArray<TRefCountPtr<HHitProxy> > HitProxies;
-
 	/** Feature level used when creating instance data */
 	ERHIFeatureLevel::Type FeatureLevel;
 
-	/** Feature level used when creating instance data */
+	/** Number of instances */
 	int32 NumInstances;
 
 private:
@@ -502,10 +541,10 @@ public:
 	 */
 	virtual HHitProxy* CreateHitProxies(UPrimitiveComponent* Component,TArray<TRefCountPtr<HHitProxy> >& OutHitProxies) override
 	{
-		if( InstancedRenderData.HitProxies.Num() )
+		if( InstancedRenderData.PerInstanceRenderData->HitProxies.Num() )
 		{
 			// Add any per-instance hit proxies.
-			OutHitProxies += InstancedRenderData.HitProxies;
+			OutHitProxies += InstancedRenderData.PerInstanceRenderData->HitProxies;
 
 			// No default hit proxy.
 			return NULL;
@@ -564,8 +603,6 @@ private:
 				}
 			}
 		}
-
-		check(InstancedRenderData.InstanceBuffer.GetStride() == sizeof(FInstancingUserData::FInstanceStream));
 
 		const bool bInstanced = RHISupportsInstancing(GetFeatureLevelShaderPlatform(InstancedRenderData.FeatureLevel));
 

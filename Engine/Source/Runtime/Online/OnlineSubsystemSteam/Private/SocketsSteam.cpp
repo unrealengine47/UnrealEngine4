@@ -228,6 +228,12 @@ void FSocketSteam::GetAddress(FInternetAddr& OutAddr)
 	SteamAddr.SteamChannel = SteamChannel;
 }
 
+bool FSocketSteam::GetPeerAddress(FInternetAddr& OutAddr)
+{
+	// don't support this	
+	return false;
+}
+
 /**
  * Sets this socket into non-blocking mode
  *

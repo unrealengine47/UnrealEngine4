@@ -2,12 +2,14 @@
 
 #include "FoliagePrivate.h"
 #include "ProceduralFoliageComponent.h"
-#include "ProceduralFoliageInstance.h"
 #include "ProceduralFoliageTile.h"
 #include "InstancedFoliage.h"
 #include "InstancedFoliageActor.h"
 #include "ProceduralFoliage.h"
+
 #include "Async/Async.h"
+
+#define LOCTEXT_NAMESPACE "ProceduralFoliage"
 
 UProceduralFoliageComponent::UProceduralFoliageComponent(const FObjectInitializer& ObjectInitializer)
 : Super(ObjectInitializer)
@@ -16,18 +18,21 @@ UProceduralFoliageComponent::UProceduralFoliageComponent(const FObjectInitialize
 	TilesY = 1;
 	Overlap = 0.f;
 	HalfHeight = 10000.f;
+	ProceduralGuid = FGuid::NewGuid();
 }
 
-void SpawnInstances(const TArray<FProceduralFoliageInstance>& ProceduralFoliageInstances, UWorld* World, UActorComponent* BaseComponent)
+void UProceduralFoliageComponent::SpawnInstances(const TArray<FProceduralFoliageInstance>& ProceduralFoliageInstances)
 {
 #if WITH_EDITOR
+	UWorld* World = GetWorld();
+
 	FFoliageInstance Inst;
 	
 	for (const FProceduralFoliageInstance& EcoInst : ProceduralFoliageInstances)
 	{
 		if (EcoInst.BaseComponent)
 		{
-			ULevel* OwningLevel = EcoInst.BaseComponent->GetOwner()->GetLevel();
+			ULevel* OwningLevel = EcoInst.BaseComponent->GetComponentLevel();
 		
 			AInstancedFoliageActor* IFA = AInstancedFoliageActor::GetInstancedFoliageActorForLevel(OwningLevel);
 			const UFoliageType_InstancedStaticMesh* Type = EcoInst.Type;
@@ -55,9 +60,8 @@ void SpawnInstances(const TArray<FProceduralFoliageInstance>& ProceduralFoliageI
 
 
 					Inst.Base = EcoInst.BaseComponent;
-					Inst.Spawner = BaseComponent;
-
-
+					Inst.ProceduralGuid = ProceduralGuid;
+					
 					MeshInfo->AddInstance(IFA, Settings, Inst);
 				}
 			}
@@ -133,6 +137,8 @@ void UProceduralFoliageComponent::SpawnTiles()
 		const FVector2D OverlapY(0.f, Overlap);
 
 		TArray<TFuture< TArray<FProceduralFoliageInstance>* >> Futures;
+		FScopedSlowTask SlowTask(TilesX * TilesY, LOCTEXT("PlaceProceduralFoliage", "Placing ProceduralFoliage..."));
+		SlowTask.MakeDialog();
 
 		for (int32 X = 0; X < TilesX; ++X)
 		{
@@ -147,7 +153,7 @@ void UProceduralFoliageComponent::SpawnTiles()
 
 				UProceduralFoliageTile* JTile = ProceduralFoliage->CreateTempTile();
 
-				Futures.Add(Async<TArray<FProceduralFoliageInstance>*>(EAsyncExecution::TaskGraph, [=]()
+				Futures.Add(Async<TArray<FProceduralFoliageInstance>*>(EAsyncExecution::ThreadPool, [=]()
 				{
 					FTransform TileTM = ComponentToWorld;
 					const FVector OrientedOffset = ComponentToWorld.TransformVectorNoScale(FVector(X, Y, 0.f) * FVector(InnerTileSize, InnerTileSize, 0.f));
@@ -185,6 +191,7 @@ void UProceduralFoliageComponent::SpawnTiles()
 					TArray<FProceduralFoliageInstance>* ProceduralFoliageInstances = new TArray<FProceduralFoliageInstance>();
 					JTile->InstancesToArray();
 					JTile->CreateInstancesToSpawn(*ProceduralFoliageInstances, TileTM, World, HalfHeight);
+					JTile->Empty();
 
 					return ProceduralFoliageInstances;
 					
@@ -199,8 +206,9 @@ void UProceduralFoliageComponent::SpawnTiles()
 			for (int Y = 0; Y < TilesY; ++Y)
 			{
 				TArray<FProceduralFoliageInstance>* ProceduralFoliageInstances = Futures[FutureIdx++].Get();
-				SpawnInstances(*ProceduralFoliageInstances, World, this);
+				SpawnInstances(*ProceduralFoliageInstances);
 				delete ProceduralFoliageInstances;
+				SlowTask.EnterProgressFrame(1);
 			}
 		}
 	}
@@ -210,16 +218,25 @@ void UProceduralFoliageComponent::SpawnTiles()
 void UProceduralFoliageComponent::SpawnProceduralContent()
 {
 #if WITH_EDITOR
+	RemoveProceduralContent();
+	SpawnTiles();
+#endif
+}
+
+void UProceduralFoliageComponent::RemoveProceduralContent()
+{
+#if WITH_EDITOR
 	UWorld* World = GetWorld();
+
 	for (ULevel* Level : World->GetLevels())
 	{
 		if (Level)
 		{
 			AInstancedFoliageActor* IFA = AInstancedFoliageActor::GetInstancedFoliageActorForLevel(Level);
-			IFA->DeleteInstancesForSpawner(this);
+			IFA->DeleteInstancesForProceduralFoliageComponent(this);
 		}
 	}
-	
-	SpawnTiles();
 #endif
 }
+
+#undef LOCTEXT_NAMESPACE

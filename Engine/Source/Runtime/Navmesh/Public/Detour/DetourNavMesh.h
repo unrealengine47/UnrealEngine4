@@ -735,6 +735,7 @@ public:
 
 	inline bool isEmpty() const
 	{
+		// has no tile grid set up
 		return (m_tileWidth > 0 && m_tileHeight > 0) == false;
 	}
 	//@UE4 END

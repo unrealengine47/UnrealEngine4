@@ -435,6 +435,19 @@ void FBlueprintEditorUtils::PreloadConstructionScript(UBlueprint* Blueprint)
 			RootNodes[NodeIndex]->PreloadChain();
 		}
 	}
+
+	auto SimpleConstructionScript = Blueprint ? Blueprint->SimpleConstructionScript : nullptr;
+	if (SimpleConstructionScript)
+	{
+		auto AllNodes = SimpleConstructionScript->GetAllNodes();
+		for (auto SCSNode : AllNodes)
+		{
+			if (SCSNode)
+			{
+				SCSNode->ValidateGuid();
+			}
+		}
+	}
 }
 
 void FBlueprintEditorUtils::PatchNewCDOIntoLinker(UObject* CDO, ULinkerLoad* Linker, int32 ExportIndex, TArray<UObject*>& ObjLoaded)
@@ -1174,7 +1187,10 @@ UClass* FBlueprintEditorUtils::RegenerateBlueprintClass(UBlueprint* Blueprint, U
 			FEditoronlyBlueprintHelper::ChangeBlueprint(Blueprint);
 		}
 
-		if( bHasCode )
+		const bool bDataOnlyClassThatMustBeRecompiled = !bHasCode && !bIsMacro
+			&& (!ClassToRegenerate || (Blueprint->ParentClass != ClassToRegenerate->GetSuperClass()));
+
+		if (bHasCode || bDataOnlyClassThatMustBeRecompiled)
 		{
 			// Make sure parent function calls are up to date
 			FBlueprintEditorUtils::ConformCallsToParentFunctions(Blueprint);
@@ -1254,7 +1270,7 @@ UClass* FBlueprintEditorUtils::RegenerateBlueprintClass(UBlueprint* Blueprint, U
 			Package->FindExportsInMemoryFirst(true);
 		}
 
-		bRegenerated = bHasCode;
+		bRegenerated = bHasCode || bDataOnlyClassThatMustBeRecompiled;
 
 		if (!FKismetEditorUtilities::IsClassABlueprintSkeleton(ClassToRegenerate))
 		{
@@ -2418,9 +2434,13 @@ bool FBlueprintEditorUtils::IsDataOnlyBlueprint(const UBlueprint* Blueprint)
 		return false;
 	}
 
-	if (Blueprint->InheritableComponentHandler && !Blueprint->InheritableComponentHandler->IsEmpty())
+	static const FBoolConfigValueHelper EnableInheritableComponents(TEXT("Kismet"), TEXT("bEnableInheritableComponents"), GEngineIni);
+	if (EnableInheritableComponents)
 	{
-		return false;
+		if (Blueprint->InheritableComponentHandler && !Blueprint->InheritableComponentHandler->IsEmpty())
+		{
+			return false;
+		}
 	}
 
 	return true;
@@ -3511,7 +3531,24 @@ void FBlueprintEditorUtils::RenameComponentMemberVariable(UBlueprint* Blueprint,
 	if (!NewName.IsEqual(Node->VariableName, ENameCase::CaseSensitive))
 	{
 		Blueprint->Modify();
-		
+
+		// Rename Inheritable Component Templates
+		{
+			const FComponentKey Key(Node);
+			TArray<UBlueprint*> Dependents;
+			GetDependentBlueprints(Blueprint, Dependents);
+			for (auto DepBP : Dependents)
+			{
+				auto InheritableComponentHandler = DepBP ? DepBP->GetInheritableComponentHandler(false) : nullptr;
+				if (InheritableComponentHandler && InheritableComponentHandler->GetOverridenComponentTemplate(Key))
+				{
+					InheritableComponentHandler->Modify();
+					InheritableComponentHandler->RenameTemplate(Key, NewName);
+					InheritableComponentHandler->MarkPackageDirty();
+				}
+			}
+		}
+
 		// Update the name
 		const FName OldName = Node->VariableName;
 		Node->Modify();
@@ -4435,9 +4472,9 @@ void FBlueprintEditorUtils::ImportKismetDefaultValueToProperty(UEdGraphPin* Sour
 
 	if (UStructProperty* StructProperty = Cast<UStructProperty>(DestinationProperty))
 	{
-		static UScriptStruct* VectorStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("Vector"));
-		static UScriptStruct* RotatorStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("Rotator"));
-		static UScriptStruct* TransformStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("Transform"));
+		static UScriptStruct* VectorStruct = GetBaseStructure(TEXT("Vector"));
+		static UScriptStruct* RotatorStruct = GetBaseStructure(TEXT("Rotator"));
+		static UScriptStruct* TransformStruct = GetBaseStructure(TEXT("Transform"));
 
 		if (StructProperty->Struct == VectorStruct)
 		{
@@ -4471,9 +4508,9 @@ void FBlueprintEditorUtils::ExportPropertyToKismetDefaultValue(UEdGraphPin* Targ
 
 	if (UStructProperty* StructProperty = Cast<UStructProperty>(SourceProperty))
 	{
-		static UScriptStruct* VectorStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("Vector"));
-		static UScriptStruct* RotatorStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("Rotator"));
-		static UScriptStruct* TransformStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("Transform"));
+		static UScriptStruct* VectorStruct = GetBaseStructure(TEXT("Vector"));
+		static UScriptStruct* RotatorStruct = GetBaseStructure(TEXT("Rotator"));
+		static UScriptStruct* TransformStruct = GetBaseStructure(TEXT("Transform"));
 
 		if (StructProperty->Struct == VectorStruct)
 		{
@@ -6555,10 +6592,10 @@ bool FBlueprintEditorUtils::PropertyValueFromString(const UProperty* Property, c
 	}
 	else 
 	{
-		static UScriptStruct* VectorStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("Vector"));
-		static UScriptStruct* RotatorStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("Rotator"));
-		static UScriptStruct* TransformStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("Transform"));
-		static UScriptStruct* LinearColorStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("LinearColor"));
+		static UScriptStruct* VectorStruct = GetBaseStructure(TEXT("Vector"));
+		static UScriptStruct* RotatorStruct = GetBaseStructure(TEXT("Rotator"));
+		static UScriptStruct* TransformStruct = GetBaseStructure(TEXT("Transform"));
+		static UScriptStruct* LinearColorStruct = GetBaseStructure(TEXT("LinearColor"));
 
 		const UStructProperty* StructProperty = CastChecked<UStructProperty>(Property);
 
@@ -6612,10 +6649,10 @@ bool FBlueprintEditorUtils::PropertyValueToString(const UProperty* Property, con
 	OutForm.Empty();
 	if (Property->IsA(UStructProperty::StaticClass()))
 	{
-		static UScriptStruct* VectorStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("Vector"));
-		static UScriptStruct* RotatorStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("Rotator"));
-		static UScriptStruct* TransformStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("Transform"));
-		static UScriptStruct* LinearColorStruct = FindObjectChecked<UScriptStruct>(UObject::StaticClass(), TEXT("LinearColor"));
+		static UScriptStruct* VectorStruct = GetBaseStructure(TEXT("Vector"));
+		static UScriptStruct* RotatorStruct = GetBaseStructure(TEXT("Rotator"));
+		static UScriptStruct* TransformStruct = GetBaseStructure(TEXT("Transform"));
+		static UScriptStruct* LinearColorStruct = GetBaseStructure(TEXT("LinearColor"));
 
 		const UStructProperty* StructProperty = CastChecked<UStructProperty>(Property);
 

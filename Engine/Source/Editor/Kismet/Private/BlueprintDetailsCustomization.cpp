@@ -25,6 +25,7 @@
 #include "PropertyCustomizationHelpers.h"
 
 #include "Editor/UnrealEd/Public/Kismet2/BlueprintEditorUtils.h"
+#include "Editor/UnrealEd/Public/Kismet2/ComponentEditorUtils.h"
 
 #include "BlueprintDetailsCustomization.h"
 #include "ObjectEditorUtils.h"
@@ -220,6 +221,25 @@ void FBlueprintVarActionDetails::CustomizeDetails( IDetailLayoutBuilder& DetailL
 		.IsChecked( this, &FBlueprintVarActionDetails::OnGetExposedToMatineeCheckboxState )
 		.OnCheckStateChanged( this, &FBlueprintVarActionDetails::OnExposedToMatineeChanged )
 		.ToolTip(ExposeToMatineeTooltip)
+	];
+
+	TSharedPtr<SToolTip> ExposeToConfigTooltip = IDocumentation::Get()->CreateToolTip(LOCTEXT("VariableExposeToConfig_Tooltip", "Allow this variable be set from the config?"), NULL, DocLink, TEXT("ExposeToConfig"));
+
+	Category.AddCustomRow( LOCTEXT("VariableExposeToConfig", "Config Variable") )
+	.Visibility(TAttribute<EVisibility>(this, &FBlueprintVarActionDetails::ExposeConfigVisibility))
+	.NameContent()
+	[
+		SNew(STextBlock)
+		.ToolTip( ExposeToConfigTooltip )
+		.Text( LOCTEXT("ExposeToConfigLabel", "Config Variable") )
+		.Font( DetailFontInfo )
+	]
+	.ValueContent()
+	[
+		SNew(SCheckBox)
+		.ToolTip( ExposeToConfigTooltip )
+		.IsChecked( this, &FBlueprintVarActionDetails::OnGetConfigVariableCheckboxState )
+		.OnCheckStateChanged( this, &FBlueprintVarActionDetails::OnSetConfigVariableState )
 	];
 
 	PopulateCategories(MyBlueprint.Pin().Get(), CategorySource);
@@ -734,7 +754,7 @@ bool FBlueprintVarActionDetails::GetVariableNameChangeEnabled() const
 		{
 			if (USCS_Node* Node = Blueprint->SimpleConstructionScript->FindSCSNode(GetVariableName()))
 			{
-				bIsReadOnly = !Node->IsValidVariableNameString(Node->VariableName.ToString());
+				bIsReadOnly = !FComponentEditorUtils::IsValidVariableNameString(Node->ComponentTemplate, Node->VariableName.ToString());
 			}
 		}
 		else if(IsALocalVariable(VariableProperty))
@@ -765,7 +785,7 @@ void FBlueprintVarActionDetails::OnVarNameChanged(const FText& InNewText)
 		for (TArray<USCS_Node*>::TConstIterator NodeIt(Nodes); NodeIt; ++NodeIt)
 		{
 			USCS_Node* Node = *NodeIt;
-			if (Node->VariableName == GetVariableName() && !Node->IsValidVariableNameString(InNewText.ToString()))
+			if (Node->VariableName == GetVariableName() && !FComponentEditorUtils::IsValidVariableNameString(Node->ComponentTemplate, InNewText.ToString()))
 			{
 				VarNameEditableTextBox->SetError(LOCTEXT("ComponentVariableRenameFailed_NotValid", "This name is reserved for engine use."));
 				return;
@@ -1399,6 +1419,61 @@ EVisibility FBlueprintVarActionDetails::ExposeToMatineeVisibility() const
 		const bool bIsLinearColorStruct = VariableProperty->IsA(UStructProperty::StaticClass()) && Cast<UStructProperty>(VariableProperty)->Struct->GetFName() == NAME_LinearColor;
 
 		if (bIsFloat || bIsBool || bIsVectorStruct || bIsColorStruct || bIsLinearColorStruct)
+		{
+			return EVisibility::Visible;
+		}
+	}
+	return EVisibility::Collapsed;
+}
+
+ECheckBoxState FBlueprintVarActionDetails::OnGetConfigVariableCheckboxState() const
+{
+	UBlueprint* Blueprint = GetBlueprintObj();
+	const FName VarName = GetVariableName();
+	ECheckBoxState CheckboxValue = ECheckBoxState::Unchecked;
+
+	if( Blueprint && VarName != NAME_None )
+	{
+		const int32 VarIndex = FBlueprintEditorUtils::FindNewVariableIndex( Blueprint, VarName );
+
+		if( VarIndex != INDEX_NONE && Blueprint->NewVariables[ VarIndex ].PropertyFlags & CPF_Config )
+		{
+			CheckboxValue = ECheckBoxState::Checked;
+		}
+	}
+	return CheckboxValue;
+}
+
+void FBlueprintVarActionDetails::OnSetConfigVariableState( ECheckBoxState InNewState )
+{
+	UBlueprint* Blueprint = GetBlueprintObj();
+	const FName VarName = GetVariableName();
+
+	if( Blueprint && VarName != NAME_None )
+	{
+		const int32 VarIndex = FBlueprintEditorUtils::FindNewVariableIndex( Blueprint, VarName );
+
+		if( VarIndex != INDEX_NONE )
+		{
+			if( InNewState == ECheckBoxState::Checked )
+			{
+				Blueprint->NewVariables[ VarIndex ].PropertyFlags |= CPF_Config;
+			}
+			else
+			{
+				Blueprint->NewVariables[ VarIndex ].PropertyFlags &= ~CPF_Config;
+			}
+			FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified( Blueprint );
+		}
+	}
+}
+
+EVisibility FBlueprintVarActionDetails::ExposeConfigVisibility() const
+{
+	UProperty* Property = SelectionAsProperty();
+	if (Property)
+	{
+		if (IsABlueprintVariable(Property) && !IsAComponentVariable(Property))
 		{
 			return EVisibility::Visible;
 		}
@@ -4499,7 +4574,7 @@ void FBlueprintComponentDetails::OnVariableTextChanged(const FText& InNewText)
 	bIsVariableNameInvalid = true;
 
 	USCS_Node* SCS_Node = CachedNodePtr->GetSCSNode();
-	if(SCS_Node != NULL && !InNewText.IsEmpty() && !SCS_Node->IsValidVariableNameString(InNewText.ToString()))
+	if(SCS_Node != NULL && !InNewText.IsEmpty() && !FComponentEditorUtils::IsValidVariableNameString(SCS_Node->ComponentTemplate, InNewText.ToString()))
 	{
 		VariableNameEditableTextBox->SetError(LOCTEXT("ComponentVariableRenameFailed_NotValid", "This name is reserved for engine use."));
 		return;

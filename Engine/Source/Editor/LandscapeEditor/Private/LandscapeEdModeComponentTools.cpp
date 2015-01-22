@@ -138,8 +138,8 @@ public:
 						if (BrushValue > 0.0f && LandscapeInfo->IsValidPosition(X, Y))
 						{
 							float PaintValue = BrushValue * UISettings->ToolStrength * Pressure;
-							float Value = DataScanline[X];
-							checkSlow(Value == LandscapeInfo->SelectedRegion.FindRef(Key));
+							float Value = DataScanline[X] / 255.0f;
+							checkSlow(FMath::IsNearlyEqual(Value, LandscapeInfo->SelectedRegion.FindRef(Key), 1 / 255.0f));
 							if (bInvert)
 							{
 								Value = FMath::Max(Value - PaintValue, 0.0f);
@@ -1808,6 +1808,17 @@ public:
 	// Just hybrid of Copy and Paste tool
 	virtual const TCHAR* GetToolName() override { return TEXT("CopyPaste"); }
 	virtual FText GetDisplayName() override { return NSLOCTEXT("UnrealEd", "LandscapeMode_Region", "Region Copy/Paste"); };
+
+	virtual void EnterTool()
+	{
+		// Make sure gizmo actor is selected
+		ALandscapeGizmoActiveActor* Gizmo = this->EdMode->CurrentGizmoActor.Get();
+		if (Gizmo)
+		{
+			GEditor->SelectNone(false, true);
+			GEditor->SelectActor(Gizmo, true, false, true);
+		}
+	}
 
 	// Copy tool doesn't use any view information, so just do it as one function
 	void Copy()

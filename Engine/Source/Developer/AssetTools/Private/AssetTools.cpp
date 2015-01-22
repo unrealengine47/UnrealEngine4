@@ -45,6 +45,7 @@ FAssetTools::FAssetTools()
 	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_DialogueVoice) );
 	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_DialogueWave) );
 	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_Enum) );
+	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_Class) );
 	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_Struct) );
 	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_Font) );
 	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_ForceFeedbackEffect) );
@@ -52,7 +53,8 @@ FAssetTools::FAssetTools()
 	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_InstancedFoliageSettings) );
 	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_InterpData) );
 	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_LandscapeLayer) );
-	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_Material) );
+	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_LandscapeGrassType));
+	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_Material));
 	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_MaterialFunction) );
 	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_MaterialInstanceConstant) );
 	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_MaterialInterface) );
@@ -994,10 +996,10 @@ void FAssetTools::DiffAgainstDepot( UObject* InObject, const FString& InPackageP
 							FRevisionInfo OldRevision;
 							OldRevision.Changelist = Revision->GetCheckInIdentifier();
 							OldRevision.Date = Revision->GetDate();
-							OldRevision.Revision = Revision->GetRevisionNumber();
+							OldRevision.Revision = Revision->GetRevision();
 
 							FRevisionInfo NewRevision; 
-							NewRevision.Revision = -1;
+							NewRevision.Revision = TEXT("");
 							DiffAssets(OldObject, InObject, OldRevision, NewRevision);
 						}
 					}

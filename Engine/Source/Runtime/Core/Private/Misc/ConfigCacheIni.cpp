@@ -10,9 +10,42 @@
 #include "EngineBuildSettings.h"
 #include "Paths.h"
 
+#if WITH_EDITOR
+	#define INI_CACHE 1
+#else
+	#define INI_CACHE 0
+#endif
 
 DEFINE_LOG_CATEGORY(LogConfig);
+namespace 
+{
+	FString GenerateHierarchyCacheKey(const TArray<FIniFilename>& IniHierarchy, const FString& IniPath)
+	{
+#if !INI_CACHE
+		return TEXT("");
+#else
+		// A Hierarchy Key is a combined list of all ini file paths that affect that inis data set.
+		FString HierKey;
+		//
+		auto KeyLen = IniPath.Len();
+		for (const auto& Ini : IniHierarchy)
+		{
+			KeyLen += Ini.Filename.Len();
+		}
+		HierKey.Reserve(KeyLen);
+		for (const auto& Ini : IniHierarchy)
+		{
+			HierKey += Ini.Filename;
+		}
+		HierKey += IniPath;
 
+		return HierKey;
+#endif
+	}
+#if INI_CACHE
+	TMap<FString, FConfigFile> HierarchyCache;
+#endif
+}
 
 class FTextFriendHelper
 {
@@ -552,8 +585,8 @@ void FConfigFile::Read( const FString& Filename )
 bool FConfigFile::ShouldExportQuotedString(const FString& PropertyValue) const
 {
 	// The value should be exported as quoted string if it begins with a space (which is stripped on import) or
-	// when it contains ' //' (interpreted as a comment when importing) or starts with '//'
-	return **PropertyValue == TEXT(' ') || FCString::Strstr(*PropertyValue, TEXT(" //")) != NULL || PropertyValue.StartsWith(TEXT("//"));
+	// when it contains '//' (interpreted as a comment when importing).
+	return **PropertyValue == TEXT(' ') || FCString::Strstr(*PropertyValue, TEXT("//")) != NULL;
 }
 
 
@@ -664,14 +697,44 @@ static bool LoadIniFileHierarchy(const TArray<FIniFilename>& HierarchyToLoad, FC
 		}
 	}
 
+	int32 FirstCacheIndex = 0;
+#if INI_CACHE
+	// Find the last value in the hierarchy that is cached. We can start the load from there
+	for( int32 IniIndex = 0; IniIndex < HierarchyToLoad.Num(); IniIndex++ )
+	{
+		if (HierarchyCache.Find(HierarchyToLoad[IniIndex].CacheKey)) 
+		{
+			FirstCacheIndex = IniIndex;
+		}
+	}
+#endif
+
 	TArray<FDateTime> TimestampsOfInis;
 
 	// Traverse ini list back to front, merging along the way.
-	for( int32 IniIndex = 0; IniIndex < HierarchyToLoad.Num(); IniIndex++ )
+	for( int32 IniIndex = FirstCacheIndex; IniIndex < HierarchyToLoad.Num(); IniIndex++ )
 	{
 		const FIniFilename& IniToLoad = HierarchyToLoad[ IniIndex ];
 		const FString& IniFileName = IniToLoad.Filename;
-
+		bool bDoProcess = true;
+#if INI_CACHE
+		if (IniToLoad.CacheKey.Len() > 0)
+		{
+			auto* CachedConfigFile = HierarchyCache.Find(IniToLoad.CacheKey);
+			if (CachedConfigFile) 
+			{
+				ConfigFile = *CachedConfigFile;
+				bDoProcess = false;
+			}
+			ConfigFile.CacheKey = IniToLoad.CacheKey;
+		}
+		else
+		{
+			ConfigFile.CacheKey = TEXT("");
+		}
+#endif
+		if (bDoProcess)
+		{
 		// Spit out friendly error if there was a problem locating .inis (e.g. bad command line parameter or missing folder, ...).
 		if (IsUsingLocalIniFile(*IniFileName, NULL) && (IFileManager::Get().FileSize(*IniFileName) < 0))
 		{
@@ -682,6 +745,15 @@ static bool LoadIniFileHierarchy(const TArray<FIniFilename>& HierarchyToLoad, FC
 			}
 			else
 			{
+#if INI_CACHE
+					if (IniToLoad.CacheKey.Len() > 0)
+					{
+						if (bDoProcess)
+						{
+							HierarchyCache.Add(IniToLoad.CacheKey, ConfigFile);
+						}
+					}
+#endif
 				continue;
 			}
 		}
@@ -691,6 +763,17 @@ static bool LoadIniFileHierarchy(const TArray<FIniFilename>& HierarchyToLoad, FC
 		bool bDoWrite = false;
 		//UE_LOG(LogConfig, Log,  TEXT( "Combining configFile: %s" ), *IniList(IniIndex) );
 		ProcessIniContents(*HierarchyToLoad.Last().Filename, *IniFileName, &ConfigFile, bDoEmptyConfig, bDoCombine, bDoWrite);
+	}
+
+#if INI_CACHE
+		if (IniToLoad.CacheKey.Len() > 0)
+		{
+			if (bDoProcess)
+			{
+				HierarchyCache.Add(IniToLoad.CacheKey, ConfigFile);
+			}
+		}
+#endif
 	}
 
 	// Set this configs files source ini hierarchy to show where it was loaded from.
@@ -901,6 +984,14 @@ bool FConfigFile::Write( const FString& Filename, bool bDoRemoteWrite/* = true*/
 		FRemoteConfig::Get()->Write(*Filename, Text);
 	}
 	bool bResult = FFileHelper::SaveStringToFile( Text, *Filename );
+
+#if INI_CACHE
+	// if we wrote the config successfully
+	if (bResult && CacheKey.Len() > 0)
+	{
+		HierarchyCache.Add(CacheKey, *this);
+	}
+#endif
 
 	// File is still dirty if it didn't save.
 	Dirty = !bResult;
@@ -2608,35 +2699,55 @@ static FString GetSourceIniFilename(const TCHAR* BaseIniName, const TCHAR* Platf
  */
 static void GetSourceIniHierarchyFilenames(const TCHAR* InBaseIniName, const TCHAR* InPlatformName, const TCHAR* InGameName, const TCHAR* EngineConfigDir, const TCHAR* SourceConfigDir, TArray<FIniFilename>& OutHierarchy, bool bRequireDefaultIni)
 {
+	
+	/**************************************************
+	 **** CRITICAL NOTES
+	 **** If you change this function, you need to also change EnumerateCrossPlatformIniFileNames() in EngineConfiguration.cs!!!
+	 **************************************************/
+	
 	const FString PlatformName(InPlatformName ? InPlatformName : ANSI_TO_TCHAR(FPlatformProperties::IniPlatformName()));
-	const FString BuildPurposeName(FEngineBuildSettings::IsInternalBuild() ? "Internal" : "External");
 
+	// [[[[ ENGINE DEFAULTS ]]]]
 	// Engine/Config/Base.ini (included in every ini type, required)
 	OutHierarchy.Add( FIniFilename(FString::Printf(TEXT("%sBase.ini"), EngineConfigDir), true) );
 	// Engine/Config/Base* ini
 	OutHierarchy.Add( FIniFilename(FString::Printf(TEXT("%sBase%s.ini"), EngineConfigDir, InBaseIniName), false) );
-	// Engine/Config/Base[Internal/External]* ini
-	OutHierarchy.Add( FIniFilename(FString::Printf(TEXT("%sBase%s%s.ini"), EngineConfigDir, *BuildPurposeName, InBaseIniName), false) );
+	// Engine/Config/NotForLicensees/Base* ini
+	OutHierarchy.Add( FIniFilename(FString::Printf(TEXT("%sNotForLicensees/Base%s.ini"), EngineConfigDir, InBaseIniName), false) );
+	// Engine/Config/NoRedist/Base* ini
+	OutHierarchy.Add( FIniFilename(FString::Printf(TEXT("%sNoRedist/Base%s.ini"), EngineConfigDir, InBaseIniName), false) );
 
-	// <AppData>/UE4/EngineConfig/User* ini
-    OutHierarchy.Add(FIniFilename(FPaths::Combine(FPlatformProcess::UserSettingsDir(), *FString::Printf(TEXT("Unreal Engine/Engine/Config/User%s.ini"), InBaseIniName)), false));
-	// <Documents>/UE4/EngineConfig/User* ini
-    OutHierarchy.Add(FIniFilename(FPaths::Combine(FPlatformProcess::UserDir(), *FString::Printf(TEXT("Unreal Engine/Engine/Config/User%s.ini"), InBaseIniName)), false));
-
+	// [[[[ PROJECT SETTINGS ]]]]
 	// Game/Config/Default* ini
 	OutHierarchy.Add(FIniFilename(FString::Printf(TEXT("%sDefault%s.ini"), SourceConfigDir, InBaseIniName), bRequireDefaultIni));
-	// Game/Config/DedicatedServer* ini
+	// Game/Config/DedicatedServer* ini (knowingly NOT in EngineConfiguration.cs because this is a runtime only check)
 	if (IsRunningDedicatedServer())
 	{
 		OutHierarchy.Add(FIniFilename(FString::Printf(TEXT("%s/DedicatedServer%s.ini"), SourceConfigDir, InBaseIniName), false));
 	}
-	// Game/Config/User* ini
-	OutHierarchy.Add(FIniFilename(FString::Printf(TEXT("%s/User%s.ini"), SourceConfigDir, InBaseIniName), false));
+	// Game/Config/NotForLicensees/Default* ini
+	OutHierarchy.Add(FIniFilename(FString::Printf(TEXT("%sNotForLicensees/Default%s.ini"), SourceConfigDir, InBaseIniName), false));
+	// Game/Config/NoRedist/Default* ini (Checkpointed here before the platform ini divergence)
+	FString HierarchyCheckpointPath = FString::Printf(TEXT("%sNoRedist/Default%s.ini"), SourceConfigDir, InBaseIniName);
+	OutHierarchy.Add(FIniFilename(HierarchyCheckpointPath, false, GenerateHierarchyCacheKey(OutHierarchy, HierarchyCheckpointPath)));
 	
+	// [[[[ PLATFORM DEFAULTS AND PROJECT SETTINGS ]]]]
 	// Engine/Config/Platform/Platform* ini
 	OutHierarchy.Add( FIniFilename(FString::Printf(TEXT("%s%s/%s%s.ini"), EngineConfigDir, *PlatformName, *PlatformName, InBaseIniName), false) );
 	// Game/Config/Platform/Platform* ini
 	OutHierarchy.Add( FIniFilename(FString::Printf(TEXT("%s%s/%s%s.ini"), SourceConfigDir, *PlatformName, *PlatformName, InBaseIniName), false) );
+
+	// [[[[ GLOBAL USER OVERRIDES ]]]]
+	// <AppData>/UE4/EngineConfig/User* ini
+	OutHierarchy.Add(FIniFilename(FPaths::Combine(FPlatformProcess::UserSettingsDir(), *FString::Printf(TEXT("Unreal Engine/Engine/Config/User%s.ini"), InBaseIniName)), false));
+	// <Documents>/UE4/EngineConfig/User* ini
+	OutHierarchy.Add(FIniFilename(FPaths::Combine(FPlatformProcess::UserDir(), *FString::Printf(TEXT("Unreal Engine/Engine/Config/User%s.ini"), InBaseIniName)), false));
+
+	// [[[[ PROJECT USER OVERRIDES ]]]]
+	// Game/Config/User* ini (Checkpointed here at the end)
+	HierarchyCheckpointPath = FString::Printf(TEXT("%s/User%s.ini"), SourceConfigDir, InBaseIniName);
+	OutHierarchy.Add(FIniFilename(HierarchyCheckpointPath, false, GenerateHierarchyCacheKey(OutHierarchy, HierarchyCheckpointPath)));
+	
 }
 
 /**

@@ -61,6 +61,11 @@ TAutoConsoleVariable<float> CVarFoliageLODDistanceScale(
 	1.0f,
 	TEXT("Scale factor for the distance used in computing LOD for foliage."));
 
+TAutoConsoleVariable<float> CVarRandomLODRange(
+	TEXT("foliage.RandomLODRange"),
+	500.0f,
+	TEXT("Random distance added to each instance distance to compute LOD."));
+
 
 DECLARE_CYCLE_STAT(TEXT("Traversal Time"),STAT_FoliageTraversalTime,STATGROUP_Foliage);
 DECLARE_CYCLE_STAT(TEXT("Build Time"), STAT_FoliageBuildTime, STATGROUP_Foliage);
@@ -70,6 +75,7 @@ DECLARE_DWORD_COUNTER_STAT(TEXT("Mesh Batches"), STAT_FoliageMeshBatches, STATGR
 DECLARE_DWORD_COUNTER_STAT(TEXT("Triangles"), STAT_FoliageTriangles, STATGROUP_Foliage);
 DECLARE_DWORD_COUNTER_STAT(TEXT("Instances"), STAT_FoliageInstances, STATGROUP_Foliage);
 DECLARE_DWORD_COUNTER_STAT(TEXT("Traversals"),STAT_FoliageTraversals,STATGROUP_Foliage);
+DECLARE_MEMORY_STAT(TEXT("Instance Buffers"),STAT_FoliageInstanceBuffers,STATGROUP_Foliage);
 
 struct FClusterTree
 {
@@ -754,6 +760,19 @@ static FAutoConsoleCommand ToggleUseVectorCullCmd(
 	FConsoleCommandWithArgsDelegate::CreateStatic(&ToggleUseVectorCull)
 	);
 
+static uint32 GFrameNumberRenderThread_CaptureFoliageRuns = MAX_uint32;
+
+static void LogFoliageFrame(const TArray<FString>& Args)
+{
+	GFrameNumberRenderThread_CaptureFoliageRuns = GFrameNumberRenderThread + 2;
+}
+
+static FAutoConsoleCommand LogFoliageFrameCmd(
+	TEXT("foliage.LogFoliageFrame"),
+	TEXT("Useful for debugging. Logs all foliage rendered in a frame."),
+	FConsoleCommandWithArgsDelegate::CreateStatic(&LogFoliageFrame)
+	);
+
 const VectorRegister		VECTOR_HALF_HALF_HALF_ZERO				= DECLARE_VECTOR_REGISTER(0.5f, 0.5f, 0.5f, 0.0f);
 
 template<bool TUseVector>
@@ -901,6 +920,9 @@ struct FFoliageElementParams
 	bool bUseHoveredMaterial;
 	bool bInstanced;
 	bool bBlendLODs;
+	ERHIFeatureLevel::Type FeatureLevel;
+	bool ShadowFrustum;
+	float FinalCullDistance;
 };
 
 void FHierarchicalStaticMeshSceneProxy::FillDynamicMeshElements(FMeshElementCollector& Collector, const FFoliageElementParams& ElementParams, const FFoliageRenderInstanceParams& Params) const
@@ -979,6 +1001,27 @@ void FHierarchicalStaticMeshSceneProxy::FillDynamicMeshElements(FMeshElementColl
 						bDidStats = true;
 						int64 Tris = int64(RemainingInstances) * int64(BatchElement0.NumPrimitives);
 						TotalTriangles += Tris;
+#if STATS
+						if (GFrameNumberRenderThread_CaptureFoliageRuns == GFrameNumberRenderThread)
+						{
+							if (ElementParams.FinalCullDistance > 9.9E8)
+							{
+								UE_LOG(LogStaticMesh, Display, TEXT("lod:%1d/%1d   sel:%1d   section:%1d/%1d   runs:%4d   inst:%8d   tris:%9lld   cast shadow:%1d   cull:-NONE!!-   shadow:%1d     %s %s"), 
+									LODIndex, InstancedRenderData.VertexFactories.Num(), SelectionGroupIndex, SectionIndex, LODModel.Sections.Num(), RunArray.Num() / 2, 
+									RemainingInstances, Tris, (int)MeshElement.CastShadow, ElementParams.ShadowFrustum,
+									*StaticMesh->GetPathName(),
+									*MeshElement.MaterialRenderProxy->GetMaterial(ElementParams.FeatureLevel)->GetFriendlyName());
+							}
+							else
+							{
+								UE_LOG(LogStaticMesh, Display, TEXT("lod:%1d/%1d   sel:%1d   section:%1d/%1d   runs:%4d   inst:%8d   tris:%9lld   cast shadow:%1d   cull:%8.0f   shadow:%1d     %s %s"), 
+									LODIndex, InstancedRenderData.VertexFactories.Num(), SelectionGroupIndex, SectionIndex, LODModel.Sections.Num(), RunArray.Num() / 2, 
+									RemainingInstances, Tris, (int)MeshElement.CastShadow, ElementParams.FinalCullDistance, ElementParams.ShadowFrustum,
+									*StaticMesh->GetPathName(),
+									*MeshElement.MaterialRenderProxy->GetMaterial(ElementParams.FeatureLevel)->GetFriendlyName());
+							}
+						}
+#endif
 					}
 					if (ElementParams.bInstanced)
 					{
@@ -1065,6 +1108,7 @@ void FHierarchicalStaticMeshSceneProxy::GetDynamicMeshElements(const TArray<cons
 			ElementParams.bIsWireframe = ViewFamily.EngineShowFlags.Wireframe;
 			ElementParams.bUseHoveredMaterial = IsHovered();
 			ElementParams.bInstanced = RHISupportsInstancing(GetFeatureLevelShaderPlatform(InstancedRenderData.FeatureLevel));
+			ElementParams.FeatureLevel = InstancedRenderData.FeatureLevel;
 			ElementParams.ViewIndex = ViewIndex;
 			ElementParams.View = View;
 
@@ -1081,6 +1125,7 @@ void FHierarchicalStaticMeshSceneProxy::GetDynamicMeshElements(const TArray<cons
 				bool bUseVectorCull = GUseVectorCull;
 
 				bool bDisableCull = !!CVarDisableCull.GetValueOnRenderThread();
+				ElementParams.ShadowFrustum = !!View->ViewMatrices.GetDynamicMeshElementsShadowCullFrustum;
 				if (View->ViewMatrices.GetDynamicMeshElementsShadowCullFrustum)
 				{
 					float GuardBand = CVarFoliageOrthoGuardband.GetValueOnRenderThread();
@@ -1162,6 +1207,7 @@ void FHierarchicalStaticMeshSceneProxy::GetDynamicMeshElements(const TArray<cons
 
 				float MinSize = CVarFoliageMinimumScreenSize.GetValueOnRenderThread();
 				float LODScale = CVarFoliageLODDistanceScale.GetValueOnRenderThread();
+				float LODRandom = CVarRandomLODRange.GetValueOnRenderThread();
 				float MaxDrawDistanceScale = GetCachedScalabilityCVars().ViewDistanceScale;
 				float SphereRadius = RenderData->Bounds.SphereRadius;
 
@@ -1170,6 +1216,7 @@ void FHierarchicalStaticMeshSceneProxy::GetDynamicMeshElements(const TArray<cons
 					InstanceParams.LODPlanesMax[LODIndex] = MIN_flt;
 					InstanceParams.LODPlanesMin[LODIndex] = MAX_flt;
 				}
+				ElementParams.FinalCullDistance = MIN_flt;
 				for (int32 SampleIndex = 0; SampleIndex < 2; SampleIndex++)
 				{
 					// we aren't going to accurately figure out LOD planes for both samples and try all 4 possibilities, rather we just consider the worst case LOD range; the shaders will render correctly
@@ -1186,14 +1233,15 @@ void FHierarchicalStaticMeshSceneProxy::GetDynamicMeshElements(const TArray<cons
 						FinalCull = UserData_AllInstances.EndCullDistance;
 					}
 					FinalCull *= MaxDrawDistanceScale;
+					ElementParams.FinalCullDistance = FMath::Max(ElementParams.FinalCullDistance, FinalCull);
 
 					for (int32 LODIndex = 1; LODIndex < InstanceParams.LODs; LODIndex++)
 					{
 						float Val = FMath::Min(FMath::Sqrt(Fac / RenderData->ScreenSize[LODIndex]), FinalCull);
-						InstanceParams.LODPlanesMin[LODIndex - 1] = FMath::Min(InstanceParams.LODPlanesMin[LODIndex - 1], Val);
+						InstanceParams.LODPlanesMin[LODIndex - 1] = FMath::Min(InstanceParams.LODPlanesMin[LODIndex - 1], Val - LODRandom);
 						InstanceParams.LODPlanesMax[LODIndex - 1] = FMath::Max(InstanceParams.LODPlanesMax[LODIndex - 1], Val);
 					}
-					InstanceParams.LODPlanesMin[InstanceParams.LODs - 1] = FMath::Min(InstanceParams.LODPlanesMin[InstanceParams.LODs - 1], FinalCull);
+					InstanceParams.LODPlanesMin[InstanceParams.LODs - 1] = FMath::Min(InstanceParams.LODPlanesMin[InstanceParams.LODs - 1], FinalCull - LODRandom);
 					InstanceParams.LODPlanesMax[InstanceParams.LODs - 1] = FMath::Max(InstanceParams.LODPlanesMax[InstanceParams.LODs - 1], FinalCull);
 				}
 
@@ -1334,6 +1382,17 @@ UHierarchicalInstancedStaticMeshComponent::UHierarchicalInstancedStaticMeshCompo
 {
 }
 
+UHierarchicalInstancedStaticMeshComponent::~UHierarchicalInstancedStaticMeshComponent()
+{
+	if (ProxySize)
+	{
+		DEC_DWORD_STAT_BY(STAT_FoliageInstanceBuffers, ProxySize);
+	}
+	ProxySize = 0;
+}
+
+
+
 void UHierarchicalInstancedStaticMeshComponent::Serialize(FArchive& Ar)
 {
 	Super::Serialize(Ar);
@@ -1403,6 +1462,7 @@ bool UHierarchicalInstancedStaticMeshComponent::RemoveInstance(int32 InstanceInd
 		}
 	}
 
+	ReleasePerInstanceRenderData();
 	MarkRenderStateDirty();
 	
 	return true;
@@ -1429,7 +1489,10 @@ bool UHierarchicalInstancedStaticMeshComponent::UpdateInstanceTransform(int32 In
 
 	bool Result = Super::UpdateInstanceTransform(InstanceIndex, NewInstanceTransform, bWorldSpace);
 
-	UnbuiltInstanceBounds += StaticMesh->GetBounds().GetBox().TransformBy(NewInstanceTransform);
+	if (StaticMesh)
+	{
+		UnbuiltInstanceBounds += StaticMesh->GetBounds().GetBox().TransformBy(NewInstanceTransform);
+	}
 
 	if (!IsAsyncBuilding())
 	{
@@ -1475,6 +1538,11 @@ void UHierarchicalInstancedStaticMeshComponent::ClearInstances()
 	NumBuiltInstances = 0;
 	SortedInstances.Empty();
 	UnbuiltInstanceBounds.Init();
+
+	if (ProxySize)
+	{
+		DEC_DWORD_STAT_BY(STAT_FoliageInstanceBuffers, ProxySize);
+	}
 
 	Super::ClearInstances();
 }
@@ -1559,7 +1627,7 @@ void UHierarchicalInstancedStaticMeshComponent::AcceptPrebuiltTree(TArray<FClust
 {
 	// this is only for prebuild data, already in the correct order
 	check(!PerInstanceSMData.Num());
-	NumBuiltInstances = WriteOncePrebuiltInstanceBuffer.GetNumInstances();
+	NumBuiltInstances = WriteOncePrebuiltInstanceBuffer.Num();
 	check(NumBuiltInstances);
 	UnbuiltInstanceBounds.Init();
 	RemovedInstances.Empty();
@@ -1721,7 +1789,7 @@ void UHierarchicalInstancedStaticMeshComponent::ApplyBuildTreeAsync(ENamedThread
 		Exchange(SortedInstances, Builder->Result->SortedInstances);
 		RemovedInstances.Empty();
 
-	    UE_LOG(LogStaticMesh, Display, TEXT("Built a foliage hierarchy with %d of %d elements in %.1fs."), NumBuiltInstances, PerInstanceSMData.Num(), float(FPlatformTime::Seconds() - StartTime));
+	    //UE_LOG(LogStaticMesh, Display, TEXT("Built a foliage hierarchy with %d of %d elements in %.1fs."), NumBuiltInstances, PerInstanceSMData.Num(), float(FPlatformTime::Seconds() - StartTime));
     
 	    if (NumBuiltInstances < PerInstanceSMData.Num())
 	    {
@@ -1734,6 +1802,7 @@ void UHierarchicalInstancedStaticMeshComponent::ApplyBuildTreeAsync(ENamedThread
 			FlushAccumulatedNavigationUpdates();
 		}
 
+		ReleasePerInstanceRenderData();
 	    MarkRenderStateDirty();
 	}
 }
@@ -1795,12 +1864,16 @@ FPrimitiveSceneProxy* UHierarchicalInstancedStaticMeshComponent::CreateSceneProx
 {
 	QUICK_SCOPE_CYCLE_COUNTER(STAT_HierarchicalInstancedStaticMeshComponent_CreateSceneProxy);
 
+	if (ProxySize)
+	{
+		DEC_DWORD_STAT_BY(STAT_FoliageInstanceBuffers, ProxySize);
+	}
 	ProxySize = 0;
 
 	// Verify that the mesh is valid before using it.
 	const bool bMeshIsValid = 
 		// make sure we have instances
-		(PerInstanceSMData.Num() > 0 || WriteOncePrebuiltInstanceBuffer.GetNumInstances() > 0)&&
+		(PerInstanceSMData.Num() > 0 || WriteOncePrebuiltInstanceBuffer.Num() > 0 || bPerInstanceRenderDataWasPrebuilt) &&
 		// make sure we have an actual staticmesh
 		StaticMesh &&
 		StaticMesh->HasValidRenderData() &&
@@ -1818,15 +1891,15 @@ FPrimitiveSceneProxy* UHierarchicalInstancedStaticMeshComponent::CreateSceneProx
 			InstancingRandomSeed = FMath::Rand();
 		}
 
-		if (WriteOncePrebuiltInstanceBuffer.GetNumInstances() > 0)
+		if (WriteOncePrebuiltInstanceBuffer.Num() > 0 || bPerInstanceRenderDataWasPrebuilt)
 		{
-			ProxySize = FStaticMeshInstanceData::GetResourceSize(WriteOncePrebuiltInstanceBuffer.GetNumInstances());
+			ProxySize = FStaticMeshInstanceData::GetResourceSize(WriteOncePrebuiltInstanceBuffer.Num());
+			INC_DWORD_STAT_BY(STAT_FoliageInstanceBuffers, ProxySize);
 
-			//@todo - this is sketchy, what you really want to do is flush the grass cache instead of doing a render thread update
-			bNeverNeedsRenderUpdate = true; // we can never update it because the data is gone
 			return ::new FHierarchicalStaticMeshSceneProxy(this, GetWorld()->FeatureLevel, WriteOncePrebuiltInstanceBuffer);
 		}
 		ProxySize = FStaticMeshInstanceData::GetResourceSize(PerInstanceSMData.Num());
+		INC_DWORD_STAT_BY(STAT_FoliageInstanceBuffers, ProxySize);
 		return ::new FHierarchicalStaticMeshSceneProxy(this, GetWorld()->FeatureLevel);
 	}
 	return NULL;

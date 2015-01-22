@@ -644,9 +644,13 @@ public:
 	UPROPERTY()
 	TArray<struct FMaterialParameterCollectionInfo> MaterialParameterCollectionInfos;
 
-	/** true if Material is masked and uses custom opacity */
+	/** true if this Material can be assumed Opaque when set to masked. */
 	UPROPERTY()
-	uint32 bIsMasked:1;
+	uint32 bCanMaskedBeAssumedOpaque : 1;
+
+ 	/** true if Material is masked and uses custom opacity */
+ 	UPROPERTY()
+ 	uint32 bIsMasked_DEPRECATED:1;
 
 	/** true if Material is the preview material used in the material editor. */
 	UPROPERTY(transient, duplicatetransient)
@@ -942,6 +946,20 @@ public:
 		}
 
 		return Result;
+	}
+
+	/* Get all expressions of the requested type */
+	template<typename ExpressionType>
+	void GetAllExpressionsOfType(TArray<const ExpressionType*>& OutExpressions) const
+	{
+		for (int32 ExpressionIndex = 0; ExpressionIndex < Expressions.Num(); ExpressionIndex++)
+		{
+			ExpressionType* ExpressionPtr = Cast<ExpressionType>(Expressions[ExpressionIndex]);
+			if (ExpressionPtr)
+			{
+				OutExpressions.Add(ExpressionPtr);
+			}
+		}
 	}
 
 	/** Determines whether each quality level has different nodes by inspecting the material's expressions. */

@@ -18,26 +18,23 @@ struct ENGINE_API FComponentKey
 	UPROPERTY()
 	FName VariableName;
 
-	// TODO: a GUID should be added
+	UPROPERTY()
+	FGuid VariableGuid;
 
 	FComponentKey()
 		: OwnerClass(nullptr)
 	{}
 
-	FComponentKey(UBlueprintGeneratedClass* InOwnerClass, FName InVariableNam)
-		: OwnerClass(nullptr)
-		, VariableName(InVariableNam)
-	{}
+	FComponentKey(USCS_Node* SCSNode);
 
-	FComponentKey(USCS_Node* ParentNode);
-
-	bool Match(FComponentKey OtherKey) const;
+	bool Match(const FComponentKey OtherKey) const;
 
 	bool IsValid() const
 	{
-		return OwnerClass && (VariableName != NAME_None);
+		return OwnerClass && (VariableName != NAME_None) && VariableGuid.IsValid();
 	}
 
+	USCS_Node* FindSCSNode() const;
 	UActorComponent* GetOriginalTemplate() const;
 };
 
@@ -69,9 +66,8 @@ private:
 
 public:
 	UActorComponent* CreateOverridenComponentTemplate(FComponentKey Key);
-	void UpdateOverridenComponentTemplate(FComponentKey Key);
 	void UpdateOwnerClass(UBlueprintGeneratedClass* OwnerClass);
-	void RemoveInvalidAndUnnecessaryTemplates();
+	void ValidateTemplates();
 	bool IsValid() const;
 	UActorComponent* FindBestArchetype(FComponentKey Key) const;
 
@@ -90,13 +86,15 @@ public:
 
 	void PreloadAllTempates();
 
+	bool RenameTemplate(FComponentKey OldKey, FName NewName);
+
 #endif
 
 public:
 	UActorComponent* GetOverridenComponentTemplate(FComponentKey Key) const;
 
 private:
-	const FComponentOverrideRecord* FindRecord(FComponentKey Key) const;
+	const FComponentOverrideRecord* FindRecord(const FComponentKey Key) const;
 	
 	UPROPERTY()
 	TArray<FComponentOverrideRecord> Records;
