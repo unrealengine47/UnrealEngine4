@@ -8,7 +8,7 @@
 #pragma once
 
 template<typename LightMapPolicyType>
-inline void TBasePassVertexShaderBaseType<LightMapPolicyType>::SetMesh(FRHICommandList& RHICmdList, const FVertexFactory* VertexFactory,const FSceneView& View,const FPrimitiveSceneProxy* Proxy,const FMeshBatchElement& BatchElement)
+inline void TBasePassVertexShaderBaseType<LightMapPolicyType>::SetMesh(FRHICommandList& RHICmdList, const FVertexFactory* VertexFactory,const FSceneView& View,const FPrimitiveSceneProxy* Proxy, const FMeshBatch& Mesh, const FMeshBatchElement& BatchElement)
 {
 	FVertexShaderRHIParamRef VertexShaderRHI = GetVertexShader();
 	FMeshMaterialShader::SetMesh(RHICmdList, VertexShaderRHI, VertexFactory, View, Proxy, BatchElement);
@@ -17,19 +17,19 @@ inline void TBasePassVertexShaderBaseType<LightMapPolicyType>::SetMesh(FRHIComma
 	{
 		check(SkipOutputVelocityParameter.IsBound());
 
-		// previous transform can be stored in the scene for each primitive
 		FMatrix PreviousLocalToWorld;
-		const auto& Scene = (const FScene&)Proxy->GetScene();
-		//@todo-rco: Move to InitViews
-		if (Scene.MotionBlurInfoData.GetPrimitiveMotionBlurInfo(Proxy->GetPrimitiveSceneInfo(), PreviousLocalToWorld))
+		bool bHasPreviousLocalToWorld = false;
+		const auto& ViewInfo = (const FViewInfo&)View;
+		if (FVelocityDrawingPolicy::HasVelocityOnBasePass(ViewInfo, Proxy, Proxy->GetPrimitiveSceneInfo(), Mesh,
+			bHasPreviousLocalToWorld, PreviousLocalToWorld))
 		{
-			const auto& ViewInfo = (const FViewInfo&)View;
-			SetShaderValue(RHICmdList, VertexShaderRHI, PreviousLocalToWorldParameter, PreviousLocalToWorld.ConcatTranslation(ViewInfo.PrevViewMatrices.PreViewTranslation));
+			const FMatrix& Transform = bHasPreviousLocalToWorld ? PreviousLocalToWorld : Proxy->GetLocalToWorld();
+			SetShaderValue(RHICmdList, VertexShaderRHI, PreviousLocalToWorldParameter, Transform.ConcatTranslation(ViewInfo.PrevViewMatrices.PreViewTranslation));
+
 			SetShaderValue(RHICmdList, VertexShaderRHI, SkipOutputVelocityParameter, 0.0f);
 		}
 		else
 		{
-			SetShaderValue(RHICmdList, VertexShaderRHI, PreviousLocalToWorldParameter, Proxy->GetLocalToWorld());
 			SetShaderValue(RHICmdList, VertexShaderRHI, SkipOutputVelocityParameter, 1.0f);
 		}
 	}

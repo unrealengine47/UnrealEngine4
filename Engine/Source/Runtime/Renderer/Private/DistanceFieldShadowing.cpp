@@ -388,6 +388,7 @@ public:
 		NumGroups.Bind(Initializer.ParameterMap, TEXT("NumGroups"));
 		LightDirection.Bind(Initializer.ParameterMap, TEXT("LightDirection"));
 		LightSourceRadius.Bind(Initializer.ParameterMap, TEXT("LightSourceRadius"));
+		RayStartOffsetDepthScale.Bind(Initializer.ParameterMap, TEXT("RayStartOffsetDepthScale"));
 		LightPositionAndInvRadius.Bind(Initializer.ParameterMap, TEXT("LightPositionAndInvRadius"));
 		TanLightAngleAndNormalThreshold.Bind(Initializer.ParameterMap, TEXT("TanLightAngleAndNormalThreshold"));
 		ScissorRectMinAndSize.Bind(Initializer.ParameterMap, TEXT("ScissorRectMinAndSize"));
@@ -434,6 +435,8 @@ public:
 		// Default light source radius of 0 gives poor results
 		SetShaderValue(RHICmdList, ShaderRHI, LightSourceRadius, LightSourceRadiusValue == 0 ? 20 : FMath::Clamp(LightSourceRadiusValue, .001f, 1.0f / (4 * LightPositionAndInvRadiusValue.W)));
 
+		SetShaderValue(RHICmdList, ShaderRHI, RayStartOffsetDepthScale, ProjectedShadowInfo->LightSceneInfo->Proxy->GetRayStartOffsetDepthScale());
+
 		const float LightSourceAngle = FMath::Clamp(ProjectedShadowInfo->LightSceneInfo->Proxy->GetLightSourceAngle(), 0.001f, 5.0f) * PI / 180.0f;
 		const FVector2D TanLightAngleAndNormalThresholdValue(FMath::Tan(LightSourceAngle), FMath::Cos(PI / 2 + LightSourceAngle));
 		SetShaderValue(RHICmdList, ShaderRHI, TanLightAngleAndNormalThreshold, TanLightAngleAndNormalThresholdValue);
@@ -467,6 +470,7 @@ public:
 		Ar << LightDirection;
 		Ar << LightPositionAndInvRadius;
 		Ar << LightSourceRadius;
+		Ar << RayStartOffsetDepthScale;
 		Ar << TanLightAngleAndNormalThreshold;
 		Ar << ScissorRectMinAndSize;
 		Ar << ObjectParameters;
@@ -485,6 +489,7 @@ private:
 	FShaderParameter LightDirection;
 	FShaderParameter LightPositionAndInvRadius;
 	FShaderParameter LightSourceRadius;
+	FShaderParameter RayStartOffsetDepthScale;
 	FShaderParameter TanLightAngleAndNormalThreshold;
 	FShaderParameter ScissorRectMinAndSize;
 	FDistanceFieldCulledObjectBufferParameters ObjectParameters;
@@ -696,7 +701,7 @@ bool FDeferredShadingSceneRenderer::ShouldPrepareForDistanceFieldShadows() const
 			{
 				const FProjectedShadowInfo* ProjectedShadowInfo = VisibleLightInfo.AllProjectedShadows[ShadowIndex];
 
-				if (ProjectedShadowInfo->bRayTracedDistanceFieldShadow)
+				if (ProjectedShadowInfo->CascadeSettings.bRayTracedDistanceField)
 				{
 					bSceneHasRayTracedDFShadows = true;
 					break;
@@ -735,7 +740,7 @@ void FProjectedShadowInfo::RenderRayTracedDistanceFieldProjection(FRHICommandLis
 				NumPlanes = CascadeSettings.ShadowBoundsAccurate.Planes.Num();
 				PlaneData = CascadeSettings.ShadowBoundsAccurate.Planes.GetData();
 			}
-			else if (bOnePassPointLightShadow)
+			else if (CascadeSettings.bOnePassPointLightShadow)
 			{
 				ShadowBoundingSphereValue = FVector4(ShadowBounds.Center.X, ShadowBounds.Center.Y, ShadowBounds.Center.Z, ShadowBounds.W);
 			}
@@ -822,7 +827,9 @@ void FProjectedShadowInfo::RenderRayTracedDistanceFieldProjection(FRHICommandLis
 					
 				if (bDirectionalLight)
 				{
-					check(CascadeSettings.FadePlaneLength == 0);
+					// todo: when using far shadows we need to fix the shader to get a soft transition
+//					check(CascadeSettings.FadePlaneLength == 0);
+
 					// first cascade rendered or old method doesn't require fading (CO_Min is needed to combine multiple shadow passes)
 					// The ray traced cascade should always be first
 					RHICmdList.SetBlendState(TStaticBlendState<CW_RG, BO_Min, BF_One, BF_One>::GetRHI());

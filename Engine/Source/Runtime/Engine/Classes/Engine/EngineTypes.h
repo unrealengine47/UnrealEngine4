@@ -1522,7 +1522,7 @@ struct ENGINE_API FHitResult
 	TWeakObjectPtr<class AActor> Actor;
 
 	/** PrimitiveComponent hit by the trace. */
-	UPROPERTY(NotReplicated)
+	UPROPERTY()
 	TWeakObjectPtr<class UPrimitiveComponent> Component;
 
 	/** Name of bone we hit (for skeletal meshes). */
@@ -1764,12 +1764,12 @@ public:
 	{ }
 
 	/** Set parameters and verify inputs.
-	 * @param : Owner Actor owner calling this.
+	 * @param : UpdateShiftRate. Shift our update frames so that updates across all skinned components are staggered
 	 * @param : NewUpdateRate. How often animation will be updated/ticked. 1 = every frame, 2 = every 2 frames, etc.
 	 * @param : NewEvaluationRate. How often animation will be evaluated. 1 = every frame, 2 = every 2 frames, etc.
 	 * @param : bNewInterpSkippedFrames. When skipping a frame, should it be interpolated or frozen?
 	 */
-	void Set(class AActor& Owner, const int32& NewUpdateRate, const int32& NewEvaluationRate, const bool & bNewInterpSkippedFrames);
+	void Set(uint8 UpdateRateShift, const int32& NewUpdateRate, const int32& NewEvaluationRate, const bool & bNewInterpSkippedFrames);
 
 	/* Getter for UpdateRate */
 	int32 GetUpdateRate() const
@@ -1995,6 +1995,9 @@ struct FMeshBuildSettings
 	UPROPERTY(EditAnywhere, Category=BuildSettings)
 	bool bGenerateDistanceFieldAsIfTwoSided;
 
+	UPROPERTY(EditAnywhere, Category=BuildSettings)
+	class UStaticMesh* DistanceFieldReplacementMesh;
+
 	/** Default settings. */
 	FMeshBuildSettings()
 		: bUseMikkTSpace(true)
@@ -2010,6 +2013,7 @@ struct FMeshBuildSettings
 		, BuildScale3D(1.0f, 1.0f, 1.0f)
 		, DistanceFieldResolutionScale(1.0f)
 		, bGenerateDistanceFieldAsIfTwoSided(false)
+		, DistanceFieldReplacementMesh(NULL)
 	{ }
 
 	/** Equality operator. */
@@ -2026,7 +2030,8 @@ struct FMeshBuildSettings
 			&& DstLightmapIndex == Other.DstLightmapIndex
 			&& BuildScale3D == Other.BuildScale3D
 			&& DistanceFieldResolutionScale == Other.DistanceFieldResolutionScale
-			&& bGenerateDistanceFieldAsIfTwoSided == Other.bGenerateDistanceFieldAsIfTwoSided;
+			&& bGenerateDistanceFieldAsIfTwoSided == Other.bGenerateDistanceFieldAsIfTwoSided
+			&& DistanceFieldReplacementMesh == Other.DistanceFieldReplacementMesh;
 	}
 
 	/** Inequality. */

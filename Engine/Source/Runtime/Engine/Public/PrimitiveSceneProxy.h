@@ -346,6 +346,7 @@ public:
 	inline bool CastsShadowAsTwoSided() const { return bCastShadowAsTwoSided; }
 	inline bool CastsSelfShadowOnly() const { return bSelfShadowOnly; }
 	inline bool CastsInsetShadow() const { return bCastInsetShadow; }
+	inline bool CastsFarShadow() const { return bCastFarShadow; }
 	inline bool LightAttachmentsAsGroup() const { return bLightAttachmentsAsGroup; }
 	inline bool StaticElementsAlwaysUseProxyPrimitiveUniformBuffer() const { return bStaticElementsAlwaysUseProxyPrimitiveUniformBuffer; }
 	inline bool ShouldUseAsOccluder() const { return bUseAsOccluder; }
@@ -367,6 +368,9 @@ public:
 
 #if WITH_EDITOR
 	inline int32 GetNumUncachedStaticLightingInteractions() { return NumUncachedStaticLightingInteractions; }
+
+	void SetHierarchicalLOD_GameThread(const int32 InLODLevel);
+	void SetHierarchicalLOD_RenderThread(const int32 InLODLevel);
 #endif
 
 	inline FLinearColor GetWireframeColor() const { return WireframeColor; }
@@ -528,6 +532,9 @@ protected:
 	/** Whether this component should create a per-object shadow that gives higher effective shadow resolution. true if bSelfShadowOnly is true. */
 	uint32 bCastInsetShadow : 1;
 
+	/* When enabled, the component will be rendering into the distant shadow cascades (only for directional lights). */
+	uint32 bCastFarShadow : 1;
+
 	/** 
 	 * Whether to light this component and any attachments as a group.  This only has effect on the root component of an attachment tree.
 	 * When enabled, attached component shadowing settings like bCastInsetShadow, bCastVolumetricTranslucentShadow, etc, will be ignored.
@@ -653,6 +660,9 @@ private:
 	*/
 	int32 NumUncachedStaticLightingInteractions;
 	friend class FLightPrimitiveInteraction;
+
+	/** this is used if world setting has EnableHierarchical LOD true */
+	int32 HierarchicalLODOverride;
 #endif
 
 	/** Updates the proxy's actor position, called from the game thread. */

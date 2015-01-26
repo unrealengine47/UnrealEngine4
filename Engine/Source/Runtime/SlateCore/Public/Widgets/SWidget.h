@@ -35,6 +35,8 @@ public:
 	}
 };
 
+class IToolTip;
+
 /**
  * Abstract base class for Slate widgets.
  *
@@ -643,10 +645,7 @@ public:
 	}
 
 	/** @return is this widget visible, hidden or collapsed */
-	EVisibility GetVisibility() const
-	{
-		return Visibility.Get();
-	}
+	EVisibility GetVisibility() const;
 
 	/** @param InVisibility  should this widget be */
 	virtual void SetVisibility( TAttribute<EVisibility> InVisibility )
@@ -770,6 +769,9 @@ public:
 	/** @return A String of the widget's code location */
 	virtual FString GetCreatedInFile() const;
 
+	/** @return A String of the widget's code location */
+	virtual FName GetCreatedInFileFName() const;
+
 	/** @return The line number of the widgets location */
 	virtual int32 GetCreatedInLineNumber() const;
 
@@ -874,7 +876,7 @@ protected:
 	 * 
 	 * An active timer can be UnRegistered in one of three ways:
 	 *   1. Call UnRegisterActiveTimer using the active timer handle that is returned here.
-	 *   2. Have your delegate return ETickWidgetReturnType::StopTicking.
+	 *   2. Have your delegate return EActiveTimerReturnType::Stop.
 	 *   3. Destroying the widget
 	 * 
 	 * Active Timers

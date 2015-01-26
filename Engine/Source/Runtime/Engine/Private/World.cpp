@@ -42,6 +42,7 @@
 #include "GameFramework/PlayerState.h"
 
 #include "Materials/MaterialParameterCollectionInstance.h"
+
 #if WITH_EDITOR
 	#include "Editor/UnrealEd/Public/Kismet2/KismetEditorUtilities.h"
 	#include "Editor/UnrealEd/Public/Kismet2/BlueprintEditorUtils.h"
@@ -102,6 +103,9 @@ FWorldDelegates::FOnLevelChanged FWorldDelegates::LevelRemovedFromWorld;
 
 UWorld::UWorld( const FObjectInitializer& ObjectInitializer )
 :	UObject(ObjectInitializer)
+#if WITH_EDITOR
+,	HierarchicalLODBuilder(this)
+#endif
 ,	FeatureLevel(GMaxRHIFeatureLevel)
 ,	FXSystem(NULL)
 ,	TickTaskLevel(FTickTaskManagerInterface::Get().AllocateTickTaskLevel())
@@ -120,6 +124,9 @@ UWorld::UWorld( const FObjectInitializer& ObjectInitializer )
 
 UWorld::UWorld( const FObjectInitializer& ObjectInitializer,const FURL& InURL )
 :	UObject(ObjectInitializer)
+#if WITH_EDITOR
+,	HierarchicalLODBuilder(this)
+#endif
 ,	FeatureLevel(GMaxRHIFeatureLevel)
 ,	URL(InURL)
 ,	FXSystem(NULL)

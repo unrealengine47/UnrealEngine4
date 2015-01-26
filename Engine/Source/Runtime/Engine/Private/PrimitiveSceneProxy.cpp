@@ -45,6 +45,7 @@ FPrimitiveSceneProxy::FPrimitiveSceneProxy(const UPrimitiveComponent* InComponen
 ,	bCastShadowAsTwoSided(InComponent->bCastShadowAsTwoSided)
 ,	bSelfShadowOnly(InComponent->bSelfShadowOnly)
 ,	bCastInsetShadow(InComponent->bSelfShadowOnly ? true : InComponent->bCastInsetShadow)	// Assumed to be enabled if bSelfShadowOnly is enabled.
+,	bCastFarShadow(InComponent->bCastFarShadow)
 ,	bLightAttachmentsAsGroup(InComponent->bLightAttachmentsAsGroup)
 ,	bStaticElementsAlwaysUseProxyPrimitiveUniformBuffer(false)
 ,	bAlwaysHasVelocity(false)
@@ -77,6 +78,7 @@ FPrimitiveSceneProxy::FPrimitiveSceneProxy(const UPrimitiveComponent* InComponen
 ,	ComponentForDebuggingOnly(InComponent)
 #if WITH_EDITOR
 ,	NumUncachedStaticLightingInteractions(0)
+,	HierarchicalLODOverride(0)
 #endif
 {
 	check(Scene);
@@ -334,6 +336,27 @@ void FPrimitiveSceneProxy::SetCollisionEnabled_RenderThread(const bool bNewEnabl
 	bCollisionEnabled = bNewEnabled;
 }
 
+#if WITH_EDITOR
+void FPrimitiveSceneProxy::SetHierarchicalLOD_GameThread(const int32 InLODLevel)
+{
+	check(IsInGameThread());
+
+	// Enqueue a message to the rendering thread to change draw state
+	ENQUEUE_UNIQUE_RENDER_COMMAND_TWOPARAMETER(
+		etHierarchicalLOD,
+		FPrimitiveSceneProxy*, PrimSceneProxy, this,
+		const int32, InLODLevel, InLODLevel,
+		{
+		PrimSceneProxy->SetHierarchicalLOD_RenderThread(InLODLevel);
+	});
+}
+
+void FPrimitiveSceneProxy::SetHierarchicalLOD_RenderThread(const int32 InLODLevel)
+{
+	check(IsInRenderingThread());
+	HierarchicalLODOverride = InLODLevel;
+}
+#endif 
 /** @return True if the primitive is visible in the given View. */
 bool FPrimitiveSceneProxy::IsShown(const FSceneView* View) const
 {
@@ -354,6 +377,11 @@ bool FPrimitiveSceneProxy::IsShown(const FSceneView* View) const
 		// If we are in a collision view, hide anything which doesn't have collision enabled
 		const bool bCollisionView = (View->Family->EngineShowFlags.CollisionVisibility || View->Family->EngineShowFlags.CollisionPawn);
 		if(bCollisionView && !IsCollisionEnabled())
+		{
+			return false;
+		}
+
+		if (View->Family->HierarchicalLODOverride >= 0 && View->Family->HierarchicalLODOverride != HierarchicalLODOverride)
 		{
 			return false;
 		}

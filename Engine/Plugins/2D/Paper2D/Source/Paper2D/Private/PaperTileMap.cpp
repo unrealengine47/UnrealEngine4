@@ -86,15 +86,7 @@ void UPaperTileMap::PostEditChangeProperty(FPropertyChangedEvent& PropertyChange
 
 	if ((PropertyName == GET_MEMBER_NAME_CHECKED(UPaperTileMap, MapWidth)) || (PropertyName == GET_MEMBER_NAME_CHECKED(UPaperTileMap, MapHeight)))
 	{
-		MapWidth = FMath::Max(MapWidth, 1);
-		MapHeight = FMath::Max(MapHeight, 1);
-
-		// Resize all of the existing layers
-		for (int32 LayerIndex = 0; LayerIndex < TileLayers.Num(); ++LayerIndex)
-		{
-			UPaperTileLayer* TileLayer = TileLayers[LayerIndex];
-			TileLayer->ResizeMap(MapWidth, MapHeight);
-		}
+		ResizeMap(MapWidth, MapHeight, /*bForceResize=*/ true);
 	}
 
 	if (!IsTemplate())
@@ -193,11 +185,12 @@ void UPaperTileMap::GetTileToLocalParameters(FVector& OutCornerPosition, FVector
 		OutStepX = (TileWidth * PaperAxisX * 0.5f) - (TileHeight * PaperAxisY * 0.5f);
 		OutStepY = (TileWidth * PaperAxisX * -0.5f) - (TileHeight * PaperAxisY * 0.5f);
 		break;
+	case ETileMapProjectionMode::HexagonalStaggered:
 	case ETileMapProjectionMode::IsometricStaggered:
-		OutCornerPosition = 0.5f * TileHeight * PaperAxisY;
+		OutCornerPosition = -(TileWidth * PaperAxisX * 0.5f) + (TileHeight * PaperAxisY * 1.0f);
 		OutOffsetYFactor = 0.5f * TileWidth * PaperAxisX;
 		OutStepX = PaperAxisX * TileWidth;
-		OutStepY = -PaperAxisY * TileHeight;
+		OutStepY = 0.5f * -PaperAxisY * TileHeight;
 		break;
 	}
 }
@@ -219,8 +212,9 @@ void UPaperTileMap::GetLocalToTileParameters(FVector& OutCornerPosition, FVector
 		OutStepX = (PaperAxisX / TileWidth) - (PaperAxisY / TileHeight);
 		OutStepY = (-PaperAxisX / TileWidth) - (PaperAxisY / TileHeight);
 		break;
+	case ETileMapProjectionMode::HexagonalStaggered:
 	case ETileMapProjectionMode::IsometricStaggered:
-		OutCornerPosition = 0.5f * TileHeight * PaperAxisY;
+		OutCornerPosition = -(TileWidth * PaperAxisX * 0.5f) + (TileHeight * PaperAxisY * 1.0f);
 		OutOffsetYFactor = 0.5f * TileWidth * PaperAxisX;
 		OutStepX = PaperAxisX / TileWidth;
 		OutStepY = -PaperAxisY / TileHeight;
@@ -267,6 +261,7 @@ FVector UPaperTileMap::GetTilePositionInLocalSpace(float TileX, float TileY, int
 	case ETileMapProjectionMode::IsometricDiamond:
 		TotalOffset = CornerPosition;
 		break;
+	case ETileMapProjectionMode::HexagonalStaggered:
 	case ETileMapProjectionMode::IsometricStaggered:
 		TotalOffset = CornerPosition + ((int32)TileY & 1) * OffsetYFactor;
 		break;
@@ -312,9 +307,7 @@ FBoxSphereBounds UPaperTileMap::GetRenderBounds() const
 			 const FBox Box(BottomLeft, BottomLeft + Dimensions);
 			 return FBoxSphereBounds(Box);
 		}
-// 		case ETileMapProjectionMode::IsometricStaggered:
-// 		{
-// 		}
+//@TODO: verify bounds for IsometricStaggered and HexagonalStaggered
 	}
 }
 
@@ -365,6 +358,22 @@ FText UPaperTileMap::GenerateNewLayerName(UPaperTileMap* TileMap)
 	} while (ExistingNames.Contains(TestLayerName.ToString()));
 
 	return TestLayerName;
+}
+
+void UPaperTileMap::ResizeMap(int32 NewWidth, int32 NewHeight, bool bForceResize)
+{
+	if (bForceResize || (NewWidth != MapWidth) || (NewHeight != MapHeight))
+	{
+		MapWidth = FMath::Max(NewWidth, 1);
+		MapHeight = FMath::Max(NewHeight, 1);
+
+		// Resize all of the existing layers
+		for (int32 LayerIndex = 0; LayerIndex < TileLayers.Num(); ++LayerIndex)
+		{
+			UPaperTileLayer* TileLayer = TileLayers[LayerIndex];
+			TileLayer->ResizeMap(MapWidth, MapHeight);
+		}
+	}
 }
 
 //////////////////////////////////////////////////////////////////////////

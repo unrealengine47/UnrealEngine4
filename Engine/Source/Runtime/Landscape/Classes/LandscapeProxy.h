@@ -15,12 +15,12 @@
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "LandscapeComponent.h"
 #include "LandscapeLayerInfoObject.h"
+#include "LandscapeGrassType.h"
 #include "Tickable.h"
 
 #include "LandscapeProxy.generated.h"
 
 class ULandscapeMaterialInstanceConstant;
-class ULandscapeLayerInfoObject;
 class ULandscapeSplinesComponent;
 class ULandscapeHeightfieldCollisionComponent;
 class UMaterialInterface;
@@ -196,7 +196,7 @@ struct FCachedLandscapeFoliage
 	struct FGrassCompKey
 	{
 		TWeakObjectPtr<ULandscapeComponent> BasedOn;
-		TWeakObjectPtr<ULandscapeLayerInfoObject> Layer;
+		TWeakObjectPtr<ULandscapeGrassType> GrassType;
 		int32 SqrtSubsections;
 		int32 CachedMaxInstancesPerComponent;
 		int32 SubsectionX;
@@ -217,12 +217,12 @@ struct FCachedLandscapeFoliage
 				SubsectionX == Other.SubsectionX &&
 				SubsectionY == Other.SubsectionY &&
 				BasedOn == Other.BasedOn &&
-				Layer == Other.Layer;
+				GrassType == Other.GrassType;
 		}
 
 		friend uint32 GetTypeHash(const FGrassCompKey& Key)
 		{
-			return GetTypeHash(Key.BasedOn) ^ GetTypeHash(Key.Layer) ^ Key.SqrtSubsections ^ Key.CachedMaxInstancesPerComponent ^ (Key.SubsectionX >> 16) ^ (Key.SubsectionY >> 24);
+			return GetTypeHash(Key.BasedOn) ^ GetTypeHash(Key.GrassType) ^ Key.SqrtSubsections ^ Key.CachedMaxInstancesPerComponent ^ (Key.SubsectionX >> 16) ^ (Key.SubsectionY >> 24);
 		}
 
 	};
@@ -294,7 +294,7 @@ public:
 	}
 };
 
-UCLASS(NotPlaceable, hidecategories=(Display, Attachment, Physics, Debug, Lighting, LOD), showcategories=(Rendering, "Utilities|Transformation"), MinimalAPI)
+UCLASS(NotPlaceable, hidecategories=(Display, Attachment, Physics, Debug, Lighting, LOD), showcategories=(Lighting, Rendering, "Utilities|Transformation"), MinimalAPI)
 class ALandscapeProxy : public AActor, public FTickableGameObject
 {
 	GENERATED_UCLASS_BODY()
@@ -320,7 +320,7 @@ public:
 	bool bStaticSectionOffset;
 #endif
 
-	/** Max LOD level to use when rendering */
+	/** Max LOD level to use when rendering, -1 means the max available */
 	UPROPERTY(EditAnywhere, Category=LOD)
 	int32 MaxLODLevel;
 
@@ -388,8 +388,12 @@ public:
 	uint32 bCastStaticShadow:1;
 
 	/** Whether this primitive should cast dynamic shadows as if it were a two sided material. */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, Category=Lighting)
+	UPROPERTY(EditAnywhere, AdvancedDisplay, Category=Lighting, meta=(DisplayName = "Shadow Two Sided"))
 	uint32 bCastShadowAsTwoSided:1;
+
+	/** Whether this primitive should cast shadows in the far shadow cascades. */
+	UPROPERTY(EditAnywhere, AdvancedDisplay, Category=Lighting, meta=(DisplayName = "Far Shadow"))
+	uint32 bCastFarShadow:1;
 
 	UPROPERTY()
 	uint32 bIsProxy:1;
@@ -453,7 +457,10 @@ public:
 #endif
 
 public:
+
+#if WITH_EDITOR
 	LANDSCAPE_API static ULandscapeLayerInfoObject* VisibilityLayer;
+#endif
 
 	/** Map of material instance constants used to for the components. Key is generated with ULandscapeComponent::GetLayerAllocationKey() */
 	TMap<FString, UMaterialInstanceConstant*> MaterialInstanceConstantMap;
@@ -491,6 +498,9 @@ public:
 		* @param bForceSync if true, block and finish all work
 	*/
 	LANDSCAPE_API void UpdateFoliage(const TArray<FVector>& Cameras, ULandscapeComponent* OnlyComponent = nullptr, bool bForceSync = false);
+
+	/* Get the list of grass types on this landscape */
+	TArray<const ULandscapeGrassType*> GetGrassTypes() const;
 
 	// Begin FTickableGameObject interface.
 	virtual void Tick(float DeltaTime) override;

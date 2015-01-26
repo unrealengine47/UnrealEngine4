@@ -50,7 +50,6 @@ public:
 	{
 		FMeshMaterialShader::ModifyCompilationEnvironment(Platform, Material, OutEnvironment);
 		LightMapPolicyType::ModifyCompilationEnvironment(Platform, Material, OutEnvironment);
-		OutEnvironment.SetDefine(TEXT("OUTPUT_GBUFFER_VELOCITY"), (uint32)(FVelocityRendering::OutputsToGBuffer() ? 1 : 0));
 	}
 
 	virtual bool Serialize(FArchive& Ar)
@@ -83,7 +82,7 @@ public:
 		}
 	}
 
-	void SetMesh(FRHICommandList& RHICmdList, const FVertexFactory* VertexFactory,const FSceneView& View,const FPrimitiveSceneProxy* Proxy,const FMeshBatchElement& BatchElement);
+	void SetMesh(FRHICommandList& RHICmdList, const FVertexFactory* VertexFactory,const FSceneView& View,const FPrimitiveSceneProxy* Proxy, const FMeshBatch& Mesh, const FMeshBatchElement& BatchElement);
 
 private:
 	
@@ -336,7 +335,6 @@ public:
 		LightMapPolicyType::ModifyCompilationEnvironment(Platform, Material, OutEnvironment);
 
 		const bool bOutputVelocity = FVelocityRendering::OutputsToGBuffer();
-		OutEnvironment.SetDefine(TEXT("OUTPUT_GBUFFER_VELOCITY"), (uint32)(bOutputVelocity ? 1 : 0));
 		if (bOutputVelocity)
 		{
 			OutEnvironment.SetRenderTargetOutputFormat(6, PF_G16R16);
@@ -666,7 +664,7 @@ public:
 			ElementData.LightMapElementData);
 
 		const FMeshBatchElement& BatchElement = Mesh.Elements[BatchElementIndex];
-		VertexShader->SetMesh(RHICmdList, VertexFactory,View,PrimitiveSceneProxy,BatchElement);
+		VertexShader->SetMesh(RHICmdList, VertexFactory,View,PrimitiveSceneProxy, Mesh,BatchElement);
 		
 		if(HullShader && DomainShader)
 		{

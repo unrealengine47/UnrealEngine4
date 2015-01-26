@@ -449,6 +449,10 @@ public:
 	/** return true if Montage is not currently active. (not valid or blending out) */
 	bool Montage_GetIsStopped(UAnimMontage* Montage);
 
+	/** Get the current blend time of the Montage.
+	If Montage reference is NULL, it will return the current blend time on the first active Montage found. */
+	float Montage_GetBlendTime(UAnimMontage* Montage);
+
 	/** Get PlayRate for Montage.
 	If Montage reference is NULL, PlayRate for any Active Montage will be returned.
 	If Montage is not playing, 0 is returned. */
@@ -574,6 +578,12 @@ public:
 	// @return true if this function is implemented, false otherwise.
 	// Note: the node graph will not be evaluated if this function returns true
 	virtual bool NativeEvaluateAnimation(FPoseContext& Output);
+
+	// Called back from the anim graph when a state is entered
+	virtual void NativeStateStart(const FName& MachineName, const FName& StateName);
+
+	// Called back from the anim graph when a state is exited
+	virtual void NativeStateEnd(const FName& MachineName, const FName& StateName);
 
 	// Debug output for this anim instance 
 	void DisplayDebug(UCanvas* Canvas, const FDebugDisplayInfo& DebugDisplay, float& YL, float& YPos);

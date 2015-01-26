@@ -108,7 +108,7 @@ FPrimitiveSceneInfo::FPrimitiveSceneInfo(UPrimitiveComponent* InComponent,FScene
 	{
 		LightingAttachmentRoot = SearchParentComponent->ComponentId;
 	}
-		
+
 	// Only create hit proxies in the Editor as that's where they are used.
 	if (GIsEditor)
 	{
@@ -118,6 +118,14 @@ FPrimitiveSceneInfo::FPrimitiveSceneInfo(UPrimitiveComponent* InComponent,FScene
 		{
 			DefaultDynamicHitProxyId = DefaultDynamicHitProxy->Id;
 		}
+	}
+
+	// set LOD parent info if exists
+	if (InComponent->LODParentPrimitive.IsValid())
+	{
+		// I think this should be checked in editor feature
+		check (InComponent->LODParentPrimitive.Get() != InComponent);
+		LODParentComponentId = InComponent->LODParentPrimitive.Get()->ComponentId;
 	}
 }
 
@@ -312,6 +320,24 @@ void FPrimitiveSceneInfo::BeginDeferredUpdateStaticMeshes()
 	bNeedsStaticMeshUpdate = true;
 }
 
+void FPrimitiveSceneInfo::LinkLODParentComponent()
+{
+	if (LODParentComponentId.IsValid())
+	{
+		Scene->SceneLODHierarchy.AddChildNode(LODParentComponentId, this);
+	}
+}
+
+void FPrimitiveSceneInfo::UnlinkLODParentComponent()
+{
+	if(LODParentComponentId.IsValid())
+	{
+		Scene->SceneLODHierarchy.RemoveChildNode(LODParentComponentId, this);
+		// I don't think this will be reused but just in case
+		LODParentComponentId = FPrimitiveComponentId();
+	}
+}
+
 void FPrimitiveSceneInfo::LinkAttachmentGroup()
 {
 	// Add the primitive to its attachment group.
@@ -428,7 +454,7 @@ bool FPrimitiveSceneInfo::ShouldRenderVelocity(const FViewInfo& View, bool bChec
 
 	const FPrimitiveViewRelevance& PrimitiveViewRelevance = View.PrimitiveViewRelevanceMap[PrimitiveId];
 
-	if (!Proxy->IsMovable() && !PrimitiveViewRelevance.bHasWorldPositionOffset)
+	if (!Proxy->IsMovable())
 	{
 		return false;
 	}
@@ -452,7 +478,7 @@ bool FPrimitiveSceneInfo::ShouldRenderVelocity(const FViewInfo& View, bool bChec
 	}
 
 	// Only render primitives with velocity.
-	if (!FVelocityDrawingPolicy::HasVelocity(View, this, PrimitiveViewRelevance.bHasWorldPositionOffset))
+	if (!FVelocityDrawingPolicy::HasVelocity(View, this))
 	{
 		return false;
 	}

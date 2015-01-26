@@ -19,8 +19,11 @@ namespace ETileMapProjectionMode
 		// Isometric tile layout (shaped like a diamond)
 		IsometricDiamond,
 
-		// Isometric tile layout (roughly in a square with alternating rows staggered)
-		IsometricStaggered
+		// Isometric tile layout (roughly in a square with alternating rows staggered).  Warning: Not fully supported yet.
+		IsometricStaggered,
+
+		// Hexagonal tile layout (roughly in a square with alternating rows staggered).  Warning: Not fully supported yet.
+		HexagonalStaggered
 	};
 }
 
@@ -136,6 +139,8 @@ public:
 	// Creates a reasonable new layer name
 	static FText GenerateNewLayerName(UPaperTileMap* TileMap);
 
+	// Resize the tile map and all layers
+	void ResizeMap(int32 NewWidth, int32 NewHeight, bool bForceResize = true);
 protected:
 	virtual void UpdateBodySetup();
 };

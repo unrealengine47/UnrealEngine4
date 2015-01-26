@@ -142,6 +142,12 @@ bool UGameplayAbility::CanActivateAbility(const FGameplayAbilitySpecHandle Handl
 {
 	// Don't set the actor info, CanActivate is called on the CDO
 
+	// A valid AvatarActor is required. Simulated proxy check means only authority or autonomous proxies should be executing abilities.
+	if (ActorInfo == nullptr || ActorInfo->AvatarActor == nullptr || ActorInfo->AvatarActor->Role == ROLE_SimulatedProxy)
+	{
+		return false;
+	}
+
 	//make into a reference for simplicity
 	FGameplayTagContainer DummyContainer;
 	FGameplayTagContainer& OutTags = OptionalRelevantTags ? *OptionalRelevantTags : DummyContainer;
@@ -732,7 +738,7 @@ void UGameplayAbility::MontageSetNextSectionName(FName FromSectionName, FName To
 	}
 }
 
-void UGameplayAbility::MontageStop()
+void UGameplayAbility::MontageStop(float OverrideBlendOutTime)
 {
 	check(CurrentActorInfo);
 
@@ -742,7 +748,7 @@ void UGameplayAbility::MontageStop()
 		// We should only stop the current montage if we are the animating ability
 		if (AbilitySystemComponent->IsAnimatingAbility(this))
 		{
-			AbilitySystemComponent->CurrentMontageStop();
+			AbilitySystemComponent->CurrentMontageStop(OverrideBlendOutTime);
 		}
 	}
 }

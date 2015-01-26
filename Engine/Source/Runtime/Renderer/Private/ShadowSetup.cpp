@@ -363,36 +363,34 @@ FProjectedShadowInfo::FProjectedShadowInfo(
 	uint32 MaxShadowResolutionY,
 	float InMaxScreenPercent,
 	const TArray<float, TInlineAllocator<2> >& InFadeAlphas,
-	bool bInTranslucentShadow
-	):
-	LightSceneInfo(InLightSceneInfo),
-	LightSceneInfoCompact(InLightSceneInfo),
-	ParentSceneInfo(InParentSceneInfo),
-	DependentView(NULL),
-	ShadowId(INDEX_NONE),
-	PreShadowTranslation(Initializer.PreShadowTranslation),	
-	ShadowBounds(Initializer.SubjectBounds.Origin - Initializer.PreShadowTranslation, Initializer.SubjectBounds.SphereRadius),
-	X(0),
-	Y(0),
-	ResolutionX(InResolutionX),
-	ResolutionY(0),
-	MaxScreenPercent(InMaxScreenPercent),
-	FadeAlphas(InFadeAlphas),
-	ShadowSplitIndex(INDEX_NONE),
-	bAllocated(false),
-	bAllocatedInTranslucentLayout(false),
-	bRendered(false),
-	bAllocatedInPreshadowCache(false),
-	bDepthsCached(false),
-	bDirectionalLight(InLightSceneInfo->Proxy->GetLightType() == LightType_Directional),
-	bWholeSceneShadow(false),
-	bOnePassPointLightShadow(false),
-	bReflectiveShadowmap(false),
-	bTranslucentShadow(bInTranslucentShadow),
-	bPreShadow(bInPreShadow),
-	bSelfShadowOnly(InParentSceneInfo->Proxy->CastsSelfShadowOnly()),
-	bRayTracedDistanceFieldShadow(false)
+	bool bInTranslucentShadow)
+	: LightSceneInfo(InLightSceneInfo)
+	, LightSceneInfoCompact(InLightSceneInfo)
+	, ParentSceneInfo(InParentSceneInfo)
+	, DependentView(NULL)
+	, ShadowId(INDEX_NONE)
+	, PreShadowTranslation(Initializer.PreShadowTranslation)	
+	, ShadowBounds(Initializer.SubjectBounds.Origin - Initializer.PreShadowTranslation, Initializer.SubjectBounds.SphereRadius)
+	, X(0)
+	, Y(0)
+	, ResolutionX(InResolutionX)
+	, ResolutionY(0)
+	, MaxScreenPercent(InMaxScreenPercent)
+	, FadeAlphas(InFadeAlphas)
+	, bAllocated(false)
+	, bAllocatedInTranslucentLayout(false)
+	, bRendered(false)
+	, bAllocatedInPreshadowCache(false)
+	, bDepthsCached(false)
+	, bDirectionalLight(InLightSceneInfo->Proxy->GetLightType() == LightType_Directional)
+	, bWholeSceneShadow(false)
+	, bReflectiveShadowmap(false)
+	, bTranslucentShadow(bInTranslucentShadow)
+	, bPreShadow(bInPreShadow)
+	, bSelfShadowOnly(InParentSceneInfo->Proxy->CastsSelfShadowOnly())
 {
+	check(!CascadeSettings.bRayTracedDistanceField);
+
 	const FMatrix WorldToLightScaled = Initializer.WorldToLight * FScaleMatrix(Initializer.Scales);
 	
 	// Create an array of the extreme vertices of the subject's bounds.
@@ -489,35 +487,31 @@ FProjectedShadowInfo::FProjectedShadowInfo(
 	const FWholeSceneProjectedShadowInitializer& Initializer,
 	uint32 InResolutionX,
 	uint32 InResolutionY,
-	bool bInReflectiveShadowMap
-	)
-:	LightSceneInfo(InLightSceneInfo)
-,	LightSceneInfoCompact(InLightSceneInfo)
-,	ParentSceneInfo(NULL)
-,	DependentView(InDependentView)
-,	ShadowId(INDEX_NONE)
-,	PreShadowTranslation(Initializer.PreShadowTranslation)
-,	CascadeSettings(Initializer.CascadeSettings)
-,	X(0)
-,	Y(0)
-,	ResolutionX(InResolutionX)
-,	ResolutionY(InResolutionY)
-,	MaxScreenPercent(1.0f)
-,	ShadowSplitIndex(Initializer.InitShadowSplitIndex)
-,	bAllocated(false)
-,	bAllocatedInTranslucentLayout(false)
-,	bRendered(false)
-,	bAllocatedInPreshadowCache(false)
-,	bDepthsCached(false)
-,	bDirectionalLight(InLightSceneInfo->Proxy->GetLightType() == LightType_Directional)
-,	bWholeSceneShadow(true)
-,	bOnePassPointLightShadow(Initializer.bOnePassPointLightShadow)
-,	bReflectiveShadowmap(bInReflectiveShadowMap) 
-,	bTranslucentShadow(false)
-,	bPreShadow(false)
-,	bSelfShadowOnly(false)
-,	bRayTracedDistanceFieldShadow(Initializer.bRayTracedDistanceFieldShadow)
-,	bValidTransform(true)
+	bool bInReflectiveShadowMap)
+	: LightSceneInfo(InLightSceneInfo)
+	, LightSceneInfoCompact(InLightSceneInfo)
+	, ParentSceneInfo(NULL)
+	, DependentView(InDependentView)
+	, ShadowId(INDEX_NONE)
+	, PreShadowTranslation(Initializer.PreShadowTranslation)
+	, CascadeSettings(Initializer.CascadeSettings)
+	, X(0)
+	, Y(0)
+	, ResolutionX(InResolutionX)
+	, ResolutionY(InResolutionY)
+	, MaxScreenPercent(1.0f)
+	, bAllocated(false)
+	, bAllocatedInTranslucentLayout(false)
+	, bRendered(false)
+	, bAllocatedInPreshadowCache(false)
+	, bDepthsCached(false)
+	, bDirectionalLight(InLightSceneInfo->Proxy->GetLightType() == LightType_Directional)
+	, bWholeSceneShadow(true)
+	, bReflectiveShadowmap(bInReflectiveShadowMap) 
+	, bTranslucentShadow(false)
+	, bPreShadow(false)
+	, bSelfShadowOnly(false)
+	, bValidTransform(true)
 {	
 	FVector	XAxis, YAxis;
 	Initializer.FaceDirection.FindBestAxisVectors(XAxis,YAxis);
@@ -529,8 +523,8 @@ FProjectedShadowInfo::FProjectedShadowInfo(
 
 	if(bInReflectiveShadowMap)
 	{
-		check(!bOnePassPointLightShadow);
-		check(!ShadowSplitIndex);
+		check(!CascadeSettings.bOnePassPointLightShadow);
+		check(!CascadeSettings.ShadowSplitIndex);
 
 		// Quantise the RSM in shadow texel space
 		static bool bQuantize = true;
@@ -591,10 +585,10 @@ FProjectedShadowInfo::FProjectedShadowInfo(
 			PreShadowTranslation = -SnappedWorldPosition;
 		}
 
-		if (Initializer.InitShadowSplitIndex >= 0 && bDirectionalLight)
+		if (CascadeSettings.ShadowSplitIndex >= 0 && bDirectionalLight)
 		{
 			checkSlow(InDependentView);
-			ShadowBounds = InLightSceneInfo->Proxy->GetShadowSplitBounds(*InDependentView, ShadowSplitIndex, 0);
+			ShadowBounds = InLightSceneInfo->Proxy->GetShadowSplitBounds(*InDependentView, CascadeSettings.bRayTracedDistanceField ? INDEX_NONE : CascadeSettings.ShadowSplitIndex, 0);
 		}
 		else
 		{
@@ -619,7 +613,7 @@ FProjectedShadowInfo::FProjectedShadowInfo(
 		+ WorldToLightScaled.InverseFast().TransformVector(Initializer.FaceDirection) * Initializer.SubjectBounds.SphereRadius
 		).Z;
 
-	if (Initializer.bOnePassPointLightShadow)
+	if (CascadeSettings.bOnePassPointLightShadow)
 	{
 		MaxSubjectDepth = Initializer.SubjectBounds.SphereRadius;
 	}
@@ -647,7 +641,7 @@ void FProjectedShadowInfo::AddSubjectPrimitive(FPrimitiveSceneInfo* PrimitiveSce
 	QUICK_SCOPE_CYCLE_COUNTER(STAT_AddSubjectPrimitive);
 
 	// Ray traced shadows use the GPU managed distance field object buffers, no CPU culling should be used
-	check(!bRayTracedDistanceFieldShadow);
+	check(!CascadeSettings.bRayTracedDistanceField);
 
 	if (!ReceiverPrimitives.Contains(PrimitiveSceneInfo))
 	{
@@ -731,6 +725,21 @@ void FProjectedShadowInfo::AddSubjectPrimitive(FPrimitiveSceneInfo* PrimitiveSce
 				for (int32 ViewIndex = 0, ViewCount = Views.Num(); ViewIndex < ViewCount; ViewIndex++)
 				{
 					FViewInfo& CurrentView = *Views[ViewIndex];
+
+					// 	in a far shadow cascade we only render objects marked with bCastFarShadows enabled (e.g. Landscape).
+					if(CascadeSettings.bFarShadowCascade)
+					{
+						if(!Proxy->CastsFarShadow())
+						{
+							// cull objects that are not supposed to be in the far shadow cascades
+							continue;
+						}
+						if(CascadeSettings.bRayTracedDistanceField && Proxy->AffectsDistanceFieldLighting())
+						{
+							// cull objects that already have been handles by the ray traced distance field ones
+							continue;
+						}
+					}
 
 					const float DistanceSquared = ( Bounds.Origin - CurrentView.ShadowViewMatrices.ViewOrigin ).SizeSquared();
 					const bool bDrawShadowDepth = FMath::Square( Bounds.SphereRadius ) > FMath::Square( GMinScreenRadiusForShadowCaster ) * DistanceSquared;
@@ -1546,7 +1555,7 @@ void FDeferredShadingSceneRenderer::CreateWholeSceneProjectedShadow(FLightSceneI
 		checkSlow(ProjectedShadowInitializers.Num() > 0);
 
 		// Shadow resolution constants.
-		const uint32 EffectiveDoubleShadowBorder = ProjectedShadowInitializers[0].bOnePassPointLightShadow ? 0 : SHADOW_BORDER * 2;
+		const uint32 EffectiveDoubleShadowBorder = ProjectedShadowInitializers[0].CascadeSettings.bOnePassPointLightShadow ? 0 : SHADOW_BORDER * 2;
 		const int32 MinShadowResolution = CVarMinShadowResolution.GetValueOnRenderThread();
 		const int32 MaxShadowResolutionSetting = GetCachedScalabilityCVars().MaxShadowResolution;
 		const FIntPoint ShadowBufferResolution = GSceneRenderTargets.GetShadowDepthTextureResolution();
@@ -1609,7 +1618,7 @@ void FDeferredShadingSceneRenderer::CreateWholeSceneProjectedShadow(FLightSceneI
 				const uint32 DesiredSizeY = FMath::TruncToInt(MaxDesiredResolution);
 				int32 SizeY = DesiredSizeY >= MaxShadowResolutionY ? MaxShadowResolutionY : (1 << (FMath::CeilLogTwo(DesiredSizeY) - 1));
 
-				if (ProjectedShadowInitializer.bOnePassPointLightShadow)
+				if (ProjectedShadowInitializer.CascadeSettings.bOnePassPointLightShadow)
 				{
 					// Round to a resolution that is supported for one pass point light shadows
 					SizeX = SizeY = GSceneRenderTargets.GetCubeShadowDepthZResolution(GSceneRenderTargets.GetCubeShadowDepthZIndex(MaxDesiredResolution));
@@ -1629,7 +1638,7 @@ void FDeferredShadingSceneRenderer::CreateWholeSceneProjectedShadow(FLightSceneI
 				VisibleLightInfo.MemStackProjectedShadows.Add(ProjectedShadowInfo);
 				VisibleLightInfo.AllProjectedShadows.Add(ProjectedShadowInfo);
 
-				if (ProjectedShadowInitializer.bOnePassPointLightShadow)
+				if (ProjectedShadowInitializer.CascadeSettings.bOnePassPointLightShadow)
 				{
 					const static FVector CubeDirections[6] = 
 					{
@@ -1669,7 +1678,7 @@ void FDeferredShadingSceneRenderer::CreateWholeSceneProjectedShadow(FLightSceneI
 				}
 
 				// Ray traced shadows use the GPU managed distance field object buffers, no CPU culling should be used
-				if (!ProjectedShadowInfo->bRayTracedDistanceFieldShadow)
+				if (!ProjectedShadowInfo->CascadeSettings.bRayTracedDistanceField)
 				{
 					// Add all the shadow casting primitives affected by the light to the shadow's subject primitive list.
 					for(FLightPrimitiveInteraction* Interaction = LightSceneInfo->DynamicPrimitiveList;
@@ -1763,7 +1772,7 @@ void FSceneRenderer::InitProjectedShadowVisibility(FRHICommandListImmediate& RHI
 								ProjectedShadowInfo.ParentSceneInfo->PrimitiveComponentId :
 								FPrimitiveComponentId(),
 							ProjectedShadowInfo.LightSceneInfo->Proxy->GetLightComponent(),
-							ProjectedShadowInfo.ShadowSplitIndex,
+							ProjectedShadowInfo.CascadeSettings.ShadowSplitIndex,
 							ProjectedShadowInfo.bTranslucentShadow
 							);
 
@@ -1787,7 +1796,7 @@ void FSceneRenderer::InitProjectedShadowVisibility(FRHICommandListImmediate& RHI
 							{
 								// Get split color
 								FColor Color = FColor::White;
-								switch(ProjectedShadowInfo.ShadowSplitIndex)
+								switch(ProjectedShadowInfo.CascadeSettings.ShadowSplitIndex)
 								{
 									case 0: Color = FColor::Red; break;
 									case 1: Color = FColor::Yellow; break;
@@ -1807,14 +1816,14 @@ void FSceneRenderer::InitProjectedShadowVisibility(FRHICommandListImmediate& RHI
 								float Far = ProjectedShadowInfo.CascadeSettings.SplitFar;
 
 								// Camera Subfrustum
-								DrawFrustumWireframe(&ShadowFrustumPDI, (ViewMatrix * FPerspectiveMatrix(ActualFOV, AspectRatio, 1.0f, Near, Mid)).InverseFast(), Color, 0);
-								DrawFrustumWireframe(&ShadowFrustumPDI, (ViewMatrix * FPerspectiveMatrix(ActualFOV, AspectRatio, 1.0f, Mid, Far)).InverseFast(), FColor::White, 0);
+								DrawFrustumWireframe(&ShadowFrustumPDI, (ViewMatrix * FPerspectiveMatrix(ActualFOV, AspectRatio, 1.0f, Near, Mid)).Inverse(), Color, 0);
+								DrawFrustumWireframe(&ShadowFrustumPDI, (ViewMatrix * FPerspectiveMatrix(ActualFOV, AspectRatio, 1.0f, Mid, Far)).Inverse(), FColor::White, 0);
 
 								// Subfrustum Sphere Bounds
 								DrawWireSphere(&ShadowFrustumPDI, FTransform(ProjectedShadowInfo.ShadowBounds.Center), Color, ProjectedShadowInfo.ShadowBounds.W, 40, 0);
 
 								// Shadow Map Projection Bounds
-								DrawFrustumWireframe(&ShadowFrustumPDI, ProjectedShadowInfo.SubjectAndReceiverMatrix.InverseFast() * FTranslationMatrix(-ProjectedShadowInfo.PreShadowTranslation), Color, 0);
+								DrawFrustumWireframe(&ShadowFrustumPDI, ProjectedShadowInfo.SubjectAndReceiverMatrix.Inverse() * FTranslationMatrix(-ProjectedShadowInfo.PreShadowTranslation), Color, 0);
 							}
 							else
 							{
@@ -1854,14 +1863,24 @@ void FSceneRenderer::InitProjectedShadowVisibility(FRHICommandListImmediate& RHI
 
 					if(VisibleLightViewInfo.bInViewFrustum)
 					{
-						UE_LOG(LogRenderer, Display, TEXT("   Shadow %d/%d: %d"),  ShadowIndex, ShadowCount, ProjectedShadowInfo.ShadowId);
+						UE_LOG(LogRenderer, Display, TEXT("   Shadow %d/%d: ShadowId=%d"),  ShadowIndex, ShadowCount, ProjectedShadowInfo.ShadowId);
 						UE_LOG(LogRenderer, Display, TEXT("    WholeSceneDir=%d SplitIndex=%d near=%f far=%f"),
 							ProjectedShadowInfo.IsWholeSceneDirectionalShadow(),
-							ProjectedShadowInfo.ShadowSplitIndex,
+							ProjectedShadowInfo.CascadeSettings.ShadowSplitIndex,
 							ProjectedShadowInfo.CascadeSettings.SplitNear,
 							ProjectedShadowInfo.CascadeSettings.SplitFar);
-						UE_LOG(LogRenderer, Display, TEXT("    bDistField=%d"),
-							ProjectedShadowInfo.bRayTracedDistanceFieldShadow);
+						UE_LOG(LogRenderer, Display, TEXT("    bDistField=%d bFarShadows=%d Bounds=%f,%f,%f,%f"),
+							ProjectedShadowInfo.CascadeSettings.bRayTracedDistanceField,
+							ProjectedShadowInfo.CascadeSettings.bFarShadowCascade,
+							ProjectedShadowInfo.ShadowBounds.Center.X,
+							ProjectedShadowInfo.ShadowBounds.Center.Y,
+							ProjectedShadowInfo.ShadowBounds.Center.Z,
+							ProjectedShadowInfo.ShadowBounds.W);
+						UE_LOG(LogRenderer, Display, TEXT("    SplitFadeRegion=%f .. %f FadePlaneOffset=%f FadePlaneLength=%f"),
+							ProjectedShadowInfo.CascadeSettings.SplitNearFadeRegion,
+							ProjectedShadowInfo.CascadeSettings.SplitFarFadeRegion,
+							ProjectedShadowInfo.CascadeSettings.FadePlaneOffset,
+							ProjectedShadowInfo.CascadeSettings.FadePlaneLength);			
 					}
 				}
 			}
@@ -1950,7 +1969,8 @@ inline void FSceneRenderer::GatherShadowsForPrimitiveInner(
 					// Check if this primitive is in the shadow's cylinder
 					&& PrimitiveDistanceFromCylinderAxisSq < FMath::Square(ProjectedShadowInfo->ShadowBounds.W + PrimitiveBounds.SphereRadius)
 					// Check if the primitive is closer than the cylinder cap toward the light
-					&& ProjectedDistanceFromShadowOriginAlongLightDir - PrimitiveBounds.SphereRadius < -ProjectedShadowInfo->MinPreSubjectZ
+					// next line is commented as it breaks large world shadows, if this was meant to be an optimization we should think about a better solution
+					//// && ProjectedDistanceFromShadowOriginAlongLightDir - PrimitiveBounds.SphereRadius < -ProjectedShadowInfo->MinPreSubjectZ
 					// If the primitive is further along the cone axis than the shadow bounds origin, 
 					// Check if the primitive is inside the spherical cap of the cascade's bounds
 					&& !(ProjectedDistanceFromShadowOriginAlongLightDir < 0 
@@ -2124,12 +2144,26 @@ void FSceneRenderer::AddViewDependentWholeSceneShadowsForView(
 		// If rendering in stereo mode we render shadow depths only for the left eye, but project for both eyes!
 		if (View.StereoPass != eSSP_RIGHT_EYE)
 		{
-			const uint32 NumSplits = LightSceneInfo.Proxy->GetNumViewDependentWholeSceneShadows(View);
-			for (uint32 LocalShadowSplitIndex = 0; LocalShadowSplitIndex < NumSplits; LocalShadowSplitIndex++)
+			const bool bExtraDistanceFieldCascade = LightSceneInfo.Proxy->ShouldCreateRayTracedCascade(View.GetFeatureLevel());
+
+			const int32 ProjectionCount = LightSceneInfo.Proxy->GetNumViewDependentWholeSceneShadows(View) + (bExtraDistanceFieldCascade?1:0);
+
+			checkSlow(INDEX_NONE == -1);
+
+			// todo: this code can be simplified by computing all the distances in one place - avoiding some redundant work and complexity
+			for (int32 Index = 0; Index < ProjectionCount; Index++)
 			{
 				FWholeSceneProjectedShadowInitializer ProjectedShadowInitializer;
 
-				if (LightSceneInfo.Proxy->GetViewDependentWholeSceneProjectedShadowInitializer(View, LocalShadowSplitIndex, ProjectedShadowInitializer))
+				int32 LocalIndex = Index;
+
+				// Indexing like this puts the raytraced shadow cascade last (might not be needed)
+				if(bExtraDistanceFieldCascade && LocalIndex + 1 == ProjectionCount)
+				{
+					LocalIndex = INDEX_NONE;
+				}
+
+				if (LightSceneInfo.Proxy->GetViewDependentWholeSceneProjectedShadowInitializer(View, LocalIndex, ProjectedShadowInitializer))
 				{
 					const FIntPoint ShadowBufferResolution = GSceneRenderTargets.GetShadowDepthTextureResolution();
 					// Create the projected shadow info.
@@ -2151,7 +2185,7 @@ void FSceneRenderer::AddViewDependentWholeSceneShadowsForView(
 					ShadowInfos.Add(ProjectedShadowInfo);
 
 					// Ray traced shadows use the GPU managed distance field object buffers, no CPU culling needed
-					if (!ProjectedShadowInfo->bRayTracedDistanceFieldShadow)
+					if (!ProjectedShadowInfo->CascadeSettings.bRayTracedDistanceField)
 					{
 						ShadowInfosThatNeedCulling.Add(ProjectedShadowInfo);
 					}
@@ -2172,7 +2206,7 @@ void FSceneRenderer::AddViewDependentWholeSceneShadowsForView(
 					if (LightSceneInfo.Proxy->GetViewDependentRsmWholeSceneProjectedShadowInitializer(View, Lpv.GetBoundingBox(), ProjectedShadowInitializer))
 					{
 						// moved out from the FProjectedShadowInfo constructor
-						ProjectedShadowInitializer.InitShadowSplitIndex = 0;
+						ProjectedShadowInitializer.CascadeSettings.ShadowSplitIndex = 0;
 
 						const FIntPoint ShadowBufferResolution = GSceneRenderTargets.GetReflectiveShadowMapTextureResolution();
 
@@ -2192,7 +2226,7 @@ void FSceneRenderer::AddViewDependentWholeSceneShadowsForView(
 						ShadowInfos.Add(ProjectedShadowInfo); // or separate list?
 
 						// Ray traced shadows use the GPU managed distance field object buffers, no CPU culling needed
-						if (!ProjectedShadowInfo->bRayTracedDistanceFieldShadow)
+						if (!ProjectedShadowInfo->CascadeSettings.bRayTracedDistanceField)
 						{
 							ShadowInfosThatNeedCulling.Add(ProjectedShadowInfo);
 						}

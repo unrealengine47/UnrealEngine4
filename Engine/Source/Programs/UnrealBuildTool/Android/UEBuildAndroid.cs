@@ -68,7 +68,8 @@ namespace UnrealBuildTool
                 Dictionary<string, string> EnvVarNames = new Dictionary<string,string> { 
                                                          {"ANDROID_HOME", "SDKPath"}, 
                                                          {"NDKROOT", "NDKPath"}, 
-                                                         {"ANT_HOME", "ANTPath"}
+                                                         {"ANT_HOME", "ANTPath"},
+                                                         {"JAVA_HOME", "JavaPath"}
                                                          };
 
                 string path;
@@ -161,7 +162,7 @@ namespace UnrealBuildTool
 
 		protected override void RegisterBuildPlatformInternal()
 		{
-			if ((ProjectFileGenerator.bGenerateProjectFiles == true) || (HasRequiredSDKsInstalled() == SDKStatus.Valid))
+			if ((ProjectFileGenerator.bGenerateProjectFiles == true) || (HasRequiredSDKsInstalled() == SDKStatus.Valid) || Environment.GetEnvironmentVariable("IsBuildMachine") == "1")
 			{
 				bool bRegisterBuildPlatform = true;
 

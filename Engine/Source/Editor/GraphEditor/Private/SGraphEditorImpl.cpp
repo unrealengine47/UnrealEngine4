@@ -89,12 +89,24 @@ void SGraphEditorImpl::OnGraphChanged(const FEdGraphEditAction& InAction)
 {
 	if ( !bIsActiveTimerRegistered )
 	{
-		// Remove the old user interface nodes
-		GraphPanel->PurgeVisualRepresentation();
+		const UEdGraphSchema* Schema = EdGraphObj->GetSchema();
+		const bool bSchemaRequiresFullRefresh = Schema->ShouldAlwaysPurgeOnModification();
 
-		// Trigger the refresh
-		bIsActiveTimerRegistered = true;
-		RegisterActiveTimer( 0.f, FWidgetActiveTimerDelegate::CreateSP( this, &SGraphEditorImpl::TriggerRefresh ) );
+		const bool bWasAddAction = (InAction.Action & GRAPHACTION_AddNode) != 0;
+		const bool bWasSelectAction = (InAction.Action & GRAPHACTION_SelectNode) != 0;
+		const bool bWasRemoveAction = (InAction.Action & GRAPHACTION_RemoveNode) != 0;
+
+		// If we did a 'default action' (or some other action not handled by SGraphPanel::OnGraphChanged
+		// or if we're using a schema that always needs a full refresh, then purge the current nodes
+		// and queue an update:
+		if (bSchemaRequiresFullRefresh || 
+			(!bWasAddAction && !bWasSelectAction && !bWasRemoveAction) )
+		{
+			GraphPanel->PurgeVisualRepresentation();
+			// Trigger the refresh
+			bIsActiveTimerRegistered = true;
+			RegisterActiveTimer(0.f, FWidgetActiveTimerDelegate::CreateSP(this, &SGraphEditorImpl::TriggerRefresh));
+		}
 	}
 }
 

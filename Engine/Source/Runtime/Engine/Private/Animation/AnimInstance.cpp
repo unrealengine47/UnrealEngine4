@@ -531,6 +531,14 @@ bool UAnimInstance::NativeEvaluateAnimation(FPoseContext& Output)
 	return false;
 }
 
+void UAnimInstance::NativeStateStart(const FName& MachineName, const FName& StateName)
+{
+}
+
+void UAnimInstance::NativeStateEnd(const FName& MachineName, const FName& StateName) 
+{
+}
+
 void OutputCurveMap(TMap<FName, float>& CurveMap, UCanvas* Canvas, UFont* RenderFont, float Indent, float& YPos, FFontRenderInfo RenderInfo, float& YL)
 {
 	TArray<FName> Names;
@@ -2094,6 +2102,32 @@ bool UAnimInstance::Montage_GetIsStopped(UAnimMontage* Montage)
 		return (!MontageInstance); // Not active == Stopped.
 	}
 	return true;
+}
+
+float UAnimInstance::Montage_GetBlendTime(UAnimMontage* Montage)
+{
+	if (Montage)
+	{
+		FAnimMontageInstance * MontageInstance = GetActiveInstanceForMontage(*Montage);
+		if (MontageInstance)
+		{
+			return MontageInstance->BlendTime;
+		}
+	}
+	else
+	{
+		// If no Montage reference, use first active one found.
+		for (int32 InstanceIndex = 0; InstanceIndex < MontageInstances.Num(); InstanceIndex++)
+		{
+			FAnimMontageInstance * MontageInstance = MontageInstances[InstanceIndex];
+			if (MontageInstance && MontageInstance->IsActive())
+			{
+				return MontageInstance->BlendTime;
+			}
+		}
+	}
+
+	return 0.f;
 }
 
 float UAnimInstance::Montage_GetPlayRate(UAnimMontage* Montage)

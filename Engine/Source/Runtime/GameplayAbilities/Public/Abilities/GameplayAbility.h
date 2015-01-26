@@ -127,6 +127,10 @@ public:
 	/** Input binding stub. */
 	virtual void InputReleased(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) {};
 
+	/** If this is set, the ability will try to activate if the input is held. */
+	UPROPERTY(EditDefaultsOnly, Category = Input)
+	bool bActivateOnInputHeld;
+
 	/** Returns true if this ability can be activated right now. Has no side effects */
 	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, OUT FGameplayTagContainer* OptionalRelevantTags = nullptr) const;
 
@@ -659,8 +663,13 @@ protected:
 	UFUNCTION(BlueprintCallable, Category = "Ability|Animation")
 	void MontageSetNextSectionName(FName FromSectionName, FName ToSectionName);
 
-	UFUNCTION(BlueprintCallable, Category="Ability|Animation")
-	void MontageStop();
+	/**
+	 * Stops the current animation montage.
+	 *
+	 * @param OverrideBlendTime If < 0, will override the BlendOutTime parameter on the AnimMontage instance
+	 */
+	UFUNCTION(BlueprintCallable, Category="Ability|Animation", Meta = (AdvancedDisplay = "OverrideBlendOutTime"))
+	void MontageStop(float OverrideBlendOutTime = -1.0f);
 
 	// ----------------------------------------------------------------------------------------------------------------
 	//

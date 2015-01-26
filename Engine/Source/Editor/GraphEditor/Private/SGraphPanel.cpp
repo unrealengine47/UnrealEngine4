@@ -30,8 +30,6 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogGraphPanel, Log, All);
 
-DECLARE_CYCLE_STAT( TEXT("OnPaint SGraphPanel"), STAT_SlateOnPaint_SGraphPanel, STATGROUP_Slate );
-
 SGraphPanel::FGraphPinHandle::FGraphPinHandle(UEdGraphPin* InPin)
 {
 	if (auto* Node = InPin->GetOwningNode())
@@ -116,10 +114,6 @@ SGraphPanel::~SGraphPanel()
 
 int32 SGraphPanel::OnPaint( const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyClippingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled ) const
 {
-#if SLATE_HD_STATS
-	SCOPE_CYCLE_COUNTER( STAT_SlateOnPaint_SGraphPanel );
-#endif
-
 	CachedAllottedGeometryScaledSize = AllottedGeometry.Size * AllottedGeometry.Scale;
 
 	//Style used for objects that are the same between revisions
@@ -946,12 +940,15 @@ const TSharedRef<SGraphNode> SGraphPanel::GetChild(int32 ChildIndex)
 	return StaticCastSharedRef<SGraphNode>(Children[ChildIndex]);
 }
 
-void SGraphPanel::AddNode(UEdGraphNode* Node)
+void SGraphPanel::AddNode(UEdGraphNode* Node, AddNodeBehavior Behavior)
 {
 	TSharedPtr<SGraphNode> NewNode = FNodeFactory::CreateNodeWidget(Node);
 	check(NewNode.IsValid());
 
-	const bool bWasUserAdded = (UserAddedNodes.Find(Node) != nullptr);
+	const bool bWasUserAdded = 
+		Behavior == WasUserAdded ? true : 
+		Behavior == NotUserAdded ? false :
+					(UserAddedNodes.Find(Node) != nullptr);
 
 	NewNode->SetIsEditable(IsEditable);
 	NewNode->SetDoubleClickEvent(OnNodeDoubleClicked);
@@ -974,6 +971,28 @@ void SGraphPanel::AddNode(UEdGraphNode* Node)
 	}
 }
 
+void SGraphPanel::RemoveNode(const UEdGraphNode* Node)
+{
+	for (int32 Iter = 0; Iter != Children.Num(); ++Iter)
+	{
+		TSharedRef<SGraphNode> Child = GetChild(Iter);
+		if (Child->GetNodeObj() == Node)
+		{
+			Children.RemoveAt(Iter);
+			break;
+		}
+	}
+	for (int32 Iter = 0; Iter != Children.Num(); ++Iter)
+	{
+		TSharedRef<SGraphNode> Child = StaticCastSharedRef<SGraphNode>(VisibleChildren[Iter]);
+		if (Child->GetNodeObj() == Node)
+		{
+			VisibleChildren.RemoveAt(Iter);
+			break;
+		}
+	}
+}
+
 TSharedPtr<SGraphNode> SGraphPanel::GetNodeWidgetFromGuid(FGuid Guid) const
 {
 	return NodeGuidMap.FindRef(Guid).Pin();
@@ -990,7 +1009,7 @@ void SGraphPanel::Update()
 			UEdGraphNode* Node = GraphObj->Nodes[NodeIndex];
 			if (Node)
 			{
-				AddNode(Node);
+				AddNode(Node, CheckUserAddedNodesList);
 			}
 			else
 			{
@@ -1116,21 +1135,80 @@ void SGraphPanel::OnEndPIE( const bool bIsSimulating )
 
 void SGraphPanel::OnGraphChanged(const FEdGraphEditAction& EditAction)
 {
-	if ((EditAction.Graph == GraphObj) &&
-		(EditAction.Nodes.Num() > 0) &&
-		// We do not want to mark it as a UserAddedNode for graphs that do not currently have focus,
-		// this causes each one to want to do the effects and rename, which causes problems.
-		(HasKeyboardFocus() || HasFocusedDescendants()))
+	const bool bWillPurge = GraphObj->GetSchema()->ShouldAlwaysPurgeOnModification();
+	if (bWillPurge)
 	{
-		int32 ActionIndex = UserActions.Num();
-		if (EditAction.Action & GRAPHACTION_AddNode)
+		if ((EditAction.Graph == GraphObj) &&
+			(EditAction.Nodes.Num() > 0) &&
+			// We do not want to mark it as a UserAddedNode for graphs that do not currently have focus,
+			// this causes each one to want to do the effects and rename, which causes problems.
+			(HasKeyboardFocus() || HasFocusedDescendants()))
 		{
-			for (const UEdGraphNode* Node : EditAction.Nodes)
+			int32 ActionIndex = UserActions.Num();
+			if (EditAction.Action & GRAPHACTION_AddNode)
 			{
-				UserAddedNodes.Add(Node, ActionIndex);
+				for (const UEdGraphNode* Node : EditAction.Nodes)
+				{
+					UserAddedNodes.Add(Node, ActionIndex);
+				}
+			}
+			UserActions.Add(EditAction);
+		}
+	}
+	else if ((EditAction.Graph == GraphObj) && (EditAction.Nodes.Num() > 0) )
+	{
+		// Remove action handled immediately by SGraphPanel::OnGraphChanged
+		const bool bWasAddAction = (EditAction.Action & GRAPHACTION_AddNode) != 0;
+		const bool bWasSelectAction = (EditAction.Action & GRAPHACTION_SelectNode) != 0;
+		const bool bWasRemoveAction = (EditAction.Action & GRAPHACTION_RemoveNode) != 0;
+
+		// The *only* reason we defer these actions is because code higher up the call stack
+		// assumes that the node is created later (for example, GenerateBlueprintAPIUtils::AddNodeToGraph
+		// calls AddNode (which calls this function) before calling AllocateDefaultPins, so if we create 
+		// the widget immediately it won't be able to create its pins). There are lots of other examples, 
+		// and I can't be sure that I've found them all.... 
+		
+		// Minor note, the ugly little lambdas are just to deal with the  time values and return values 
+		// that the timer system requires (and we don't leverage):
+		if (bWasRemoveAction)
+		{
+			const auto RemoveNodeDelegateWrapper = [](double, float, SGraphPanel* Parent, const UEdGraphNode* Node) -> EActiveTimerReturnType
+			{
+				Parent->RemoveNode(Node);
+				return EActiveTimerReturnType::Stop;
+			};
+
+			for (auto Node : EditAction.Nodes)
+			{
+				RegisterActiveTimer(0.f, FWidgetActiveTimerDelegate::CreateStatic(RemoveNodeDelegateWrapper, this, Node));
 			}
 		}
-		UserActions.Add(EditAction);
+		if (bWasAddAction)
+		{
+			const auto AddNodeDelegateWrapper = [](double, float, SGraphPanel* Parent, UEdGraphNode* Node, bool bForceUserAdded) -> EActiveTimerReturnType
+			{
+				Parent->AddNode(Node, bForceUserAdded ? WasUserAdded : NotUserAdded );
+				return EActiveTimerReturnType::Stop;
+			};
+
+			for (auto Node : EditAction.Nodes)
+			{
+				RegisterActiveTimer(0.f, FWidgetActiveTimerDelegate::CreateStatic(AddNodeDelegateWrapper, this, const_cast<UEdGraphNode*>(Node), (HasKeyboardFocus() || HasFocusedDescendants()) ) );
+			}
+		}
+		if (bWasSelectAction)
+		{
+			const auto SelectNodeDelegateWrapper = [](double, float, SGraphPanel* Parent, TSet<const UEdGraphNode*> Nodes) -> EActiveTimerReturnType
+			{
+				Parent->DeferredSelectionTargetObjects.Empty();
+				for (auto Node : Nodes)
+				{
+					Parent->DeferredSelectionTargetObjects.Add(Node);
+				}
+				return EActiveTimerReturnType::Stop;
+			};
+			RegisterActiveTimer(0.f, FWidgetActiveTimerDelegate::CreateStatic(SelectNodeDelegateWrapper, this, EditAction.Nodes));
+		}
 	}
 }
 

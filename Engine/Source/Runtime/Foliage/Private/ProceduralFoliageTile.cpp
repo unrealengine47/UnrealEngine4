@@ -4,7 +4,6 @@
 #include "ProceduralFoliageTile.h"
 #include "ProceduralFoliage.h"
 #include "ProceduralFoliageBroadphase.h"
-#include "ProceduralFoliageBlockingVolume.h"
 #include "InstancedFoliageActor.h"
 
 #define LOCTEXT_NAMESPACE "ProceduralFoliage"
@@ -334,7 +333,7 @@ void UProceduralFoliageTile::BeginDestroy()
 	RemoveInstances();
 }
 
-void UProceduralFoliageTile::CreateInstancesToSpawn(TArray<FProceduralFoliageInstance>& OutInstances, const FTransform& WorldTM, UWorld* World, const float HalfHeight) const
+void UProceduralFoliageTile::CreateInstancesToSpawn(TArray<FDesiredFoliageInstance>& OutInstances, const FTransform& WorldTM, const FGuid& ProceduralGuid, const float HalfHeight) const
 {
 	const FCollisionQueryParams Params(true);
 	FHitResult Hit;
@@ -342,39 +341,17 @@ void UProceduralFoliageTile::CreateInstancesToSpawn(TArray<FProceduralFoliageIns
 	OutInstances.Reserve(Instances.Num());
 	for (const FProceduralFoliageInstance& Instance : InstancesArray)
 	{
-		//@todo ProceduralFoliage need a better method for calculating the ray
 		FVector StartRay = Instance.Location + WorldTM.GetLocation();
 		StartRay.Z += HalfHeight;
 		FVector EndRay = StartRay;
 		EndRay.Z -= HalfHeight*2.f;
-		FCollisionShape SphereShape;
-		SphereShape.SetSphere(Instance.GetMaxRadius());
 
-		if (World->SweepSingle(Hit, StartRay, EndRay, FQuat::Identity, SphereShape, Params, FCollisionObjectQueryParams(ECC_WorldStatic)))
-		{
-			if (Hit.Actor.IsValid())	//if we hit the ProceduralFoliage blocking volume don't spawn instance
-			{
-				if (Cast<AProceduralFoliageBlockingVolume>(Hit.Actor.Get()) || Cast<AInstancedFoliageActor>(Hit.Actor.Get()))
-				{
-					continue;
-				}
-			}
-
-			const UFoliageType_InstancedStaticMesh* Type = Instance.Type;
-			if (Hit.ImpactPoint.Z >= Type->HeightMin && Hit.ImpactPoint.Z <= Type->HeightMax)
-			{
-				if (FMath::Cos(FMath::DegreesToRadians(Type->GroundSlope)) <= Hit.ImpactNormal.Z)
-				{
-					FProceduralFoliageInstance* NewInst = new(OutInstances)FProceduralFoliageInstance(Instance);
-					NewInst->Location = FVector(StartRay.X, StartRay.Y, Hit.ImpactPoint.Z);	//take the x,y of the instance, but use the z of the impact point. This is because we never want to move the instance along xy or we'll get overlaps 
-					NewInst->Normal = Hit.ImpactNormal;
-					if (Hit.Component.IsValid())
-					{
-						NewInst->BaseComponent = Hit.Component.Get();
-					}
-				}
-			}
-		}
+		FDesiredFoliageInstance* DesiredInst = new (OutInstances)FDesiredFoliageInstance(StartRay, EndRay, Instance.GetMaxRadius());
+		DesiredInst->Rotation = Instance.Rotation;
+		DesiredInst->ProceduralGuid = ProceduralGuid;
+		DesiredInst->FoliageType = Instance.Type;
+		DesiredInst->Age = Instance.Age;
+		DesiredInst->PlacementMode = EFoliagePlacementMode::Procedural;
 	}
 }
 

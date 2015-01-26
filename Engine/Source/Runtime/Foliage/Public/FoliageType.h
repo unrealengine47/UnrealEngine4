@@ -68,6 +68,9 @@ class UFoliageType : public UObject
 	float GroundSlope;
 
 	UPROPERTY(EditAnywhere, Category = General, meta = (Subcategory = "Placement"))
+	float MinGroundSlope;
+
+	UPROPERTY(EditAnywhere, Category = General, meta = (Subcategory = "Placement"))
 	float HeightMin;
 
 	UPROPERTY(EditAnywhere, Category = General, meta = (Subcategory = "Placement"))
@@ -75,6 +78,9 @@ class UFoliageType : public UObject
 
 	UPROPERTY(EditAnywhere, Category = General, meta = (Subcategory = "Placement"))
 	FName LandscapeLayer;
+
+	UPROPERTY(EditAnywhere, Category = General, meta = (Subcategory = "Placement"))
+	float MinimumLayerWeight;
 
 	UPROPERTY(EditAnywhere, Category = General, meta = (Subcategory = "Placement"))
 	uint32 AlignToNormal:1;

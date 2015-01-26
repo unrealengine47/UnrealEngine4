@@ -228,13 +228,17 @@ struct FLandscapeVertex
 //
 class FLandscapeVertexBuffer : public FVertexBuffer
 {
+	ERHIFeatureLevel::Type FeatureLevel;
+	int32 NumVertices;
 	int32 SubsectionSizeVerts;
 	int32 NumSubsections;
 public:
 
 	/** Constructor. */
-	FLandscapeVertexBuffer(int32 InSubsectionSizeVerts, int32 InNumSubsections)
-		: SubsectionSizeVerts(InSubsectionSizeVerts)
+	FLandscapeVertexBuffer(ERHIFeatureLevel::Type InFeatureLevel, int32 InNumVertices, int32 InSubsectionSizeVerts, int32 InNumSubsections)
+		: FeatureLevel(InFeatureLevel)
+		, NumVertices(InNumVertices)
+		, SubsectionSizeVerts(InSubsectionSizeVerts)
 		, NumSubsections(InNumSubsections)
 	{
 		InitResource();
@@ -279,6 +283,7 @@ public:
 		int32 MaxIndexFull;
 	};
 
+	int32 NumVertices;
 	int32 SharedBuffersKey;
 	int32 NumIndexBuffers;
 	int32 SubsectionSizeVerts;
@@ -290,11 +295,14 @@ public:
 	FLandscapeIndexRanges* IndexRanges;
 	FLandscapeSharedAdjacencyIndexBuffer* AdjacencyIndexBuffers;
 	bool bUse32BitIndices;
+	FIndexBuffer* GrassIndexBuffer;
 
 	FLandscapeSharedBuffers(int32 SharedBuffersKey, int32 SubsectionSizeQuads, int32 NumSubsections, ERHIFeatureLevel::Type InFeatureLevel, bool bRequiresAdjacencyInformation);
 
 	template <typename INDEX_TYPE>
 	void CreateIndexBuffers(ERHIFeatureLevel::Type InFeatureLevel, bool bRequiresAdjacencyInformation);
+	template <typename INDEX_TYPE>
+	void CreateGrassIndexBuffer();
 
 	virtual ~FLandscapeSharedBuffers();
 };
@@ -479,11 +487,11 @@ class FLandscapeComponentSceneProxy : public FPrimitiveSceneProxy, public FLands
 
 protected:
 	int8						MaxLOD;
-	int8						NumSubsections;
-	int16						SubsectionSizeQuads;
-	int16						SubsectionSizeVerts;
-	int16						ComponentSizeQuads;	// Size of component in quads
-	int16						ComponentSizeVerts;
+	int32						NumSubsections;
+	int32						SubsectionSizeQuads;
+	int32						SubsectionSizeVerts;
+	int32						ComponentSizeQuads;	// Size of component in quads
+	int32						ComponentSizeVerts;
 	uint8						StaticLightingLOD;
 	float						StaticLightingResolution;
 	FIntPoint					SectionBase;
