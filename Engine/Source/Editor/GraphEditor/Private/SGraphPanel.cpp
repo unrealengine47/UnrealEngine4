@@ -906,12 +906,7 @@ TSharedPtr<SWidget> SGraphPanel::SummonContextMenu(const FVector2D& WhereToSummo
 
 		FActionMenuContent FocusedContent = OnGetContextMenuFor.Execute(SpawnInfo);
 
-		TSharedRef<SWidget> MenuContent =
-			SNew( SBorder )
-			.BorderImage( FEditorStyle::GetBrush("Menu.Background") )
-			[
-				FocusedContent.Content
-			];
+		TSharedRef<SWidget> MenuContent = FocusedContent.Content;
 		
 		FSlateApplication::Get().PushMenu(
 			AsShared(),
@@ -982,7 +977,7 @@ void SGraphPanel::RemoveNode(const UEdGraphNode* Node)
 			break;
 		}
 	}
-	for (int32 Iter = 0; Iter != Children.Num(); ++Iter)
+	for (int32 Iter = 0; Iter != VisibleChildren.Num(); ++Iter)
 	{
 		TSharedRef<SGraphNode> Child = StaticCastSharedRef<SGraphNode>(VisibleChildren[Iter]);
 		if (Child->GetNodeObj() == Node)

@@ -19,3 +19,27 @@ public:
 	virtual FPooledRenderTargetDesc ComputeOutputDesc(EPassOutputId InPassOutputId) const;
 	virtual void Release() override { delete this; }
 };
+
+// ePId_Input0: HDR SceneColor
+// derives from TRenderingCompositePassBase<InputCount, OutputCount> 
+class FRCPassPostProcessVisualizeBloomSetup : public TRenderingCompositePassBase<1, 1>
+{
+public:
+	// interface FRenderingCompositePass ---------
+	virtual void Process(FRenderingCompositePassContext& Context);
+	virtual FPooledRenderTargetDesc ComputeOutputDesc(EPassOutputId InPassOutputId) const;
+	virtual void Release() override { delete this; }
+};
+
+// ePId_Input0: LDR SceneColor
+// ePId_Input1: HDR SceneColor
+// ePId_Input2: BloomOutputCombined
+// derives from TRenderingCompositePassBase<InputCount, OutputCount> 
+class FRCPassPostProcessVisualizeBloomOverlay : public TRenderingCompositePassBase<3, 1>
+{
+public:
+	// interface FRenderingCompositePass ---------
+	virtual void Process(FRenderingCompositePassContext& Context);
+	virtual FPooledRenderTargetDesc ComputeOutputDesc(EPassOutputId InPassOutputId) const;
+	virtual void Release() override { delete this; }
+};

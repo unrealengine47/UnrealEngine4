@@ -8,6 +8,7 @@
 #include "Layers/ILayers.h"
 #include "ComponentInstanceDataCache.h"
 #include "Engine/DynamicBlueprintBinding.h"
+#include "BlueprintEditor.h"
 
 DECLARE_CYCLE_STAT(TEXT("Replace Instances"), EKismetReinstancerStats_ReplaceInstancesOfClass, STATGROUP_KismetReinstancer );
 DECLARE_CYCLE_STAT(TEXT("Find Referencers"), EKismetReinstancerStats_FindReferencers, STATGROUP_KismetReinstancer );
@@ -37,7 +38,7 @@ struct FReplaceReferenceHelper
 		}
 	}
 
-	static void FindAndReplaceReferences(TArray<UObject*>& SourceObjects, TSet<UObject*>* ObjectsThatShouldUseOldStuff, TArray<UObject*> &ObjectsToReplace, TMap<UObject*, UObject*>& OldToNewInstanceMap, TMap<FStringAssetReference, UObject*>& ReinstancedObjectsWeakReferenceMap)
+	static void FindAndReplaceReferences(const TArray<UObject*>& SourceObjects, TSet<UObject*>* ObjectsThatShouldUseOldStuff, const TArray<UObject*>& ObjectsToReplace, const TMap<UObject*, UObject*>& OldToNewInstanceMap, const TMap<FStringAssetReference, UObject*>& ReinstancedObjectsWeakReferenceMap)
 	{
 		// Find everything that references these objects
 		TSet<UObject *> Targets;
@@ -305,9 +306,10 @@ void FBlueprintCompileReinstancer::ReinstanceObjects(bool bAlwaysReinstance)
 
 				const bool bIsActor = ClassToReinstance->IsChildOf<AActor>();
 				const bool bIsAnimInstance = ClassToReinstance->IsChildOf<UAnimInstance>();
+				const bool bIsComponent = ClassToReinstance->IsChildOf<UActorComponent>();
 				for (auto Obj : ObjectsToReplace)
 				{
-					if (!Obj->IsTemplate() && !Obj->IsPendingKill())
+					if ((!Obj->IsTemplate() || bIsComponent) && !Obj->IsPendingKill())
 					{
 						Obj->SetClass(ClassToReinstance);
 						if (bIsActor)
@@ -420,7 +422,7 @@ struct FActorReplacementHelper
 	 * Runs construction scripts on the new actor and then finishes it off by
 	 * attaching it to the same attachments that its predecessor was set with. 
 	 */
-	void Finalize();
+	void Finalize(const TMap<UObject*, UObject*>& OldToNewInstanceMap);
 
 
 private:
@@ -476,7 +478,7 @@ private:
 	TSharedPtr<AActor::FActorTransactionAnnotation> CachedActorData;
 };
 
-void FActorReplacementHelper::Finalize()
+void FActorReplacementHelper::Finalize(const TMap<UObject*, UObject*>& OldToNewInstanceMap)
 {
 	
 	// because this is an editor context it's important to use this execution guard
@@ -485,6 +487,7 @@ void FActorReplacementHelper::Finalize()
 	// run the construction script, which will use the properties we just copied over
 	if (CachedActorData.IsValid())
 	{
+		CachedActorData->ComponentInstanceData.FindAndReplaceInstances(OldToNewInstanceMap);
 		NewActor->ExecuteConstruction(TargetWorldTransform, &CachedActorData->ComponentInstanceData);
 	}
 	else
@@ -492,6 +495,24 @@ void FActorReplacementHelper::Finalize()
 		FComponentInstanceDataCache DummyComponentData;
 		NewActor->ExecuteConstruction(TargetWorldTransform, &DummyComponentData);
 	}	
+
+	if (TargetAttachParent)
+	{
+		UObject* const* NewTargetAttachParent = OldToNewInstanceMap.Find(TargetAttachParent);
+		if (NewTargetAttachParent)
+		{
+			TargetAttachParent = CastChecked<AActor>(*NewTargetAttachParent);
+		}
+	}
+	if (TargetParentComponent)
+	{
+		UObject* const* NewTargetParentComponent = OldToNewInstanceMap.Find(TargetParentComponent);
+		if (NewTargetParentComponent)
+		{
+			TargetParentComponent = CastChecked<USceneComponent>(*NewTargetParentComponent);
+		}
+	}
+
 	ApplyAttachments();
 
 	if (bSelectNewActor)
@@ -617,10 +638,26 @@ void FBlueprintCompileReinstancer::ReplaceInstancesOfClass(UClass* OldClass, UCl
 	// actors being replace
 	TArray<FActorReplacementHelper> ReplacementActors;
 
+	// A list of objects (e.g. Blueprints) that potentially have editors open that we need to refresh
+	TArray<UObject*> PotentialEditorsForRefreshing;
+
 	// Set global flag to let system know we are reconstructing blueprint instances
 	TGuardValue<bool> GuardTemplateNameFlag(GIsReconstructingBlueprintInstances, true);
 
+	struct FObjectRemappingHelper
+	{
+		void OnObjectsReplaced(const TMap<UObject*, UObject*>& InReplacedObjects)
+		{
+			ReplacedObjects.Append(InReplacedObjects);
+		}
+
+		TMap<UObject*, UObject*> ReplacedObjects;
+	} ObjectRemappingHelper;
+
+	FDelegateHandle OnObjectsReplacedHandle = GEditor->OnObjectsReplaced().AddRaw(&ObjectRemappingHelper,&FObjectRemappingHelper::OnObjectsReplaced);
+
 	{ BP_SCOPED_COMPILER_EVENT_STAT(EKismetReinstancerStats_ReplaceInstancesOfClass);
+
 
 		const bool bIncludeDerivedClasses = false;
 		GetObjectsOfClass(OldClass, ObjectsToReplace, bIncludeDerivedClasses);
@@ -632,7 +669,9 @@ void FBlueprintCompileReinstancer::ReplaceInstancesOfClass(UClass* OldClass, UCl
 		// Then fix 'real' (non archetype) instances of the class
 		for (UObject* OldObject : ObjectsToReplace)
 		{
-			if (OldObject->IsTemplate() || OldObject->IsPendingKill())
+			// Skip non-archetype instances, EXCEPT for component templates
+			const bool bIsComponent = NewClass->IsChildOf(UActorComponent::StaticClass());
+			if ((!bIsComponent && OldObject->IsTemplate()) || OldObject->IsPendingKill())
 			{
 				continue;
 			}
@@ -751,6 +790,22 @@ void FBlueprintCompileReinstancer::ReplaceInstancesOfClass(UClass* OldClass, UCl
 				OldObject->MarkPendingKill();
 
 				OldToNewInstanceMap.Add(OldObject, NewObject);
+
+				if (bIsComponent)
+				{
+					UActorComponent* Component = Cast<UActorComponent>(NewObject);
+					AActor* OwningActor = Component->GetOwner();
+					if (OwningActor)
+					{
+						OwningActor->ResetOwnedComponents();
+
+						// Check to see if they have an editor that potentially needs to be refreshed
+						if (OwningActor->GetClass()->ClassGeneratedBy)
+						{
+							PotentialEditorsForRefreshing.AddUnique(OwningActor->GetClass()->ClassGeneratedBy);
+						}
+					}
+				}
 			}
 
 			// If this original object came from a blueprint and it was in the selected debug set, change the debugging to the new object.
@@ -765,6 +820,8 @@ void FBlueprintCompileReinstancer::ReplaceInstancesOfClass(UClass* OldClass, UCl
 			}
 		}
 	}
+
+	GEditor->OnObjectsReplaced().Remove(OnObjectsReplacedHandle);
 
 	// Now replace any pointers to the old archetypes/instances with pointers to the new one
 	TArray<UObject*> SourceObjects;
@@ -794,7 +851,7 @@ void FBlueprintCompileReinstancer::ReplaceInstancesOfClass(UClass* OldClass, UCl
 		// FArchiveReplaceObjectRef to run construction-scripts).
 		for (FActorReplacementHelper& ReplacementActor : ReplacementActors)
 		{
-			ReplacementActor.Finalize();
+			ReplacementActor.Finalize(ObjectRemappingHelper.ReplacedObjects);
 		}
 	}
 
@@ -802,6 +859,19 @@ void FBlueprintCompileReinstancer::ReplaceInstancesOfClass(UClass* OldClass, UCl
 	if (bSelectionChanged)
 	{
 		GEditor->NoteSelectionChange();
+	}
+
+	if (GEditor)
+	{
+		// Refresh any editors for objects that we've updated components for
+		for (auto BlueprintAsset : PotentialEditorsForRefreshing)
+		{
+			FBlueprintEditor* BlueprintEditor = static_cast<FBlueprintEditor*>(FAssetEditorManager::Get().FindEditorForAsset(BlueprintAsset, /*bFocusIfOpen =*/false));
+			if (BlueprintEditor)
+			{
+				BlueprintEditor->RefreshEditors();
+			}
+		}
 	}
 }
 

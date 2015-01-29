@@ -7,6 +7,13 @@
 #include "Engine/SCS_Node.h"
 #include "Engine/SimpleConstructionScript.h"
 
+const FName& FComponentEditorUtils::GetDefaultSceneRootVariableName()
+{
+	static FName DefaultSceneRootVariableName = FName(TEXT("DefaultSceneRoot"));
+
+	return DefaultSceneRootVariableName;
+}
+
 USceneComponent* FComponentEditorUtils::GetSceneComponent( UObject* Object, UObject* SubObject /*= NULL*/ )
 {
 	if( Object )
@@ -93,7 +100,7 @@ void FComponentEditorUtils::GetArchetypeInstances( UObject* Object, TArray<UObje
 bool FComponentEditorUtils::IsValidVariableNameString(const UActorComponent* InComponent, const FString& InString)
 {
 	// First test to make sure the string is not empty and does not equate to the DefaultSceneRoot node name
-	bool bIsValid = !InString.IsEmpty() && !InString.Equals(USimpleConstructionScript::DefaultSceneRootVariableName.ToString());
+	bool bIsValid = !InString.IsEmpty() && !InString.Equals(GetDefaultSceneRootVariableName().ToString());
 	if(bIsValid && InComponent != NULL)
 	{
 		// Next test to make sure the string doesn't conflict with the format that MakeUniqueObjectName() generates
@@ -105,6 +112,83 @@ bool FComponentEditorUtils::IsValidVariableNameString(const UActorComponent* InC
 	}
 
 	return bIsValid;
+}
+
+bool FComponentEditorUtils::IsComponentNameAvailable(const FString& InString, const AActor* ComponentOwner, const UActorComponent* ComponentToIgnore)
+{
+	bool bNameIsAvailable = true;
+
+	if (ComponentOwner != nullptr)
+	{
+		TInlineComponentArray<UActorComponent*> Components;
+		ComponentOwner->GetComponents(Components);
+
+		for (auto Component : Components)
+		{
+			if (Component != ComponentToIgnore && Component->GetName() == InString)
+			{
+				bNameIsAvailable = false;
+				break;
+			}
+		}
+	}
+
+	return bNameIsAvailable;
+}
+
+FString FComponentEditorUtils::GenerateValidVariableName(TSubclassOf<UActorComponent> ComponentClass, AActor* ComponentOwner)
+{
+	check(ComponentOwner);
+
+	int32 Counter = 1;
+	FString ComponentTypeName = *ComponentClass->GetName().Replace(TEXT("Component"), TEXT(""));
+	
+	// Try to create a name without any numerical suffix first
+	FString ComponentInstanceName = ComponentTypeName;
+	while (!IsComponentNameAvailable(ComponentInstanceName, ComponentOwner))
+	{
+		// Assign the lowest possible numerical suffix
+		ComponentInstanceName = FString::Printf(TEXT("%s%d"), *ComponentTypeName, Counter++);
+	}
+
+	return ComponentInstanceName;
+}
+
+FString FComponentEditorUtils::GenerateValidVariableNameFromAsset(UObject* Asset, AActor* ComponentOwner)
+{
+	check(ComponentOwner);
+
+	int32 Counter = 1;
+	FString AssetName = Asset->GetName();
+
+	// Try to create a name without any numerical suffix first
+	FString ComponentInstanceName = AssetName;
+	while (!IsComponentNameAvailable(ComponentInstanceName, ComponentOwner))
+	{
+		// Assign the lowest possible numerical suffix
+		ComponentInstanceName = FString::Printf(TEXT("%s%d"), *AssetName, Counter++);
+	}
+
+	return ComponentInstanceName;
+}
+
+void FComponentEditorUtils::AdjustComponentDelta(USceneComponent* Component, FVector& Drag, FRotator& Rotation)
+{
+	USceneComponent* ParentSceneComp = Component->GetAttachParent();
+	if (ParentSceneComp)
+	{
+		const FTransform ParentToWorldSpace = ParentSceneComp->GetSocketTransform(Component->AttachSocketName);
+
+		if (!Component->bAbsoluteLocation)
+		{
+			Drag = ParentToWorldSpace.Inverse().TransformVector(Drag);
+		}
+
+		if (!Component->bAbsoluteRotation)
+		{
+			Rotation = ( ParentToWorldSpace.Inverse().GetRotation() * Rotation.Quaternion() * ParentToWorldSpace.GetRotation() ).Rotator();
+		}
+	}
 }
 
 void FComponentEditorUtils::PropagateTransformPropertyChange(

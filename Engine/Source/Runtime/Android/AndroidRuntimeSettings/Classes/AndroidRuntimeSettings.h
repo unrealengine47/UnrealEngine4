@@ -7,32 +7,32 @@
 UENUM()
 namespace EAndroidScreenOrientation
 {
-	// IF THIS CHANGES, MAKE SURE TO UPDATE UEDeployAndroid.cs!
+	// IF THIS CHANGES, MAKE SURE TO UPDATE UEDeployAndroid.cs, ConvertOrientationIniValue()!
 	enum Type
 	{
 		// Portrait orientation (the display is taller than it is wide)
-		Portrait UMETA(ManifestValue = "portrait"),
+		Portrait,
 
 		// Portrait orientation rotated 180 degrees
-		ReversePortrait UMETA(ManifestValue = "reversePortrait"),
+		ReversePortrait,
 
 		// Use either portrait or reverse portrait orientation, based on the device orientation sensor
-		SensorPortrait UMETA(ManifestValue = "sensorPortrait"),
+		SensorPortrait,
 
 		// Landscape orientation (the display is wider than it is tall)
-		Landscape UMETA(ManifestValue = "landscape"),
+		Landscape,
 
 		// Landscape orientation rotated 180 degrees
-		ReverseLandscape UMETA(ManifestValue = "reverseLandscape"),
+		ReverseLandscape,
 
 		// Use either landscape or reverse landscape orientation, based on the device orientation sensor
-		SensorLandscape UMETA(ManifestValue = "sensorLandscape"),
+		SensorLandscape,
 
 		// Use any orientation the device normally supports, based on the device orientation sensor
-		Sensor UMETA(ManifestValue = "sensor"),
+		Sensor,
 
 		// Use any orientation (including ones the device wouldn't choose in Sensor mode), based on the device orientation sensor
-		FullSensor UMETA(ManifestValue = "fullSensor"),
+		FullSensor,
 	};
 }
 
@@ -40,13 +40,13 @@ namespace EAndroidScreenOrientation
 UENUM()
 namespace EAndroidDepthBufferPreference
 {
-	// IF THIS CHANGES, MAKE SURE TO UPDATE UEDeployAndroid.cs!
+	// IF THIS CHANGES, MAKE SURE TO UPDATE UEDeployAndroid.cs, ConvertDepthBufferIniValue()!
 	enum Type
 	{
-		Default = 0 UMETA(DisplayName = "Default", ManifestValue = "0"),
-		Bits16 = 16 UMETA(DisplayName = "16-bit", ManifestValue = "16"),
-		Bits24 = 24 UMETA(DisplayName = "24-bit", ManifestValue = "24"),
-		Bits32 = 32 UMETA(DisplayName = "32-bit", ManifestValue = "32"),
+		Default = 0 UMETA(DisplayName = "Default"),
+		Bits16 = 16 UMETA(DisplayName = "16-bit"),
+		Bits24 = 24 UMETA(DisplayName = "24-bit"),
+		Bits32 = 32 UMETA(DisplayName = "32-bit"),
 	};
 }
 
@@ -120,6 +120,10 @@ public:
 	UPROPERTY(GlobalConfig, EditAnywhere, Category = APKPackaging, Meta = (DisplayName = "Minimum SDK Version (9=Gingerbread, 14=Ice Cream Sandwich, 21=Lollipop)"))
 	int32 MinSDKVersion;
 	
+	// Should the data be placed into the .apk file instead of a separate .obb file. Amazon requires this to be enabled, but Google Play Store will not allow .apk files larger than 50MB, so only small games will work with this enabled.
+	UPROPERTY(GlobalConfig, EditAnywhere, Category = APKPackaging, Meta = (DisplayName = "Package game data inside .apk?"))
+	bool bPackageDataInsideApk;
+	
 	// The permitted orientation or orientations of the application on the device
 	UPROPERTY(GlobalConfig, EditAnywhere, Category = APKPackaging)
 	TEnumAsByte<EAndroidScreenOrientation::Type> Orientation;
@@ -177,7 +181,7 @@ public:
 	bool bBuildForES2;
 
 	// Enable ES31 support? [CURRENTLY FOR FULL SOURCE GAMES ONLY]
-	UPROPERTY(GlobalConfig, EditAnywhere, Category = Build, meta = (DisplayName = "Support OpenGL ES31 + AEP"))
+	UPROPERTY(GlobalConfig, EditAnywhere, Category = Build, meta = (DisplayName = "Support OpenGL ES31 + AEP (restart may be needed - see tooltip)"))
 	bool bBuildForES31;
 
 	// If selected, the checked architectures will be split into separate .apk files [CURRENTLY FOR FULL SOURCE GAMES ONLY]

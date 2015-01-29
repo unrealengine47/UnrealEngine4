@@ -308,8 +308,9 @@ public:
 
 	/** Apply paint bucket to actor */
 	void ApplyPaintBucket(AActor* Actor, bool bRemove);
-private:
+
 	typedef TMap<FName, TMap<ULandscapeComponent*, TArray<uint8> > > LandscapeLayerCacheData;
+private:
 
 	/** Add instances inside the brush to match DesiredInstanceCount */
 	void AddInstancesForBrush(UWorld* InWorld, AInstancedFoliageActor* IFA, UFoliageType* Settings, FFoliageMeshInfo& MeshInfo, int32 DesiredInstanceCount, const TArray<int32>& ExistingInstances, float Pressure);
@@ -327,6 +328,12 @@ private:
 
 	/** Lookup the vertex color corresponding to a location traced on a static mesh */
 	static bool GetStaticMeshVertexColorForHit(UStaticMeshComponent* InStaticMeshComponent, int32 InTriangleIndex, const FVector& InHitLocation, FColor& OutVertexColor);
+
+	/** 
+	 * Snaps given instance to the ground  
+	 * @return Whether instance was sucessfully snapped
+	 */
+	bool SnapInstanceToGround(AInstancedFoliageActor* InIFA, float AlignMaxAngle, FFoliageMeshInfo& Mesh, int32 InstanceIdx);
 
 	bool bBrushTraceValid;
 	FVector BrushLocation;

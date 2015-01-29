@@ -61,6 +61,15 @@ void AAIController::PostInitializeComponents()
 	{
 		InitPlayerState();
 	}
+
+#if ENABLE_VISUAL_LOG
+	TArray<UActorComponent*> ComponentSet;
+	GetComponents(ComponentSet);
+	for (auto Component : ComponentSet)
+	{
+		REDIRECT_OBJECT_TO_VLOG(Component, this);
+	}
+#endif // ENABLE_VISUAL_LOG
 }
 
 void AAIController::PostRegisterAllComponents()
@@ -100,7 +109,7 @@ void AAIController::DisplayDebug(UCanvas* Canvas, const FDebugDisplayInfo& Debug
 		AActor* FocusActor = GetFocusActor();
 		if (FocusActor)
 		{
-			Canvas->DrawText(GEngine->GetSmallFont(), FString::Printf(TEXT("      Focus %s"), *FocusActor->GetName()), 4.0f, YPos);
+			YL = Canvas->DrawText(GEngine->GetSmallFont(), FString::Printf(TEXT("      Focus %s"), *FocusActor->GetName()), 4.0f, YPos);
 			YPos += YL;
 		}
 	}

@@ -12,6 +12,7 @@
 #include "EditorViewportCommands.h"
 #include "SEditorViewportToolBarMenu.h"
 #include "BlueprintEditorTabs.h"
+#include "BlueprintEditorSettings.h"
 
 /*-----------------------------------------------------------------------------
    SSCSEditorViewportToolBar
@@ -223,6 +224,8 @@ EVisibility SSCSEditorViewport::GetWidgetVisibility() const
 
 TSharedRef<FEditorViewportClient> SSCSEditorViewport::MakeEditorViewportClient()
 {
+	FPreviewScene* PreviewScene = BlueprintEditorPtr.Pin()->GetPreviewScene();
+
 	// Construct a new viewport client instance.
 	ViewportClient = MakeShareable(new FSCSEditorViewportClient(BlueprintEditorPtr, PreviewScene, SharedThis(this)));
 	ViewportClient->SetRealtime(true);
@@ -287,7 +290,10 @@ void SSCSEditorViewport::ToggleIsSimulateEnabled()
 		// Only trigger the switch if the simulation is starting.
 		if ( !ViewportClient->GetIsSimulateEnabled() )
 		{
-			BlueprintEditorPtr.Pin()->GetTabManager()->InvokeTab(FBlueprintEditorTabs::SCSViewportID);
+			if ( GetDefault<UBlueprintEditorSettings>()->bShowViewportOnSimulate )
+			{
+				BlueprintEditorPtr.Pin()->GetTabManager()->InvokeTab(FBlueprintEditorTabs::SCSViewportID);
+			}
 		}
 	}
 
@@ -353,9 +359,4 @@ EActiveTimerReturnType SSCSEditorViewport::DeferredUpdatePreview(double InCurren
 
 	bIsActiveTimerRegistered = false;
 	return EActiveTimerReturnType::Stop;
-}
-
-AActor* SSCSEditorViewport::GetPreviewActor() const
-{
-	return ViewportClient->GetPreviewActor();
 }

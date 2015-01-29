@@ -11,6 +11,7 @@
 #include "Factories.h"
 #include "BSPOps.h"
 #include "EditorCommandLineUtils.h"
+#include "Net/NetworkProfiler.h"
 
 // needed for the RemotePropagator
 #include "SoundDefinitions.h"
@@ -43,7 +44,7 @@
 #include "AnimationUtils.h"
 #include "AudioDecompress.h"
 #include "LevelEditor.h"
-#include "SCreateAssetFromActor.h"
+#include "SCreateAssetFromObject.h"
 
 #include "Editor/ActorPositioning.h"
 
@@ -648,6 +649,7 @@ void UEditorEngine::Init(IEngineLoop* InEngineLoop)
 			TEXT("ProjectSettingsViewer"),
 			TEXT("AndroidRuntimeSettings"),
 			TEXT("AndroidPlatformEditor"),
+			TEXT("HTML5PlatformEditor"),
 			TEXT("IOSRuntimeSettings"),
 			TEXT("IOSPlatformEditor"),
 			TEXT("Blutility"),
@@ -659,7 +661,8 @@ void UEditorEngine::Init(IEngineLoop* InEngineLoop)
 			TEXT("DeviceProfileEditor"),
 			TEXT("SourceCodeAccess"),
 			TEXT("BehaviorTreeEditor"),
-			TEXT("HardwareTargeting")
+			TEXT("HardwareTargeting"),
+			TEXT("LocalizationDashboard")
 		};
 
 		FScopedSlowTask SlowTask(ARRAY_COUNT(ModuleNames));
@@ -901,6 +904,8 @@ void UEditorEngine::AddReferencedObjects(UObject* InThis, FReferenceCollector& C
 
 void UEditorEngine::Tick( float DeltaSeconds, bool bIdleMode )
 {
+	NETWORK_PROFILER(GNetworkProfiler.TrackFrameBegin());
+
 	UWorld* CurrentGWorld = GWorld;
 	check( CurrentGWorld );
 	check( CurrentGWorld != PlayWorld || bIsSimulatingInEditor );
@@ -2556,6 +2561,7 @@ FReimportManager* FReimportManager::Instance()
 void FReimportManager::RegisterHandler( FReimportHandler& InHandler )
 {
 	Handlers.AddUnique( &InHandler );
+	bHandlersNeedSorting = true;
 }
 
 /**
@@ -2585,7 +2591,7 @@ bool FReimportManager::CanReimport( UObject* Obj ) const
 	return false;
 }
 
-bool FReimportManager::Reimport( UObject* Obj, bool bAskForNewFileIfMissing )
+bool FReimportManager::Reimport( UObject* Obj, bool bAskForNewFileIfMissing, bool bShowNotification )
 {
 	// Warn that were about to reimport, so prep for it
 	PreReimport.Broadcast( Obj );
@@ -2593,16 +2599,16 @@ bool FReimportManager::Reimport( UObject* Obj, bool bAskForNewFileIfMissing )
 	bool bSuccess = false;
 	if ( Obj )
 	{
-		bool bShowNotification = true;
-		bool bValidSourceFilename = false;
-		TArray<FString> SourceFilenames;
-		
-		struct FCompareReimportHandlerPriority
+		if (bHandlersNeedSorting)
 		{
 			// Use > operator because we want higher priorities earlier in the list
-			FORCEINLINE bool operator()(const FReimportHandler& A, const FReimportHandler& B) const { return A.GetPriority() > B.GetPriority(); }
-		};
-		Handlers.Sort(FCompareReimportHandlerPriority());
+			Handlers.Sort([](const FReimportHandler& A, const FReimportHandler& B) { return A.GetPriority() > B.GetPriority(); });
+			bHandlersNeedSorting = false;
+		}
+		
+		bool bValidSourceFilename = false;
+		TArray<FString> SourceFilenames;
+
 		for( int32 HandlerIndex = 0; HandlerIndex < Handlers.Num(); ++HandlerIndex )
 		{
 			SourceFilenames.Empty();
@@ -5170,8 +5176,13 @@ void UEditorEngine::ReplaceActors(UActorFactory* Factory, const FAssetData& Asse
 			NewActor->MarkPackageDirty();
 
 			// Replace references in the level script Blueprint with the new Actor
-			ULevelScriptBlueprint* LSB = NewActor->GetLevel()->GetLevelScriptBlueprint(true);
-			FBlueprintEditorUtils::ReplaceAllActorRefrences(LSB, OldActor, NewActor);
+			const bool bDontCreate = true;
+			ULevelScriptBlueprint* LSB = NewActor->GetLevel()->GetLevelScriptBlueprint(bDontCreate);
+			if( LSB )
+			{
+				// Only if the level script blueprint exists would there be references.  
+				FBlueprintEditorUtils::ReplaceAllActorRefrences(LSB, OldActor, NewActor);
+			}
 
 			GEditor->Layers->DisassociateActorFromLayers( OldActor );
 			World->EditorDestroyActor(OldActor, true);
@@ -5718,10 +5729,10 @@ void UEditorEngine::ConvertActors( const TArray<AActor*>& ActorsToConvert, UClas
 			.ToolTipText(LOCTEXT("SelectPathTooltip", "Select the path where the static mesh will be created"))
 			.ClientSize(FVector2D(400, 400));
 
-		TSharedPtr<SCreateAssetFromActor> CreateAssetFromActorWidget;
+		TSharedPtr<SCreateAssetFromObject> CreateAssetFromActorWidget;
 		CreateAssetFromActorWindow->SetContent
 			(
-			SAssignNew(CreateAssetFromActorWidget, SCreateAssetFromActor, CreateAssetFromActorWindow)
+			SAssignNew(CreateAssetFromActorWidget, SCreateAssetFromObject, CreateAssetFromActorWindow)
 			.AssetFilenameSuffix(TEXT("StaticMesh"))
 			.HeadingText(LOCTEXT("ConvertBrushesToStaticMesh_Heading", "Static Mesh Name:"))
 			.CreateButtonText(LOCTEXT("ConvertBrushesToStaticMesh_ButtonLabel", "Create Static Mesh"))
@@ -7413,7 +7424,7 @@ namespace EditorUtilities
 											{
 												// Ensure that this instance will be included in any undo/redo operations, and record it into the transaction buffer.
 												// Note: We don't do this for components that originate from script, because they will be re-instanced from the template after an undo, so there is no need to record them.
-												if(!ComponentArchetypeInstance->bCreatedByConstructionScript)
+												if(ComponentArchetypeInstance->CreationMethod != EComponentCreationMethod::ConstructionScript)
 												{
 													ComponentArchetypeInstance->SetFlags(RF_Transactional);
 													ComponentArchetypeInstance->Modify();

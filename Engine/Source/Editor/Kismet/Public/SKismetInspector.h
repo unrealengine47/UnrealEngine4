@@ -40,11 +40,13 @@ public:
 	{
 		FText ForcedTitle;
 		bool bForceRefresh;
+		bool bShowComponents;
 		bool bHideFilterArea;
 
 		FShowDetailsOptions(const FText& InForcedTitle = FText::GetEmpty(), bool bInForceRefresh = false)
 			:ForcedTitle(InForcedTitle)
 			,bForceRefresh(bInForceRefresh)
+			,bShowComponents(true)
 			,bHideFilterArea(false)
 		{}
 	};
@@ -63,6 +65,9 @@ public:
 
 	TSharedPtr<class IDetailsView> GetPropertyView() const { return PropertyView; }
 
+	void SetOwnerTab(TSharedRef<SDockTab> Tab);
+	TSharedPtr<SDockTab> GetOwnerTab() const;
+
 protected:
 	/** Update the inspector window to show information on the supplied objects */
 	void UpdateFromObjects(const TArray<UObject*>& PropertyObjects, struct FKismetSelectionInfo& SelectionInfo, const FShowDetailsOptions& Options);
@@ -73,11 +78,17 @@ protected:
 	/** Pointer back to the kismet 2 tool that owns us */
 	TWeakPtr<FBlueprintEditor> Kismet2Ptr;
 
+	/** The tab that owns this details view. */
+	TWeakPtr<SDockTab> OwnerTab;
+
 	/** String used as the title above the property window */
 	FText PropertyViewTitle;
 
 	/** Should we currently show the property view */
 	bool bShowInspectorPropertyView;
+
+	/** Should we currently show components */
+	bool bShowComponents;
 
 	/** State of CheckBox representing whether to show only the public variables*/
 	ECheckBoxState	PublicViewState;
@@ -99,6 +110,9 @@ protected:
 
 	/** If true show the kismet inspector title widget */
 	bool bShowTitleArea;
+
+	/** Component details customization enabled. */
+	bool bComponenetDetailsCustomizationEnabled;
 
 	/** Set of object properties that should be visible */
 	TSet<TWeakObjectPtr<UProperty> > SelectedObjectProperties;

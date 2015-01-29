@@ -76,20 +76,20 @@ TArray<TSharedPtr<FSlateBrush>>* FContentSourceViewModel::GetScreenshotBrushes()
 
 void FContentSourceViewModel::SetupBrushes()
 {
-	if( ContentSource->GetIconData().IsValid() )
+	if (ContentSource->GetIconData().IsValid())
 	{
-		FString IconBrushName = GetName().ToString() + "_" + ContentSource->GetIconData()->GetName();
-		IconBrush = CreateBrushFromRawData(IconBrushName, *ContentSource->GetIconData()->GetData());
+	    FString IconBrushName = GetName().ToString() + "_" + ContentSource->GetIconData()->GetName();
+	    IconBrush = CreateBrushFromRawData(IconBrushName, *ContentSource->GetIconData()->GetData());
 	}
 
 	for (TSharedPtr<FImageData> ScreenshotData : ContentSource->GetScreenshotData())
 	{
-		if( ScreenshotData.IsValid() == true )
+		if (ScreenshotData.IsValid() == true)
 		{
-			FString ScreenshotBrushName = GetName().ToString() + "_" + ScreenshotData->GetName();
-			ScreenshotBrushes.Add(CreateBrushFromRawData(ScreenshotBrushName, *ScreenshotData->GetData()));
-		}
-	}	
+		    FString ScreenshotBrushName = GetName().ToString() + "_" + ScreenshotData->GetName();
+		    ScreenshotBrushes.Add(CreateBrushFromRawData(ScreenshotBrushName, *ScreenshotData->GetData()));
+	    }
+    }
 }
 
 TSharedPtr<FSlateDynamicImageBrush> FContentSourceViewModel::CreateBrushFromRawData(FString ResourceNamePrefix, const TArray< uint8 >& RawData) const
@@ -104,7 +104,7 @@ TSharedPtr<FSlateDynamicImageBrush> FContentSourceViewModel::CreateBrushFromRawD
 	TArray<uint8> DecodedImage;
 	IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(FName("ImageWrapper"));
 	IImageWrapperPtr ImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
-	if (ImageWrapper.IsValid() && ImageWrapper->SetCompressed(RawData.GetData(), RawData.Num()))
+	if (ImageWrapper.IsValid() && (RawData.Num() > 0) && ImageWrapper->SetCompressed(RawData.GetData(), RawData.Num()))
 	{
 		Width = ImageWrapper->GetWidth();
 		Height = ImageWrapper->GetHeight();

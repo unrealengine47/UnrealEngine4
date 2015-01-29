@@ -30,7 +30,7 @@ FSCSDiff::FSCSDiff(const UBlueprint* InBlueprint)
 				.ActorContext(InBlueprint->GeneratedClass->GetDefaultObject<AActor>())
 				.AllowEditing(false)
 				.HideComponentClassCombo(true)
-				.OnUpdateSelectionFromNodes(SSCSEditor::FOnUpdateSelectionFromNodes::CreateRaw(this, &FSCSDiff::OnSCSEditorUpdateSelectionFromNodes))
+				.OnSelectionUpdated(SSCSEditor::FOnSelectionUpdated::CreateRaw(this, &FSCSDiff::OnSCSEditorUpdateSelectionFromNodes))
 				.OnHighlightPropertyInDetailsView(SSCSEditor::FOnHighlightPropertyInDetailsView::CreateRaw(this, &FSCSDiff::OnSCSEditorHighlightPropertyInDetailsView))
 		]
 		+ SSplitter::Slot()
@@ -73,11 +73,12 @@ TArray< FSCSResolvedIdentifier > FSCSDiff::GetDisplayedHierarchy() const
 
 	if( SCSEditor.IsValid() )
 	{
-		for (int32 Iter = 0; Iter != SCSEditor->RootNodes.Num(); ++Iter)
+		const TArray<FSCSEditorTreeNodePtrType>& RootNodes = SCSEditor->GetRootComponentNodes();
+		for (int32 Iter = 0; Iter != RootNodes.Num(); ++Iter)
 		{
 			TArray< int32 > TreeAddress;
 			TreeAddress.Push(Iter);
-			GetDisplayedHierarchyRecursive(TreeAddress, *SCSEditor->RootNodes[Iter], Ret);
+			GetDisplayedHierarchyRecursive(TreeAddress, *RootNodes[Iter], Ret);
 		}
 	}
 

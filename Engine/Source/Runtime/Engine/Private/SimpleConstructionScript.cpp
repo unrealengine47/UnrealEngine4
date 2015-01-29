@@ -14,24 +14,23 @@
 //////////////////////////////////////////////////////////////////////////
 // USimpleConstructionScript
 
-#if WITH_EDITOR
-const FName USimpleConstructionScript::DefaultSceneRootVariableName = FName(TEXT("DefaultSceneRoot"));
-#endif
-
 namespace
 {
 	// Helper method to register instanced components post-construction
 	void RegisterInstancedComponent(UActorComponent* InstancedComponent)
 	{
-		InstancedComponent->RegisterComponent();
-
-		// If this is a scene component, recursively register any child components as well
-		USceneComponent* InstancedSceneComponent = Cast<USceneComponent>(InstancedComponent);
-		if(InstancedSceneComponent != nullptr)
+		if (!InstancedComponent->IsRegistered())
 		{
-			for(auto InstancedChildComponent : InstancedSceneComponent->AttachChildren)
+			InstancedComponent->RegisterComponent();
+
+			// If this is a scene component, recursively register any child components as well
+			USceneComponent* InstancedSceneComponent = Cast<USceneComponent>(InstancedComponent);
+			if(InstancedSceneComponent != nullptr)
 			{
-				RegisterInstancedComponent(InstancedChildComponent);
+				for(auto InstancedChildComponent : InstancedSceneComponent->AttachChildren)
+				{
+					RegisterInstancedComponent(InstancedChildComponent);
+				}
 			}
 		}
 	}
@@ -340,6 +339,13 @@ void USimpleConstructionScript::ExecuteScriptOnActor(AActor* Actor, const FTrans
 				// Get all native scene components
 				TInlineComponentArray<USceneComponent*> Components;
 				Actor->GetComponents(Components);
+				for (int32 Index = Components.Num()-1; Index >= 0; --Index)
+				{
+					if (Components[Index]->CreationMethod == EComponentCreationMethod::Instance)
+					{
+						Components.RemoveAt(Index);
+					}
+				}
 
 				// Get the native root component; if it's not set, the first native scene component will be used as root. This matches what's done in the SCS editor.
 				USceneComponent* RootComponent = Actor->GetRootComponent();
@@ -401,7 +407,7 @@ void USimpleConstructionScript::ExecuteScriptOnActor(AActor* Actor, const FTrans
 	{
 		USceneComponent* SceneComp = NewObject<USceneComponent>(Actor);
 		SceneComp->SetFlags(RF_Transactional);
-		SceneComp->bCreatedByConstructionScript = true;
+		SceneComp->CreationMethod = EComponentCreationMethod::ConstructionScript;
 		SceneComp->SetWorldTransform(RootTransform);
 		Actor->SetRootComponent(SceneComp);
 		SceneComp->RegisterComponent();
@@ -644,7 +650,7 @@ void USimpleConstructionScript::ValidateSceneRootNodes()
 			&& FBlueprintEditorUtils::IsActorBased(Blueprint)
 			&& Blueprint->BlueprintType != BPTYPE_MacroLibrary)
 		{
-			DefaultSceneRootNode = CreateNode(USceneComponent::StaticClass(), DefaultSceneRootVariableName);
+			DefaultSceneRootNode = CreateNode(USceneComponent::StaticClass(), FComponentEditorUtils::GetDefaultSceneRootVariableName());
 		}
 	}
 
@@ -752,7 +758,16 @@ USCS_Node* USimpleConstructionScript::CreateNode(UClass* NewComponentClass, FNam
 	check(NewComponentClass->IsChildOf(UActorComponent::StaticClass()));
 
 	ensure(NULL != Cast<UBlueprintGeneratedClass>(Blueprint->GeneratedClass));
-	UActorComponent* NewComponentTemplate = ConstructObject<UActorComponent>(NewComponentClass, Blueprint->GeneratedClass);
+
+	FName NewComponentName(NAME_None);
+	if (NewComponentClass->ClassGeneratedBy && NewComponentClass->GetName().EndsWith(TEXT("_C")))
+	{
+		const FString NewClassName = NewComponentClass->GetName();
+		const int32 NewStrLen = NewClassName.Len() - 2;
+		NewComponentName = MakeUniqueObjectName(Blueprint->GeneratedClass, NewComponentClass, FName(*NewClassName.Left(NewStrLen)));
+	}
+
+	UActorComponent* NewComponentTemplate = ConstructObject<UActorComponent>(NewComponentClass, Blueprint->GeneratedClass, NewComponentName);
 	NewComponentTemplate->SetFlags(RF_ArchetypeObject|RF_Transactional|RF_Public);
 
 	return CreateNode(NewComponentTemplate, NewComponentVariableName);
@@ -771,6 +786,13 @@ USCS_Node* USimpleConstructionScript::CreateNode(UActorComponent* NewComponentTe
 		// Get a list of names currently in use.
 		TArray<FName> CurrentNames;
 		NewNode->GenerateListOfExistingNames( CurrentNames );
+
+		if (NewComponentVariableName.ToString().EndsWith(TEXT("_C")))
+		{
+			const FString NameAsString = NewComponentVariableName.ToString();
+			const int32 NewStrLen = NameAsString.Len() - 2;
+			NewComponentVariableName = FName(*NameAsString.Left(NewStrLen));
+		}
 
 		// Now create a name for the new component.
 		NewNode->VariableName = NewNode->GenerateNewComponentName( CurrentNames, NewComponentVariableName );

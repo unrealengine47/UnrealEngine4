@@ -316,7 +316,7 @@ ANavigationData* ARecastNavMesh::CreateNavigationInstances(UNavigationSystem* Na
 		return NULL;
 	}
 
-	const TArray<FNavDataConfig>* SupportedAgents = &NavSys->SupportedAgents;
+	const TArray<FNavDataConfig>* SupportedAgents = &NavSys->GetSupportedAgents();
 	const int SupportedAgentsCount = SupportedAgents->Num();
 
 	if (SupportedAgentsCount > 0)
@@ -658,6 +658,22 @@ void ARecastNavMesh::SortAreasForGenerator(TArray<FRecastAreaNavModifierElement>
 	};
 
 	Modifiers.Sort(FNavAreaSortPredicate());
+}
+
+TArray<FIntPoint>& ARecastNavMesh::GetActiveTiles()
+{
+	FRecastNavMeshGenerator* MyGenerator = static_cast<FRecastNavMeshGenerator*>(GetGenerator());
+	check(MyGenerator);
+	return MyGenerator->ActiveTiles;
+}
+
+void ARecastNavMesh::RestrictBuildingToActiveTiles(bool InRestrictBuildingToActiveTiles)
+{
+	FRecastNavMeshGenerator* MyGenerator = static_cast<FRecastNavMeshGenerator*>(GetGenerator());
+	if (MyGenerator)
+	{
+		MyGenerator->RestrictBuildingToActiveTiles(InRestrictBuildingToActiveTiles);
+	}
 }
 
 void ARecastNavMesh::SerializeRecastNavMesh(FArchive& Ar, FPImplRecastNavMesh*& NavMesh)
@@ -1867,10 +1883,17 @@ void ARecastNavMesh::ConditionalConstructGenerator()
 {
 	NavDataGenerator.Reset();
 	
-	const bool bRequiresGenerator = SupportsRuntimeGeneration() || !GetWorld()->IsGameWorld();
+	UWorld* World = GetWorld();
+	check(World);
+	const bool bRequiresGenerator = SupportsRuntimeGeneration() || !World->IsGameWorld();
 	if (bRequiresGenerator)
 	{
 		NavDataGenerator.Reset(new FRecastNavMeshGenerator(*this));
+
+		if (World->GetNavigationSystem())
+		{
+			RestrictBuildingToActiveTiles(World->GetNavigationSystem()->IsActiveTilesGenerationEnabled());
+		}
 	}
 }
 
@@ -1910,8 +1933,136 @@ bool ARecastNavMesh::HasValidNavmesh() const
 #endif // WITH_RECAST
 }
 
-#if WITH_RECAST
+//----------------------------------------------------------------------//
+// RecastNavMesh: Active Tiles 
+//----------------------------------------------------------------------//
+void ARecastNavMesh::UpdateActiveTiles(const TArray<FNavigationInvokerRaw>& InvokerLocations)
+{
+	if (HasValidNavmesh() == false)
+	{
+		return;
+	}
 
+	FRecastNavMeshGenerator* MyGenerator = static_cast<FRecastNavMeshGenerator*>(GetGenerator());
+	if (MyGenerator == nullptr)
+	{
+		return;
+	}
+
+	const dtNavMeshParams* NavParams = GetRecastNavMeshImpl()->DetourNavMesh->getParams();
+	check(NavParams && MyGenerator);
+	const FRecastBuildConfig& Config = MyGenerator->GetConfig();
+	const FVector NavmeshOrigin = Recast2UnrealPoint(NavParams->orig);
+	const float TileDim = Config.tileSize * Config.cs;
+	const FVector TileCenterOffset(TileDim, TileDim, 0);
+
+	TArray<FIntPoint>& ActiveTiles = GetActiveTiles();
+	TArray<FIntPoint> OldActiveSet = ActiveTiles;
+	TArray<FIntPoint> TilesInMinDistance;
+	TArray<FIntPoint> TilesInMaxDistance;
+	TilesInMinDistance.Reserve(ActiveTiles.Num());
+	TilesInMaxDistance.Reserve(ActiveTiles.Num());
+	ActiveTiles.Reset();
+
+	//const int32 TileRadius = FMath::CeilToInt(Radius / TileDim);
+	static const float SqareRootOf2 = FMath::Sqrt(2.f);
+
+	for (const auto& Invoker : InvokerLocations)
+	{
+		const FVector InvokerRelativeLocation = (NavmeshOrigin - Invoker.Location);
+		const float TileCenterDistanceToRemoveSq = FMath::Square(TileDim * SqareRootOf2 / 2 + Invoker.RadiusMax);
+		const float TileCenterDistanceToAddSq = FMath::Square(TileDim * SqareRootOf2 / 2 + Invoker.RadiusMin);
+
+		const int32 MinTileX = FMath::FloorToInt((InvokerRelativeLocation.X - Invoker.RadiusMax) / TileDim);
+		const int32 MaxTileX = FMath::CeilToInt((InvokerRelativeLocation.X + Invoker.RadiusMax) / TileDim);
+		const int32 MinTileY = FMath::FloorToInt((InvokerRelativeLocation.Y - Invoker.RadiusMax) / TileDim);
+		const int32 MaxTileY = FMath::CeilToInt((InvokerRelativeLocation.Y + Invoker.RadiusMax) / TileDim);
+
+		for (int32 X = MinTileX; X <= MaxTileX; ++X)
+		{
+			for (int32 Y = MinTileY; Y <= MaxTileY; ++Y)
+			{
+				const float DistanceSq = (InvokerRelativeLocation - FVector(X * TileDim + TileDim / 2, Y * TileDim + TileDim / 2, 0.f)).SizeSquared2D();
+				if (DistanceSq < TileCenterDistanceToRemoveSq)
+				{
+					TilesInMaxDistance.AddUnique(FIntPoint(X, Y));
+
+					if (DistanceSq < TileCenterDistanceToAddSq)
+					{
+						TilesInMinDistance.AddUnique(FIntPoint(X, Y));
+					}
+				}
+			}
+		}
+	}
+
+	ActiveTiles.Append(TilesInMinDistance);
+
+	TArray<FIntPoint> TilesToRemove;
+	TilesToRemove.Reserve(OldActiveSet.Num());
+	for (int32 Index = OldActiveSet.Num() - 1; Index >= 0; --Index)
+	{
+		if (TilesInMaxDistance.Find(OldActiveSet[Index]) == INDEX_NONE)
+		{
+			TilesToRemove.Add(OldActiveSet[Index]);
+			OldActiveSet.RemoveAtSwap(Index, 1, /*bAllowShrinking=*/false);
+		}
+		else
+		{
+			ActiveTiles.AddUnique(OldActiveSet[Index]);
+		}
+	}
+
+	TArray<FIntPoint> TilesToUpdate;
+	TilesToUpdate.Reserve(ActiveTiles.Num());
+	for (int32 Index = TilesInMinDistance.Num() - 1; Index >= 0; --Index)
+	{
+		// check if it's a new tile
+		if (OldActiveSet.Find(TilesInMinDistance[Index]) == INDEX_NONE)
+		{
+			TilesToUpdate.Add(TilesInMinDistance[Index]);
+		}
+	}
+
+	RemoveTiles(TilesToRemove);
+	RebuildTile(TilesToUpdate);
+
+	if (TilesToRemove.Num() > 0 || TilesToUpdate.Num() > 0)
+	{
+		UpdateNavMeshDrawing();
+	}
+}
+
+void ARecastNavMesh::RemoveTiles(const TArray<FIntPoint>& Tiles)
+{
+	if (Tiles.Num() > 0)
+	{
+		bWantsUpdate = true;
+		FRecastNavMeshGenerator* MyGenerator = static_cast<FRecastNavMeshGenerator*>(GetGenerator());
+		if (MyGenerator)
+		{
+			MyGenerator->RemoveTiles(Tiles);
+		}
+	}
+}
+
+void ARecastNavMesh::RebuildTile(const TArray<FIntPoint>& Tiles)
+{
+	if (Tiles.Num() > 0)
+	{
+		bWantsUpdate = true;
+		FRecastNavMeshGenerator* MyGenerator = static_cast<FRecastNavMeshGenerator*>(GetGenerator());
+		if (MyGenerator)
+		{
+			MyGenerator->ReAddTiles(Tiles);
+		}
+	}
+}
+
+//----------------------------------------------------------------------//
+// FRecastNavMeshCachedData
+//----------------------------------------------------------------------//
+#if WITH_RECAST
 FRecastNavMeshCachedData FRecastNavMeshCachedData::Construct(const ARecastNavMesh* RecastNavMeshActor)
 {
 	check(RecastNavMeshActor);
@@ -1968,3 +2119,4 @@ void FRecastNavMeshCachedData::OnAreaAdded(const UClass* AreaClass, int32 AreaID
 }
 
 #endif// WITH_RECAST
+

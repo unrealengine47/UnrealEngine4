@@ -3,6 +3,7 @@
 #pragma once
 
 #include "BlueprintEditor.h"
+#include "SComponentClassCombo.h"
 
 class SSCSEditor;
 class USCS_Node;
@@ -19,10 +20,18 @@ typedef TSharedPtr<class FSCSEditorTreeNode> FSCSEditorTreeNodePtrType;
 class KISMET_API FSCSEditorTreeNode : public TSharedFromThis<FSCSEditorTreeNode>
 {
 public:
+
+	enum ENodeType
+	{
+		ComponentNode,
+		RootActorNode,
+		SeparatorNode,
+	};
+
 	/** 
 	 * Constructs an empty tree node.
 	 */
-	FSCSEditorTreeNode();
+	FSCSEditorTreeNode(FSCSEditorTreeNode::ENodeType InNodeType);
 
 	/**
 	 * Constructs a wrapper around a component template contained within an SCS tree node.
@@ -47,6 +56,10 @@ public:
 	 * @return The string to be used in the tree display.
 	 */
 	FString GetDisplayString() const;
+	/**
+	* @return The name of this node in text.
+	*/
+	FText GetDisplayName() const;
 	/** 
      * @return The SCS node that is represented by this object, or NULL if there is no SCS node associated with the component template.
 	 */
@@ -55,6 +68,12 @@ public:
 	 * @return The component template or instance represented by this object.
 	 */
 	UActorComponent* GetComponentTemplate() const;
+	/**
+	 * @param ActualEditedBlueprint currently edited blueprint
+	 *
+	 * @return The component template that can be editable for actual class.
+	 */
+	UActorComponent* GetEditableComponentTemplate(UBlueprint* ActualEditedBlueprint);
 	/**
 	 * Finds the component instance represented by this node contained within a given Actor instance.
 	 *
@@ -74,10 +93,14 @@ public:
 	 * @return The Blueprint to which this node belongs.
 	 */
 	UBlueprint* GetBlueprint() const;
-	/** 
+	/**
+	 * @return Type of node
+	 */
+	ENodeType GetNodeType() const;
+	/**
 	 * @return Whether or not this object represents a root component.
 	 */
-	bool IsRoot() const;
+	bool IsRootComponent() const;
 	/**
 	 * @return Whether or not this node is a direct child of the given node.
 	 */
@@ -109,15 +132,15 @@ public:
 	/** 
 	 * @return Whether or not this object represents a node that can be deleted from the SCS tree.
 	 */
-	bool CanDelete() const { return IsUserInstanced() || (!IsNative() && !IsInherited() && !IsDefaultSceneRoot()); }
+	bool CanDelete() const { return (IsUserInstanced() || (!IsNative() && !IsInherited())) && !IsDefaultSceneRoot(); }
 	/** 
 	 * @return Whether or not this object represents a node that can be renamed from the SCS tree.
 	 */
-	bool CanRename() const { return IsUserInstanced() || (!IsNative() && !IsInherited() && !IsDefaultSceneRoot()); }
+	bool CanRename() const { return (IsUserInstanced() || (!IsNative() && !IsInherited())) && !IsDefaultSceneRoot(); }
 	/** 
 	 * @return Whether or not this object represents a node that can be reparented to other nodes based on its context.
 	 */
-	bool CanReparent() const { return (IsUserInstanced() || (!IsNative() && !IsInherited() && !IsDefaultSceneRoot())) && Cast<USceneComponent>(GetComponentTemplate()) != NULL; }
+	bool CanReparent() const { return (IsUserInstanced() || (!IsNative() && !IsInherited())) && !IsDefaultSceneRoot() && Cast<USceneComponent>(GetComponentTemplate()) != NULL; }
 	/** 
 	 * @return Whether or not we can edit default properties for the component template represented by this object.
 	 */
@@ -208,6 +231,7 @@ public:
 	UActorComponent* GetOverridenComponentTemplate(UBlueprint* Blueprint, bool bCreateIfNecessary) const;
 
 private:
+	ENodeType NodeType;
 	bool bIsInherited;
 	bool bIsInstanced;
 	TWeakObjectPtr<class USCS_Node> SCSNodePtr;
@@ -258,16 +282,13 @@ public:
 	FString GetDocumentationExcerptName() const;
 	
 	FText GetAssetName() const;
-	FText GetAssetNameTooltip() const;
+	FText GetAssetPath() const;
 	EVisibility GetAssetVisibility() const;
 
 	EVisibility GetRootLabelVisibility() const;
 
 	/* Get the node used by the row Widget */
-	FSCSEditorTreeNodePtrType GetNode() const
-	{
-		return NodePtr;
-	}
+	virtual FSCSEditorTreeNodePtrType GetNode() const { return TreeNodePtr; };
 
 private:
 	/** Verifies the name of the component when changing it */
@@ -278,6 +299,9 @@ private:
 
 	/** Builds a context menu popup for dropping a child node onto the scene root node */
 	TSharedPtr<SWidget> BuildSceneRootDropActionMenu(FSCSEditorTreeNodePtrType DroppedNodePtr);
+
+	/** Creates a tooltip for this row */
+	TSharedRef<SToolTip> CreateToolTipWidget() const;
 
 	/** Handler for attaching a single node to this node */
 	void OnAttachToDropAction(FSCSEditorTreeNodePtrType DroppedNodePtr)
@@ -318,14 +342,45 @@ public:
 	/** Pointer back to owning SCSEditor 2 tool */
 	TWeakPtr<SSCSEditor> SCSEditor;
 
-protected:
+private:
 	/** Pointer to node we represent */
-	FSCSEditorTreeNodePtrType NodePtr;
+	FSCSEditorTreeNodePtrType TreeNodePtr;
 };
 
+class SSCS_RowWidget_ActorRoot : public SSCS_RowWidget
+{
+public:
 
+	// SMultiColumnTableRow<T> interface
+	virtual TSharedRef<SWidget> GenerateWidgetForColumn(const FName& ColumnName) override;
+	// End of SMultiColumnTableRow<T>
 
+	/* Get the node used by the row Widget */
+	virtual FSCSEditorTreeNodePtrType GetNode() const override;
 
+private:
+	/** Creates a tooltip for this row */
+	TSharedRef<SToolTip> CreateToolTipWidget() const;
+
+	/** Data accessors */
+	const FSlateBrush* GetActorIcon() const;
+	FText GetActorDisplayText() const;
+	FText GetActorClassNameText() const;
+	FText GetActorSuperClassNameText() const;
+	FText GetActorMobilityText() const;
+};
+
+class SSCS_RowWidget_Separator : public SSCS_RowWidget
+{
+public:
+
+	// SMultiColumnTableRow<T> interface
+	virtual TSharedRef<SWidget> GenerateWidgetForColumn(const FName& ColumnName) override;
+	// End of SMultiColumnTableRow<T>
+
+private:
+
+};
 
 //////////////////////////////////////////////////////////////////////////
 // SSCSEditorDragDropTree - implements STreeView for our specific node type and adds drag/drop functionality
@@ -409,8 +464,8 @@ public:
 
 	DECLARE_DELEGATE_RetVal_OneParam(class USCS_Node*, FOnAddNewComponent, class UClass*);
 	DECLARE_DELEGATE_RetVal_OneParam(class USCS_Node*, FOnAddExistingComponent, class UActorComponent*);
-	DECLARE_DELEGATE_OneParam(FOnTreeViewSelectionChanged, const TArray<FSCSEditorTreeNodePtrType>&);
-	DECLARE_DELEGATE_OneParam(FOnUpdateSelectionFromNodes, const TArray<FSCSEditorTreeNodePtrType>&);
+	DECLARE_DELEGATE_OneParam(FOnSelectionUpdated, const TArray<FSCSEditorTreeNodePtrType>&);
+	DECLARE_DELEGATE_OneParam(FOnItemDoubleClicked, const FSCSEditorTreeNodePtrType);
 	DECLARE_DELEGATE_OneParam(FOnHighlightPropertyInDetailsView, const class FPropertyPath&);
 
 	SLATE_BEGIN_ARGS( SSCSEditor )
@@ -419,25 +474,25 @@ public:
 		,_PreviewActor(nullptr)
 		,_AllowEditing(true)
 		,_HideComponentClassCombo(false)
-		,_OnTreeViewSelectionChanged()
-		,_OnUpdateSelectionFromNodes()
+		,_OnSelectionUpdated()
 		,_OnHighlightPropertyInDetailsView()
 		{}
 
-		SLATE_ATTRIBUTE(EEditorMode, EditorMode)
+		SLATE_ARGUMENT(EEditorMode, EditorMode)
 		SLATE_ATTRIBUTE(class AActor*, ActorContext)
 		SLATE_ATTRIBUTE(class AActor*, PreviewActor)
 		SLATE_ATTRIBUTE(bool, AllowEditing)
 		SLATE_ATTRIBUTE(bool, HideComponentClassCombo)
-		SLATE_EVENT(FOnTreeViewSelectionChanged, OnTreeViewSelectionChanged)
-		SLATE_EVENT(FOnUpdateSelectionFromNodes, OnUpdateSelectionFromNodes)
+		SLATE_EVENT(FOnSelectionUpdated, OnSelectionUpdated)
+		SLATE_EVENT(FOnItemDoubleClicked, OnItemDoubleClicked)
 		SLATE_EVENT(FOnHighlightPropertyInDetailsView, OnHighlightPropertyInDetailsView)
 
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
 
-	/** Override OnKeyDown */
+	/** SWidget interface */
+	virtual void Tick( const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime );
 	virtual FReply OnKeyDown( const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent );
 
 	/** Used by tree control - make a widget for a table row from a node */
@@ -464,11 +519,11 @@ public:
 	UActorComponent* AddNewNode(USCS_Node* NewNode, UObject* Asset, bool bMarkBlueprintModified, bool bSetFocusToNewItem = true);
 
 	/** Adds a new component instance node to the component Table
-		@param NewNode	(In) The component instance node to add
+		@param NewInstanceComponent	(In) The component being added to the actor instance
 		@param Asset	(In) Optional asset to assign to the component
 		@param bSetFocusToNewItem (In) Select the new item and activate the inline rename widget (default is true)
 		@return The reference of the newly created ActorComponent */
-	UActorComponent* AddNewNode(UActorComponent* NewNode, UObject* Asset, bool bSetFocusToNewItem = true);
+	UActorComponent* AddNewNode(UActorComponent* NewInstanceComponent, UObject* Asset, bool bSetFocusToNewItem = true);
 	
 	/** Returns true if the specified component is currently selected */
 	bool IsComponentSelected(const UPrimitiveComponent* PrimComponent) const;
@@ -497,6 +552,12 @@ public:
 
 	/** Called when selection in the tree changes */
 	void OnTreeSelectionChanged(FSCSEditorTreeNodePtrType InSelectedNodePtr, ESelectInfo::Type SelectInfo);
+
+	/** Called when the Actor is selected. */
+	void OnActorSelected(const ECheckBoxState NewCheckedState);
+
+	/** Called to determine if actor is selected. */
+	ECheckBoxState OnIsActorSelected() const;
 
 	/** Update any associated selection (e.g. details view) from the passed in nodes */
 	void UpdateSelectionFromNodes(const TArray<FSCSEditorTreeNodePtrType> &SelectedNodes );
@@ -531,6 +592,9 @@ public:
 	 * @return A shared pointer to a tree node. The pointer will be invalid if no match could be found.
 	 */
 	FSCSEditorTreeNodePtrType GetNodeFromActorComponent(const UActorComponent* ActorComponent, bool bIncludeAttachedComponents = true) const;
+
+	/** Select the root of the tree */
+	void SelectRoot();
 
 	/** Select the given tree node */
 	void SelectNode(FSCSEditorTreeNodePtrType InNodeToSelect, bool IsCntrlDown);
@@ -577,11 +641,16 @@ public:
 	/** Provides access to the Blueprint context that's being edited */
 	class UBlueprint* GetBlueprint() const;
 
+	/** Returns the set of root nodes */
+	const TArray<FSCSEditorTreeNodePtrType>& GetRootComponentNodes();
+
+	/** @return The current editor mode (editing live actors or editing blueprints) */
+	EEditorMode GetEditorMode() const { return EditorMode; }
 protected:
 	FString GetSelectedClassText() const;
 
 	/** Add a component from the selection in the combo box */
-	void PerformComboAddClass(TSubclassOf<UActorComponent> ComponentClass);
+	void PerformComboAddClass(TSubclassOf<UActorComponent> ComponentClass, EComponentCreateAction::Type ComponentCreateAction );
 
 	/** Called to display context menu when right clicking on the widget */
 	TSharedPtr< SWidget > CreateContextMenu();
@@ -642,14 +711,65 @@ protected:
 	/** Callback when a component item is scrolled into view */
 	void OnItemScrolledIntoView( FSCSEditorTreeNodePtrType InItem, const TSharedPtr<ITableRow>& InWidget);
 
+	/** Callback when a component item is double clicked. */
+	void HandleItemDoubleClicked(FSCSEditorTreeNodePtrType InItem);
+
 	/** Returns the set of expandable nodes that are currently collapsed in the UI */
 	void GetCollapsedNodes(const FSCSEditorTreeNodePtrType& InNodePtr, TSet<FSCSEditorTreeNodePtrType>& OutCollapsedNodes) const;
+
+	/** @return The visibility of the promote to blueprint button (only visible with an actor instance that is not created from a blueprint)*/
+	EVisibility GetPromoteToBlueprintButtonVisibility() const;
+
+	/** @return The visibility of the Edit Blueprint button (only visible with an actor instance that is created from a blueprint)*/
+	EVisibility GetEditBlueprintButtonVisibility() const;
+
+	/** @return the tooltip describing how many properties will be applied to the blueprint */
+	FText OnGetApplyChangesToBlueprintTooltip() const;
+
+	/** @return the tooltip describing how many properties will be reset to the blueprint default*/
+	FText OnGetResetToBlueprintDefaultsTooltip() const;
+
+	/** Opens the blueprint editor for the blueprint being viewed by the scseditor */
+	void OnOpenBlueprintEditor() const;
+
+	/** Propagates instance changes to the blueprint */
+	void OnApplyChangesToBlueprint() const;
+
+	/** Resets instance changes to the blueprint default */
+	void OnResetToBlueprintDefaults() const;
+
+	/** Converts the current actor instance to a blueprint */
+	void PromoteToBlueprint() const;
+
+	/** Called when the promote to blueprint button is clicked */
+	FReply OnPromoteToBlueprintClicked();
+
+	/** gets a root nodes of the tree */
+	const TArray<FSCSEditorTreeNodePtrType>& GetRootNodes() const;
+
+	/** Adds a root component tree node */
+	TSharedPtr<FSCSEditorTreeNode> AddRootComponentTreeNode(UActorComponent* ActorComp);
+
+	/**
+	 * Creates a new C++ component from the specified class type
+	 * The user will be prompted to pick a new subclass name and code will be recompiled
+	 *
+	 * @return The new class that was created
+	 */
+	UClass* CreateNewCPPComponent(TSubclassOf<UActorComponent> ComponentClass);
+
+	
+	/**
+	 * Creates a new Blueprint component from the specified class type
+	 * The user will be prompted to pick a new subclass name and a blueprint asset will be created
+	 *
+	 * @return The new class that was created
+	 */
+	UClass* CreateNewBPComponent(TSubclassOf<UActorComponent> ComponentClass);
+
 public:
 	/** Tree widget */
 	TSharedPtr<SSCSTreeType> SCSTreeWidget;
-
-	/** Root set of tree */
-	TArray<FSCSEditorTreeNodePtrType> RootNodes;
 
 	/** The node that represents the root component in the scene hierarchy */
 	FSCSEditorTreeNodePtrType SceneRootNodePtr;
@@ -663,9 +783,6 @@ public:
 	/** Whether or not the deferred rename request was flagged as transactional */
 	bool bIsDeferredRenameRequestTransactional;
 
-	/** Attribute to indicate which editor mode we're in. */
-	TAttribute<EEditorMode> EditorMode;
-
 	/** Attribute that provides access to the Actor context for which we are viewing/editing the SCS. */
 	TAttribute<class AActor*> ActorContext;
 
@@ -675,16 +792,33 @@ public:
 	/** Attribute to indicate whether or not editing is allowed. */
 	TAttribute<bool> AllowEditing;
 
-	/** Delegate to invoke on tree view selection change. */
-	FOnTreeViewSelectionChanged OnTreeViewSelectionChanged;
+	/** Delegate to invoke on selection update. */
+	FOnSelectionUpdated OnSelectionUpdated;
 
-	/** Delegate to invoke when details should be updated. */
-	FOnUpdateSelectionFromNodes OnUpdateSelectionFromNodes;
+	/** Delegate to invoke when an item in the tree is double clicked. */
+	FOnItemDoubleClicked OnItemDoubleClicked;
 
 	/** Delegate to invoke when the given property should be highlighted in the details view (e.g. diff). */
 	FOnHighlightPropertyInDetailsView OnHighlightPropertyInDetailsView;
 private:
+	/** Indicates which editor mode we're in. */
+	EEditorMode EditorMode;
+
+	/** Root set of tree */
+	TArray<FSCSEditorTreeNodePtrType> RootNodes;
+
+	/** Root set of components*/
+	TArray<FSCSEditorTreeNodePtrType> RootComponentNodes;
+
+	/* Root Tree Node*/
+	TSharedPtr<FSCSEditorTreeNode> RootTreeNode;
 
 	/** Flag to enable/disable component editing */
-	bool	bEnableComponentEditing;
+	bool bEnableComponentEditing;
+
+	/** Gate to prevent changing the selection while selection change is being broadcast. */
+	bool bUpdatingSelection;
+
+	/** Flag to track if we have the Actor selected curently */
+	bool bIsActorSelected;
 };

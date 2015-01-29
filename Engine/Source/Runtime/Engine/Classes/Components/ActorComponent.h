@@ -8,6 +8,14 @@
 
 struct FReplicationFlags;
 
+UENUM()
+enum class EComponentCreationMethod : uint8
+{
+	Native,
+	ConstructionScript,
+	Instance,
+};
+
 /**
  * ActorComponent is the base class for components that define reusable behavior that can be added to different types of Actors.
  * ActorComponents that have a transform are known as SceneComponents and those that can be rendered are PrimitiveComponents.
@@ -25,8 +33,18 @@ public:
 	/**
 	 * Default UObject constructor.
 	 */
+	UActorComponent();
+
+	/**
+	 * UObject constructor that takes an ObjectInitializer
+	 */
 	UActorComponent(const FObjectInitializer& ObjectInitializer);
 
+private:
+	/** Called from the constructor to initialize the object to its default settings */
+	void InitializeDefaults();
+
+public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	/** Main tick function for the Actor */
@@ -88,7 +106,11 @@ public:
 
 	/** True if this component was created by a construction script, and will be destroyed by DestroyConstructedComponents */
 	UPROPERTY()
-	uint32 bCreatedByConstructionScript:1;
+	uint32 bCreatedByConstructionScript_DEPRECATED:1;
+
+	/** True if this component was created as an instance component */
+	UPROPERTY()
+	uint32 bInstanceComponent_DEPRECATED:1;
 
 	/** Whether to the component is activated at creation or must be explicitly activated. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Activation)
@@ -106,6 +128,9 @@ public:
 
 	/** Indicates that InitializeComponent has been called, but UninitializeComponent has not yet */
 	uint32 bHasBeenInitialized:1;
+
+	UPROPERTY()
+	EComponentCreationMethod CreationMethod;
 
 	UFUNCTION()
 	void OnRep_IsActive();
@@ -285,11 +310,12 @@ public:
 	void RegisterAllComponentTickFunctions(bool bRegister);
 
 	/**
-	 * Updates time dependent state for this component.
-	 * Requires component to be registered
+	 * Function called every frame on this ActorComponent. Override this function to implement custom logic to be executed every frame.
+	 * Only executes if the component is registered, and also PrimaryComponentTick.bCanEverTick must be set to true.
+	 *	
 	 * @param DeltaTime - The time since the last tick.
-	 * @param TickType - The kind of tick this is
-	 * @param ThisTickFunction - Tick function that caused this to run
+	 * @param TickType - The kind of tick this is, for example, are we paused, or 'simulating' in the editor
+	 * @param ThisTickFunction - Internal tick function struct that caused this to run
 	 */
 	virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction);
 	/** 
@@ -449,9 +475,6 @@ public:
 	/** The type of the component instance data that this component is interested in */
 	virtual FName GetComponentInstanceDataType() const { return NAME_None; }
 
-	/** Called after we create new components during RerunConstructionScripts, to optionally apply any data backed up during GetComponentInstanceData */
-	virtual void ApplyComponentInstanceData(class FComponentInstanceDataBase* ComponentInstanceData ) {}
-
 	// Begin UObject interface.
 	virtual void BeginDestroy() override;
 	virtual bool NeedsLoadForClient() const override;
@@ -459,6 +482,7 @@ public:
 	virtual int32 GetFunctionCallspace( UFunction* Function, void* Parameters, FFrame* Stack ) override;
 	virtual bool CallRemoteFunction( UFunction* Function, void* Parameters, FOutParmRec* OutParms, FFrame* Stack ) override;
 	virtual void PostInitProperties() override;
+	virtual void PostLoad() override;
 	virtual void PostRename(UObject* OldOuter, const FName OldName) override;
 #if WITH_EDITOR
 	virtual void PreEditChange(UProperty* PropertyThatWillChange) override;

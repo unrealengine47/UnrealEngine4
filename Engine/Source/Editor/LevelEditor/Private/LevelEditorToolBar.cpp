@@ -1091,6 +1091,88 @@ TSharedRef< SWidget > FLevelEditorToolBar::MakeLevelEditorToolBar( const TShared
 	{
 		// Save All Levels
 		ToolbarBuilder.AddToolBarButton( FLevelEditorCommands::Get().Save, NAME_None, TAttribute<FText>(), TAttribute<FText>(), FSlateIcon(FEditorStyle::GetStyleSetName(), "AssetEditor.SaveAsset") );
+
+		// Source control buttons
+		{
+			enum EQueryState
+			{
+				NotQueried,
+				Querying,
+				Queried,
+			};
+
+			static EQueryState QueryState = EQueryState::NotQueried;
+
+			struct FSourceControlStatus
+			{
+				static void CheckSourceControlStatus()
+				{
+					ISourceControlModule& SourceControlModule = ISourceControlModule::Get();
+					if (SourceControlModule.IsEnabled())
+					{
+						SourceControlModule.GetProvider().Execute(ISourceControlOperation::Create<FConnect>(),
+																  EConcurrency::Asynchronous,
+																  FSourceControlOperationComplete::CreateStatic(&FSourceControlStatus::OnSourceControlOperationComplete));
+						QueryState = EQueryState::Querying;
+					}
+				}
+
+				static void OnSourceControlOperationComplete(const FSourceControlOperationRef& InOperation, ECommandResult::Type InResult)
+				{
+					QueryState = EQueryState::Queried;
+				}
+
+				static FText GetSourceControlTooltip()
+				{
+					if (QueryState == EQueryState::Querying)
+					{
+						return LOCTEXT("SourceControlUnknown", "Source control status is unknown");
+					}
+					else
+					{
+						return ISourceControlModule::Get().GetProvider().GetStatusText();
+					}
+				}
+
+				static FSlateIcon GetSourceControlIcon()
+				{
+					if (QueryState == EQueryState::Querying)
+					{
+						return FSlateIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.SourceControl.Unknown");
+					}
+					else
+					{
+						ISourceControlModule& SourceControlModule = ISourceControlModule::Get();
+						if (SourceControlModule.IsEnabled())
+						{
+							if (!SourceControlModule.GetProvider().IsAvailable())
+							{
+								return FSlateIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.SourceControl.Error");
+							}
+							else
+							{
+								return FSlateIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.SourceControl.On");
+							}
+						}
+						else
+						{
+							return FSlateIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.SourceControl.Off");
+						}
+					}
+				}
+			};
+
+			FSourceControlStatus::CheckSourceControlStatus();
+
+			ToolbarBuilder.AddComboButton(
+				FUIAction(),
+				FOnGetContent::CreateStatic(&FLevelEditorToolBar::GenerateSourceControlMenu, InCommandList),
+				LOCTEXT("SourceControl_Label", "Source Control"),
+				TAttribute<FText>::Create(&FSourceControlStatus::GetSourceControlTooltip),
+				TAttribute<FSlateIcon>::Create(&FSourceControlStatus::GetSourceControlIcon),
+				false
+				);
+		}
 	}
 	ToolbarBuilder.EndSection();
 
@@ -1179,88 +1261,6 @@ TSharedRef< SWidget > FLevelEditorToolBar::MakeLevelEditorToolBar( const TShared
 	}
 	ToolbarBuilder.EndSection();
 
-	ToolbarBuilder.BeginSection("SourceControl");
-	{
-		enum EQueryState
-		{
-			NotQueried,
-			Querying,
-			Queried,
-		};
-
-		static EQueryState QueryState = EQueryState::NotQueried;
-
-		struct FSourceControlStatus
-		{
-			static void CheckSourceControlStatus()
-			{
-				ISourceControlModule& SourceControlModule = ISourceControlModule::Get();
-				if (SourceControlModule.IsEnabled())
-				{
-					SourceControlModule.GetProvider().Execute(ISourceControlOperation::Create<FConnect>(),
-															  EConcurrency::Asynchronous,
-															  FSourceControlOperationComplete::CreateStatic(&FSourceControlStatus::OnSourceControlOperationComplete));
-					QueryState = EQueryState::Querying;
-				}
-			}
-
-			static void OnSourceControlOperationComplete(const FSourceControlOperationRef& InOperation, ECommandResult::Type InResult)
-			{
-				QueryState = EQueryState::Queried;
-			}
-
-			static FText GetSourceControlTooltip()
-			{
-				if (QueryState == EQueryState::Querying)
-				{
-					return LOCTEXT("SourceControlUnknown", "Source control status is unknown");
-				}
-				else
-				{
-					return ISourceControlModule::Get().GetProvider().GetStatusText();
-				}
-			}
-
-			static FSlateIcon GetSourceControlIcon()
-			{
-				if (QueryState == EQueryState::Querying)
-				{
-					return FSlateIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.SourceControl.Unknown");
-				}
-				else
-				{
-					ISourceControlModule& SourceControlModule = ISourceControlModule::Get();
-					if (SourceControlModule.IsEnabled())
-					{
-						if (!SourceControlModule.GetProvider().IsAvailable())
-						{
-							return FSlateIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.SourceControl.Error");
-						}
-						else
-						{
-							return FSlateIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.SourceControl.On");
-						}
-					}
-					else
-					{
-						return FSlateIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.SourceControl.Off");
-					}
-				}
-			}
-		};
-
-		FSourceControlStatus::CheckSourceControlStatus();
-
-		ToolbarBuilder.AddComboButton(
-			FUIAction(),
-			FOnGetContent::CreateStatic(&FLevelEditorToolBar::GenerateSourceControlMenu, InCommandList),
-			LOCTEXT("SourceControl_Label", "Source Control"),
-			TAttribute<FText>::Create(&FSourceControlStatus::GetSourceControlTooltip),
-			TAttribute<FSlateIcon>::Create(&FSourceControlStatus::GetSourceControlIcon),
-			false
-			);
-	}
-	ToolbarBuilder.EndSection();
 
 	// Create the tool bar!
 	return
@@ -1861,7 +1861,7 @@ TSharedRef< SWidget > FLevelEditorToolBar::GenerateOpenBlueprintMenuContent( TSh
 
 
 		/** Generates 'open blueprint' sub-menu */
-		static void MakeOpenClassBPMenu(FMenuBuilder& InMenuBuilder)
+		static void MakeOpenBPClassMenu(FMenuBuilder& InMenuBuilder)
 		{
 			FContentBrowserModule& ContentBrowserModule = FModuleManager::Get().LoadModuleChecked<FContentBrowserModule>(TEXT("ContentBrowser"));
 
@@ -1934,17 +1934,17 @@ TSharedRef< SWidget > FLevelEditorToolBar::GenerateOpenBlueprintMenuContent( TSh
 	}
 	MenuBuilder.EndSection();
 
-	MenuBuilder.BeginSection(NAME_None, LOCTEXT("ClassBlueprints", "Class Blueprints"));
+	MenuBuilder.BeginSection(NAME_None, LOCTEXT("Blueprints Class", "Blueprints Class"));
 	{
-		// New Class Blueprint...
-		MenuBuilder.AddMenuEntry(FLevelEditorCommands::Get().CreateClassBlueprint, NAME_None, LOCTEXT("NewClassBlueprint", "New Class Blueprint..."));
+		// New Blueprint Class...
+		MenuBuilder.AddMenuEntry(FLevelEditorCommands::Get().CreateBlueprintClass, NAME_None, LOCTEXT("NewBlueprintClass", "New Blueprint Class..."));
 
-		// Open Class Blueprint...
+		// Open Blueprint Class...
 		FSlateIcon OpenBPIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.OpenClassBlueprint");
 		MenuBuilder.AddSubMenu(
-			LOCTEXT("OpenClassBlueprintSubMenu", "Open Class Blueprint..."),
-			LOCTEXT("OpenClassBlueprintSubMenu_ToolTip", "Open an existing Class Blueprint in this project"),
-			FNewMenuDelegate::CreateStatic(&FBlueprintMenus::MakeOpenClassBPMenu), 
+			LOCTEXT("OpenBlueprintClassSubMenu", "Open Blueprint Class..."),
+			LOCTEXT("OpenBlueprintClassSubMenu_ToolTip", "Open an existing Blueprint Class in this project"),
+			FNewMenuDelegate::CreateStatic(&FBlueprintMenus::MakeOpenBPClassMenu), 
 			false, 
 			OpenBPIcon );
 	}

@@ -484,7 +484,6 @@ void SContentBrowser::Construct( const FArguments& InArgs, const FName& InInstan
 							.ContentPadding(0)
 							.ToolTipText( LOCTEXT( "AddFilterToolTip", "Add an asset filter." ) )
 							.OnGetMenuContent( this, &SContentBrowser::MakeAddFilterMenu )
-							.IsEnabled( this, &SContentBrowser::IsFilterMenuEnabled )
 							.HasDownArrow( true )
 							.ContentPadding( FMargin( 1, 0 ) )
 							.AddMetaData<FTagMetaData>(FTagMetaData(TEXT("ContentBrowserFiltersCombo")))
@@ -1102,11 +1101,13 @@ void SContentBrowser::NewAssetRequested(const FString& SelectedPath, TWeakObject
 
 void SContentBrowser::NewClassRequested(const FString& SelectedPath)
 {
-	TSharedRef<FNativeClassHierarchy> NativeClassHierarchy = FContentBrowserSingleton::Get().GetNativeClassHierarchy();
-
 	// Parse out the on disk location for the currently selected path, this will then be used as the default location for the new class (if a valid project module location)
 	FString ExistingFolderPath;
-	NativeClassHierarchy->GetFileSystemPath(SelectedPath, ExistingFolderPath);
+	if (!SelectedPath.IsEmpty())
+	{
+		TSharedRef<FNativeClassHierarchy> NativeClassHierarchy = FContentBrowserSingleton::Get().GetNativeClassHierarchy();
+		NativeClassHierarchy->GetFileSystemPath(SelectedPath, ExistingFolderPath);
+	}
 
 	FGameProjectGenerationModule::Get().OpenAddCodeToProjectDialog(nullptr, ExistingFolderPath, FGlobalTabmanager::Get()->GetRootWindow());
 }
@@ -1338,12 +1339,8 @@ TSharedRef<SWidget> SContentBrowser::MakeAddNewContextMenu(bool bShowGetContent,
 		}
 	}
 
-	// Only add the class items if we have a class path selected
-	FNewAssetOrClassContextMenu::FOnNewClassRequested OnNewClassRequested;
-	if(NumClassPaths > 0)
-	{
-		OnNewClassRequested = FNewAssetOrClassContextMenu::FOnNewClassRequested::CreateSP(this, &SContentBrowser::NewClassRequested);
-	}
+	// This menu always lets you create classes, but uses your default project source folder if the selected path is invalid for creating classes
+	FNewAssetOrClassContextMenu::FOnNewClassRequested OnNewClassRequested = FNewAssetOrClassContextMenu::FOnNewClassRequested::CreateSP(this, &SContentBrowser::NewClassRequested);
 
 	FNewAssetOrClassContextMenu::MakeContextMenu(
 		MenuBuilder, 
@@ -1400,17 +1397,6 @@ FText SContentBrowser::GetAddNewToolTipText() const
 	}
 	
 	return LOCTEXT( "AddNewToolTip_NoPath", "No path is selected as an add target." );
-}
-
-bool SContentBrowser::IsFilterMenuEnabled() const
-{
-	const FSourcesData& SourcesData = AssetViewPtr->GetSourcesData();
-
-	int32 NumAssetPaths, NumClassPaths;
-	ContentBrowserUtils::CountPathTypes(SourcesData.PackagePaths, NumAssetPaths, NumClassPaths);
-
-	// We can only filter when have something other than class paths selected (or nothing selected, for collections)
-	return !(NumClassPaths > 0 && NumAssetPaths == 0) || SourcesData.PackagePaths.Num() == 0;
 }
 
 TSharedRef<SWidget> SContentBrowser::MakeAddFilterMenu()

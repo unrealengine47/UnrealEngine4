@@ -21,6 +21,10 @@ class UNREALED_API UEditorExperimentalSettings
 
 public:
 
+	/** Allows usage of the Localization Dashboard */
+	UPROPERTY(EditAnywhere, config, Category = Tools, meta = (DisplayName = "Localization Dashboard"))
+	bool bEnableLocalizationDashboard;
+
 	/** Allows usage of the Translation Editor */
 	UPROPERTY(EditAnywhere, config, Category = Tools, meta = (DisplayName = "Translation Editor"))
 	bool bEnableTranslationEditor;
@@ -36,6 +40,14 @@ public:
 	/** Enable Single Layout BP Editor. */
 	UPROPERTY(EditAnywhere, config, Category = Tools, meta = ( DisplayName = "Single Layout Blueprint Editor" ))
 	bool bUnifiedBlueprintEditor;
+
+	/** Ability to add C++ and blueprinted components to actors */
+	UPROPERTY(EditAnywhere, config, Category=Tools)
+	bool bScriptableComponentsOnActors;
+
+	/** Enable being able to subclass components in blueprints */
+	UPROPERTY(EditAnywhere, config, Category = Tools, meta = (DisplayName = "Blueprintable Component"))
+	bool bBlueprintableComponents;
 
 	/** The Messaging Debugger provides a visual utility for debugging the messaging system. */
 	UPROPERTY(EditAnywhere, config, Category=Tools, meta=(DisplayName="Messaging Debugger"))

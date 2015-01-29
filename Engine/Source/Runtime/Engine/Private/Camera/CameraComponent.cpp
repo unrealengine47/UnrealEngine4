@@ -51,7 +51,7 @@ void UCameraComponent::OnRegister()
 		ProxyMeshComponent->bHiddenInGame = true;
 		ProxyMeshComponent->CastShadow = false;
 		ProxyMeshComponent->PostPhysicsComponentTick.bCanEverTick = false;
-		ProxyMeshComponent->bCreatedByConstructionScript = bCreatedByConstructionScript;
+		ProxyMeshComponent->CreationMethod = CreationMethod;
 		ProxyMeshComponent->RegisterComponentWithWorld(GetWorld());
 	}
 
@@ -61,7 +61,7 @@ void UCameraComponent::OnRegister()
 		DrawFrustum->AttachTo(this);
 		DrawFrustum->AlwaysLoadOnClient = false;
 		DrawFrustum->AlwaysLoadOnServer = false;
-		DrawFrustum->bCreatedByConstructionScript = bCreatedByConstructionScript;
+		DrawFrustum->CreationMethod = CreationMethod;
 		DrawFrustum->RegisterComponentWithWorld(GetWorld());
 	}
 

@@ -104,6 +104,16 @@ TSharedRef<SWidget> SKismetInspector::MakeContextualEditingWidget(struct FKismet
 	return ContextualEditingWidget;
 }
 
+void SKismetInspector::SetOwnerTab(TSharedRef<SDockTab> Tab)
+{
+	OwnerTab = Tab;
+}
+
+TSharedPtr<SDockTab> SKismetInspector::GetOwnerTab() const
+{
+	return OwnerTab.Pin();
+}
+
 FText SKismetInspector::GetContextualEditingWidgetTitle() const
 {
 	FText Title = PropertyViewTitle;
@@ -188,6 +198,7 @@ void SKismetInspector::Construct(const FArguments& InArgs)
 {
 	bShowInspectorPropertyView = true;
 	PublicViewState = ECheckBoxState::Unchecked;
+	bComponenetDetailsCustomizationEnabled = false;
 
 	Kismet2Ptr = InArgs._Kismet2;
 	bShowPublicView = InArgs._ShowPublicViewControl;
@@ -202,8 +213,9 @@ void SKismetInspector::Construct(const FArguments& InArgs)
 	{
 		NotifyHook = Kismet2.Get();
 	}
-	FDetailsViewArgs DetailsViewArgs( /*bUpdateFromSelection=*/ false, /*bLockable=*/ false, /*bAllowSearch=*/ true, /*bObjectsUseNameArea=*/ true, /*bHideSelectionTip=*/ true, /*InNotifyHook=*/ NotifyHook, /*InSearchInitialKeyFocus=*/ false, /*InViewIdentifier=*/ InArgs._ViewIdentifier );
-	DetailsViewArgs.bHideActorNameArea = InArgs._HideNameArea;
+
+	FDetailsViewArgs::ENameAreaSettings NameAreaSettings = InArgs._HideNameArea ? FDetailsViewArgs::HideNameArea : FDetailsViewArgs::ObjectsUseNameArea;
+	FDetailsViewArgs DetailsViewArgs( /*bUpdateFromSelection=*/ false, /*bLockable=*/ false, /*bAllowSearch=*/ true, NameAreaSettings, /*bHideSelectionTip=*/ true, /*InNotifyHook=*/ NotifyHook, /*InSearchInitialKeyFocus=*/ false, /*InViewIdentifier=*/ InArgs._ViewIdentifier );
 
 	PropertyView = EditModule.CreateDetailView( DetailsViewArgs );
 		
@@ -285,6 +297,8 @@ void SKismetInspector::EnableComponentDetailsCustomization(bool bEnable)
 		}
 	};
 
+	bComponenetDetailsCustomizationEnabled = bEnable;
+
 	if (bEnable)
 	{
 		FOnGetDetailCustomizationInstance ActorOverrideDetails = FOnGetDetailCustomizationInstance::CreateStatic(&FActorDetailsOverrideCustomization::MakeInstance);
@@ -360,6 +374,24 @@ void SKismetInspector::AddPropertiesRecursive(UProperty* Property)
 
 void SKismetInspector::UpdateFromObjects(const TArray<UObject*>& PropertyObjects, struct FKismetSelectionInfo& SelectionInfo, const FShowDetailsOptions& Options)
 {
+	// If we're using the unified blueprint editor, there's not an explicit point where
+	// we ender a kind of component editing mode, so instead, just look at what we're selecting.
+	// If we select a component, then enable the customization.
+	if ( GetDefault<UEditorExperimentalSettings>()->bUnifiedBlueprintEditor )
+	{
+		bool bEnableComponentCustomization = false;
+		for ( UObject* PropertyObject : PropertyObjects )
+		{
+			if ( PropertyObject->IsA<UActorComponent>() )
+			{
+				bEnableComponentCustomization = true;
+				break;
+			}
+		}
+
+		EnableComponentDetailsCustomization(bEnableComponentCustomization);
+	}
+
 	PropertyView->OnFinishedChangingProperties().Clear();
 	PropertyView->OnFinishedChangingProperties().Add( UserOnFinishedChangingProperties );
 
@@ -494,6 +526,7 @@ void SKismetInspector::UpdateFromObjects(const TArray<UObject*>& PropertyObjects
 	}
 
 	PropertyViewTitle = Options.ForcedTitle;
+	bShowComponents = Options.bShowComponents;
 
 	// Update our context-sensitive editing widget
 	ContextualEditingBorderWidget->SetContent( MakeContextualEditingWidget(SelectionInfo, Options) );
@@ -537,6 +570,13 @@ bool SKismetInspector::IsPropertyVisible( const FPropertyAndParent& PropertyAndP
 	{
 		// Actor variables can't have default values (because Blueprint templates are library elements that can 
 		// bridge multiple levels and different levels might not have the actor that the default is referencing).
+		return false;
+	}
+
+	bool bIsComponent = (ObjectProperty != nullptr && ObjectProperty->PropertyClass->IsChildOf(UActorComponent::StaticClass()));
+	if (!bShowComponents && bIsComponent)
+	{
+		// Don't show sub components properties, thats what selecting components in the component tree is for.
 		return false;
 	}
 

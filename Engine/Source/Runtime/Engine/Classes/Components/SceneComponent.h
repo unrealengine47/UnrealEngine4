@@ -85,7 +85,18 @@ public:
 	/**
 	 * Default UObject constructor.
 	 */
+	USceneComponent();
+
+	/**
+	 * UObject constructor that takes an ObjectInitializer
+	 */
 	USceneComponent(const FObjectInitializer& ObjectInitializer);
+
+private:
+	/** Initialize the component to its default settings */
+	void InitializeDefaults();
+
+public:
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -244,7 +255,7 @@ public:
 
 	/** Returns the transform of this component relative to its parent */
 	UFUNCTION(BlueprintCallable, Category="Utilities|Transformation")
-	FTransform GetRelativeTransform();
+	FTransform GetRelativeTransform() const;
 
 	/** Set the transform of this component relative to its parent */
 	UFUNCTION(BlueprintCallable, Category="Utilities|Transformation")
@@ -503,7 +514,6 @@ public:
 	virtual void ApplyWorldOffset(const FVector& InOffset, bool bWorldShift) override;
 	virtual class FComponentInstanceDataBase* GetComponentInstanceData() const override;
 	virtual FName GetComponentInstanceDataType() const override;
-	virtual void ApplyComponentInstanceData(class FComponentInstanceDataBase* ComponentInstanceData ) override;
 	// End ActorComponent interface
 
 	// Begin UObject Interface
@@ -799,6 +809,9 @@ public:
 			
 	virtual ~FSceneComponentInstanceData()
 	{}
+
+	virtual void ApplyToComponent(UActorComponent* Component) override;
+	virtual void FindAndReplaceInstances(const TMap<UObject*, UObject*>& OldToNewInstanceMap) override;
 
 	TArray<USceneComponent*> AttachedInstanceComponents;
 };

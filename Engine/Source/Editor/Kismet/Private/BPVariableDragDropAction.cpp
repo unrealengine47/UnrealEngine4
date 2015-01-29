@@ -45,6 +45,11 @@ void FKismetVariableDragDropAction::GetLinksThatWillBreak(	UEdGraphNode* Node, U
 void FKismetVariableDragDropAction::HoverTargetChanged()
 {
 	UProperty* VariableProperty = GetVariableProperty();
+	if (VariableProperty == nullptr)
+	{
+		return;
+	}
+
 	FString VariableString = VariableName.ToString();
 
 	// Icon/text to draw on tooltip
@@ -427,10 +432,10 @@ FReply FKismetVariableDragDropAction::DroppedOnPanel( const TSharedRef< SWidget 
 	if (Cast<const UEdGraphSchema_K2>(Graph.GetSchema()) != NULL)
 	{
 		UProperty* VariableProperty = GetVariableProperty();
-		UStruct* Outer = CastChecked<UStruct>(VariableProperty->GetOuter());
-
-		if(CanVariableBeDropped(VariableProperty, Graph))
+		if (VariableProperty != nullptr && CanVariableBeDropped(VariableProperty, Graph))
 		{
+			UStruct* Outer = CastChecked<UStruct>(VariableProperty->GetOuter());
+			
 			FNodeConstructionParams NewNodeParams;
 			NewNodeParams.VariableName = VariableName;
 			NewNodeParams.Graph = &Graph;

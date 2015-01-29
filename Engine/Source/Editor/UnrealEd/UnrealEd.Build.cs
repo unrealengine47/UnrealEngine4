@@ -191,6 +191,7 @@ public class UnrealEd : ModuleRules
 				"EditorLiveStreaming",
 				"HotReload",
                 "IOSPlatformEditor",
+				"HTML5PlatformEditor",
 			}
 		);
 
@@ -247,13 +248,6 @@ public class UnrealEd : ModuleRules
 		);
 
 		SetupModulePhysXAPEXSupport(Target);
-
-		if ((UEBuildConfiguration.bCompileSimplygon == true) &&
-			(Directory.Exists(UEBuildConfiguration.UEThirdPartySourceDirectory + "NotForLicensees") == true) &&
-			(Directory.Exists(UEBuildConfiguration.UEThirdPartySourceDirectory + "NotForLicensees/Simplygon") == true))
-		{
-			AddThirdPartyPrivateStaticDependencies(Target, "Simplygon");
-		}
 
 		if (UEBuildConfiguration.bCompileRecast)
 		{

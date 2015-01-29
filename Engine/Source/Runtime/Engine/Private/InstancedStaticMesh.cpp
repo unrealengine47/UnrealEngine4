@@ -683,6 +683,12 @@ public:
 	{
 	}
 
+	virtual void ApplyToComponent(UActorComponent* Component) override
+	{
+		FSceneComponentInstanceData::ApplyToComponent(Component);
+		CastChecked<UInstancedStaticMeshComponent>(Component)->ApplyComponentInstanceData(this);
+	}
+
 	/** Used to store lightmap data during RerunConstructionScripts */
 	struct FLightMapInstanceData
 	{
@@ -719,36 +725,37 @@ FName UInstancedStaticMeshComponent::GetComponentInstanceDataType() const
 FComponentInstanceDataBase* UInstancedStaticMeshComponent::GetComponentInstanceData() const
 {
 #if WITH_EDITOR
-	FInstancedStaticMeshComponentInstanceData* InstanceData = nullptr;
+	FComponentInstanceDataBase* InstanceData = nullptr;
+	FInstancedStaticMeshComponentInstanceData* StaticMeshInstanceData = nullptr;
 
 	// Don't back up static lighting if there isn't any
 	if (bHasCachedStaticLighting || SelectedInstances.Num() > 0)
 	{
-		InstanceData = new FInstancedStaticMeshComponentInstanceData(*this);
+		InstanceData = StaticMeshInstanceData = new FInstancedStaticMeshComponentInstanceData(*this);	
 	}
 
 	// Don't back up static lighting if there isn't any
 	if (bHasCachedStaticLighting)
 	{
 		// Fill in info (copied from UStaticMeshComponent::GetComponentInstanceData)
-		InstanceData->bHasCachedStaticLighting = true;
-		InstanceData->CachedStaticLighting.Transform = ComponentToWorld;
-		InstanceData->CachedStaticLighting.IrrelevantLights = IrrelevantLights;
-		InstanceData->CachedStaticLighting.LODDataLightMap.Empty(LODData.Num());
+		StaticMeshInstanceData->bHasCachedStaticLighting = true;
+		StaticMeshInstanceData->CachedStaticLighting.Transform = ComponentToWorld;
+		StaticMeshInstanceData->CachedStaticLighting.IrrelevantLights = IrrelevantLights;
+		StaticMeshInstanceData->CachedStaticLighting.LODDataLightMap.Empty(LODData.Num());
 		for (const FStaticMeshComponentLODInfo& LODDataEntry : LODData)
 		{
-			InstanceData->CachedStaticLighting.LODDataLightMap.Add(LODDataEntry.LightMap);
-			InstanceData->CachedStaticLighting.LODDataShadowMap.Add(LODDataEntry.ShadowMap);
+			StaticMeshInstanceData->CachedStaticLighting.LODDataLightMap.Add(LODDataEntry.LightMap);
+			StaticMeshInstanceData->CachedStaticLighting.LODDataShadowMap.Add(LODDataEntry.ShadowMap);
 		}
 
 		// Back up per-instance lightmap/shadowmap info
-		InstanceData->PerInstanceSMData = PerInstanceSMData;
+		StaticMeshInstanceData->PerInstanceSMData = PerInstanceSMData;
 	}
 
 	// Back up instance selection
 	if (SelectedInstances.Num() > 0)
 	{
-		InstanceData->SelectedInstances = SelectedInstances;
+		StaticMeshInstanceData->SelectedInstances = SelectedInstances;
 	}
 
 	return InstanceData;
@@ -757,15 +764,10 @@ FComponentInstanceDataBase* UInstancedStaticMeshComponent::GetComponentInstanceD
 #endif
 }
 
-void UInstancedStaticMeshComponent::ApplyComponentInstanceData(FComponentInstanceDataBase* ComponentInstanceData)
+void UInstancedStaticMeshComponent::ApplyComponentInstanceData(FInstancedStaticMeshComponentInstanceData* InstancedMeshData)
 {
-	// Skip UStaticMeshComponent implementation
-	USceneComponent::ApplyComponentInstanceData(ComponentInstanceData);
-
 #if WITH_EDITOR
-	check(ComponentInstanceData);
-
-	FInstancedStaticMeshComponentInstanceData* InstancedMeshData  = static_cast<FInstancedStaticMeshComponentInstanceData*>(ComponentInstanceData);
+	check(InstancedMeshData);
 
 	if (StaticMesh != InstancedMeshData->StaticMesh)
 	{
@@ -1132,6 +1134,10 @@ void UInstancedStaticMeshComponent::ApplyLightMapping(FStaticLightingTextureMapp
 		IrrelevantLights = PossiblyIrrelevantLights.Array();
 
 		bHasCachedStaticLighting = true;
+
+		ReleasePerInstanceRenderData();
+		MarkRenderStateDirty();
+
 		MarkPackageDirty();
 	}
 }
@@ -1141,19 +1147,16 @@ void UInstancedStaticMeshComponent::ReleasePerInstanceRenderData()
 {
 	if (PerInstanceRenderData.IsValid() && !bPerInstanceRenderDataWasPrebuilt)
 	{
-		if (SceneProxy == nullptr)
+		typedef TSharedPtr<FPerInstanceRenderData, ESPMode::ThreadSafe> FPerInstanceRenderDataPtr;
+		// Move shared pointer to a render task, resource will be released by scene proxy or render task, whoever will get executed last
+		ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
+			FReleasePerInstanceRenderData,
+			FPerInstanceRenderDataPtr,InPerInstanceRenderData, FPerInstanceRenderDataPtr(MoveTemp(PerInstanceRenderData)),
 		{
-			typedef TSharedPtr<FPerInstanceRenderData, ESPMode::ThreadSafe> FPerInstanceRenderDataPtr;
-			// Release PerInstanceRenderData on a render thread
-			ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
-				FReleasePerInstanceRenderData,
-				FPerInstanceRenderDataPtr,InPerInstanceRenderData,PerInstanceRenderData,
-			{
-				InPerInstanceRenderData.Reset();
-			});
-		}
-		// Will be released by scene proxy or render thread command
-		PerInstanceRenderData.Reset();
+			InPerInstanceRenderData.Reset();
+		});
+		// At this point we should not have a reference to render data
+		check(!PerInstanceRenderData.IsValid());
 	}
 }
 
@@ -1670,7 +1673,7 @@ void FInstancedStaticMeshVertexFactoryShaderParameters::SetMesh( FRHICommandList
 	{
 		if (CPUInstanceOrigin.IsBound())
 		{
-			const float ShortScale = 1.0f / 32767.5f;
+			const float ShortScale = 1.0f / 32767.0f;
 			auto* InstancingData = (const FInstancingUserData*)BatchElement.UserData;
 			const FInstanceStream* InstanceStream = InstancingData->RenderData->PerInstanceRenderData->InstanceBuffer.GetData() + BatchElement.UserIndex;
 

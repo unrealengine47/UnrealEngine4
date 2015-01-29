@@ -204,6 +204,7 @@ public class GUBP : BuildCommand
             public List<string> ExcludeNodes = new List<string>();
 			public bool bNoAutomatedTesting = false;
 			public bool bNoDocumentation = false;
+			public int QuantumOverride = 0;
         }
         public virtual void ModifyOptions(GUBP bp, ref BranchOptions Options, string Branch)
         {
@@ -1385,12 +1386,13 @@ public class GUBP : BuildCommand
     {
         BranchInfo.BranchUProject GameProj;
         UnrealTargetPlatform TargetPlatform;
-
-        public GamePlatformMonolithicsNode(GUBP bp, UnrealTargetPlatform InHostPlatform, BranchInfo.BranchUProject InGameProj, UnrealTargetPlatform InTargetPlatform)
+		bool WithXp;
+        public GamePlatformMonolithicsNode(GUBP bp, UnrealTargetPlatform InHostPlatform, BranchInfo.BranchUProject InGameProj, UnrealTargetPlatform InTargetPlatform, bool InWithXp = false)
             : base(InHostPlatform)
         {
             GameProj = InGameProj;
             TargetPlatform = InTargetPlatform;
+			WithXp = InWithXp;
             if (TargetPlatform == UnrealTargetPlatform.PS4)
             {
                 var PS4MapFileUtil = bp.Branch.FindProgram("PS4MapFileUtil");
@@ -1456,6 +1458,10 @@ public class GUBP : BuildCommand
                         {
                             continue;
                         }
+                        if (TargetPlatform == UnrealTargetPlatform.HTML5 && Config != UnrealTargetConfiguration.Shipping && Config != UnrealTargetConfiguration.Development)
+                        {
+                            continue;
+                        }
                         if (TargetPlatform == UnrealTargetPlatform.Linux && Config != UnrealTargetConfiguration.Shipping && Config != UnrealTargetConfiguration.Development)
                         {
                             continue;
@@ -1471,13 +1477,22 @@ public class GUBP : BuildCommand
 
         }
 
-        public static string StaticGetFullName(UnrealTargetPlatform InHostPlatform, BranchInfo.BranchUProject InGameProj, UnrealTargetPlatform InTargetPlatform)
+        public static string StaticGetFullName(UnrealTargetPlatform InHostPlatform, BranchInfo.BranchUProject InGameProj, UnrealTargetPlatform InTargetPlatform, bool WithXp = false)
         {
-            return InGameProj.GameName + "_" + InTargetPlatform + "_Mono" + StaticGetHostPlatformSuffix(InHostPlatform);
+			string Name;
+			if (!WithXp)
+			{
+				Name = InGameProj.GameName + "_" + InTargetPlatform + "_Mono" + StaticGetHostPlatformSuffix(InHostPlatform);
+			}
+			else
+			{
+				Name = InGameProj.GameName + "_WinXP_Mono" + StaticGetHostPlatformSuffix(InHostPlatform);
+			}
+			return Name;
         }
         public override string GetFullName()
         {
-            return StaticGetFullName(HostPlatform, GameProj, TargetPlatform);
+            return StaticGetFullName(HostPlatform, GameProj, TargetPlatform, WithXp);
         }
         public override string GameNameIfAnyForTempStorage()
         {
@@ -1521,50 +1536,62 @@ public class GUBP : BuildCommand
                 if (GameProj.Properties.Targets.ContainsKey(Kind))
                 {
                     var Target = GameProj.Properties.Targets[Kind];
-                    var Platforms = Target.Rules.GUBP_GetPlatforms_MonolithicOnly(HostPlatform);
-					var AdditionalPlatforms = Target.Rules.GUBP_GetBuildOnlyPlatforms_MonolithicOnly(HostPlatform);
-					var AllPlatforms = Platforms.Union(AdditionalPlatforms);
-					if (AllPlatforms.Contains(TargetPlatform) && Target.Rules.SupportsPlatform(TargetPlatform))
-                    {
-                        var Configs = Target.Rules.GUBP_GetConfigs_MonolithicOnly(HostPlatform, TargetPlatform);
-                        foreach (var Config in Configs)
-                        {
-                            if (GUBP.bBuildRocket)
-                            {
-                                if (HostPlatform == UnrealTargetPlatform.Win64)
-                                {
-                                    if (TargetPlatform == UnrealTargetPlatform.Win32 && Config != UnrealTargetConfiguration.Shipping)
-                                    {
-                                        continue;
-                                    }
-                                    if (TargetPlatform == UnrealTargetPlatform.Win64 && Config != UnrealTargetConfiguration.Development)
-                                    {
-                                        continue;
-                                    }
-                                    if (TargetPlatform == UnrealTargetPlatform.Android && Config != UnrealTargetConfiguration.Shipping && Config != UnrealTargetConfiguration.Development)
-                                    {
-                                        continue;
-                                    }
-                                    if (TargetPlatform == UnrealTargetPlatform.Linux && Config != UnrealTargetConfiguration.Shipping && Config != UnrealTargetConfiguration.Development)
-                                    {
-                                        continue;
-                                    }
-                                }
-                                else if (Config != UnrealTargetConfiguration.Shipping && Config != UnrealTargetConfiguration.Development)
-                                {
-                                    continue;
-                                }
-                            }
+					var AllowXp = Target.Rules.GUBP_BuildWindowsXPMonolithics();
+					if (!WithXp || (AllowXp && WithXp))
+					{
+						var Platforms = Target.Rules.GUBP_GetPlatforms_MonolithicOnly(HostPlatform);
+						var AdditionalPlatforms = Target.Rules.GUBP_GetBuildOnlyPlatforms_MonolithicOnly(HostPlatform);
+						var AllPlatforms = Platforms.Union(AdditionalPlatforms);
+						if (AllPlatforms.Contains(TargetPlatform) && Target.Rules.SupportsPlatform(TargetPlatform))
+						{
+							var Configs = Target.Rules.GUBP_GetConfigs_MonolithicOnly(HostPlatform, TargetPlatform);
+							foreach (var Config in Configs)
+							{
+								if (WithXp)
+								{
+									Args += " -winxp";
+								}
 
-                            if (GameProj.GameName == bp.Branch.BaseEngineProject.GameName)
-                            {
-                                Agenda.AddTargets(new string[] { Target.TargetName }, TargetPlatform, Config, InAddArgs: Args);
-                            }
-                            else
-                            {
-                                Agenda.AddTargets(new string[] { Target.TargetName }, TargetPlatform, Config, GameProj.FilePath, InAddArgs: Args);
-                            }
-                        }
+								if (GUBP.bBuildRocket)
+								{
+									if (HostPlatform == UnrealTargetPlatform.Win64)
+									{
+										if (TargetPlatform == UnrealTargetPlatform.Win32 && Config != UnrealTargetConfiguration.Shipping)
+										{
+											continue;
+										}
+										if (TargetPlatform == UnrealTargetPlatform.Win64 && Config != UnrealTargetConfiguration.Development)
+										{
+											continue;
+										}
+										if (TargetPlatform == UnrealTargetPlatform.Android && Config != UnrealTargetConfiguration.Shipping && Config != UnrealTargetConfiguration.Development)
+										{
+											continue;
+										}
+										if (TargetPlatform == UnrealTargetPlatform.HTML5 && Config != UnrealTargetConfiguration.Shipping && Config != UnrealTargetConfiguration.Development)
+										{
+											continue;
+										}
+										if (TargetPlatform == UnrealTargetPlatform.Linux && Config != UnrealTargetConfiguration.Shipping && Config != UnrealTargetConfiguration.Development)
+										{
+											continue;
+										}
+									}
+									else if (Config != UnrealTargetConfiguration.Shipping && Config != UnrealTargetConfiguration.Development)
+									{
+										continue;
+									}
+								}
+								if (GameProj.GameName == bp.Branch.BaseEngineProject.GameName)
+								{
+										Agenda.AddTargets(new string[] { Target.TargetName }, TargetPlatform, Config, InAddArgs: Args);
+								}
+								else
+								{
+										Agenda.AddTargets(new string[] { Target.TargetName }, TargetPlatform, Config, GameProj.FilePath, InAddArgs: Args);
+								}
+							}
+						}
                     }
                 }
             }
@@ -1885,9 +1912,16 @@ public class GUBP : BuildCommand
                     foreach (var Plat in Platforms)
                     {
                         AddDependency(GamePlatformMonolithicsNode.StaticGetFullName(HostPlatform, GameProj, Plat));
+						if(Plat == UnrealTargetPlatform.Win32 && GameProj.Properties.Targets.ContainsKey(TargetRules.TargetType.Game))
+						{
+							if(GameProj.Properties.Targets[TargetRules.TargetType.Game].Rules.GUBP_BuildWindowsXPMonolithics())
+							{
+								AddDependency(GamePlatformMonolithicsNode.StaticGetFullName(HostPlatform, GameProj, Plat, true));
+							}
                     }
                 }
             }
+        }
         }
 
         public static string StaticGetFullName(BranchInfo.BranchUProject InGameProj)
@@ -2597,8 +2631,12 @@ public class GUBP : BuildCommand
 							}
                             AddDependency(CookNode.StaticGetFullName(HostPlatform, GameProj, CookedPlatform));
                             AddDependency(GamePlatformMonolithicsNode.StaticGetFullName(HostPlatform, GameProj, TargetPlatform));
+							if(Target.Rules.GUBP_BuildWindowsXPMonolithics())
+							{
+								AddDependency(GamePlatformMonolithicsNode.StaticGetFullName(HostPlatform, GameProj, TargetPlatform, true));
                         }
                     }
+                }
                 }
                 else
                 {
@@ -3752,7 +3790,12 @@ public class GUBP : BuildCommand
         int Quantum = GUBPNodes[NodeToDo].DependentCISFrequencyQuantumShift();
         if (Quantum > 0)
         {
-            int Minutes = 20 * (1 << Quantum);
+			int TimeQuantum = 20;
+			if(BranchOptions.QuantumOverride != 0)
+			{
+				TimeQuantum = BranchOptions.QuantumOverride;
+			}
+            int Minutes = TimeQuantum * (1 << Quantum);
             if (Minutes < 60)
             {
                 FrequencyString = string.Format(" ({0}m)", Minutes);
@@ -4019,6 +4062,10 @@ public class GUBP : BuildCommand
             LastAgentGroup = GUBPNodes[NodeToDo].AgentSharingGroup;
 
             string Agent = GUBPNodes[NodeToDo].ECAgentString();
+			if(ParseParamValue("AgentOverride") != "" && !GUBPNodes[NodeToDo].GetFullName().Contains("Mac"))
+			{
+				Agent = ParseParamValue("AgentOverride");
+			}
             if (Agent != "")
             {
                 Agent = "[" + Agent + "]";
@@ -4761,7 +4808,12 @@ public class GUBP : BuildCommand
         }
         if (!OnlyLateUpdates)
         {
-            ECProps.Add(string.Format("AgentRequirementString/{0}={1}", NodeToDo, GUBPNodes[NodeToDo].ECAgentString()));
+			string AgentReq = GUBPNodes[NodeToDo].ECAgentString();
+			if(ParseParamValue("AgentOverride") != "" && !GUBPNodes[NodeToDo].GetFullName().Contains("OnMac"))
+			{
+				AgentReq = ParseParamValue("AgentOverride");
+			}
+            ECProps.Add(string.Format("AgentRequirementString/{0}={1}", NodeToDo, AgentReq));
             ECProps.Add(string.Format("RequiredMemory/{0}={1}", NodeToDo, GUBPNodes[NodeToDo].AgentMemoryRequirement(this)));
             ECProps.Add(string.Format("Timeouts/{0}={1}", NodeToDo, GUBPNodes[NodeToDo].TimeoutInMinutes()));
             ECProps.Add(string.Format("JobStepPath/{0}={1}", NodeToDo, GetJobStepPath(NodeToDo)));
@@ -4932,7 +4984,7 @@ public class GUBP : BuildCommand
         bool bChanges = ParseParam("Changes") || ParseParam("AllChanges");
         bool bHistory = ParseParam("History") || bChanges;
         bool bListOnly = ParseParam("ListOnly") || bHistory;
-        bool bSkipTriggers = ParseParam("SkipTriggers");
+        bool bSkipTriggers = ParseParam("SkipTriggers");		
         bFake = ParseParam("fake");
         bool bFakeEC = ParseParam("FakeEC");
         TimeIndex = ParseParamInt("TimeIndex", 0);
@@ -5066,9 +5118,12 @@ public class GUBP : BuildCommand
                 int Minutes = int.Parse(Parts[1]);
 
                 int DeltaMinutes = NowMinutes - Minutes;
-
-                const int TimeQuantum = 20;
-
+				
+                int TimeQuantum = 20;
+				if(BranchOptions.QuantumOverride != 0)
+				{
+					TimeQuantum = BranchOptions.QuantumOverride;
+				}
                 int NewIndex = Index + 1;
 
                 if (DeltaMinutes > TimeQuantum * 2)
@@ -5469,9 +5524,16 @@ public class GUBP : BuildCommand
                                         AddNode(new GameMonolithicHeadersNode(this, HostPlatform, Plat));
                                     }
                                 }
+								if (Plat == UnrealTargetPlatform.Win32 && Target.Rules.GUBP_BuildWindowsXPMonolithics() && Kind == TargetRules.TargetType.Game)
+								{
+									if (!GUBPNodes.ContainsKey(GamePlatformMonolithicsNode.StaticGetFullName(HostPlatform, Branch.BaseEngineProject, Plat, true)))
+									{
+										AddNode(new GamePlatformMonolithicsNode(this, HostPlatform, Branch.BaseEngineProject, Plat, true));
+									}
                             }
                         }
                     }
+                }
                 }
 
                 var CookedAgentSharingGroup = "Shared_CookedTests" + HostPlatformNode.StaticGetHostPlatformSuffix(HostPlatform);
@@ -5697,6 +5759,13 @@ public class GUBP : BuildCommand
                             {
                                 continue;
                             }
+							if(Plat == UnrealTargetPlatform.Win32 && Target.Rules.GUBP_BuildWindowsXPMonolithics())
+							{
+								if(!GUBPNodes.ContainsKey(GamePlatformMonolithicsNode.StaticGetFullName(HostPlatform, CodeProj, Plat, true)))
+								{
+									AddNode(new GamePlatformMonolithicsNode(this, HostPlatform, CodeProj, Plat, true));
+								}
+							}
                             if (ActivePlatforms.Contains(Plat))
                             {
                                 if (Kind == TargetRules.TargetType.Server && !ServerPlatforms.Contains(Plat))
@@ -6517,14 +6586,14 @@ public class GUBP : BuildCommand
             {
                 ECProps.Add(string.Format("SortKey/{0}={1}", NodePair.Key, NodePair.Value));
             }
-			//foreach (var NodePair in FullNodeDependedOnBy)
-			//{
-			//	ECProps.Add(string.Format("DependedOnBy/{0}={1}", NodePair.Key, NodePair.Value));
-			//}
-			//foreach (var NodePair in FullNodeDependentPromotions)
-			//{
-			//	ECProps.Add(string.Format("DependentPromotions/{0}={1}", NodePair.Key, NodePair.Value));
-			//}
+			foreach (var NodePair in FullNodeDependedOnBy)
+			{
+				ECProps.Add(string.Format("DependedOnBy/{0}={1}", NodePair.Key, NodePair.Value));
+			}
+			foreach (var NodePair in FullNodeDependentPromotions)
+			{
+				ECProps.Add(string.Format("DependentPromotions/{0}={1}", NodePair.Key, NodePair.Value));
+			}
 			foreach (var Node in SeparatePromotables)
 			{
 				ECProps.Add(string.Format("PossiblePromotables/{0}={1}", Node, ""));
@@ -7014,7 +7083,7 @@ public class GUBP : BuildCommand
                     bool WasLocal;
 					try
 					{
-						GUBPNodes[NodeToDo].BuildProducts = RetrieveFromTempStorage(CmdEnv, NodeStoreName, out WasLocal, GameNameIfAny, StorageRootIfAny);
+                    GUBPNodes[NodeToDo].BuildProducts = RetrieveFromTempStorage(CmdEnv, NodeStoreName, out WasLocal, GameNameIfAny, StorageRootIfAny);
 					}
 					catch
 					{

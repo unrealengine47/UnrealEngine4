@@ -1036,11 +1036,11 @@ void FDeferredShadingSceneRenderer::BeginOcclusionTests(FRHICommandListImmediate
 
 	if (bUseDownsampledDepth)
 	{
-		SetRenderTarget(RHICmdList, NULL, GSceneRenderTargets.GetSmallDepthSurface());
+		SetRenderTarget(RHICmdList, NULL, GSceneRenderTargets.GetSmallDepthSurface(), ESimpleRenderTargetMode::EExistingColorAndReadOnlyDepth);
 	}
 	else
 	{
-		SetRenderTarget(RHICmdList, NULL, GSceneRenderTargets.GetSceneDepthSurface());
+		SetRenderTarget(RHICmdList, NULL, GSceneRenderTargets.GetSceneDepthSurface(), ESimpleRenderTargetMode::EExistingColorAndReadOnlyDepth);
 	}
 
 	// Perform occlusion queries for each view
@@ -1118,10 +1118,10 @@ void FDeferredShadingSceneRenderer::BeginOcclusionTests(FRHICommandListImmediate
 
 						if (ProjectedShadowInfo.CascadeSettings.bOnePassPointLightShadow)
 						{
-							FLightSceneProxy* Proxy = ProjectedShadowInfo.LightSceneInfo->Proxy;
+							FLightSceneProxy& LightProxy = *(ProjectedShadowInfo.GetLightSceneInfo().Proxy);
 
 							// Query one pass point light shadows separately because they don't have a shadow frustum, they have a bounding sphere instead.
-							FSphere LightBounds = Proxy->GetBoundingSphere();
+							FSphere LightBounds = LightProxy.GetBoundingSphere();
 
 							const bool bCameraInsideLightGeometry = ((FVector)View.ViewMatrices.ViewOrigin - LightBounds.Center).SizeSquared() < FMath::Square(LightBounds.W * 1.05f + View.NearClippingDistance * 2.0f);
 							if (!bCameraInsideLightGeometry)
@@ -1135,7 +1135,7 @@ void FDeferredShadingSceneRenderer::BeginOcclusionTests(FRHICommandListImmediate
 								ShadowOcclusionQueryMap.Add(Key, ShadowOcclusionQuery);
 
 								// Draw bounding sphere
-								VertexShader->SetParametersWithBoundingSphere(RHICmdList, View, ProjectedShadowInfo.LightSceneInfo->Proxy->GetBoundingSphere());
+								VertexShader->SetParametersWithBoundingSphere(RHICmdList, View, LightBounds);
 								StencilingGeometry::DrawSphere(RHICmdList);
 
 								RHICmdList.EndRenderQuery(ShadowOcclusionQuery);
@@ -1196,6 +1196,6 @@ void FDeferredShadingSceneRenderer::BeginOcclusionTests(FRHICommandListImmediate
 	if (bUseDownsampledDepth)
 	{
 		// Restore default render target
-		GSceneRenderTargets.BeginRenderingSceneColor(RHICmdList);
+		GSceneRenderTargets.BeginRenderingSceneColor(RHICmdList, ESimpleRenderTargetMode::EUninitializedColorExistingReadOnlyDepth);
 	}
 }

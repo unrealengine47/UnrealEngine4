@@ -35,7 +35,8 @@ public:
 
 	virtual FComponentInstanceDataBase* GetComponentInstanceData() const override;
 	virtual FName GetComponentInstanceDataType() const override;
-	virtual void ApplyComponentInstanceData(FComponentInstanceDataBase* ComponentInstanceData) override;
+
+	void ApplyComponentInstanceData(class FWidgetComponentInstanceData* ComponentInstanceData);
 
 	// Begin UObject
 	virtual void PostLoad() override;
@@ -97,7 +98,7 @@ private:
 	EWidgetSpace Space;
 
 	/** The class of User Widget to create and display an instance of */
-	UPROPERTY(EditAnywhere, Category=UI)
+	UPROPERTY(EditAnywhere, Category=UI, meta=(DisallowCreateNew))
 	TSubclassOf<UUserWidget> WidgetClass;
 	
 	/** The size of the displayed quad. */

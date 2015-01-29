@@ -250,6 +250,9 @@ void FLevelEditorActionCallbacks::OpenFavoriteFile( int32 FavoriteFileIndex )
 		{
 			// Load the requested level.
 			FEditorFileUtils::LoadMap( FileName );
+
+			// Move the item to the head of the list
+			MRUFavoritesList->MoveFavoritesItemToHead( FileName );
 		}
 		else
 		{
@@ -1481,7 +1484,7 @@ void FLevelEditorActionCallbacks::OnSelectComponentOwnerActor()
 	auto ComponentOwner = Cast<AActor>(*GEditor->GetSelectedActorIterator());
 	check(ComponentOwner);
 
-	GEditor->SelectNone(false, true, false);
+	GEditor->SelectNone(true, true, false);
 	GEditor->SelectActor(ComponentOwner, true, true, true);
 }
 
@@ -1964,9 +1967,9 @@ void FLevelEditorActionCallbacks::OpenLevelBlueprint( TWeakPtr< SLevelEditor > L
 	}
 }
 
-void FLevelEditorActionCallbacks::CreateClassBlueprint()
+void FLevelEditorActionCallbacks::CreateBlueprintClass()
 {
-	// Use the BlueprintFactory to allow the user to pick a parent class for the new class Blueprint
+	// Use the BlueprintFactory to allow the user to pick a parent class for the new Blueprint class
 	UBlueprintFactory* NewFactory = Cast<UBlueprintFactory>(ConstructObject<UFactory>( UBlueprintFactory::StaticClass() ));
 	FEditorDelegates::OnConfigureNewAssetProperties.Broadcast(NewFactory);
 	if ( NewFactory->ConfigureProperties() )
@@ -1974,7 +1977,7 @@ void FLevelEditorActionCallbacks::CreateClassBlueprint()
 		UClass* SelectedClass = NewFactory->ParentClass;
 
 		// Now help the user pick a path and name for the new Blueprint
-		UBlueprint* Blueprint = FKismetEditorUtilities::CreateBlueprintFromClass(NSLOCTEXT("LevelEditorCommands", "CreateClassBlueprint_Title", "Create Class Blueprint"), SelectedClass);
+		UBlueprint* Blueprint = FKismetEditorUtilities::CreateBlueprintFromClass(NSLOCTEXT("LevelEditorCommands", "CreateBlueprintClass_Title", "Create Blueprint Class"), SelectedClass);
 
 		if( Blueprint )
 		{
@@ -2658,36 +2661,6 @@ void FLevelEditorCommands::RegisterCommands()
 		OpenRecentFileCommands.Add( OpenRecentFile );
 	}
 
-	for( int32 CurFavoriteIndex = 0; CurFavoriteIndex < FLevelEditorCommands::MaxFavoriteFiles; ++CurFavoriteIndex )
-	{
-		// NOTE: The actual label and tool-tip will be overridden at runtime when the command is bound to a menu item, however
-		// we still need to set one here so that the key bindings UI can function properly
-		TSharedRef< FUICommandInfo > OpenFavoriteFile =
-			FUICommandInfoDecl(
-				this->AsShared(),
-				FName( *FString::Printf( TEXT( "OpenFavoriteFile%i" ), CurFavoriteIndex ) ),
-				FText::Format( NSLOCTEXT( "LevelEditorCommands", "OpenFavoriteFile", "Open Favorite File {0}" ), FText::AsNumber( CurFavoriteIndex ) ),
-				NSLOCTEXT( "LevelEditorCommands", "OpenFavoriteFileTaggedToolTip", "Opens a file that was tagged as a favorite" ) )
-			.UserInterfaceType( EUserInterfaceActionType::Button )
-			.DefaultGesture( FInputGesture() );
-		OpenFavoriteFileCommands.Add( OpenFavoriteFile );
-	}
-
-	for( int32 CurFavoriteIndex = 0; CurFavoriteIndex < FLevelEditorCommands::MaxFavoriteFiles; ++CurFavoriteIndex )
-	{
-		// NOTE: The actual label and tool-tip will be overridden at runtime when the command is bound to a menu item, however
-		// we still need to set one here so that the key bindings UI can function properly
-		TSharedRef< FUICommandInfo > RemoveFavorite =
-			FUICommandInfoDecl(
-			this->AsShared(),
-			FName( *FString::Printf( TEXT( "RemoveFavorite%i" ), CurFavoriteIndex ) ),
-			FText::Format( NSLOCTEXT( "LevelEditorCommands", "RemoveFavorite", "Remove Favorite {0}" ), FText::AsNumber( CurFavoriteIndex ) ),
-			NSLOCTEXT( "LevelEditorCommands", "RemoveFavoriteToolTip", "Removes an entry from the favorites list" ) )
-			.UserInterfaceType( EUserInterfaceActionType::Button )
-			.DefaultGesture( FInputGesture() );
-		RemoveFavoriteCommands.Add( RemoveFavorite );
-	}
-
 	UI_COMMAND( Import, "Import...", "Imports objects and actors from a T3D format into the current level", EUserInterfaceActionType::Button, FInputGesture() );
 	UI_COMMAND( ExportAll, "Export All...", "Exports the entire level to a file on disk (multiple formats are supported.)", EUserInterfaceActionType::Button, FInputGesture() );
 	UI_COMMAND( ExportSelected, "Export Selected...", "Exports currently-selected objects to a file on disk (multiple formats are supported.)", EUserInterfaceActionType::Button, FInputGesture() );
@@ -2883,7 +2856,7 @@ void FLevelEditorCommands::RegisterCommands()
 
 	UI_COMMAND( OpenLevelBlueprint, "Open Level Blueprint", "Edit the Level Blueprint for the current level", EUserInterfaceActionType::Button, FInputGesture() );
 	UI_COMMAND( CheckOutProjectSettingsConfig, "Check Out", "Checks out the project settings config file so the game mode can be set.", EUserInterfaceActionType::Button, FInputGesture() );
-	UI_COMMAND( CreateClassBlueprint, "New Class Blueprint...", "Create a new Class Blueprint", EUserInterfaceActionType::Button, FInputGesture());
+	UI_COMMAND( CreateBlueprintClass, "New Blueprint Class...", "Create a new Blueprint Class", EUserInterfaceActionType::Button, FInputGesture());
 
 	UI_COMMAND( ShowTransformWidget, "Show Transform Widget", "Toggles the visibility of the transform widgets", EUserInterfaceActionType::ToggleButton, FInputGesture() );
 	UI_COMMAND( AllowTranslucentSelection, "Allow Translucent Selection", "Allows translucent objects to be selected", EUserInterfaceActionType::ToggleButton, FInputGesture(EKeys::T) );

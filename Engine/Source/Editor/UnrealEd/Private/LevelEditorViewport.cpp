@@ -48,6 +48,7 @@
 #include "Editor/ActorPositioning.h"
 #include "NotificationManager.h"
 #include "SNotificationList.h"
+#include "ComponentEditorUtils.h"
 
 DEFINE_LOG_CATEGORY(LogEditorViewport);
 
@@ -1787,20 +1788,18 @@ void FLevelEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* HitPr
 			// 1. The actor clicked is already selected
 			// 2. The actor selected is the only actor selected
 			// 3. The LMB was pressed or we already have a component selected (so that right-clicking a selected actor won't select a component)
-			// 4. The click was not a double click (unless a component has already been selected)
-			// 5. The level viewport didn't just receive focus this frame (again unless a component has already been selected)
-			// 6. The component selected is not a hidden editor-only component
+			// And, if a component is not selected already:
+			// 4. The click was not a double click
+			// 5. The level viewport didn't just receive focus this frame
+			// 6. No modifier keys are pressed
 			const bool bActorAlreadySelectedExclusively = GEditor->GetSelectedActors()->IsSelected(ActorHitProxy->Actor) && ( GEditor->GetSelectedActorCount() == 1 );
 			const bool bComponentAlreadySelected = GEditor->GetSelectedComponentCount() > 0;
-	
 			const bool bCanBeginSelectingComponents =  (Click.GetKey() == EKeys::LeftMouseButton) 
 													&& (Click.GetEvent() != IE_DoubleClick) 
-													&& !bReceivedFocusRecently;
+													&& !bReceivedFocusRecently
+													&& !( Click.IsAltDown() || Click.IsControlDown() || Click.IsShiftDown() );
 
-			auto HitComponent = ActorHitProxy->PrimComponent;
-			const bool bHitSelectableComponent = HitComponent != nullptr && HitComponent->AlwaysLoadOnClient && HitComponent->AlwaysLoadOnServer;
-
-			const bool bSelectComponent = bActorAlreadySelectedExclusively && bHitSelectableComponent && ( bComponentAlreadySelected || bCanBeginSelectingComponents );
+			const bool bSelectComponent = bActorAlreadySelectedExclusively && ( bComponentAlreadySelected || bCanBeginSelectingComponents );
 
 			if (bSelectComponent && GetDefault<UEditorExperimentalSettings>()->bInWorldBPEditing)
 			{
@@ -2988,13 +2987,44 @@ void FLevelEditorViewportClient::ApplyDeltaToActors(const FVector& InDrag,
 		{
 			if (GEditor->GetSelectedComponentCount() > 0)
 			{
+				auto ComponentSelection = GEditor->GetSelectedComponents();
+
+				// Only move the parent-most component(s) that are selected 
+				// Otherwise, if both a parent and child are selected and the delta is applied to both, the child will actually move 2x delta
+				TInlineComponentArray<USceneComponent*> ComponentsToMove;
 				for (FSelectionIterator It(GEditor->GetSelectedComponentIterator()); It; ++It)
 				{
 					USceneComponent* SceneComponent = CastChecked<USceneComponent>(*It);
 					if (SceneComponent)
 					{
-						ApplyDeltaToComponent(SceneComponent, InDrag, InRot, ModifiedScale);
-					}
+						auto SelectedComponent = Cast<USceneComponent>(*It);
+
+						// Check to see if any parent is selected
+						bool bParentAlsoSelected = false;
+						USceneComponent* Parent = SelectedComponent->GetAttachParent();
+						while (Parent != nullptr)
+						{
+							if (ComponentSelection->IsSelected(Parent))
+							{
+								bParentAlsoSelected = true;
+								break;
+							}
+
+							Parent = Parent->GetAttachParent();
+						}
+
+						// If no parent of this component is also in the selection set, move it!
+						if (!bParentAlsoSelected)
+						{
+							ComponentsToMove.Add(SelectedComponent);
+						}
+					}	
+				}
+
+				// Now actually apply the delta to the appropriate component(s)
+				for (auto SceneComp : ComponentsToMove)
+				{
+					ApplyDeltaToComponent(SceneComp, InDrag, InRot, ModifiedScale);
 				}
 			}
 			else
@@ -3050,13 +3080,17 @@ void FLevelEditorViewportClient::ApplyDeltaToComponent(USceneComponent* InCompon
 		ModifiedDeltaScale = FVector::ZeroVector;
 	}
 
+	FVector AdjustedDrag = InDeltaDrag;
+	FRotator AdjustedRot = InDeltaRot;
+	FComponentEditorUtils::AdjustComponentDelta(InComponent, AdjustedDrag, AdjustedRot);
+
 	GEditor->ApplyDeltaToComponent(
 		InComponent,
 		true,
-		&InDeltaDrag,
-		&InDeltaRot,
+		&AdjustedDrag,
+		&AdjustedRot,
 		&ModifiedDeltaScale,
-		GEditor->GetPivotLocation());
+		InComponent->RelativeLocation);
 }
 
 /** Helper function for ModifyScale - Convert the active Dragging Axis to per-axis flags */
@@ -3400,7 +3434,6 @@ void FLevelEditorViewportClient::CheckHoveredHitProxy( HHitProxy* HoveredHitProx
 			}
 		}
 	}
-
 
 	// Check to see if there are any hovered objects that need to be updated
 	{
@@ -4027,7 +4060,7 @@ void FLevelEditorViewportClient::AddHoverEffect( FViewportHoverTarget& InHoverTa
 	AActor* ActorUnderCursor = InHoverTarget.HoveredActor;
 	UModel* ModelUnderCursor = InHoverTarget.HoveredModel;
 
-	if( ActorUnderCursor != NULL )
+	if( ActorUnderCursor != nullptr )
 	{
 		TInlineComponentArray<UPrimitiveComponent*> Components;
 		ActorUnderCursor->GetComponents(Components);
@@ -4041,7 +4074,7 @@ void FLevelEditorViewportClient::AddHoverEffect( FViewportHoverTarget& InHoverTa
 			}
 		}
 	}
-	else if( ModelUnderCursor != NULL )
+	else if (ModelUnderCursor != nullptr)
 	{
 		check( InHoverTarget.ModelSurfaceIndex != INDEX_NONE );
 		check( InHoverTarget.ModelSurfaceIndex < (uint32)ModelUnderCursor->Surfs.Num() );
@@ -4052,14 +4085,14 @@ void FLevelEditorViewportClient::AddHoverEffect( FViewportHoverTarget& InHoverTa
 
 
 /**
- * Static: Removes a hover effect to the specified object
+ * Static: Removes a hover effect from the specified object
  *
  * @param	InHoverTarget	The hoverable object to remove the effect from
  */
 void FLevelEditorViewportClient::RemoveHoverEffect( FViewportHoverTarget& InHoverTarget )
 {
 	AActor* CurHoveredActor = InHoverTarget.HoveredActor;
-	if( CurHoveredActor != NULL )
+	if( CurHoveredActor != nullptr )
 	{
 		TInlineComponentArray<UPrimitiveComponent*> Components;
 		CurHoveredActor->GetComponents(Components);
@@ -4076,7 +4109,7 @@ void FLevelEditorViewportClient::RemoveHoverEffect( FViewportHoverTarget& InHove
 	}
 
 	UModel* CurHoveredModel = InHoverTarget.HoveredModel;
-	if( CurHoveredModel != NULL )
+	if( CurHoveredModel != nullptr )
 	{
 		if( InHoverTarget.ModelSurfaceIndex != INDEX_NONE &&
 			(uint32)CurHoveredModel->Surfs.Num() >= InHoverTarget.ModelSurfaceIndex )

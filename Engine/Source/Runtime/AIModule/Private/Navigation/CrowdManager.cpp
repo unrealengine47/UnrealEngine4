@@ -24,6 +24,7 @@ DECLARE_CYCLE_STAT(TEXT("Step: proximity"), STAT_AI_Crowd_StepProximityTime, STA
 DECLARE_CYCLE_STAT(TEXT("Step: next point"), STAT_AI_Crowd_StepNextPointTime, STATGROUP_AICrowd);
 DECLARE_CYCLE_STAT(TEXT("Step: steering"), STAT_AI_Crowd_StepSteeringTime, STATGROUP_AICrowd);
 DECLARE_CYCLE_STAT(TEXT("Step: avoidance"), STAT_AI_Crowd_StepAvoidanceTime, STATGROUP_AICrowd);
+DECLARE_CYCLE_STAT(TEXT("Step: collisions"), STAT_AI_Crowd_StepCollisionsTime, STATGROUP_AICrowd);
 DECLARE_CYCLE_STAT(TEXT("Step: components"), STAT_AI_Crowd_StepComponentsTime, STATGROUP_AICrowd);
 DECLARE_CYCLE_STAT(TEXT("Step: navlinks"), STAT_AI_Crowd_StepNavLinkTime, STATGROUP_AICrowd);
 DECLARE_CYCLE_STAT(TEXT("Step: movement"), STAT_AI_Crowd_StepMovementTime, STATGROUP_AICrowd);
@@ -139,6 +140,7 @@ UCrowdManager::UCrowdManager(const FObjectInitializer& ObjectInitializer) : Supe
 	PathOptimizationInterval = 0.5f;
 	bSingleAreaVisibilityOptimization = true;
 	bPruneStartedOffmeshConnections = false;
+	bResolveCollisions = false;
 	
 	FCrowdAvoidanceConfig AvoidanceConfig11;		// 11 samples, ECrowdAvoidanceQuality::Low
 	AvoidanceConfig11.VelocityBias = 0.5f;
@@ -236,6 +238,11 @@ void UCrowdManager::Tick(float DeltaTime)
 			{
 				SCOPE_CYCLE_COUNTER(STAT_AI_Crowd_StepAvoidanceTime);
 				DetourCrowd->updateStepAvoidance(DeltaTime, DetourAgentDebug);
+			}
+			if (bResolveCollisions)
+			{
+				SCOPE_CYCLE_COUNTER(STAT_AI_Crowd_StepCollisionsTime);
+				DetourCrowd->updateStepMove(DeltaTime, DetourAgentDebug);
 			}
 			{
 				SCOPE_CYCLE_COUNTER(STAT_AI_Crowd_StepComponentsTime);
@@ -692,6 +699,7 @@ void UCrowdManager::GetAgentParams(const ICrowdAgentInterface* Agent, dtCrowdAge
 		AgentParams.pathOptimizationRange = CrowdComponent->GetCrowdPathOptimizationRange();
 		AgentParams.separationWeight = CrowdComponent->GetCrowdSeparationWeight();
 		AgentParams.obstacleAvoidanceType = CrowdComponent->GetCrowdAvoidanceQuality();
+		AgentParams.avoidanceQueryMultiplier = CrowdComponent->GetCrowdAvoidanceRangeMultiplier();
 	
 		if (CrowdComponent->IsCrowdSimulationEnabled())
 		{
@@ -711,6 +719,7 @@ void UCrowdManager::GetAgentParams(const ICrowdAgentInterface* Agent, dtCrowdAge
 	}
 	else
 	{
+		AgentParams.avoidanceQueryMultiplier = 1.0f;
 		AgentParams.avoidanceGroup = 1;
 		AgentParams.groupsToAvoid = MAX_uint32;
 	}
@@ -753,6 +762,12 @@ void UCrowdManager::ApplyVelocity(UCrowdFollowingComponent* AgentComponent, int3
 
 	const FVector DestPathCorner = Recast2UnrealPoint(RcDestCorner);
 	AgentComponent->ApplyCrowdAgentVelocity(NewVelocity, DestPathCorner, anims->active != 0);
+
+	if (bResolveCollisions)
+	{
+		const FVector NewPosition = Recast2UnrealPoint(ag->npos);
+		AgentComponent->ApplyCrowdAgentPosition(NewPosition);
+	}
 }
 
 void UCrowdManager::UpdateAgentPaths()
@@ -957,13 +972,14 @@ void UCrowdManager::DrawDebugVelocityObstacles(const dtCrowdAgent* CrowdAgent) c
 	FVector Center = Recast2UnrealPoint(CrowdAgent->npos) + CrowdDebugDrawing::Offset;
 	DrawDebugCylinder(GetWorld(), Center - CrowdDebugDrawing::Offset, Center, CrowdAgent->params.maxSpeed, 32, CrowdDebugDrawing::AvoidanceRange);
 
+	const float InvQueryMultiplier = 1.0f / CrowdAgent->params.avoidanceQueryMultiplier;
 	float BestSampleScore = -1.0f;
 	FVector BestSampleLocation = FVector::ZeroVector;
 
 	for (int32 Idx = 0; Idx < DetourAvoidanceDebug->getSampleCount(); Idx++)
 	{
 		const float* p = DetourAvoidanceDebug->getSampleVelocity(Idx);
-		const float sr = DetourAvoidanceDebug->getSampleSize(Idx);
+		const float sr = DetourAvoidanceDebug->getSampleSize(Idx) * InvQueryMultiplier;
 		const float pen = DetourAvoidanceDebug->getSamplePenalty(Idx);
 		const float pen2 = DetourAvoidanceDebug->getSamplePreferredSidePenalty(Idx);
 

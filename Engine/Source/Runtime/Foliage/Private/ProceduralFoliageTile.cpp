@@ -128,7 +128,7 @@ void UProceduralFoliageTile::AgeSeeds()
 		if (Instance->IsAlive())
 		{
 			const UFoliageType_InstancedStaticMesh* Type = Instance->Type;
-			if (SimulationStep <= Type->NumSteps)
+			if (SimulationStep <= Type->NumSteps && Type->bGrowsInShade == bSimulateShadeGrowth)
 			{
 				const float CurrentAge = Instance->Age;
 				const float NewAge = Type->GetNextAge(Instance->Age, 1);
@@ -165,7 +165,7 @@ void UProceduralFoliageTile::SpreadSeeds(TArray<FProceduralFoliageInstance*>& Ne
 
 		const UFoliageType_InstancedStaticMesh* Type = Inst->Type;
 
-		if (SimulationStep <= Type->NumSteps)
+		if (SimulationStep <= Type->NumSteps  && Type->bGrowsInShade == bSimulateShadeGrowth)
 		{
 			for (int32 i = 0; i < Type->SeedsPerStep; ++i)
 			{
@@ -192,23 +192,114 @@ void UProceduralFoliageTile::AddRandomSeeds(TArray<FProceduralFoliageInstance*>&
 {
 	const float SizeTenM2 = (ProceduralFoliage->TileSize * ProceduralFoliage->TileSize) / (1000.f * 1000.f);
 
-	for ( const FProceduralFoliageTypeData& Data : ProceduralFoliage->GetTypes() )
-	{
-		UFoliageType_InstancedStaticMesh* TypeInstance = Data.TypeInstance;
-		if( TypeInstance )
-		{
-			const float NumSeeds = TypeInstance->GetSeedDensitySquared() * SizeTenM2;
-			for(int32 i = 0; i < NumSeeds; ++i)
-			{
-				const float X = RandomStream.FRandRange(0, ProceduralFoliage->TileSize);
-				const float Y = RandomStream.FRandRange(0, ProceduralFoliage->TileSize);
-				const float NewAge = TypeInstance->GetInitAge(RandomStream);
-				const float Scale = TypeInstance->GetScaleForAge(NewAge);
+	TMap<int32,float> MaxShadeRadii;
+	TMap<int32, float> MaxCollisionRadii;
+	TMap<const UFoliageType*, int32> SeedsLeftMap;
+	TMap<const UFoliageType*, FRandomStream> RandomStreamPerType;
 
-				if(FProceduralFoliageInstance* NewInst = NewSeed(FVector(X,Y,0.f), Scale, TypeInstance, NewAge))
+	TArray<const UFoliageType_InstancedStaticMesh*> TypesToSeed;
+
+	for (const FProceduralFoliageTypeData& Data : ProceduralFoliage->GetTypes())
+	{
+		const UFoliageType_InstancedStaticMesh* Type = Data.TypeInstance;
+		if (Type && Type->bGrowsInShade == bSimulateShadeGrowth)
+		{
+			{	//compute the number of initial seeds
+				const int32 NumSeeds = FMath::RoundToInt(Type->GetSeedDensitySquared() * SizeTenM2);
+				SeedsLeftMap.Add(Type, NumSeeds);
+				if (NumSeeds > 0)
 				{
-					OutInstances.Add(NewInst);
+					TypesToSeed.Add(Type);
 				}
+			}
+
+			{	//save the random stream per type
+				RandomStreamPerType.Add(Type, FRandomStream(Type->DistributionSeed));
+			}
+
+			{	//compute the needed offsets for initial seed variance
+				const int32 DistributionSeed = Type->DistributionSeed;
+				const float MaxScale = Type->GetScaleForAge(Type->MaxAge);
+				const float TypeMaxCollisionRadius = MaxScale * Type->CollisionRadius;
+				if (float* MaxRadius = MaxCollisionRadii.Find(DistributionSeed))
+				{
+					*MaxRadius = FMath::Max(*MaxRadius, TypeMaxCollisionRadius);
+				}
+				else
+				{
+					MaxCollisionRadii.Add(DistributionSeed, TypeMaxCollisionRadius);
+				}
+
+				const float TypeMaxShadeRadius = MaxScale * Type->ShadeRadius;
+				if (float* MaxRadius = MaxShadeRadii.Find(DistributionSeed))
+				{
+					*MaxRadius = FMath::Max(*MaxRadius, TypeMaxShadeRadius);
+				}
+				else
+				{
+					MaxShadeRadii.Add(DistributionSeed, TypeMaxShadeRadius);
+				}
+			}
+			
+		}
+	}
+
+	int32 TypeIdx = -1;
+	const int32 NumTypes = TypesToSeed.Num();
+	int32 TypesLeftToSeed = NumTypes;
+	const int32 LastShadeCastingIndex = InstancesArray.Num() - 1; //when placing shade growth types we want to spawn in shade if possible
+	while (TypesLeftToSeed > 0)
+	{
+		TypeIdx = (TypeIdx + 1) % NumTypes;	//keep cycling through the types that we spawn initial seeds for to make sure everyone gets fair chance
+
+		if (const UFoliageType_InstancedStaticMesh* Type = TypesToSeed[TypeIdx])
+		{
+			int32& SeedsLeft = SeedsLeftMap.FindChecked(Type);
+			if (SeedsLeft == 0)
+			{
+				continue;
+			}
+
+			const float NewAge = Type->GetInitAge(RandomStream);
+			const float Scale = Type->GetScaleForAge(NewAge);
+
+			FRandomStream& TypeRandomStream = RandomStreamPerType.FindChecked(Type);
+			float InitX = 0.f;
+			float InitY = 0.f;
+			float NeededRadius = 0.f;
+
+			if (bSimulateShadeGrowth && LastShadeCastingIndex >= 0)
+			{
+				const int32 InstanceSpawnerIdx = TypeRandomStream.FRandRange(0, LastShadeCastingIndex);
+				const FProceduralFoliageInstance& Spawner = InstancesArray[InstanceSpawnerIdx];
+				InitX = Spawner.Location.X;
+				InitY = Spawner.Location.Y;
+				NeededRadius = Spawner.GetCollisionRadius() * (Scale + Spawner.Type->GetScaleForAge(Spawner.Age));
+			}
+			else
+			{
+				InitX = TypeRandomStream.FRandRange(0, ProceduralFoliage->TileSize);
+				InitY = TypeRandomStream.FRandRange(0, ProceduralFoliage->TileSize);
+				NeededRadius = MaxShadeRadii.FindRef(Type->DistributionSeed);
+			}
+
+			const float Rad = RandomStream.FRandRange(0, PI*2.f);
+			
+			
+			const FVector GlobalOffset = (RandomStream.FRandRange(0, Type->MaxInitialSeedOffset) + NeededRadius) * FVector(FMath::Cos(Rad), FMath::Sin(Rad), 0.f);
+
+			const float X = InitX + GlobalOffset.X;
+			const float Y = InitY + GlobalOffset.Y;
+
+			if (FProceduralFoliageInstance* NewInst = NewSeed(FVector(X, Y, 0.f), Scale, Type, NewAge))
+			{
+				OutInstances.Add(NewInst);
+			}
+
+			--SeedsLeft;
+			if (SeedsLeft == 0)
+			{
+				--TypesLeftToSeed;
 			}
 		}
 	}
@@ -298,17 +389,16 @@ void UProceduralFoliageTile::StepSimulation()
 	FlushPendingRemovals();
 }
 
-void UProceduralFoliageTile::Simulate(const UProceduralFoliage* InProceduralFoliage, const int32 RandomSeed, const int32 MaxNumSteps)
+void UProceduralFoliageTile::StartSimulation(const int32 MaxNumSteps, bool bShadeGrowth)
 {
-	InitSimulation(InProceduralFoliage, RandomSeed);
-
 	int32 MaxSteps = 0;
-	for(const FProceduralFoliageTypeData& Data : ProceduralFoliage->GetTypes())
+
+	for (const FProceduralFoliageTypeData& Data : ProceduralFoliage->GetTypes())
 	{
 		const UFoliageType_InstancedStaticMesh* TypeInstance = Data.TypeInstance;
-		if(TypeInstance)
+		if (TypeInstance && TypeInstance->bGrowsInShade == bShadeGrowth)
 		{
-			MaxSteps = FMath::Max(MaxSteps, TypeInstance->NumSteps+1);
+			MaxSteps = FMath::Max(MaxSteps, TypeInstance->NumSteps + 1);
 		}
 	}
 
@@ -317,6 +407,8 @@ void UProceduralFoliageTile::Simulate(const UProceduralFoliage* InProceduralFoli
 		MaxSteps = FMath::Min(MaxSteps, MaxNumSteps);	//only take as many steps as given
 	}
 
+	SimulationStep = 0;
+	bSimulateShadeGrowth = bShadeGrowth;
 	for (int32 Step = 0; Step < MaxSteps; ++Step)
 	{
 		StepSimulation();
@@ -324,6 +416,14 @@ void UProceduralFoliageTile::Simulate(const UProceduralFoliage* InProceduralFoli
 	}
 
 	InstancesToArray();
+}
+
+void UProceduralFoliageTile::Simulate(const UProceduralFoliage* InProceduralFoliage, const int32 RandomSeed, const int32 MaxNumSteps)
+{
+	InitSimulation(InProceduralFoliage, RandomSeed);
+
+	StartSimulation(MaxNumSteps, false);
+	StartSimulation(MaxNumSteps, true);
 }
 
 

@@ -1093,7 +1093,7 @@ bool UObject::CheckDefaultSubobjectsInternal()
 /**
  * Determines whether the specified object should load values using PerObjectConfig rules
  */
-static bool UsesPerObjectConfig( UObject* SourceObject )
+bool UsesPerObjectConfig( UObject* SourceObject )
 {
 	checkSlow(SourceObject);
 	return (SourceObject->GetClass()->HasAnyClassFlags(CLASS_PerObjectConfig) && !SourceObject->HasAnyFlags(RF_ClassDefaultObject));
@@ -1102,7 +1102,7 @@ static bool UsesPerObjectConfig( UObject* SourceObject )
 /**
  * Returns the file to load ini values from for the specified object, taking into account PerObjectConfig-ness
  */
-static FString GetConfigFilename( UObject* SourceObject )
+FString GetConfigFilename( UObject* SourceObject )
 {
 	checkSlow(SourceObject);
 
@@ -1179,6 +1179,12 @@ void UObject::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const
 		OutTags.Add( FAssetRegistryTag("ResourceSize", FString::Printf(TEXT("%0.2f"), ResourceSize / 1024.f), FAssetRegistryTag::TT_Numerical) );
 	}
 	FAssetRegistryTag::GetAssetRegistryTagsFromSearchableProperties(this, OutTags);
+}
+
+const FName& UObject::SourceFileTagName()
+{
+	static const FName SourceFilePathName("SourceFile");
+	return SourceFilePathName;
 }
 
 #if WITH_EDITOR
@@ -1625,7 +1631,7 @@ void UObject::SaveConfig( uint64 Flags, const TCHAR* InFilename, FConfigCacheIni
 	// Determine whether the file we are writing is a default file config.
 	const bool bIsADefaultIniWrite = !Filename.Contains(FPaths::GameSavedDir())
 		&& !Filename.Contains(FPaths::EngineSavedDir())
-		&& FPaths::GetBaseFilename(Filename).StartsWith(TEXT("Default"));
+		&& (FPaths::GetBaseFilename(Filename).StartsWith(TEXT("Default")) || FPaths::GetBaseFilename(Filename).StartsWith(TEXT("User")));
 
 	const bool bPerObject = UsesPerObjectConfig(this);
 	FString Section;
@@ -2369,7 +2375,7 @@ TArray<const TCHAR*> ParsePropertyFlags(uint64 Flags)
 		TEXT("0x0000000000001000"),
 		TEXT("CPF_Transient"),
 		TEXT("CPF_Config"),
-		TEXT("CPF_Localized"),
+		TEXT("0x0000000000008000"),
 		TEXT("CPF_DisableEditOnInstance"),
 		TEXT("CPF_EditConst"),
 		TEXT("CPF_GlobalConfig"),
@@ -2915,6 +2921,79 @@ bool StaticExec( UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar )
 			Ar.Logf(TEXT("------------------------------------------------------------------------"));
 			Ar.Logf(TEXT("%d total objects, %d total edges."), IndexSet.AllObjects.Num(), IndexSet.AllEdges.Num());
 			Ar.Logf(TEXT("Non-permanent: %d objects, %d edges, %d strongly connected components, %d objects are included in cycles."), IndexSet.TempObjects.Num(), IndexSet.Edges.Num(), TotalCnt, TotalNum);
+			return true;
+		}
+		else if (FParse::Command(&Str, TEXT("VERIFYCOMPONENTS")))
+		{
+			Ar.Logf(TEXT("------------------------------------------------------------------------------"));
+
+			for (FObjectIterator It; It; ++It)
+			{
+				UObject* Target = *It;
+
+				// Skip objects that are trashed
+				if ((Target->GetOutermost() == GetTransientPackage())
+					|| Target->GetClass()->HasAnyClassFlags(CLASS_NewerVersionExists)
+					|| Target->HasAnyFlags(RF_PendingKill))
+				{
+					continue;
+				}
+
+				TArray<UObject*> SubObjects;
+				GetObjectsWithOuter(Target, SubObjects);
+
+				TArray<FString> Errors;
+
+				for (auto SubObjIt : SubObjects)
+				{
+					const UObject* SubObj = SubObjIt;
+					const UClass* SubObjClass = SubObj->GetClass();
+					const FString SubObjName = SubObj->GetName();
+
+					if (SubObj->IsPendingKill())
+					{
+						continue;
+					}
+
+					if (SubObjClass->HasAnyClassFlags(CLASS_NewerVersionExists))
+					{
+						Errors.Add(FString::Printf(TEXT("  - %s has a stale class"), *SubObjName));
+					}
+
+					if (SubObjClass->GetOutermost() == GetTransientPackage())
+					{
+						Errors.Add(FString::Printf(TEXT("  - %s has a class in the transient package"), *SubObjName));
+					}
+
+					if (SubObj->GetOutermost() != Target->GetOutermost())
+					{
+						Errors.Add(FString::Printf(TEXT("  - %s has a different outer than its parent"), *SubObjName));
+					}
+					
+					if (SubObj->GetName().Find(TEXT("TRASH_")) != INDEX_NONE)
+					{
+						Errors.Add(FString::Printf(TEXT("  - %s is TRASH'd"), *SubObjName));
+					}
+
+					if (SubObj->GetName().Find(TEXT("REINST_")) != INDEX_NONE)
+					{
+						Errors.Add(FString::Printf(TEXT("  - %s is a REINST"), *SubObjName));
+					}
+				}
+
+				if (Errors.Num() > 0)
+				{
+					const FString ErrorStr = FString::Printf(TEXT("Errors for %s"), *Target->GetName());
+					Ar.Logf(*ErrorStr);
+
+					for (auto ErrorStr : Errors)
+					{
+						Ar.Logf(*(FString(TEXT("  - ") + ErrorStr)));
+					}
+				}
+			}
+
+			Ar.Logf(TEXT("------------------------------------------------------------------------------"));
 			return true;
 		}
 		else if( FParse::Command(&Str,TEXT("TRANSACTIONAL")) )

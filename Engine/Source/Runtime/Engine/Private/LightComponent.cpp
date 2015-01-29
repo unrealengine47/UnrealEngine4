@@ -123,7 +123,7 @@ void ULightComponentBase::UpdateLightSpriteTexture()
 		SpriteComponent->SetSprite(GetEditorSprite());
 
 		float SpriteScale = GetEditorSpriteScale();
-		SpriteComponent->RelativeScale3D = FVector(SpriteScale);
+		SpriteComponent->SetRelativeScale3D(FVector(SpriteScale));
 	}
 }
 
@@ -182,7 +182,7 @@ void ULightComponentBase::OnRegister()
 		SpriteComponent->AlwaysLoadOnServer = false;
 		SpriteComponent->SpriteInfo.Category = TEXT("Lighting");
 		SpriteComponent->SpriteInfo.DisplayName = NSLOCTEXT("SpriteCategory", "Lighting", "Lighting");
-		SpriteComponent->bCreatedByConstructionScript = bCreatedByConstructionScript;
+		SpriteComponent->CreationMethod = CreationMethod;
 		SpriteComponent->bIsScreenSizeScaled = true;
 
 		SpriteComponent->RegisterComponent();
@@ -581,7 +581,7 @@ void ULightComponent::UpdateLightSpriteTexture()
 			UTexture2D* SpriteTexture = NULL;
 			SpriteTexture = LoadObject<UTexture2D>(NULL, TEXT("/Engine/EditorResources/LightIcons/S_LightError.S_LightError"));
 			SpriteComponent->SetSprite(SpriteTexture);
-			SpriteComponent->RelativeScale3D = FVector(0.5f, 0.5f, 0.5f);
+			SpriteComponent->SetRelativeScale3D(FVector(0.5f));
 		}
 		else
 		{
@@ -883,9 +883,12 @@ public:
 		, PreviewShadowMapChannel(SourceComponent->PreviewShadowMapChannel)
 		, bPrecomputedLightingIsValid(SourceComponent->bPrecomputedLightingIsValid)
 	{}
-			
-	virtual ~FPrecomputedLightInstanceData()
-	{}
+
+	virtual void ApplyToComponent(UActorComponent* Component) override
+	{
+		FSceneComponentInstanceData::ApplyToComponent(Component);
+		CastChecked<ULightComponent>(Component)->ApplyComponentInstanceData(this);
+	}
 
 	FTransform Transform;
 	FGuid LightGuid;
@@ -906,12 +909,9 @@ FComponentInstanceDataBase* ULightComponent::GetComponentInstanceData() const
 	return new FPrecomputedLightInstanceData(this);
 }
 
-void ULightComponent::ApplyComponentInstanceData(FComponentInstanceDataBase* ComponentInstanceData)
+void ULightComponent::ApplyComponentInstanceData(FPrecomputedLightInstanceData* LightMapData)
 {
-	Super::ApplyComponentInstanceData(ComponentInstanceData);
-
-	check(ComponentInstanceData);
-	FPrecomputedLightInstanceData* LightMapData  = static_cast<FPrecomputedLightInstanceData*>(ComponentInstanceData);
+	check(LightMapData);
 
 	if (!LightMapData->Transform.Equals(ComponentToWorld))
 	{

@@ -13,6 +13,7 @@ enum EDepthOfFieldMethod
 {
 	DOFM_BokehDOF UMETA(DisplayName="BokehDOF"),
 	DOFM_Gaussian UMETA(DisplayName="Gaussian"),
+	DOFM_CircleDOF UMETA(DisplayName="CircleDOF"),
 	DOFM_MAX,
 };
 
@@ -159,6 +160,15 @@ struct FPostProcessSettings
 
 	UPROPERTY(BlueprintReadWrite, Category=Overrides, meta=(PinHiddenByDefault))
 	uint32 bOverride_Bloom5Size:1;
+
+	UPROPERTY(BlueprintReadWrite, Category=Overrides, meta=(PinHiddenByDefault))
+	uint32 bOverride_Bloom6Tint:1;
+
+	UPROPERTY(BlueprintReadWrite, Category=Overrides, meta=(PinHiddenByDefault))
+	uint32 bOverride_Bloom6Size:1;
+
+	UPROPERTY(BlueprintReadWrite, Category=Overrides, meta=(PinHiddenByDefault))
+	uint32 bOverride_BloomSizeScale:1;
 
 	UPROPERTY(BlueprintReadWrite, Category=Overrides, meta=(PinHiddenByDefault))
 	uint32 bOverride_BloomDirtMaskIntensity:1;
@@ -452,6 +462,12 @@ struct FPostProcessSettings
 	float BloomThreshold;
 
 	/**
+	 * Scale for all bloom sizes
+	 */
+	UPROPERTY(interp, BlueprintReadWrite, Category=Bloom, AdvancedDisplay, meta=(ClampMin = "0.0", UIMax = "64.0", editcondition = "bOverride_BloomSizeScale", DisplayName = "Size scale"))
+	float BloomSizeScale;
+
+	/**
 	 * Diameter size for the Bloom1 in percent of the screen width
 	 * (is done in 1/2 resolution, larger values cost more performance, good for high frequency details)
 	 * >=0: can be clamped because of shader limitations
@@ -486,6 +502,13 @@ struct FPostProcessSettings
 	 */
 	UPROPERTY(interp, BlueprintReadWrite, Category=Bloom, AdvancedDisplay, meta=(ClampMin = "0.0", UIMax = "64.0", editcondition = "bOverride_Bloom5Size", DisplayName = "#5 Size"))
 	float Bloom5Size;
+	/**
+	 * Diameter size for Bloom6 in percent of the screen width
+	 * (is done in 1/64 resolution, larger values cost more performance, best for wide contributions)
+	 * >=0: can be clamped because of shader limitations
+	 */
+	UPROPERTY(interp, BlueprintReadWrite, Category=Bloom, AdvancedDisplay, meta=(ClampMin = "0.0", UIMax = "128.0", editcondition = "bOverride_Bloom6Size", DisplayName = "#6 Size"))
+	float Bloom6Size;
 
 	/** Bloom1 tint color */
 	UPROPERTY(interp, BlueprintReadWrite, Category=Bloom, AdvancedDisplay, meta=(editcondition = "bOverride_Bloom1Tint", DisplayName = "#1 Tint", HideAlphaChannel))
@@ -502,6 +525,9 @@ struct FPostProcessSettings
 	/** Bloom5 tint color */
 	UPROPERTY(interp, BlueprintReadWrite, Category=Bloom, AdvancedDisplay, meta=(editcondition = "bOverride_Bloom5Tint", DisplayName = "#5 Tint", HideAlphaChannel))
 	FLinearColor Bloom5Tint;
+	/** Bloom6 tint color */
+	UPROPERTY(interp, BlueprintReadWrite, Category=Bloom, AdvancedDisplay, meta=(editcondition = "bOverride_Bloom6Tint", DisplayName = "#6 Tint", HideAlphaChannel))
+	FLinearColor Bloom6Tint;
 
 	/** BloomDirtMask intensity */
 	UPROPERTY(interp, BlueprintReadWrite, Category=Bloom, meta=(ClampMin = "0.0", UIMax = "8.0", editcondition = "bOverride_BloomDirtMaskIntensity", DisplayName = "Dirt Mask Intensity"))
@@ -879,6 +905,8 @@ struct FPostProcessSettings
 		BloomIntensity = 1.0f;
 		BloomThreshold = 1.0f;
 		Bloom1Tint = FLinearColor(0.5f, 0.5f, 0.5f);
+		// default is 4 to maintain old settings after fixing something that caused a factor of 4
+		BloomSizeScale = 4.0;
 		Bloom1Size = 1.0f;
 		Bloom2Tint = FLinearColor(0.5f, 0.5f, 0.5f);
 		Bloom2Size = 4.0f;
@@ -887,7 +915,9 @@ struct FPostProcessSettings
 		Bloom4Tint = FLinearColor(0.5f, 0.5f, 0.5f);
 		Bloom4Size = 32.0f;
 		Bloom5Tint = FLinearColor(0.5f, 0.5f, 0.5f);
-		Bloom5Size = 100.0f;
+		Bloom5Size = 64.0f;
+		Bloom6Tint = FLinearColor(0.5f, 0.5f, 0.5f);
+		Bloom6Size = 64.0f;
 		BloomDirtMaskIntensity = 1.0f;
 		BloomDirtMaskTint = FLinearColor(0.5f, 0.5f, 0.5f);
 		AmbientCubemapIntensity = 1.0f;

@@ -53,7 +53,10 @@ UDestructableMeshEditorSettings::UDestructableMeshEditorSettings( const FObjectI
 
 UEditorExperimentalSettings::UEditorExperimentalSettings( const FObjectInitializer& ObjectInitializer )
 	: Super(ObjectInitializer)
-{ 
+	, bInWorldBPEditing(true)
+	, bUnifiedBlueprintEditor(true)
+
+{
 }
 
 void UEditorExperimentalSettings::PostEditChangeProperty( struct FPropertyChangedEvent& PropertyChangedEvent )
@@ -90,6 +93,8 @@ void UEditorExperimentalSettings::PostEditChangeProperty( struct FPropertyChange
 
 UEditorLoadingSavingSettings::UEditorLoadingSavingSettings( const FObjectInitializer& ObjectInitializer )
 	: Super(ObjectInitializer)
+	, bMonitorContentDirectories(false)
+	, bDeleteSourceFilesWithAssets(true)
 {
 	TextDiffToolPath.FilePath = TEXT("P4Merge.exe");
 }

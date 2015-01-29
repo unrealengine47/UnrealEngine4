@@ -62,7 +62,7 @@ void SFoliageEditMeshDisplayItem::Construct(const FArguments& InArgs)
 
 	// Create the details panels for the clustering tab.
 	FPropertyEditorModule& PropertyEditorModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
-	const FDetailsViewArgs DetailsViewArgs(false, false, true, false, true, this);
+	const FDetailsViewArgs DetailsViewArgs(false, false, true, FDetailsViewArgs::HideNameArea, true, this);
 	ClusterSettingsDetails = PropertyEditorModule.CreateDetailView(DetailsViewArgs);
 	ClusterSettingsDetails->RegisterInstancedCustomPropertyLayout(UFoliageType::StaticClass(), FOnGetDetailCustomizationInstance::CreateStatic(&EmptyCustomization::MakeInstance));
 
@@ -1481,7 +1481,7 @@ void SFoliageEditMeshDisplayItem::Construct(const FArguments& InArgs)
 				.BorderBackgroundColor(TAttribute<FSlateColor>(this, &SFoliageEditMeshDisplayItem::GetBorderColor))
 				[
 					SNew(SBorder)
-					.BorderImage(FEditorStyle::GetBrush("ToolTip.Background"))
+					.BorderImage(FCoreStyle::Get().GetBrush("ToolTip.Background"))
 					.Padding(0.0f)
 					[
 						SNew(SCheckBox)
@@ -2439,12 +2439,23 @@ ECheckBoxState SFoliageEditMeshDisplayItem::IsLandscapeLayerReapplyChecked() con
 
 void SFoliageEditMeshDisplayItem::OnLandscapeLayerChanged(const FText& InValue)
 {
-	FoliageSettingsPtr->LandscapeLayer = FName(*InValue.ToString());
+	if (FoliageSettingsPtr->LandscapeLayers.Num() == 0)
+	{
+		FoliageSettingsPtr->LandscapeLayers.AddUninitialized(1);
+	}
+
+	FoliageSettingsPtr->LandscapeLayers[0] = FName(*InValue.ToString());
 }
 
 FText SFoliageEditMeshDisplayItem::GetLandscapeLayer() const
 {
-	return FText::FromName(FoliageSettingsPtr->LandscapeLayer);
+	FName LayerName = NAME_None;
+	if (FoliageSettingsPtr->LandscapeLayers.Num())
+	{
+		LayerName = FoliageSettingsPtr->LandscapeLayers[0];
+	}
+	
+	return FText::FromName(LayerName);
 }
 
 void SFoliageEditMeshDisplayItem::OnCollisionWithWorld(ECheckBoxState InState)

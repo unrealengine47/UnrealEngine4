@@ -74,7 +74,7 @@ public:
 protected:
 	TWeakPtr<FBlueprintEditor> MyBlueprintEditor;
 
-	// Set of spawnable tabs in blueprint defaults mode
+	// Set of spawnable tabs in Class Defaults mode
 	FWorkflowAllowedTabSet BlueprintDefaultsTabFactories;
 };
 
@@ -105,6 +105,8 @@ public:
 	FBlueprintInterfaceApplicationMode(TSharedPtr<class FBlueprintEditor> InBlueprintEditor);
 
 	virtual void RegisterTabFactories(TSharedPtr<FTabManager> InTabManager) override;
+	virtual void PreDeactivateMode() override;
+	virtual void PostActivateMode() override;
 public:
 
 protected:
@@ -120,6 +122,8 @@ public:
 	FBlueprintMacroApplicationMode(TSharedPtr<class FBlueprintEditor> InBlueprintEditor);
 
 	virtual void RegisterTabFactories(TSharedPtr<FTabManager> InTabManager) override;
+	virtual void PreDeactivateMode() override;
+	virtual void PostActivateMode() override;
 public:
 
 protected:

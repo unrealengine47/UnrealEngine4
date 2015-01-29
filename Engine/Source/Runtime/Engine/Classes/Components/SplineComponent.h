@@ -24,7 +24,7 @@ namespace ESplinePointType
  *	A spline component is a spline shape which can be used for other purposes (e.g. animating objects). It does not contain rendering capabilities itself (outside the editor) 
  *	@see https://docs.unrealengine.com/latest/INT/Resources/ContentExamples/Blueprint_Splines
  */
-UCLASS(ClassGroup=Shapes, meta=(BlueprintSpawnableComponent))
+UCLASS(ClassGroup=Utility, meta=(BlueprintSpawnableComponent))
 class ENGINE_API USplineComponent : public UPrimitiveComponent
 {
 	GENERATED_UCLASS_BODY()
@@ -64,22 +64,31 @@ private:
 public:
 #if WITH_EDITORONLY_DATA
 	/** Color of an unselected spline component segment in the editor */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Editor)
+	UPROPERTY(EditAnywhere, Category = Editor)
 	FLinearColor EditorUnselectedSplineSegmentColor;
 
 	/** Color of a selected spline component segment in the editor */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Editor)
+	UPROPERTY(EditAnywhere, Category = Editor)
 	FLinearColor EditorSelectedSplineSegmentColor;
 #endif
 
 	// Begin UActorComponent interface.
 	virtual FComponentInstanceDataBase* GetComponentInstanceData() const override;
 	virtual FName GetComponentInstanceDataType() const override;
-	virtual void ApplyComponentInstanceData(FComponentInstanceDataBase* ComponentInstanceData) override;
 	// End UActorComponent interface.
+
+	void ApplyComponentInstanceData(class FSplineInstanceData* ComponentInstanceData);
 
 	/** Update the spline tangents and SplineReparamTable */
 	void UpdateSpline();
+
+	/** Specify unselected spline component segment color in the editor */
+	UFUNCTION(BlueprintCallable, Category = Editor)
+	void SetUnselectedSplineSegmentColor(const FLinearColor& SegmentColor);
+
+	/** Specify selected spline component segment color in the editor */
+	UFUNCTION(BlueprintCallable, Category = Editor)
+	void SetSelectedSplineSegmentColor(const FLinearColor& SegmentColor);
 
 	/** Specify whether the spline is a closed loop or not */
 	UFUNCTION(BlueprintCallable, Category = Spline)
@@ -191,6 +200,9 @@ private:
 
 	/** Returns the parametric value t which would result in a spline segment of the given length between S(0)...S(t) */
 	float GetSegmentParamFromLength(const int32 Index, const float Length, const float SegmentLength) const;
+
+	/** Updates the spline points to reflect a closed loop or not */
+	void UpdateLoopEndpoint(bool bInClosedLoop);
 
 	/** Adds an additional point to the end of the spline, whose OutValue and tangents coincides with the first point */
 	void AddLoopEndpoint();

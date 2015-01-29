@@ -77,8 +77,11 @@ class UFoliageType : public UObject
 	float HeightMax;
 
 	UPROPERTY(EditAnywhere, Category = General, meta = (Subcategory = "Placement"))
-	FName LandscapeLayer;
+	TArray<FName> LandscapeLayers;
 
+	UPROPERTY()
+	FName LandscapeLayer_DEPRECATED;
+	
 	UPROPERTY(EditAnywhere, Category = General, meta = (Subcategory = "Placement"))
 	float MinimumLayerWeight;
 
@@ -274,6 +277,14 @@ class UFoliageType : public UObject
 	UPROPERTY(Category = Procedural, EditAnywhere, meta = (Subcategory = "Clustering", ClampMin = "0", UIMin = "0"))
 	int32 SeedsPerStep;
 
+	/** The seed that determines placement of initial seeds. */
+	UPROPERTY(Category = Procedural, EditAnywhere, meta = (Subcategory = "Clustering"))
+	int32 DistributionSeed;
+
+	/** The seed that determines placement of initial seeds. */
+	UPROPERTY(Category = Procedural, EditAnywhere, meta = (Subcategory = "Clustering"))
+	float MaxInitialSeedOffset;
+
 	/** Whether the species can grow in shade. If this is true shade radius is ignored during overlap tests*/
 	UPROPERTY(Category = Procedural, EditAnywhere, meta = (Subcategory = "Growth"))
 	bool bGrowsInShade;
@@ -307,6 +318,8 @@ class UFoliageType : public UObject
 	FOLIAGE_API float GetScaleForAge(const float Age) const;
 	FOLIAGE_API float GetInitAge(FRandomStream& RandomStream) const;
 	FOLIAGE_API float GetNextAge(const float CurrentAge, const int32 NumSteps) const;
+
+	virtual void Serialize(FArchive& Ar) override;
 
 private:
 

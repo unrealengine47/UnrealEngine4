@@ -734,6 +734,7 @@ void FSceneView::OverridePostProcessSettings(const FPostProcessSettings& Src, fl
 	LERP_PP(BloomIntensity);
 	LERP_PP(BloomThreshold);
 	LERP_PP(Bloom1Tint);
+	LERP_PP(BloomSizeScale);
 	LERP_PP(Bloom1Size);
 	LERP_PP(Bloom2Tint);
 	LERP_PP(Bloom2Size);
@@ -743,6 +744,8 @@ void FSceneView::OverridePostProcessSettings(const FPostProcessSettings& Src, fl
 	LERP_PP(Bloom4Size);
 	LERP_PP(Bloom5Tint);
 	LERP_PP(Bloom5Size);
+	LERP_PP(Bloom6Tint);
+	LERP_PP(Bloom6Size);
 	LERP_PP(BloomDirtMaskIntensity);
 	LERP_PP(BloomDirtMaskTint);
 	LERP_PP(AmbientCubemapIntensity);
@@ -1213,7 +1216,8 @@ void FSceneView::EndFinalPostprocessSettings(const FSceneViewInitOptions& ViewIn
 		if( !Family->EngineShowFlags.PostProcessing || !Family->EngineShowFlags.AntiAliasing || Quality <= 0
 			// Disable antialiasing in GammaLDR mode to avoid jittering.
 			|| (FeatureLevel == ERHIFeatureLevel::ES2 && MobileHDRCvar->GetValueOnGameThread() == 0)
-			|| (FeatureLevel <= ERHIFeatureLevel::ES3_1 && (MSAAValue > 1)))
+			|| (FeatureLevel <= ERHIFeatureLevel::ES3_1 && (MSAAValue > 1))
+			|| Family->EngineShowFlags.VisualizeBloom)
 		{
 			FinalPostProcessSettings.AntiAliasingMethod = AAM_None;
 		}

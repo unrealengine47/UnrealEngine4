@@ -494,6 +494,12 @@ public:
 
 	// End UCurveBase interface
 
+	// Begin UObject interface
+#if WITH_EDITORONLY_DATA
+	/** Override to ensure we write out the asset import data */
+	virtual void GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const;
+#endif
+	// End UObject interface
 };
 
 //////////////////////////////////////////////////////////////////////////

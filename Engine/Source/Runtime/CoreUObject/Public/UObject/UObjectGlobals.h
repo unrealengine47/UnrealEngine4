@@ -576,7 +576,7 @@ public:
 	TSubobjectPtrDeprecated(TSubobjectPtrDeprecated<DerivedSubobjectType>& Other)
 		: FSubobjectPtr(Other.Object)
 	{
-		static_assert((CanConvertPointerFromTo<DerivedSubobjectType, SubobjectType>::Result), "Subobject pointers must be compatible.");
+		static_assert(TPointerIsConvertibleFromTo<DerivedSubobjectType, const SubobjectType>::Value, "Subobject pointers must be compatible.");
 	}
 	/** Gets the sub-object pointer. */
 	FORCEINLINE SubobjectType* Get() const
@@ -1076,6 +1076,16 @@ T* DuplicateObject(T const* SourceObject,UObject* Outer,const TCHAR* Name = TEXT
 	}
 	return NULL;
 }
+
+/**
+ * Determines whether the specified object should load values using PerObjectConfig rules
+ */
+COREUOBJECT_API bool UsesPerObjectConfig( UObject* SourceObject );
+
+/**
+ * Returns the file to load ini values from for the specified object, taking into account PerObjectConfig-ness
+ */
+COREUOBJECT_API FString GetConfigFilename( UObject* SourceObject );
 
 /*----------------------------------------------------------------------------
 	Core templates.

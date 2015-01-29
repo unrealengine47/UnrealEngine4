@@ -115,6 +115,9 @@ public:
 	virtual void PostLoad() override;
 	void ValidateSelectedLayerIndex();
 #endif
+#if WITH_EDITORONLY_DATA
+	virtual void GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const;
+#endif
 	// End of UObject interface
 
 	// Returns the tile coordinates of the specified local space position

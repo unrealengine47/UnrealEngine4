@@ -4,6 +4,7 @@
 #include "NewAssetOrClassContextMenu.h"
 #include "IDocumentation.h"
 #include "EditorClassUtils.h"
+#include "ClassIconFinder.h"
 
 #define LOCTEXT_NAMESPACE "ContentBrowser"
 
@@ -67,21 +68,27 @@ public:
 	 */
 	void Construct( const FArguments& InArgs, UFactory* Factory )
 	{
-		// Since we are only displaying classes, we need no thumbnail pool.
-		Thumbnail = MakeShareable( new FAssetThumbnail( Factory->GetSupportedClass(), InArgs._Width, InArgs._Height, TSharedPtr<FAssetThumbnailPool>() ) );
-
-		FName ClassThumbnailBrushOverride = Factory->GetNewAssetThumbnailOverride();
-		TSharedPtr<SWidget> ThumbnailWidget;
-		if ( ClassThumbnailBrushOverride != NAME_None )
+		const FName ClassThumbnailBrushOverride = Factory->GetNewAssetThumbnailOverride();
+		const FSlateBrush* ClassThumbnail = nullptr;
+		if (ClassThumbnailBrushOverride.IsNone())
 		{
-			const bool bAllowFadeIn = false;
-			const bool bForceGenericThumbnail = true;
-			const bool bAllowHintText = false;
-			ThumbnailWidget = Thumbnail->MakeThumbnailWidget(bAllowFadeIn, bForceGenericThumbnail, EThumbnailLabel::AssetName, FText(), FLinearColor(0,0,0,0), bAllowHintText, ClassThumbnailBrushOverride);
+			ClassThumbnail = FClassIconFinder::FindThumbnailForClass(Factory->GetSupportedClass());
 		}
 		else
 		{
-			ThumbnailWidget = Thumbnail->MakeThumbnailWidget();
+			// Instead of getting the override thumbnail directly from the editor style here get it from the
+			// ClassIconFinder since it may have additional styles registered which can be searched by passing
+			// it as a default with no class to search for.
+			ClassThumbnail = FClassIconFinder::FindThumbnailForClass(nullptr, ClassThumbnailBrushOverride);
+		}
+
+		FAssetToolsModule& AssetToolsModule = FAssetToolsModule::GetModule();
+		TWeakPtr<IAssetTypeActions> AssetTypeActions = AssetToolsModule.Get().GetAssetTypeActionsForClass(Factory->GetSupportedClass());
+
+		FLinearColor AssetColor = FLinearColor::White;
+		if ( AssetTypeActions.IsValid() )
+		{
+			AssetColor = AssetTypeActions.Pin()->GetTypeColor();
 		}
 
 		ChildSlot
@@ -92,11 +99,35 @@ public:
 			.VAlign(VAlign_Center)
 			.AutoWidth()
 			[
-				SNew( SBox )
-				.WidthOverride( Thumbnail->GetSize().X + 4 )
-				.HeightOverride( Thumbnail->GetSize().Y + 4 )
+				SNew( SOverlay )
+
+				+SOverlay::Slot()
 				[
-					ThumbnailWidget.ToSharedRef()
+					SNew( SBox )
+					.WidthOverride( InArgs._Width + 4 )
+					.HeightOverride( InArgs._Height + 4 )
+					[
+						SNew( SBorder )
+						.BorderImage( FEditorStyle::GetBrush("AssetThumbnail.AssetBackground") )
+						.BorderBackgroundColor(AssetColor.CopyWithNewOpacity(0.3f))
+						.Padding( 2.0f )
+						.VAlign( VAlign_Center )
+						.HAlign( HAlign_Center )
+						[
+							SNew( SImage )
+							.Image( ClassThumbnail )
+						]
+					]
+				]
+
+				+SOverlay::Slot()
+				.HAlign(HAlign_Fill)
+				.VAlign(VAlign_Bottom)
+				[
+					SNew( SBorder )
+					.BorderImage( FEditorStyle::GetBrush("WhiteBrush") )
+					.BorderBackgroundColor( AssetColor )
+					.Padding( FMargin(0, FMath::Max(FMath::CeilToFloat(InArgs._Width*0.025f), 3.0f), 0, 0) )
 				]
 			]
 
@@ -119,9 +150,6 @@ public:
 		
 		SetToolTip(IDocumentation::Get()->CreateToolTip(Factory->GetToolTip(), nullptr, Factory->GetToolTipDocumentationPage(), Factory->GetToolTipDocumentationExcerpt()));
 	}
-
-private:
-	TSharedPtr< FAssetThumbnail > Thumbnail;
 };
 
 void FNewAssetOrClassContextMenu::MakeContextMenu(
@@ -176,10 +204,11 @@ void FNewAssetOrClassContextMenu::MakeContextMenu(
 	};
 	const FCanExecuteAction CanExecuteAssetActionsDelegate = FCanExecuteAction::CreateLambda(CanExecuteAssetActions);
 
-	auto CanExecuteClassActions = [NumAssetPaths, NumClassPaths, bIsValidNewClassPath]() -> bool
+	auto CanExecuteClassActions = [NumAssetPaths, NumClassPaths]() -> bool
 	{
-		// We can execute class actions when we only have a single class path selected, and that path is a valid path for creating a class
-		return NumClassPaths == 1 && NumAssetPaths == 0 && bIsValidNewClassPath;
+		// We can execute class actions when we only have a single path selected
+		// This menu always lets you create classes, but uses your default project source folder if the selected path is invalid for creating classes
+		return (NumAssetPaths + NumClassPaths) == 1;
 	};
 	const FCanExecuteAction CanExecuteClassActionsDelegate = FCanExecuteAction::CreateLambda(CanExecuteClassActions);
 
@@ -189,7 +218,7 @@ void FNewAssetOrClassContextMenu::MakeContextMenu(
 		MenuBuilder.BeginSection( "ContentBrowserGetContent", LOCTEXT( "GetContentMenuHeading", "Content" ) );
 		{
 			MenuBuilder.AddMenuEntry(
-				LOCTEXT( "GetContentText", "Add feature or content pack..." ),
+				LOCTEXT( "GetContentText", "Add Feature or Content Pack..." ),
 				LOCTEXT( "GetContentTooltip", "Add features and content packs to the project." ),
 				FSlateIcon( FEditorStyle::GetStyleSetName(), "ContentBrowser.AddContent" ),
 				FUIAction(
@@ -239,16 +268,18 @@ void FNewAssetOrClassContextMenu::MakeContextMenu(
 	// Add Class
 	if(InOnNewClassRequested.IsBound())
 	{
+		FString ClassCreationPath = FirstSelectedPath;
 		FText NewClassToolTip;
 		if(bHasSinglePathSelected)
 		{
 			if(bIsValidNewClassPath)
 			{
-				NewClassToolTip = FText::Format(LOCTEXT("NewClassTooltip_CreateIn", "Create a new class in {0}."), FText::FromString(FirstSelectedPath));
+				NewClassToolTip = FText::Format(LOCTEXT("NewClassTooltip_CreateIn", "Create a new class in {0}."), FText::FromString(ClassCreationPath));
 			}
 			else
 			{
-				NewClassToolTip = FText::Format(LOCTEXT("NewClassTooltip_InvalidPath", "Cannot create new classes in {0}."), FText::FromString(FirstSelectedPath));
+				NewClassToolTip = LOCTEXT("NewClassTooltip_CreateInDefault", "Create a new class in your project's source folder.");
+				ClassCreationPath.Empty(); // An empty path override will cause the class wizard to use the default project path
 			}
 		}
 		else
@@ -256,14 +287,14 @@ void FNewAssetOrClassContextMenu::MakeContextMenu(
 			NewClassToolTip = LOCTEXT("NewClassTooltip_InvalidNumberOfPaths", "Can only create classes when there is a single path selected.");
 		}
 
-		MenuBuilder.BeginSection("ContentBrowserNewClass", LOCTEXT("ClassMenuHeading", "Class") );
+		MenuBuilder.BeginSection("ContentBrowserNewClass", LOCTEXT("ClassMenuHeading", "C++ Class") );
 		{
 			MenuBuilder.AddMenuEntry(
-				LOCTEXT("NewClassLabel", "New Class"),
+				LOCTEXT("NewClassLabel", "New C++ Class..."),
 				NewClassToolTip,
 				FSlateIcon(FEditorStyle::GetStyleSetName(), "MainFrame.AddCodeToProject"),
 				FUIAction(
-					FExecuteAction::CreateStatic(&FNewAssetOrClassContextMenu::ExecuteNewClass, FirstSelectedPath, InOnNewClassRequested),
+					FExecuteAction::CreateStatic(&FNewAssetOrClassContextMenu::ExecuteNewClass, ClassCreationPath, InOnNewClassRequested),
 					CanExecuteClassActionsDelegate
 					)
 				);
@@ -398,10 +429,8 @@ void FNewAssetOrClassContextMenu::ExecuteNewAsset(FString InPath, TWeakObjectPtr
 
 void FNewAssetOrClassContextMenu::ExecuteNewClass(FString InPath, FOnNewClassRequested InOnNewClassRequested)
 {
-	if(ensure(!InPath.IsEmpty()))
-	{
-		InOnNewClassRequested.ExecuteIfBound(InPath);
-	}
+	// An empty path override will cause the class wizard to use the default project path
+	InOnNewClassRequested.ExecuteIfBound(InPath);
 }
 
 void FNewAssetOrClassContextMenu::ExecuteNewFolder(FString InPath, FOnNewFolderRequested InOnNewFolderRequested)

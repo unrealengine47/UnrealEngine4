@@ -246,8 +246,22 @@ FString GameProjectUtils::FNewClassInfo::GetHeaderTemplateFilename() const
 {
 	switch(ClassType)
 	{
-	case EClassType::UObject:
-		return TEXT("UObjectClass.h.template");
+		case EClassType::UObject:
+		{
+			if( BaseClass != nullptr && ( BaseClass == UActorComponent::StaticClass() || BaseClass == USceneComponent::StaticClass() ) )
+			{
+				return TEXT( "ActorComponentClass.h.template" );
+			}
+			else if( BaseClass != nullptr && BaseClass == AActor::StaticClass() )
+			{
+				return TEXT( "ActorClass.h.template" );
+			}
+			else
+			{
+				// Some other non-actor, non-component UObject class
+				return TEXT( "UObjectClass.h.template" );
+			}
+		}
 
 	case EClassType::EmptyCpp:
 		return TEXT("EmptyClass.h.template");
@@ -268,9 +282,21 @@ FString GameProjectUtils::FNewClassInfo::GetSourceTemplateFilename() const
 {
 	switch(ClassType)
 	{
-	case EClassType::UObject:
-		return TEXT("UObjectClass.cpp.template");
-
+		case EClassType::UObject:
+			if( BaseClass != nullptr && ( BaseClass == UActorComponent::StaticClass() || BaseClass == USceneComponent::StaticClass() ) )
+			{
+				return TEXT( "ActorComponentClass.cpp.template" );
+			}
+			else if( BaseClass != nullptr && BaseClass == AActor::StaticClass() )
+			{
+				return TEXT( "ActorClass.cpp.template" );
+			}
+			else
+			{
+				// Some other non-actor, non-component UObject class
+				return TEXT( "UObjectClass.cpp.template" );
+			}
+	
 	case EClassType::EmptyCpp:
 		return TEXT("EmptyClass.cpp.template");
 
@@ -695,7 +721,7 @@ bool GameProjectUtils::UpdateGameProject(const FString& ProjectFile, const FStri
 	return UpdateGameProjectFile(ProjectFile, EngineIdentifier, NULL, OutFailReason);
 }
 
-void GameProjectUtils::OpenAddCodeToProjectDialog(const UClass* InClass, const FString& InInitialPath, const TSharedPtr<SWindow>& InParentWindow)
+void GameProjectUtils::OpenAddCodeToProjectDialog(const UClass* InClass, const FString& InInitialPath, const TSharedPtr<SWindow>& InParentWindow, bool bModal, FOnCodeAddedToProject OnCodeAddedToProject )
 {
 	// If we've been given a class then we only show the second page of the dialog, so we can make the window smaller as that page doesn't have as much content
 	const FVector2D WindowSize = (InClass) ? FVector2D(940, 380) : FVector2D(940, 540);
@@ -707,7 +733,13 @@ void GameProjectUtils::OpenAddCodeToProjectDialog(const UClass* InClass, const F
 		.SizingRule( ESizingRule::FixedSize )
 		.SupportsMinimize(false) .SupportsMaximize(false);
 
-	AddCodeWindow->SetContent( SNew(SNewClassDialog).Class(InClass).InitialPath(InInitialPath) );
+	TSharedRef<SNewClassDialog> NewClassDialog = 
+		SNew(SNewClassDialog)
+		.Class(InClass)
+		.InitialPath(InInitialPath)
+		.OnCodeAddedToProject( OnCodeAddedToProject );
+
+	AddCodeWindow->SetContent( NewClassDialog );
 
 	TSharedPtr<SWindow> ParentWindow = InParentWindow;
 	if (!ParentWindow.IsValid())
@@ -719,11 +751,26 @@ void GameProjectUtils::OpenAddCodeToProjectDialog(const UClass* InClass, const F
 
 	if (ParentWindow.IsValid())
 	{
-		FSlateApplication::Get().AddWindowAsNativeChild(AddCodeWindow, ParentWindow.ToSharedRef());
+		if( bModal )
+		{
+			FSlateApplication::Get().AddModalWindow(AddCodeWindow, ParentWindow);
+		}
+		else
+		{
+			FSlateApplication::Get().AddWindowAsNativeChild(AddCodeWindow, ParentWindow.ToSharedRef());
+		}
 	}
 	else
 	{
-		FSlateApplication::Get().AddWindow(AddCodeWindow);
+		if(bModal)
+		{
+			FSlateApplication::Get().AddModalWindow(AddCodeWindow, nullptr);
+		}
+		else
+		{
+			FSlateApplication::Get().AddWindow(AddCodeWindow);
+		}
+
 	}
 }
 
@@ -1863,8 +1910,9 @@ bool GameProjectUtils::GenerateGameFrameworkSourceCode(const FString& NewProject
 		
 		TArray<FString> PropertyOverrides;
 		TArray<FString> AdditionalIncludes;
+		FString UnusedSyncLocation;
 
-		if ( GenerateClassCPPFile(NewCPPFilename, NewClassName, FNewClassInfo(BaseClass), AdditionalIncludes, PropertyOverrides, TEXT(""), NewModuleInfo, OutFailReason) )
+		if ( GenerateClassCPPFile(NewCPPFilename, NewClassName, FNewClassInfo(BaseClass), AdditionalIncludes, PropertyOverrides, TEXT(""), UnusedSyncLocation, NewModuleInfo, OutFailReason) )
 		{
 			OutCreatedFiles.Add(NewCPPFilename);
 		}
@@ -2496,34 +2544,12 @@ bool GameProjectUtils::GenerateClassHeaderFile(const FString& NewHeaderFileName,
 	FinalOutput = FinalOutput.Replace(TEXT("%CLASS_FUNCTION_DECLARATIONS%"), *ClassFunctionDeclarations, ESearchCase::CaseSensitive);
 	FinalOutput = FinalOutput.Replace(TEXT("%BASE_CLASS_INCLUDE_DIRECTIVE%"), *BaseClassIncludeDirective, ESearchCase::CaseSensitive);
 
-	// Determine the cursor focus location if this file will by synced after creation
-	TArray<FString> Lines;
-	FinalOutput.ParseIntoArray(&Lines, TEXT("\n"), false);
-	for ( int32 LineIdx = 0; LineIdx < Lines.Num(); ++LineIdx )
-	{
-		const FString& Line = Lines[LineIdx];
-		int32 CharLoc = Line.Find( TEXT("%CURSORFOCUSLOCATION%") );
-		if ( CharLoc != INDEX_NONE )
-		{
-			// Found the sync marker
-			OutSyncLocation = FString::Printf( TEXT("%d:%d"), LineIdx + 1, CharLoc + 1 );
-			break;
-		}
-	}
-
-	// If we did not find the sync location, just sync to the top of the file
-	if ( OutSyncLocation.IsEmpty() )
-	{
-		OutSyncLocation = TEXT("1:1");
-	}
-
-	// Now remove the cursor focus marker
-	FinalOutput = FinalOutput.Replace(TEXT("%CURSORFOCUSLOCATION%"), TEXT(""), ESearchCase::CaseSensitive);
+	HarvestCursorSyncLocation( FinalOutput, OutSyncLocation );
 
 	return WriteOutputFile(NewHeaderFileName, FinalOutput, OutFailReason);
 }
 
-bool GameProjectUtils::GenerateClassCPPFile(const FString& NewCPPFileName, const FString UnPrefixedClassName, const FNewClassInfo ParentClassInfo, const TArray<FString>& AdditionalIncludes, const TArray<FString>& PropertyOverrides, const FString& AdditionalMemberDefinitions, const FModuleContextInfo& ModuleInfo, FText& OutFailReason)
+bool GameProjectUtils::GenerateClassCPPFile(const FString& NewCPPFileName, const FString UnPrefixedClassName, const FNewClassInfo ParentClassInfo, const TArray<FString>& AdditionalIncludes, const TArray<FString>& PropertyOverrides, const FString& AdditionalMemberDefinitions, FString& OutSyncLocation, const FModuleContextInfo& ModuleInfo, FText& OutFailReason)
 {
 	FString Template;
 	if ( !ReadTemplateFile(ParentClassInfo.GetSourceTemplateFilename(), Template, OutFailReason) )
@@ -2586,6 +2612,8 @@ bool GameProjectUtils::GenerateClassCPPFile(const FString& NewCPPFileName, const
 	FinalOutput = FinalOutput.Replace(TEXT("%EVENTUAL_CONSTRUCTOR_DEFINITION%"), *EventualConstructorDefinition, ESearchCase::CaseSensitive);
 	FinalOutput = FinalOutput.Replace(TEXT("%ADDITIONAL_MEMBER_DEFINITIONS%"), *AdditionalMemberDefinitions, ESearchCase::CaseSensitive);
 	FinalOutput = FinalOutput.Replace(TEXT("%ADDITIONAL_INCLUDE_DIRECTIVES%"), *AdditionalIncludesStr, ESearchCase::CaseSensitive);
+
+	HarvestCursorSyncLocation( FinalOutput, OutSyncLocation );
 
 	return WriteOutputFile(NewCPPFileName, FinalOutput, OutFailReason);
 }
@@ -2949,7 +2977,7 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 		return false;
 	}
 
-	FScopedSlowTask SlowTask( 5, LOCTEXT( "AddingCodeToProject", "Adding code to project..." ) );
+	FScopedSlowTask SlowTask( 6, LOCTEXT( "AddingCodeToProject", "Adding code to project..." ) );
 	SlowTask.MakeDialog();
 
 	SlowTask.EnterProgressFrame();
@@ -2980,10 +3008,10 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 	SlowTask.EnterProgressFrame();
 
 	// Class Header File
-	FString SyncLocation;
 	const FString NewHeaderFilename = NewHeaderPath / ParentClassInfo.GetHeaderFilename(NewClassName);
 	{
-		if ( GenerateClassHeaderFile(NewHeaderFilename, CleanClassName, ParentClassInfo, TArray<FString>(), TEXT(""), TEXT(""), SyncLocation, ModuleInfo, false, OutFailReason) )
+		FString UnusedSyncLocation;
+		if ( GenerateClassHeaderFile(NewHeaderFilename, CleanClassName, ParentClassInfo, TArray<FString>(), TEXT(""), TEXT(""), UnusedSyncLocation, ModuleInfo, false, OutFailReason) )
 		{
 			CreatedFiles.Add(NewHeaderFilename);
 		}
@@ -2999,7 +3027,8 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 	// Class CPP file
 	const FString NewCppFilename = NewCppPath / ParentClassInfo.GetSourceFilename(NewClassName);
 	{
-		if ( GenerateClassCPPFile(NewCppFilename, CleanClassName, ParentClassInfo, TArray<FString>(), TArray<FString>(), TEXT(""), ModuleInfo, OutFailReason) )
+		FString UnusedSyncLocation;
+		if ( GenerateClassCPPFile(NewCppFilename, CleanClassName, ParentClassInfo, TArray<FString>(), TArray<FString>(), TEXT(""), UnusedSyncLocation, ModuleInfo, OutFailReason) )
 		{
 			CreatedFiles.Add(NewCppFilename);
 		}
@@ -3033,6 +3062,8 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 
 		SourceControlProvider.Execute(ISourceControlOperation::Create<FMarkForAdd>(), FilesToCheckOut);
 	}
+
+	SlowTask.EnterProgressFrame( 1.0f, LOCTEXT("CompilingCPlusPlusCode", "Compiling new C++ code.  Please wait..."));
 
 	OutHeaderFilePath = NewHeaderFilename;
 	OutCppFilePath = NewCppFilename;
@@ -3084,7 +3115,12 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 			{
 				// Perform a hot reload
 				const bool bWaitForCompletion = true;			
-				HotReloadSupport.RebindPackages(PackagesToRebind, TArray<FName>(), bWaitForCompletion, *GWarn);
+				ECompilationResult::Type CompilationResult = HotReloadSupport.RebindPackages( PackagesToRebind, TArray<FName>(), bWaitForCompletion, *GWarn );
+				if( CompilationResult != ECompilationResult::Succeeded && CompilationResult != ECompilationResult::UpToDate )
+				{
+					OutFailReason = FText::Format(LOCTEXT("FailedToHotReloadModuleFmt", "Failed to automatically hot reload the '{0}' module."), FText::FromString(ModuleInfo.ModuleName));
+					return false;
+				}
 			}
 			else
 			{
@@ -3118,6 +3154,36 @@ bool GameProjectUtils::FindSourceFileInProject(const FString& InFilename, const 
 	}
 
 	return false;
+}
+
+
+void GameProjectUtils::HarvestCursorSyncLocation( FString& FinalOutput, FString& OutSyncLocation )
+{
+	OutSyncLocation.Empty();
+
+	// Determine the cursor focus location if this file will by synced after creation
+	TArray<FString> Lines;
+	FinalOutput.ParseIntoArray( &Lines, TEXT( "\n" ), false );
+	for( int32 LineIdx = 0; LineIdx < Lines.Num(); ++LineIdx )
+	{
+		const FString& Line = Lines[ LineIdx ];
+		int32 CharLoc = Line.Find( TEXT( "%CURSORFOCUSLOCATION%" ) );
+		if( CharLoc != INDEX_NONE )
+		{
+			// Found the sync marker
+			OutSyncLocation = FString::Printf( TEXT( "%d:%d" ), LineIdx + 1, CharLoc + 1 );
+			break;
+		}
+	}
+
+	// If we did not find the sync location, just sync to the top of the file
+	if( OutSyncLocation.IsEmpty() )
+	{
+		OutSyncLocation = TEXT( "1:1" );
+	}
+
+	// Now remove the cursor focus marker
+	FinalOutput = FinalOutput.Replace(TEXT("%CURSORFOCUSLOCATION%"), TEXT(""), ESearchCase::CaseSensitive);
 }
 
 #undef LOCTEXT_NAMESPACE

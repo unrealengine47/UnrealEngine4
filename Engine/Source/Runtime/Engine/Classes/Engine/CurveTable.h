@@ -35,6 +35,9 @@ class UCurveTable
 	// Begin UObject interface.
 	virtual void FinishDestroy() override;
 	virtual void Serialize( FArchive& Ar ) override;
+#if WITH_EDITORONLY_DATA
+	virtual void GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const;
+#endif
 	// End  UObject interface
 
 	// Begin UCurveTable interface

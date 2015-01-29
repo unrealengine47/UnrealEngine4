@@ -99,12 +99,25 @@ FGlobalComponentReregisterContext::~FGlobalComponentReregisterContext()
 }
 
 
-UActorComponent::UActorComponent(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
+UActorComponent::UActorComponent()
+{
+	InitializeDefaults();
+}
+
+
+UActorComponent::UActorComponent( const FObjectInitializer& ObjectInitializer )
+{
+	// Forward to default constructor (we don't use ObjectInitializer for anything, this is for compatibility with inherited classes that call Super( ObjectInitializer )
+	InitializeDefaults();
+}
+
+void UActorComponent::InitializeDefaults()
 {
 	PrimaryComponentTick.TickGroup = TG_DuringPhysics;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
 	PrimaryComponentTick.bCanEverTick = false;
+
+	CreationMethod = EComponentCreationMethod::Native;
 
 	bAutoRegister = true;
 	bNetAddressable = false;
@@ -118,6 +131,20 @@ void UActorComponent::PostInitProperties()
 	if (Owner)
 	{
 		Owner->AddOwnedComponent(this);
+	}
+}
+
+void UActorComponent::PostLoad()
+{
+	Super::PostLoad();
+
+	if (bCreatedByConstructionScript_DEPRECATED)
+	{
+		CreationMethod = EComponentCreationMethod::ConstructionScript;
+	}
+	else if (bInstanceComponent_DEPRECATED)
+	{
+		CreationMethod = EComponentCreationMethod::Instance;
 	}
 }
 
@@ -628,7 +655,7 @@ void UActorComponent::RegisterComponentWithWorld(UWorld* InWorld)
 	}
 
 	// If this is a blueprint created component and it has component children they can miss getting registered in some scenarios
-	if (bCreatedByConstructionScript)
+	if (CreationMethod == EComponentCreationMethod::ConstructionScript)
 	{
 		TArray<UObject*> Children;
 		GetObjectsWithOuter(this, Children, true, RF_PendingKill);
@@ -698,13 +725,13 @@ void UActorComponent::DestroyComponent()
 	AActor* Owner = GetOwner();
 	if(Owner != NULL)
 	{
-		if (bCreatedByConstructionScript)
+		if (CreationMethod == EComponentCreationMethod::ConstructionScript)
 		{
 			Owner->BlueprintCreatedComponents.Remove(this);
 		}
 		else
 		{
-			Owner->InstanceComponents.Remove(this);
+			Owner->RemoveInstanceComponent(this);
 		}
 		Owner->RemoveOwnedComponent(this);
 		if (Owner->GetRootComponent() == this)

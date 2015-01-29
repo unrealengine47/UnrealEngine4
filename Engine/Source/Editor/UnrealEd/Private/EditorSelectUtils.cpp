@@ -351,7 +351,7 @@ void UUnrealEdEngine::UpdatePivotLocationForSelection( bool bOnChange )
 
 
 
-void UUnrealEdEngine::NoteSelectionChange(bool bComponentSelectionChanged)
+void UUnrealEdEngine::NoteSelectionChange()
 {
 	// The selection changed, so make sure the pivot (widget) is located in the right place
 	UpdatePivotLocationForSelection( true );
@@ -366,9 +366,9 @@ void UUnrealEdEngine::NoteSelectionChange(bool bComponentSelectionChanged)
 		ActiveModes[ModeIndex]->ActorSelectionChangeNotify();
 	}
 
+	bool bComponentSelectionChanged = GetSelectedComponentCount() > 0;
 	USelection* Selection = bComponentSelectionChanged ? GetSelectedComponents() : GetSelectedActors();
 	USelection::SelectionChangedEvent.Broadcast(Selection);
-
 	
 	if (!bComponentSelectionChanged)
 	{
@@ -609,7 +609,7 @@ void UUnrealEdEngine::SelectActor(AActor* Actor, bool bInSelected, bool bNotify,
 void UUnrealEdEngine::SelectComponent(UActorComponent* Component, bool bInSelected, bool bNotify, bool bSelectEvenIfHidden)
 {
 	// Don't do any work if the component's selection state matches the target selection state
-	const bool bComponentSelected = Component->IsSelected();
+	const bool bComponentSelected = GetSelectedComponents()->IsSelected(Component);
 	if (( bComponentSelected && !bInSelected ) || ( !bComponentSelected && bInSelected ))
 	{
 		if (bInSelected)
@@ -644,7 +644,7 @@ void UUnrealEdEngine::SelectComponent(UActorComponent* Component, bool bInSelect
 
 		if (bNotify)
 		{
-			NoteSelectionChange(true);
+			NoteSelectionChange();
 		}
 	}
 }
@@ -653,7 +653,7 @@ bool UUnrealEdEngine::IsComponentSelected(const UPrimitiveComponent* PrimCompone
 {
 	if (GetSelectedComponentCount() > 0)
 	{
-		return GetSelectedComponents()->IsSelected(PrimComponent);
+		return GetSelectedComponents()->IsSelected(PrimComponent->IsEditorOnly() ? PrimComponent->AttachParent : PrimComponent);
 	}
 
 	return GetSelectedActors()->IsSelected(PrimComponent->GetOwner());

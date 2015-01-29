@@ -599,7 +599,7 @@ void FMaterialEditor::CreateInternalWidgets()
 	// Manually set zoom level to avoid deferred zooming
 	GraphEditor->SetViewLocation(FVector2D::ZeroVector, 1);
 
-	const FDetailsViewArgs DetailsViewArgs( false, false, true, false, true, this );
+	const FDetailsViewArgs DetailsViewArgs( false, false, true, FDetailsViewArgs::HideNameArea, true, this );
 	MaterialDetailsView = PropertyEditorModule.CreateDetailView( DetailsViewArgs );
 
 	FOnGetDetailCustomizationInstance LayoutExpressionParameterDetails = FOnGetDetailCustomizationInstance::CreateStatic(
@@ -1189,7 +1189,7 @@ void FMaterialEditor::UpdatePreviewMaterial( bool bForce )
 		// So that RebuildMaterialFunctionInfo will see all the nested material functions that may need to be updated
 		ExpressionPreviewMaterial->Expressions = Material->Expressions;
 
-		FMaterialUpdateContext UpdateContext;
+		FMaterialUpdateContext UpdateContext(FMaterialUpdateContext::EOptions::SyncWithRenderingThread);
 		UpdateContext.AddMaterial(ExpressionPreviewMaterial);
 
 		// If we are previewing an expression, update the expression preview material
@@ -1198,7 +1198,7 @@ void FMaterialEditor::UpdatePreviewMaterial( bool bForce )
 	}
 	else 
 	{
-		FMaterialUpdateContext UpdateContext;
+		FMaterialUpdateContext UpdateContext(FMaterialUpdateContext::EOptions::SyncWithRenderingThread);
 		UpdateContext.AddMaterial(Material);
 
 		// Update the regular preview material when not previewing an expression.

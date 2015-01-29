@@ -866,6 +866,8 @@ bool FKismetEditorUtilities::CanCreateBlueprintOfClass(const UClass* Class)
 	bool bAllowDerivedBlueprints = false;
 	GConfig->GetBool(TEXT("Kismet"), TEXT("AllowDerivedBlueprints"), /*out*/ bAllowDerivedBlueprints, GEngineIni);
 
+	const bool bAllowBlueprintableComponents = GetDefault<UEditorExperimentalSettings>()->bBlueprintableComponents;
+	
 	const bool bCanCreateBlueprint =
 		!Class->HasAnyClassFlags(CLASS_Deprecated)
 		&& !Class->HasAnyClassFlags(CLASS_NewerVersionExists)
@@ -876,6 +878,7 @@ bool FKismetEditorUtilities::CanCreateBlueprintOfClass(const UClass* Class)
 	const UEdGraphSchema_K2* K2Schema = GetDefault<UEdGraphSchema_K2>();
 	const bool bIsValidClass = Class->GetBoolMetaDataHierarchical(FBlueprintMetadata::MD_IsBlueprintBase)
 		|| (Class == UObject::StaticClass())
+		|| (Class == UActorComponent::StaticClass() && bAllowBlueprintableComponents)
 		|| bIsBPGC;  // BPs are always considered inheritable
 
 	return bCanCreateBlueprint && bIsValidClass;
@@ -908,6 +911,107 @@ UBlueprint* FKismetEditorUtilities::CreateBlueprintFromActor(const FString& Path
 	return NewBlueprint;
 }
 
+void FKismetEditorUtilities::AddComponentsToBlueprint(UBlueprint* Blueprint, const TArray<UActorComponent*>& Components)
+{
+	USimpleConstructionScript* SCS = Blueprint->SimpleConstructionScript;
+
+	TArray<UBlueprint*> ParentBPStack;
+	UBlueprint::GetBlueprintHierarchyFromClass(Blueprint->GeneratedClass, ParentBPStack);
+
+	TMap<USceneComponent*, USCS_Node*> SceneComponentsToAdd;
+	TMap<USceneComponent*, USCS_Node*> InstanceComponentToNodeMap;
+
+	AActor* Actor = nullptr;
+
+	for (UActorComponent* ActorComponent : Components)
+	{
+		if (ActorComponent)
+		{
+			if (Actor)
+			{
+				check(Actor == ActorComponent->GetOwner());
+			}
+			else
+			{
+				Actor = ActorComponent->GetOwner();
+				check(Actor);
+			}
+
+			USCS_Node* SCSNode = SCS->CreateNode(ActorComponent->GetClass());
+			UEditorEngine::CopyPropertiesForUnrelatedObjects(ActorComponent,SCSNode->ComponentTemplate);
+
+			// Clear the instance component flag
+			SCSNode->ComponentTemplate->CreationMethod = EComponentCreationMethod::Native;
+
+			USceneComponent* SceneComponent = Cast<USceneComponent>(ActorComponent);
+
+			// The easy part is non-scene component or the Root simply add it
+			if (SceneComponent == nullptr)
+			{
+				SCS->AddNode(SCSNode);
+			}
+			else
+			{
+				InstanceComponentToNodeMap.Add(SceneComponent,SCSNode);
+
+				if (ActorComponent == Actor->GetRootComponent())
+				{
+					SCS->AddNode(SCSNode);
+				}
+				// If we're attached to a blueprint component look it up as the variable name is the component name
+				else if (SceneComponent->AttachParent->CreationMethod == EComponentCreationMethod::ConstructionScript)
+				{
+					USCS_Node* ParentSCSNode = nullptr;
+					for (UBlueprint* Blueprint : ParentBPStack)
+					{
+						ParentSCSNode = Blueprint->SimpleConstructionScript->FindSCSNode(SceneComponent->AttachParent->GetFName());
+						if (ParentSCSNode)
+						{
+							break;
+						}
+					}
+					check(ParentSCSNode);
+
+					if (ParentSCSNode->GetSCS() != SCS)
+					{
+						SCS->AddNode(SCSNode);
+						SCSNode->SetParent(ParentSCSNode);
+					}
+					else
+					{
+						ParentSCSNode->AddChildNode(SCSNode);
+					}
+				}
+				// If we're attached to a native component
+				else if (SceneComponent->AttachParent->CreationMethod == EComponentCreationMethod::Native)
+				{
+					SCS->AddNode(SCSNode);
+					SCSNode->SetParent(SceneComponent->AttachParent);
+				}
+				else
+				{
+					// Otherwise check if we've already created the parents' new SCS node and attach to that or cache it off to do next pass
+					USCS_Node** ParentSCSNode = InstanceComponentToNodeMap.Find(SceneComponent->AttachParent);
+					if (ParentSCSNode)
+					{
+						(*ParentSCSNode)->AddChildNode(SCSNode);
+					}
+					else
+					{
+						SceneComponentsToAdd.Add(SceneComponent, SCSNode);
+					}
+				}
+			}
+		}
+	}
+
+	// Hook up the remaining components nodes that the parent's node was missing when it was processed
+	for (auto ComponentIt = SceneComponentsToAdd.CreateConstIterator(); ComponentIt; ++ComponentIt)
+	{
+		InstanceComponentToNodeMap.FindChecked(ComponentIt.Key()->AttachParent)->AddChildNode(ComponentIt.Value());
+	}
+}
+
 UBlueprint* FKismetEditorUtilities::CreateBlueprintFromActor(const FName BlueprintName, UObject* Outer, AActor* Actor, const bool bReplaceActor )
 {
 	UBlueprint* NewBlueprint = nullptr;
@@ -916,20 +1020,8 @@ UBlueprint* FKismetEditorUtilities::CreateBlueprintFromActor(const FName Bluepri
 	{
 		if (Outer)
 		{
-			UActorFactory* FactoryToUse = GEditor->FindActorFactoryForActorClass( Actor->GetClass() );
-
-			if( FactoryToUse != NULL )
-			{
-				// Create the blueprint
-				UObject* Asset = FactoryToUse->GetAssetFromActorInstance(Actor);
-				// For Actors that don't have an asset associated with them, Asset will be null
-				NewBlueprint = FactoryToUse->CreateBlueprint( Asset, Outer, BlueprintName, FName("CreateFromActor") );
-			}
-			else 
-			{
-				// We don't have a factory, but we can still try to create a blueprint for this actor class
-				NewBlueprint = FKismetEditorUtilities::CreateBlueprint( Actor->GetClass(), Outer, BlueprintName, EBlueprintType::BPTYPE_Normal, UBlueprint::StaticClass(), UBlueprintGeneratedClass::StaticClass(), FName("CreateFromActor") );
-			}
+			// We don't have a factory, but we can still try to create a blueprint for this actor class
+			NewBlueprint = FKismetEditorUtilities::CreateBlueprint( Actor->GetClass(), Outer, BlueprintName, EBlueprintType::BPTYPE_Normal, UBlueprint::StaticClass(), UBlueprintGeneratedClass::StaticClass(), FName("CreateFromActor") );
 		}
 
 		if(NewBlueprint)
@@ -940,10 +1032,27 @@ UBlueprint* FKismetEditorUtilities::CreateBlueprintFromActor(const FName Bluepri
 			// Mark the package dirty
 			Outer->MarkPackageDirty();
 
+			// If the source Actor has Instance Components we need to translate these in to SCS Nodes
+			if (Actor->GetInstanceComponents().Num() > 0)
+			{
+				AddComponentsToBlueprint(NewBlueprint, Actor->GetInstanceComponents());
+			}
+
 			if(NewBlueprint->GeneratedClass)
 			{
+				// Since we already created SCS Nodes for the instance components, temporarily cache and clear the
+				// array to avoid creating duplicates in the new CDO
+				const TArray<UActorComponent*> TempInstanceComponents(Actor->GetInstanceComponents());
+				Actor->ClearInstanceComponents(false);
+
 				UObject* CDO = NewBlueprint->GeneratedClass->GetDefaultObject();
 				UEditorEngine::CopyPropertiesForUnrelatedObjects(Actor, CDO);
+
+				for (UActorComponent* Component : TempInstanceComponents)
+				{
+					Actor->AddInstanceComponent(Component);
+				}
+
 				if(AActor* CDOAsActor = Cast<AActor>(CDO))
 				{
 					if(USceneComponent* Scene = CDOAsActor->GetRootComponent())

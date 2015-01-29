@@ -45,8 +45,19 @@ FMakeNoiseDelegate AActor::MakeNoiseDelegate = FMakeNoiseDelegate::CreateStatic(
 FOnProcessEvent AActor::ProcessEventDelegate;
 #endif
 
+AActor::AActor()
+{
+	InitializeDefaults();
+}
+
+
 AActor::AActor(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
+{
+	// Forward to default constructor (we don't use ObjectInitializer for anything, this is for compatibility with inherited classes that call Super( ObjectInitializer )
+	InitializeDefaults();
+}
+
+void AActor::InitializeDefaults()
 {
 	PrimaryActorTick.TickGroup = TG_PrePhysics;
 	// Default to no tick function, but if we set 'never ticks' to false (so there is a tick function) it is enabled by default
@@ -797,7 +808,7 @@ bool AActor::Modify( bool bAlwaysMarkDirty/*=true*/ )
 			if (!ObjProp->HasAllPropertyFlags(CPF_NonTransactional))
 			{
 				UActorComponent* ActorComponent = Cast<UActorComponent>(ObjProp->GetObjectPropertyValue(ObjProp->ContainerPtrToValuePtr<void>(this)));
-				if (ActorComponent && ActorComponent->bCreatedByConstructionScript)
+				if (ActorComponent && ActorComponent->CreationMethod == EComponentCreationMethod::ConstructionScript)
 				{
 					ObjProp->SetPropertyFlags(CPF_NonTransactional);
 					TemporarilyNonTransactionalProperties.Add(ObjProp);
@@ -814,7 +825,7 @@ bool AActor::Modify( bool bAlwaysMarkDirty/*=true*/ )
 	}
 
 	// If the root component is blueprint constructed we don't save it to the transaction buffer
-	if( RootComponent && !RootComponent->bCreatedByConstructionScript )
+	if( RootComponent && RootComponent->CreationMethod != EComponentCreationMethod::ConstructionScript)
 	{
 		bSavedToTransactionBuffer = RootComponent->Modify( bAlwaysMarkDirty ) || bSavedToTransactionBuffer;
 	}
@@ -1783,7 +1794,7 @@ void AActor::DisplayDebug(UCanvas* Canvas, const FDebugDisplayInfo& DebugDisplay
 	UFont* RenderFont = GEngine->GetSmallFont();
 	if( T != "" )
 	{
-		Canvas->DrawText(RenderFont, T, 4.0f, YPos);
+		YL = Canvas->DrawText(RenderFont, T, 4.0f, YPos);
 		YPos += YL;
 	}
 
@@ -1800,17 +1811,17 @@ void AActor::DisplayDebug(UCanvas* Canvas, const FDebugDisplayInfo& DebugDisplay
 			{
 				T = T + FString(TEXT(" Tear Off"));
 			}
-			Canvas->DrawText(RenderFont, T, 4.0f, YPos);
+			YL = Canvas->DrawText(RenderFont, T, 4.0f, YPos);
 			YPos += YL;
 		}
 	}
 
-	Canvas->DrawText(RenderFont, FString::Printf(TEXT("Location: %s Rotation: %s"), *GetActorLocation().ToString(), *GetActorRotation().ToString()), 4.0f, YPos);
+	YL = Canvas->DrawText(RenderFont, FString::Printf(TEXT("Location: %s Rotation: %s"), *GetActorLocation().ToString(), *GetActorRotation().ToString()), 4.0f, YPos);
 	YPos += YL;
 
 	if( DebugDisplay.IsDisplayOn(TEXT("physics")) )
 	{
-		Canvas->DrawText(RenderFont,FString::Printf(TEXT("Velocity: %s Speed: %f Speed2D: %f"), *GetVelocity().ToString(), GetVelocity().Size(), GetVelocity().Size2D()), 4.0f, YPos);
+		YL = Canvas->DrawText(RenderFont,FString::Printf(TEXT("Velocity: %s Speed: %f Speed2D: %f"), *GetVelocity().ToString(), GetVelocity().Size(), GetVelocity().Size2D()), 4.0f, YPos);
 		YPos += YL;
 	}
 
@@ -1819,12 +1830,12 @@ void AActor::DisplayDebug(UCanvas* Canvas, const FDebugDisplayInfo& DebugDisplay
 		Canvas->DrawColor.B = 0;
 		float MyRadius, MyHeight;
 		GetComponentsBoundingCylinder(MyRadius, MyHeight);
-		Canvas->DrawText(RenderFont, FString::Printf(TEXT("Collision Radius: %f Height: %f"), MyRadius, MyHeight), 4.0f, YPos);
+		YL = Canvas->DrawText(RenderFont, FString::Printf(TEXT("Collision Radius: %f Height: %f"), MyRadius, MyHeight), 4.0f, YPos);
 		YPos += YL;
 
 		if ( RootComponent == NULL )
 		{
-			Canvas->DrawText(RenderFont, FString(TEXT("No RootComponent")), 4.0f, YPos );
+			YL = Canvas->DrawText(RenderFont, FString(TEXT("No RootComponent")), 4.0f, YPos );
 			YPos += YL;
 		}
 
@@ -1848,10 +1859,10 @@ void AActor::DisplayDebug(UCanvas* Canvas, const FDebugDisplayInfo& DebugDisplay
 		{
 			T = TEXT("Overlapping nothing");
 		}
-		Canvas->DrawText(RenderFont,T, 4,YPos);
+		YL = Canvas->DrawText(RenderFont,T, 4,YPos);
 		YPos += YL;
 	}
-	Canvas->DrawText( RenderFont,FString::Printf(TEXT(" Instigator: %s Owner: %s"), (Instigator ? *Instigator->GetName() : TEXT("None")),
+	YL = Canvas->DrawText( RenderFont,FString::Printf(TEXT(" Instigator: %s Owner: %s"), (Instigator ? *Instigator->GetName() : TEXT("None")),
 		(Owner ? *Owner->GetName() : TEXT("None"))), 4,YPos);
 	YPos += YL;
 
@@ -2041,6 +2052,41 @@ void AActor::UpdateAllReplicatedComponents()
 		{
 			UpdateReplicatedComponent(Component);
 		}
+	}
+}
+
+const TArray<UActorComponent*>& AActor::GetInstanceComponents() const
+{
+	return InstanceComponents;
+}
+
+void AActor::AddInstanceComponent(UActorComponent* Component)
+{
+	Component->CreationMethod = EComponentCreationMethod::Instance;
+	InstanceComponents.Add(Component);
+}
+
+void AActor::RemoveInstanceComponent(UActorComponent* Component)
+{
+	InstanceComponents.Remove(Component);
+}
+
+void AActor::ClearInstanceComponents(const bool bDestroyComponents)
+{
+	if (bDestroyComponents)
+	{
+		// Need to cache because calling destroy will remove them from InstanceComponents
+		TArray<UActorComponent*> CachedComponents(InstanceComponents);
+
+		// Run in reverse to reduce memory churn when the components are removed from InstanceComponents
+		for (int32 Index=CachedComponents.Num()-1; Index >= 0; --Index)
+		{
+			CachedComponents[Index]->DestroyComponent();
+		}
+	}
+	else
+	{
+		InstanceComponents.Empty();
 	}
 }
 

@@ -6,20 +6,35 @@ typedef TSharedPtr<class FComponentClassComboEntry> FComponentClassComboEntryPtr
 
 //////////////////////////////////////////////////////////////////////////
 
+namespace EComponentCreateAction
+{
+	enum Type
+	{
+		/** Create a new C++ class based off the specified ActorComponent class and then add it to the tree */
+		CreateNewCPPClass,
+		/** Create a new blueprint class based off the specified ActorComponent class and then add it to the tree */
+		CreateNewBlueprintClass,
+		/** Spawn a new instance of the specified ActorComponent class and then add it to the tree */
+		SpawnExistingClass,
+	};
+}
 
-DECLARE_DELEGATE_OneParam(FComponentClassSelected, TSubclassOf<UActorComponent>);
+DECLARE_DELEGATE_TwoParams(FComponentClassSelected, TSubclassOf<UActorComponent>, EComponentCreateAction::Type );
 
 class FComponentClassComboEntry: public TSharedFromThis<FComponentClassComboEntry>
 {
 public:
-	FComponentClassComboEntry( const FString& InHeadingText, TSubclassOf<UActorComponent> InComponentClass )
+	FComponentClassComboEntry( const FString& InHeadingText, TSubclassOf<UActorComponent> InComponentClass, bool InIncludedInFilter, EComponentCreateAction::Type InComponentCreateAction )
 		: ComponentClass(InComponentClass)
 		, HeadingText(InHeadingText)
+		, bIncludedInFilter(InIncludedInFilter)
+		, ComponentCreateAction(InComponentCreateAction)
 	{}
 
 	FComponentClassComboEntry( const FString& InHeadingText )
 		: ComponentClass(NULL)
 		, HeadingText(InHeadingText)
+		, bIncludedInFilter(false)
 	{}
 
 	FComponentClassComboEntry()
@@ -39,15 +54,27 @@ public:
 	{
 		return (ComponentClass==NULL && HeadingText.IsEmpty());
 	}
+	
 	bool IsClass() const
 	{
 		return (ComponentClass!=NULL);
 	}
+	
+	bool IsIncludedInFilter() const
+	{
+		return bIncludedInFilter;
+	}
+	
+	EComponentCreateAction::Type GetComponentCreateAction() const
+	{
+		return ComponentCreateAction;
+	}
 
 private:
 	TSubclassOf<UActorComponent> ComponentClass;
-
 	FString HeadingText;
+	bool bIncludedInFilter;
+	EComponentCreateAction::Type ComponentCreateAction;
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -56,8 +83,10 @@ class UNREALED_API SComponentClassCombo : public SComboButton
 {
 public:
 	SLATE_BEGIN_ARGS( SComponentClassCombo )
+		: _IncludeText(true)
 	{}
 
+		SLATE_ATTRIBUTE(bool, IncludeText)
 		SLATE_EVENT( FComponentClassSelected, OnComponentClassSelected )
 
 	SLATE_END_ARGS()
@@ -94,7 +123,14 @@ public:
 	/** Returns a component name without the substring "Component" and sanitized for display */
 	static FString GetSanitizedComponentName( UClass* ComponentClass );
 
+protected:
+	virtual FReply OnButtonClicked();
+
+	/** Called when a project is hot reloaded to refresh the components list */
+	void OnProjectHotReloaded( bool bWasTriggeredAutomatically );
 private:
+
+	FText GetFriendlyComponentName(FComponentClassComboEntryPtr Entry) const;
 
 	FComponentClassSelected OnComponentClassSelected;
 

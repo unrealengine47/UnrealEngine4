@@ -1692,6 +1692,46 @@ void UEditorEngine::BSPIntersectionHelper(UWorld* InWorld, ECsgOper Operation)
 	}
 }
 
+void UEditorEngine::CheckForWorldGCLeaks( UWorld* NewWorld, UPackage* WorldPackage )
+{
+	// Make sure the old world is completely gone, except if the new world was one of it's sublevels
+	for(TObjectIterator<UWorld> It; It; ++It)
+	{
+		UWorld* RemainingWorld = *It;
+		const bool bIsNewWorld = (NewWorld && RemainingWorld == NewWorld);
+		const bool bIsPersistantWorldType = (RemainingWorld->WorldType == EWorldType::Inactive) || (RemainingWorld->WorldType == EWorldType::Preview);
+		if(!bIsNewWorld && !bIsPersistantWorldType && !WorldHasValidContext(RemainingWorld))
+		{
+			StaticExec(RemainingWorld, *FString::Printf(TEXT("OBJ REFS CLASS=WORLD NAME=%s"), *RemainingWorld->GetPathName()));
+
+			TMap<UObject*, UProperty*>	Route		= FArchiveTraceRoute::FindShortestRootPath(RemainingWorld, true, GARBAGE_COLLECTION_KEEPFLAGS);
+			FString						ErrorString	= FArchiveTraceRoute::PrintRootPath(Route, RemainingWorld);
+
+			UE_LOG(LogEditorServer, Fatal, TEXT("%s still around trying to load %s") LINE_TERMINATOR TEXT("%s"), *RemainingWorld->GetPathName(), TempFname, *ErrorString);
+		}
+	}
+
+
+	if(WorldPackage != NULL)
+	{
+		UPackage* NewWorldPackage = NewWorld ? NewWorld->GetOutermost() : nullptr;
+		for(TObjectIterator<UPackage> It; It; ++It)
+		{
+			UPackage* RemainingPackage = *It;
+			const bool bIsNewWorldPackage = (NewWorldPackage && RemainingPackage == NewWorldPackage);
+			if(!bIsNewWorldPackage && RemainingPackage == WorldPackage)
+			{
+				StaticExec(NULL, *FString::Printf(TEXT("OBJ REFS CLASS=PACKAGE NAME=%s"), *RemainingPackage->GetPathName()));
+
+				TMap<UObject*, UProperty*>	Route		= FArchiveTraceRoute::FindShortestRootPath(RemainingPackage, true, GARBAGE_COLLECTION_KEEPFLAGS);
+				FString						ErrorString	= FArchiveTraceRoute::PrintRootPath(Route, RemainingPackage);
+
+				UE_LOG(LogEditorServer, Fatal, TEXT("%s still around trying to load %s") LINE_TERMINATOR TEXT("%s"), *RemainingPackage->GetPathName(), TempFname, *ErrorString);
+			}
+		}
+	}
+}
+
 void UEditorEngine::EditorDestroyWorld( FWorldContext & Context, const FText& CleanseText, UWorld* NewWorld )
 {
 	UWorld* ContextWorld = Context.World();
@@ -1785,41 +1825,8 @@ void UEditorEngine::EditorDestroyWorld( FWorldContext & Context, const FText& Cl
 		NewWorld->RemoveFromRoot();
 	}
 
-	// Make sure the old world is completely gone, except if the new world was one of it's sublevels
-	for( TObjectIterator<UWorld> It; It; ++It )
-	{
-		UWorld* RemainingWorld = *It;
-		const bool bIsNewWorld = (NewWorld && RemainingWorld == NewWorld);
-		const bool bIsPersistantWorldType = (RemainingWorld->WorldType == EWorldType::Inactive) || (RemainingWorld->WorldType == EWorldType::Preview);
-		if (!bIsNewWorld && !bIsPersistantWorldType && !WorldHasValidContext(RemainingWorld))
-		{
-			StaticExec(RemainingWorld, *FString::Printf(TEXT("OBJ REFS CLASS=WORLD NAME=%s"), *RemainingWorld->GetPathName()));
+	CheckForWorldGCLeaks( NewWorld, WorldPackage );
 
-			TMap<UObject*,UProperty*>	Route		= FArchiveTraceRoute::FindShortestRootPath( RemainingWorld, true, GARBAGE_COLLECTION_KEEPFLAGS );
-			FString						ErrorString	= FArchiveTraceRoute::PrintRootPath( Route, RemainingWorld );
-
-			UE_LOG(LogEditorServer, Fatal,TEXT("%s still around trying to load %s") LINE_TERMINATOR TEXT("%s"),*RemainingWorld->GetPathName(),TempFname,*ErrorString);
-		}
-	}
-
-	if (WorldPackage != NULL)
-	{
-		UPackage* NewWorldPackage = NewWorld ? NewWorld->GetOutermost() : nullptr;
-		for( TObjectIterator<UPackage> It; It; ++It )
-		{
-			UPackage* RemainingPackage = *It;
-			const bool bIsNewWorldPackage = (NewWorldPackage && RemainingPackage == NewWorldPackage);
-			if (!bIsNewWorldPackage && RemainingPackage == WorldPackage)
-			{
-				StaticExec(NULL, *FString::Printf(TEXT("OBJ REFS CLASS=PACKAGE NAME=%s"), *RemainingPackage->GetPathName()));
-
-				TMap<UObject*,UProperty*>	Route		= FArchiveTraceRoute::FindShortestRootPath( RemainingPackage, true, GARBAGE_COLLECTION_KEEPFLAGS );
-				FString						ErrorString	= FArchiveTraceRoute::PrintRootPath( Route, RemainingPackage );
-
-				UE_LOG(LogEditorServer, Fatal,TEXT("%s still around trying to load %s") LINE_TERMINATOR TEXT("%s"),*RemainingPackage->GetPathName(),TempFname,*ErrorString);
-			}
-		}
-	}
 }
 
 bool UEditorEngine::ShouldAbortBecauseOfPIEWorld() const
@@ -4236,13 +4243,17 @@ void UEditorEngine::MoveViewportCamerasToActor(AActor& Actor,  bool bActiveViewp
 
 	Actors.Add( &Actor );
 
-	MoveViewportCamerasToActor( Actors, bActiveViewportOnly );
+	MoveViewportCamerasToActor( Actors, TArray<UPrimitiveComponent*>(), bActiveViewportOnly );
 }
-
 
 void UEditorEngine::MoveViewportCamerasToActor(const TArray<AActor*> &Actors, bool bActiveViewportOnly)
 {
-	if( Actors.Num() == 0 )
+	MoveViewportCamerasToActor( Actors, TArray<UPrimitiveComponent*>(), bActiveViewportOnly );
+}
+
+void UEditorEngine::MoveViewportCamerasToActor(const TArray<AActor*> &Actors, const TArray<UPrimitiveComponent*>& Components, bool bActiveViewportOnly)
+{
+	if( Actors.Num() == 0 && Components.Num() == 0 )
 	{
 		return;
 	}
@@ -4257,116 +4268,140 @@ void UEditorEngine::MoveViewportCamerasToActor(const TArray<AActor*> &Actors, bo
 		}
 	}
 
+	struct ComponentTypeMatcher
+	{
+		ComponentTypeMatcher(UPrimitiveComponent* InComponentToMatch)
+			: ComponentToMatch(InComponentToMatch)
+		{}
+
+		bool operator()(const UClass* ComponentClass) const
+		{
+			return ComponentToMatch->IsA(ComponentClass);
+		}
+
+		UPrimitiveComponent* ComponentToMatch;
+	};
+
 	TArray<AActor*> InvisLevelActors;
 
 	TArray<UClass*> PrimitiveComponentTypesToIgnore;
 	PrimitiveComponentTypesToIgnore.Add( UShapeComponent::StaticClass() );
 	PrimitiveComponentTypesToIgnore.Add( UNavLinkRenderingComponent::StaticClass() );
 	PrimitiveComponentTypesToIgnore.Add( UDrawFrustumComponent::StaticClass() );
-
 	// Create a bounding volume of all of the selected actors.
 	FBox BoundingBox( 0 );
-	int32 NumActiveActors = 0;
-	for( int32 ActorIdx = 0; ActorIdx < Actors.Num(); ActorIdx++ )
+
+	if( Components.Num() > 0 )
 	{
-		AActor* Actor = Actors[ActorIdx];
-
-		if( Actor )
+		// First look at components
+		for(UPrimitiveComponent* PrimitiveComponent : Components)
 		{
-
-			// Don't allow moving the viewport cameras to actors in invisible levels
-			if ( !FLevelUtils::IsLevelVisible( Actor->GetLevel() ) )
+			if(PrimitiveComponent)
 			{
-				InvisLevelActors.Add( Actor );
-				continue;
-			}
-
-			const bool bActorIsEmitter = (Cast<AEmitter>(Actor) != NULL);
-	
-			if (bActorIsEmitter && bCustomCameraAlignEmitter)
-			{
-				const FVector DefaultExtent(CustomCameraAlignEmitterDistance,CustomCameraAlignEmitterDistance,CustomCameraAlignEmitterDistance);
-				const FBox DefaultSizeBox(Actor->GetActorLocation() - DefaultExtent, Actor->GetActorLocation() + DefaultExtent);
-				BoundingBox += DefaultSizeBox;
-			}
-			else
-			{
-				TInlineComponentArray<UPrimitiveComponent*> Components;
-				Actor->GetComponents(Components);
-
-				for(int32 ComponentIndex = 0; ComponentIndex < Components.Num(); ++ComponentIndex)
+				if(!FLevelUtils::IsLevelVisible(PrimitiveComponent->GetComponentLevel()))
 				{
-					UPrimitiveComponent* PrimitiveComponent = Components[ComponentIndex];
+					continue;
+				}
 
-					if( PrimitiveComponent->IsRegistered() )
+				// Some components can have huge bounds but are not visible.  Ignore these components unless it is the only component on the actor 
+				const bool bIgnore = Components.Num() > 1 && PrimitiveComponentTypesToIgnore.IndexOfByPredicate(ComponentTypeMatcher(PrimitiveComponent)) != INDEX_NONE;
+
+				if(!bIgnore && PrimitiveComponent->IsRegistered())
+				{
+					BoundingBox += PrimitiveComponent->Bounds.GetBox();
+				}
+
+			}
+		}
+	}
+	else 
+	{
+		for(int32 ActorIdx = 0; ActorIdx < Actors.Num(); ActorIdx++)
+		{
+			AActor* Actor = Actors[ActorIdx];
+
+			if(Actor)
+			{
+
+				// Don't allow moving the viewport cameras to actors in invisible levels
+				if(!FLevelUtils::IsLevelVisible(Actor->GetLevel()))
+				{
+					InvisLevelActors.Add(Actor);
+					continue;
+				}
+
+				const bool bActorIsEmitter = (Cast<AEmitter>(Actor) != NULL);
+
+				if(bActorIsEmitter && bCustomCameraAlignEmitter)
+				{
+					const FVector DefaultExtent(CustomCameraAlignEmitterDistance, CustomCameraAlignEmitterDistance, CustomCameraAlignEmitterDistance);
+					const FBox DefaultSizeBox(Actor->GetActorLocation() - DefaultExtent, Actor->GetActorLocation() + DefaultExtent);
+					BoundingBox += DefaultSizeBox;
+				}
+				else
+				{
+					TInlineComponentArray<UPrimitiveComponent*> Components;
+					Actor->GetComponents(Components);
+
+					for(int32 ComponentIndex = 0; ComponentIndex < Components.Num(); ++ComponentIndex)
 					{
-						struct ComponentTypeMatcher
-						{
-							ComponentTypeMatcher( UPrimitiveComponent* InComponentToMatch )
-								: ComponentToMatch( InComponentToMatch )
-							{}
+						UPrimitiveComponent* PrimitiveComponent = Components[ComponentIndex];
 
-							bool operator()(const UClass* ComponentClass) const
+						if(PrimitiveComponent->IsRegistered())
+						{
+
+							// Some components can have huge bounds but are not visible.  Ignore these components unless it is the only component on the actor 
+							const bool bIgnore = Components.Num() > 1 && PrimitiveComponentTypesToIgnore.IndexOfByPredicate(ComponentTypeMatcher(PrimitiveComponent)) != INDEX_NONE;
+
+							if(!bIgnore)
 							{
-								return ComponentToMatch->IsA(ComponentClass);
+								BoundingBox += PrimitiveComponent->Bounds.GetBox();
+							}
+						}
+					}
+
+					if(Actor->IsA<ABrush>() && GLevelEditorModeTools().IsModeActive(FBuiltinEditorModes::EM_Geometry))
+					{
+						FEdModeGeometry* GeometryMode = GLevelEditorModeTools().GetActiveModeTyped<FEdModeGeometry>(FBuiltinEditorModes::EM_Geometry);
+
+						TArray<FGeomVertex*> SelectedVertices;
+						TArray<FGeomPoly*> SelectedPolys;
+						TArray<FGeomEdge*> SelectedEdges;
+
+						GeometryMode->GetSelectedVertices(SelectedVertices);
+						GeometryMode->GetSelectedPolygons(SelectedPolys);
+						GeometryMode->GetSelectedEdges(SelectedEdges);
+
+						if(SelectedVertices.Num() + SelectedPolys.Num() + SelectedEdges.Num() > 0)
+						{
+							BoundingBox.Init();
+
+							for(FGeomVertex* Vertex : SelectedVertices)
+							{
+								BoundingBox += Vertex->GetWidgetLocation();
 							}
 
-							UPrimitiveComponent* ComponentToMatch;
-						};
+							for(FGeomPoly* Poly : SelectedPolys)
+							{
+								BoundingBox += Poly->GetWidgetLocation();
+							}
 
-						// Some components can have huge bounds but are not visible.  Ignore these components unless it is the only component on the actor 
-						const bool bIgnore = Components.Num() > 1 && PrimitiveComponentTypesToIgnore.IndexOfByPredicate(ComponentTypeMatcher(PrimitiveComponent)) != INDEX_NONE;
+							for(FGeomEdge* Edge : SelectedEdges)
+							{
+								BoundingBox += Edge->GetWidgetLocation();
+							}
 
-						if( !bIgnore )
-						{
-							BoundingBox += PrimitiveComponent->Bounds.GetBox();
+							// Zoom out a little bit so you can see the selection
+							BoundingBox = BoundingBox.ExpandBy(25);
 						}
-					}
-				}
-
-				if (Actor->IsA<ABrush>() && GLevelEditorModeTools().IsModeActive(FBuiltinEditorModes::EM_Geometry))
-				{
-					FEdModeGeometry* GeometryMode = GLevelEditorModeTools().GetActiveModeTyped<FEdModeGeometry>(FBuiltinEditorModes::EM_Geometry);
-
-					TArray<FGeomVertex*> SelectedVertices;
-					TArray<FGeomPoly*> SelectedPolys;
-					TArray<FGeomEdge*> SelectedEdges;
-
-					GeometryMode->GetSelectedVertices(SelectedVertices);
-					GeometryMode->GetSelectedPolygons(SelectedPolys);
-					GeometryMode->GetSelectedEdges(SelectedEdges);
-
-					if (SelectedVertices.Num() + SelectedPolys.Num() + SelectedEdges.Num() > 0)
-					{
-						BoundingBox.Init();
-
-						for (FGeomVertex* Vertex : SelectedVertices)
-						{
-							BoundingBox += Vertex->GetWidgetLocation();
-						}
-
-						for (FGeomPoly* Poly : SelectedPolys)
-						{
-							BoundingBox += Poly->GetWidgetLocation();
-						}
-
-						for (FGeomEdge* Edge : SelectedEdges)
-						{
-							BoundingBox += Edge->GetWidgetLocation();
-						}
-
-						// Zoom out a little bit so you can see the selection
-						BoundingBox = BoundingBox.ExpandBy(25);
 					}
 				}
 			}
-
-			NumActiveActors++;
 		}
 	}
 
 	// Make sure we had atleast one non-null actor in the array passed in.
-	if( NumActiveActors > 0 )
+	if( BoundingBox.GetSize() != FVector::ZeroVector )
 	{
 		if ( bActiveViewportOnly )
 		{
@@ -4686,15 +4721,24 @@ bool UEditorEngine::Exec_Camera( const TCHAR* Str, FOutputDevice& Ar )
 				Actors.Add( Actor );
 			}
 
-			if( Actors.Num() )
+			TArray<UPrimitiveComponent*> SelectedComponents;
+			for( FSelectionIterator It( GetSelectedComponentIterator() ); It; ++It )
 			{
-				MoveViewportCamerasToActor( Actors, bActiveViewportOnly );
-				Ar.Log( TEXT("Aligned camera to fit all selected actors.") );
+				UPrimitiveComponent* PrimitiveComp = Cast<UPrimitiveComponent>( *It );
+				if( PrimitiveComp )
+				{
+					SelectedComponents.Add( PrimitiveComp );
+				}
+			}
+
+			if( Actors.Num() || SelectedComponents.Num() )
+			{
+				MoveViewportCamerasToActor( Actors, SelectedComponents, bActiveViewportOnly );
 				return true;
 			}
 			else
 			{
-				Ar.Log( TEXT("Can't find target actor.") );
+				Ar.Log( TEXT("Can't find target actor or component.") );
 				return false;
 			}
 		}

@@ -531,7 +531,16 @@ bool UWorld::DestroyActor( AActor* ThisActor, bool bNetForce, bool bShouldModify
 
 	// Remove the actor from the actor list.
 	RemoveActor( ThisActor, bShouldModifyLevel );
-	
+
+	// Invalidate the lighting cache in the Editor.  We need to check for GIsEditor as play has not begun in network game and objects get destroyed on switching levels
+	if ( GIsEditor )
+	{
+		ThisActor->InvalidateLightingCache();
+#if WITH_EDITOR
+		GEngine->BroadcastLevelActorDeleted(ThisActor);
+#endif
+	}
+		
 	// Clean up the actor's components.
 	ThisActor->UnregisterAllComponents();
 
@@ -544,15 +553,6 @@ bool UWorld::DestroyActor( AActor* ThisActor, bool bNetForce, bool bShouldModify
 	const bool bRegisterTickFunctions = false;
 	const bool bIncludeComponents = true;
 	ThisActor->RegisterAllActorTickFunctions(bRegisterTickFunctions, bIncludeComponents);
-
-	// Invalidate the lighting cache in the Editor.  We need to check for GIsEditor as play has not begun in network game and objects get destroyed on switching levels
-	if( GIsEditor )
-	{
-		ThisActor->InvalidateLightingCache();
-#if WITH_EDITOR
-		GEngine->BroadcastLevelActorDeleted(ThisActor);
-#endif
-	}
 
 	// Return success.
 	return true;
@@ -577,7 +577,7 @@ APlayerController* UWorld::SpawnPlayActor(UPlayer* NewPlayer, ENetRole RemoteRol
 	AGameMode* GameMode = GetAuthGameMode();
 
 	// Give the GameMode a chance to accept the login
-	APlayerController* const NewPlayerController = GameMode->Login(NewPlayer, *InURL.Portal, Options, UniqueId, Error);
+	APlayerController* const NewPlayerController = GameMode->Login(NewPlayer, RemoteRole, *InURL.Portal, Options, UniqueId, Error);
 	if (NewPlayerController == NULL)
 	{
 		UE_LOG(LogSpawn, Warning, TEXT("Login failed: %s"), *Error);

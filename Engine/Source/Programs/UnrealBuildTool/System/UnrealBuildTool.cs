@@ -863,10 +863,6 @@ namespace UnrealBuildTool
                         {
                             //ConfigName = Arg;
                         }
-                        else if (LowercaseArg == "-obbinapk")
-                        {
-                            UEBuildConfiguration.bOBBinAPK = true;
-                        }
                         else if (LowercaseArg == "-modulewithsuffix")
                         {
                             bSpecificModulesOnly = true;
@@ -1366,12 +1362,11 @@ namespace UnrealBuildTool
                     ResetConfiguration = UnrealTargetConfiguration.Development;
                 }
             }
-            var BuildPlatform = UEBuildPlatform.GetBuildPlatform(ResetPlatform);
+			var BuildPlatform = UEBuildPlatform.GetBuildPlatform(ResetPlatform);
+			BuildPlatform.ResetBuildConfiguration(ResetPlatform, ResetConfiguration);
 
             // now that we have the platform, we can set the intermediate path to include the platform/architecture name
             BuildConfiguration.PlatformIntermediateFolder = Path.Combine(BuildConfiguration.BaseIntermediateFolder, ResetPlatform.ToString(), BuildPlatform.GetActiveArchitecture());
-
-            BuildPlatform.ResetBuildConfiguration(ResetPlatform, ResetConfiguration);
 
             string ExecutorName = "Unknown";
             ECompilationResult BuildResult = ECompilationResult.Succeeded;
@@ -1425,6 +1420,13 @@ namespace UnrealBuildTool
 				UEBuildConfiguration.bHotReloadFromIDE = UEBuildConfiguration.bAllowHotReloadFromIDE && TargetDescs.Count == 1 && !TargetDescs[0].bIsEditorRecompile && ShouldDoHotReloadFromIDE(TargetDescs[0]);
 				bool bIsHotReload = UEBuildConfiguration.bHotReloadFromIDE || ( TargetDescs.Count == 1 && TargetDescs[0].OnlyModules.Count > 0 );
 				TargetDescriptor HotReloadTargetDesc = bIsHotReload ? TargetDescs[0] : null;
+
+				if (ProjectFileGenerator.bGenerateProjectFiles)
+				{
+					// Create empty timestamp file to record when was the last time we regenerated projects.
+					Directory.CreateDirectory( Path.GetDirectoryName( ProjectFileGenerator.ProjectTimestampFile ) );
+					File.Create(ProjectFileGenerator.ProjectTimestampFile).Dispose();
+				}
 
                 if( !ProjectFileGenerator.bGenerateProjectFiles )
                 {
@@ -2209,7 +2211,7 @@ namespace UnrealBuildTool
                 {
                     if( Directory.Exists( ProjectFileGenerator.IntermediateProjectFilesPath ) )
                     {
-                        var EngineProjectFilesLastUpdateTime = new DirectoryInfo( ProjectFileGenerator.IntermediateProjectFilesPath ).LastWriteTime;
+                        var EngineProjectFilesLastUpdateTime = new FileInfo(ProjectFileGenerator.ProjectTimestampFile).LastWriteTime;
 						if( UBTMakefileItem.LastWriteTime.CompareTo( EngineProjectFilesLastUpdateTime ) < 0 )
 						{
 							// Engine project files are newer than UBTMakefile

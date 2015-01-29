@@ -23,8 +23,18 @@ FOverlapInfo::FOverlapInfo(UPrimitiveComponent* InComponent, int32 InBodyIndex)
 	OverlapInfo.Item = InBodyIndex;
 }
 
-USceneComponent::USceneComponent(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
+USceneComponent::USceneComponent()
+{
+	InitializeDefaults();
+}
+
+USceneComponent::USceneComponent( const FObjectInitializer& ObjectInitializer )
+{
+	// Forward to default constructor (we don't use ObjectInitializer for anything, this is for compatibility with inherited classes that call Super( ObjectInitializer )
+	InitializeDefaults();
+}
+
+void USceneComponent::InitializeDefaults()
 {
 	Mobility = EComponentMobility::Movable;
 	RelativeScale3D = FVector(1.0f,1.0f,1.0f);
@@ -447,7 +457,7 @@ void USceneComponent::SetRelativeTransform(const FTransform& NewTransform, bool 
 	SetRelativeScale3D(NewTransform.GetScale3D());
 }
 
-FTransform USceneComponent::GetRelativeTransform()
+FTransform USceneComponent::GetRelativeTransform() const
 {
 	const FTransform RelativeTransform( RelativeRotation, RelativeLocation, RelativeScale3D );
 	return RelativeTransform;
@@ -1010,11 +1020,35 @@ bool USceneComponent::IsAttachedTo(class USceneComponent* TestComp) const
 FSceneComponentInstanceData::FSceneComponentInstanceData(const USceneComponent* SourceComponent)
 	: FComponentInstanceDataBase(SourceComponent)
 {
-	for (USceneComponent* SceneComponent : SourceComponent->AttachChildren)
+	for (int32 i = SourceComponent->AttachChildren.Num()-1; i >= 0; --i)
 	{
-		if (SceneComponent && !SceneComponent->bCreatedByConstructionScript)
+		USceneComponent* SceneComponent = SourceComponent->AttachChildren[i];
+		if (SceneComponent && SceneComponent->CreationMethod != EComponentCreationMethod::ConstructionScript)
 		{
 			AttachedInstanceComponents.Add(SceneComponent);
+		}
+	}
+}
+
+void FSceneComponentInstanceData::ApplyToComponent(UActorComponent* Component)
+{
+	USceneComponent* SceneComponent = CastChecked<USceneComponent>(Component);
+	for (USceneComponent* ChildComponent : AttachedInstanceComponents)
+	{
+		if (ChildComponent)
+		{
+			ChildComponent->AttachTo(SceneComponent);
+		}
+	}
+}
+
+void FSceneComponentInstanceData::FindAndReplaceInstances(const TMap<UObject*, UObject*>& OldToNewInstanceMap)
+{
+	for (USceneComponent*& ChildComponent : AttachedInstanceComponents)
+	{
+		if (UObject* const* NewChildComponent = OldToNewInstanceMap.Find(ChildComponent))
+		{
+			ChildComponent = CastChecked<USceneComponent>(*NewChildComponent, ECastCheckedType::NullAllowed);
 		}
 	}
 }
@@ -1025,7 +1059,7 @@ FComponentInstanceDataBase* USceneComponent::GetComponentInstanceData() const
 
 	for (USceneComponent* Child : AttachChildren)
 	{
-		if (!Child->bCreatedByConstructionScript)
+		if (Child && Child->CreationMethod != EComponentCreationMethod::ConstructionScript)
 		{
 			InstanceData = new FSceneComponentInstanceData(this);
 			break;
@@ -1039,17 +1073,6 @@ FName USceneComponent::GetComponentInstanceDataType() const
 {
 	static const FName SceneComponentInstanceDataTypeName(TEXT("SceneComponentInstanceData"));
 	return SceneComponentInstanceDataTypeName;
-}
-
-void USceneComponent::ApplyComponentInstanceData(class FComponentInstanceDataBase* ComponentInstanceData )
-{
-	check(ComponentInstanceData);
-	FSceneComponentInstanceData* SceneComponentInstanceData  = static_cast<FSceneComponentInstanceData*>(ComponentInstanceData);
-
-	for (USceneComponent* ChildComponent : SceneComponentInstanceData->AttachedInstanceComponents)
-	{
-		ChildComponent->AttachTo(this);
-	}
 }
 
 void USceneComponent::UpdateChildTransforms()

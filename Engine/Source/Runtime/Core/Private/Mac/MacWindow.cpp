@@ -263,6 +263,17 @@ void FMacWindow::ReshapeWindow( int32 X, int32 Y, int32 Width, int32 Height )
 			if ( !NSEqualRects(WindowHandle.PreFullScreenRect, NewRect) )
 			{
 				WindowHandle.PreFullScreenRect = NewRect;
+				MainThreadCall(^{
+					FMacCursor* MacCursor = (FMacCursor*)MacApplication->Cursor.Get();
+					if ( MacCursor )
+					{
+						NSSize WindowSize = [WindowHandle frame].size;
+						NSSize ViewSize = [WindowHandle openGLFrame].size;
+						float WidthScale = ViewSize.width / WindowSize.width;
+						float HeightScale = ViewSize.height / WindowSize.height;
+						MacCursor->SetMouseScaling(FVector2D(WidthScale, HeightScale));
+					}
+				}, UE4ResizeEventMode, true);
 				FMacEvent::SendToGameRunLoop([NSNotification notificationWithName:NSWindowDidResizeNotification object:WindowHandle], EMacEventSendMethod::Sync, @[ NSDefaultRunLoopMode, UE4ResizeEventMode, UE4ShowEventMode, UE4FullscreenEventMode ]);
 			}
 		}
@@ -305,26 +316,23 @@ void FMacWindow::BringToFront( bool bForce )
 
 void FMacWindow::Destroy()
 {
-	if( WindowHandle )
+	if (WindowHandle)
 	{
 		SCOPED_AUTORELEASE_POOL;
-		FCocoaWindow* Window = WindowHandle;
-
 		bIsClosed = true;
 
-		if( MacApplication->OnWindowDestroyed( Window ) )
+		FCocoaWindow* Window = WindowHandle;
+		const bool bIsKey = [Window isKeyWindow];
+
+		if (MacApplication->OnWindowDestroyed(Window) )
 		{
 			// This FMacWindow may have been destructed by now & so the WindowHandle will probably be invalid memory.
-			bool const bIsKey = [Window isKeyWindow];
-			
-			// Then change the focus to something useful, either the previous in the stack
-			TSharedPtr<FMacWindow> KeyWindow = MacApplication->GetKeyWindow();
-			if( KeyWindow.IsValid() && bIsKey && KeyWindow->GetOSWindowHandle() && ![(FCocoaWindow*)KeyWindow->GetOSWindowHandle() isMiniaturized] )
+
+			if (bIsKey)
 			{
-				// Activate specified previous window if still present, provided it isn't minimized
-				KeyWindow->SetWindowFocus();
+				MacApplication->RequestKeyWindowUpdate();
 			}
-			
+
 			// Close the window
 			MainThreadCall(^{
 				SCOPED_AUTORELEASE_POOL;
