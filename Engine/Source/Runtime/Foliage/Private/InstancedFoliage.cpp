@@ -141,6 +141,16 @@ static void ConvertDeprecatedFoliageMeshes(
 			FoliageMesh->Instances.Add(Instance);
 		}
 	}
+
+	// there were no cross-level references before
+	check(IFA->InstanceBaseCache.InstanceBaseLevelMap.Num() <= 1); 
+	// populate WorldAsset->BasePtr map
+	IFA->InstanceBaseCache.InstanceBaseLevelMap.Empty();
+	auto& BaseList = IFA->InstanceBaseCache.InstanceBaseLevelMap.Add(TAssetPtr<UWorld>(Cast<UWorld>(IFA->GetLevel()->GetOuter())));
+	for (auto& BaseInfoPair : IFA->InstanceBaseCache.InstanceBaseMap)
+	{
+		BaseList.Add(BaseInfoPair.Value.BasePtr);
+	}
 #endif//WITH_EDITORONLY_DATA	
 }
 
@@ -525,7 +535,8 @@ void FFoliageMeshInfo::AddInstance(AInstancedFoliageActor* InIFA, const UFoliage
 	FFoliageInstance& AddedInstance = Instances[InstanceIndex];
 
 	// Add the instance to the hash
-	AddToHash(InstanceIndex);
+	AddToBaseHash(InstanceIndex);
+	InstanceHash->InsertInstance(AddedInstance.Location, InstanceIndex);
 	// Calculate transform for the instance
 	FTransform InstanceToWorld = InNewInstance.GetInstanceWorldTransform();
 
@@ -564,7 +575,8 @@ void FFoliageMeshInfo::RemoveInstances(AInstancedFoliageActor* InIFA, const TArr
 			FFoliageInstance& Instance = Instances[InstanceIndex];
 
 			// remove from hash
-			RemoveFromHash(InstanceIndex);
+			RemoveFromBaseHash(InstanceIndex);
+			InstanceHash->RemoveInstance(Instance.Location, InstanceIndex);
 
 			// remove from the component
 			Component->RemoveInstance(InstanceIndex);
@@ -676,18 +688,15 @@ int32 FFoliageMeshInfo::GetInstanceCount() const
 	return Instances.Num();
 }
 
-void FFoliageMeshInfo::AddToHash(int32 InstanceIndex)
+void FFoliageMeshInfo::AddToBaseHash(int32 InstanceIndex)
 {
 	FFoliageInstance& Instance = Instances[InstanceIndex];
-	InstanceHash->InsertInstance(Instance.Location, InstanceIndex);
 	ComponentHash.FindOrAdd(Instance.BaseId).Add(InstanceIndex);
 }
 
-void FFoliageMeshInfo::RemoveFromHash(int32 InstanceIndex)
+void FFoliageMeshInfo::RemoveFromBaseHash(int32 InstanceIndex)
 {
 	FFoliageInstance& Instance = Instances[InstanceIndex];
-	
-	InstanceHash->RemoveInstance(Instance.Location, InstanceIndex);
 
 	// Remove current base link
 	auto* InstanceSet = ComponentHash.Find(Instance.BaseId);
@@ -950,6 +959,32 @@ int32 AInstancedFoliageActor::GetOverlappingSphereCount(const UFoliageType* Foli
 }
 
 
+int32 AInstancedFoliageActor::GetOverlappingBoxCount(const UFoliageType* FoliageType, const FBox& Box) const
+{
+	if(const FFoliageMeshInfo* MeshInfo = FindMesh(FoliageType))
+	{
+		if(MeshInfo->Component)
+		{
+			return MeshInfo->Component->GetOverlappingBoxCount(Box);
+		}
+	}
+
+	return 0;
+}
+
+
+void AInstancedFoliageActor::GetOverlappingBoxTransforms(const UFoliageType* FoliageType, const FBox& Box, TArray<FTransform>& OutTransforms) const
+{
+	if(const FFoliageMeshInfo* MeshInfo = FindMesh(FoliageType))
+	{
+		if(MeshInfo->Component)
+		{
+			MeshInfo->Component->GetOverlappingBoxTransforms(Box, OutTransforms);
+		}
+	}
+}
+
+
 UFoliageType* AInstancedFoliageActor::GetSettingsForMesh(const UStaticMesh* InMesh, FFoliageMeshInfo** OutMeshInfo)
 {
 	UFoliageType* Type = nullptr;
@@ -1056,6 +1091,13 @@ void AInstancedFoliageActor::DeleteInstancesForComponent(UActorComponent* InComp
 	{
 		FFoliageMeshInfo& MeshInfo = *MeshPair.Value;
 		const auto BaseId = InstanceBaseCache.GetInstanceBaseId(InComponent);
+
+		//TEMP FIX. Not sure why we're getting instances with invalid index, but we should not delete these
+		if (BaseId == FFoliageInstanceBaseCache::InvalidBaseId)
+		{
+			continue;
+		}
+
 		const auto* InstanceSet = MeshInfo.ComponentHash.Find(BaseId);
 		if (InstanceSet)
 		{
@@ -1593,6 +1635,7 @@ void AInstancedFoliageActor::Serialize(FArchive& Ar)
 	
 	if (Ar.UE4Ver() < VER_UE4_FOLIAGE_SETTINGS_TYPE)
 	{
+#if WITH_EDITORONLY_DATA
 		TMap<UFoliageType*, TUniqueObj<FFoliageMeshInfo_Deprecated>> FoliageMeshesDeprecated;
 		TMap<UStaticMesh*, FFoliageMeshInfo_Old> OldFoliageMeshes;
 		Ar << OldFoliageMeshes;
@@ -1600,10 +1643,8 @@ void AInstancedFoliageActor::Serialize(FArchive& Ar)
 		{
 			FFoliageMeshInfo_Deprecated NewMeshInfo;
 
-#if WITH_EDITORONLY_DATA
 			NewMeshInfo.Instances = MoveTemp(OldMeshInfo.Value.Instances);
-#endif
-
+			
 			UFoliageType_InstancedStaticMesh* FoliageType = OldMeshInfo.Value.Settings;
 			if (FoliageType == nullptr)
 			{
@@ -1622,21 +1663,18 @@ void AInstancedFoliageActor::Serialize(FArchive& Ar)
 				FoliageType = (UFoliageType_InstancedStaticMesh*)StaticDuplicateObject(FoliageType, this, nullptr, RF_AllFlags & ~(RF_Standalone | RF_Public));
 				FoliageType->Mesh = OldMeshInfo.Key;
 			}
-#if WITH_EDITORONLY_DATA
 			NewMeshInfo.FoliageTypeUpdateGuid = FoliageType->UpdateGuid;
-#endif
-			FoliageMeshesDeprecated.Add(FoliageType, TUniqueObj<FFoliageMeshInfo_Deprecated>(MoveTemp(NewMeshInfo)));
+			FoliageMeshes_Deprecated.Add(FoliageType, TUniqueObj<FFoliageMeshInfo_Deprecated>(MoveTemp(NewMeshInfo)));
 		}
-
-		ConvertDeprecatedFoliageMeshes(this, FoliageMeshesDeprecated, FoliageMeshes);
+#endif//WITH_EDITORONLY_DATA
 	}
 	else
 	{
 		if (Ar.CustomVer(FFoliageCustomVersion::GUID) < FFoliageCustomVersion::CrossLevelBase)
 		{
-			TMap<UFoliageType*, TUniqueObj<FFoliageMeshInfo_Deprecated>> FoliageMeshesDeprecated;
-			Ar << FoliageMeshesDeprecated;
-			ConvertDeprecatedFoliageMeshes(this, FoliageMeshesDeprecated, FoliageMeshes);
+#if WITH_EDITORONLY_DATA
+			Ar << FoliageMeshes_Deprecated;
+#endif
 		}
 		else
 		{
@@ -1692,6 +1730,12 @@ void AInstancedFoliageActor::PostLoad()
 #if WITH_EDITOR
 	if (GIsEditor)
 	{
+		if (GetLinkerCustomVersion(FFoliageCustomVersion::GUID) < FFoliageCustomVersion::CrossLevelBase)
+		{
+			ConvertDeprecatedFoliageMeshes(this, FoliageMeshes_Deprecated, FoliageMeshes);
+			FoliageMeshes_Deprecated.Empty();
+		}
+				
 		{
 			bool bContainsNull = FoliageMeshes.Remove(nullptr) > 0;
 			if (bContainsNull)
@@ -1748,28 +1792,10 @@ void AInstancedFoliageActor::PostLoad()
 			MeshInfo.InstanceHash->Empty();
 			for (int32 InstanceIdx = 0; InstanceIdx < MeshInfo.Instances.Num(); InstanceIdx++)
 			{
-				MeshInfo.AddToHash(InstanceIdx);
+				MeshInfo.AddToBaseHash(InstanceIdx);
+				MeshInfo.InstanceHash->InsertInstance(MeshInfo.Instances[InstanceIdx].Location, InstanceIdx);
 			}
-			
-			// Fix-up cross level references after serializing deprecated data
-			if (GetLinkerCustomVersion(FFoliageCustomVersion::GUID) < FFoliageCustomVersion::CrossLevelBase)
-			{
-				// update base cached transform this information was not available during serialization
-				InstanceBaseCache.UpdateInstanceBaseCachedTransforms();
-				// there were no cross-level references before
-				check(InstanceBaseCache.InstanceBaseLevelMap.Num() <= 1); 
-				// populate WorldAsset->BasePtr map
-				InstanceBaseCache.InstanceBaseLevelMap.Empty();
-				auto& BaseList = InstanceBaseCache.InstanceBaseLevelMap.Add(TAssetPtr<UWorld>(Cast<UWorld>(GetLevel()->GetOuter())));
-				for (auto& BaseInfoPair : InstanceBaseCache.InstanceBaseMap)
-				{
-					BaseList.Add(BaseInfoPair.Value.BasePtr);
-				}
-			}
-
-			// Clean up dead cross-level references
-			FFoliageInstanceBaseCache::CompactInstanceBaseCache(this);
-			
+	
 			// Convert to Heirarchical foliage
 			if (GetLinkerCustomVersion(FFoliageCustomVersion::GUID) < FFoliageCustomVersion::FoliageUsingHierarchicalISMC)
 			{
@@ -1784,20 +1810,12 @@ void AInstancedFoliageActor::PostLoad()
 				}
 			}
 		}
+
+		// Clean up dead cross-level references
+		FFoliageInstanceBaseCache::CompactInstanceBaseCache(this);
+
 	}
 #endif
-}
-
-void AInstancedFoliageActor::PreSave()
-{
-	Super::PreSave();
-
-#if WITH_EDITOR
-	if (GIsEditor)
-	{
-		FFoliageInstanceBaseCache::CompactInstanceBaseCache(this);
-	}
-#endif //WITH_EDITOR
 }
 
 #if WITH_EDITOR

@@ -43,7 +43,6 @@ public:
 	virtual void PostInitProperties() override;
 	virtual void BeginDestroy() override;
 	virtual void PostLoad() override;
-	virtual void PreSave() override;
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 	// End UObject interface. 
 
@@ -59,6 +58,10 @@ public:
 
 	// Finds the number of instances overlapping with the sphere. 
 	FOLIAGE_API int32 GetOverlappingSphereCount(const UFoliageType* FoliageType, const FSphere& Sphere) const;
+	// Finds the number of instances overlapping with the box. 
+	FOLIAGE_API int32 GetOverlappingBoxCount(const UFoliageType* FoliageType, const FBox& Box) const;
+	// Finds all instances in the provided box and get their transforms
+	FOLIAGE_API void GetOverlappingBoxTransforms(const UFoliageType* FoliageType, const FBox& Box, TArray<FTransform>& OutTransforms) const;
 
 	// Finds a mesh entry
 	FOLIAGE_API FFoliageMeshInfo* FindMesh(const UFoliageType* InType);
@@ -139,6 +142,11 @@ public:
 #endif	//WITH_EDITOR
 
 private:
+#if WITH_EDITORONLY_DATA
+	// Deprecated data, will be converted and cleaned up in PostLoad
+	TMap<UFoliageType*, TUniqueObj<struct FFoliageMeshInfo_Deprecated>> FoliageMeshes_Deprecated;
+#endif//WITH_EDITORONLY_DATA
+	
 #if WITH_EDITOR
 	void OnLevelActorMoved(AActor* InActor);
 	void OnLevelActorDeleted(AActor* InActor);

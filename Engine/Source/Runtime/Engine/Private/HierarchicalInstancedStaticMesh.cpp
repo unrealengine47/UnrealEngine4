@@ -642,35 +642,6 @@ public:
 	{
 	}
 
-
-	virtual int32 GetNumMeshBatches() const override
-	{
-		check(0);
-		return 0;
-	}
-
-	/** Sets up a shadow FMeshBatch for a specific LOD. */
-	virtual bool GetShadowMeshElement(int32 LODIndex, int32 BatchIndex, uint8 InDepthPriorityGroup, FMeshBatch& OutMeshBatch) const override
-	{
-		check(0);
-		return false;
-	}
-
-	/** Sets up a FMeshBatch for a specific LOD and element. */
-	virtual bool GetMeshElement(int32 LODIndex, int32 BatchIndex, int32 ElementIndex, uint8 InDepthPriorityGroup, const bool bUseSelectedMaterial, const bool bUseHoveredMaterial, FMeshBatch& OutMeshBatch) const override
-	{
-		check(0);
-		return false;
-	}
-
-
-	/** Sets up a wireframe FMeshBatch for a specific LOD. */
-	virtual bool GetWireframeMeshElement(int32 LODIndex, int32 BatchIndex, const FMaterialRenderProxy* WireframeRenderProxy, uint8 InDepthPriorityGroup, FMeshBatch& OutMeshBatch) const override
-	{
-		check(0);
-		return false;
-	}
-
 	void FillDynamicMeshElements(FMeshElementCollector& Collector, const FFoliageElementParams& ElementParams, const FFoliageRenderInstanceParams& Instances) const;
 
 	template<bool TUseVector>
@@ -1091,6 +1062,12 @@ void FHierarchicalStaticMeshSceneProxy::FillDynamicMeshElements(FMeshElementColl
 
 void FHierarchicalStaticMeshSceneProxy::GetDynamicMeshElements(const TArray<const FSceneView*>& Views, const FSceneViewFamily& ViewFamily, uint32 VisibilityMap, FMeshElementCollector& Collector) const
 {
+	if (Views[0]->bRenderFirstInstanceOnly)
+	{
+		FInstancedStaticMeshSceneProxy::GetDynamicMeshElements(Views, ViewFamily, VisibilityMap, Collector);
+		return;
+	}
+
 	QUICK_SCOPE_CYCLE_COUNTER(STAT_HierarchicalInstancedStaticMeshSceneProxy_GetMeshElements);
 
 	bool bMultipleSections = ALLOW_DITHERED_LOD_FOR_INSTANCED_STATIC_MESHES && CVarDitheredLOD.GetValueOnRenderThread() > 0;
@@ -1384,6 +1361,7 @@ UHierarchicalInstancedStaticMeshComponent::UHierarchicalInstancedStaticMeshCompo
 	, bConcurrentRemoval(false)
 	, AccumulatedNavigationDirtyArea(0)
 {
+	bCanEverAffectNavigation = true;
 }
 
 UHierarchicalInstancedStaticMeshComponent::~UHierarchicalInstancedStaticMeshComponent()
@@ -1913,12 +1891,8 @@ static void GatherInstanceTransformsInArea(const UHierarchicalInstancedStaticMes
 {
 	const TArray<FClusterNode>& ClusterTree = *Component.ClusterTreePtr;
 	const FClusterNode& ChildNode = ClusterTree[Child];
-	const FVector WorldMinMax[] = {
-		Component.ComponentToWorld.TransformPosition(ChildNode.BoundMin),
-		Component.ComponentToWorld.TransformPosition(ChildNode.BoundMax)
-	};
-	const FBox WorldNodeBox(WorldMinMax, 2);
-
+	const FBox WorldNodeBox = FBox(ChildNode.BoundMin, ChildNode.BoundMax).TransformBy(Component.ComponentToWorld);
+	
 	if (AreaBox.Intersect(WorldNodeBox))
 	{
 		if (ChildNode.FirstChild < 0 || AreaBox.IsInside(WorldNodeBox))
@@ -1968,6 +1942,46 @@ int32 UHierarchicalInstancedStaticMeshComponent::GetOverlappingSphereCount(const
 	}
 
 	return Count;
+}
+
+int32 UHierarchicalInstancedStaticMeshComponent::GetOverlappingBoxCount(const FBox& Box) const
+{
+	TArray<FTransform> Transforms;
+	GatherInstanceTransformsInArea(*this, Box, 0, Transforms);
+	
+	int32 Count = 0;
+	const FBoxSphereBounds Bounds = StaticMesh->GetBounds();
+	for(FTransform& T : Transforms)
+	{
+		const FVector Centre = T.GetLocation();
+		const FBox OtherBox(FVector(Centre - Bounds.BoxExtent), FVector(Centre + Bounds.BoxExtent));
+
+		if(Box.Intersect(OtherBox))
+		{
+			Count++;
+		}
+	}
+
+	return Count;
+}
+
+void UHierarchicalInstancedStaticMeshComponent::GetOverlappingBoxTransforms(const FBox& Box, TArray<FTransform>& OutTransforms) const
+{
+	GatherInstanceTransformsInArea(*this, Box, 0, OutTransforms);
+
+	const FBoxSphereBounds Bounds = StaticMesh->GetBounds();
+	int32 NumTransforms = OutTransforms.Num();
+	for(int32 Idx = NumTransforms - 1 ; Idx >= 0 ; --Idx)
+	{
+		FTransform& TM = OutTransforms[Idx];
+		const FVector Centre = TM.GetLocation();
+		const FBox OtherBox(FVector(Centre - Bounds.BoxExtent), FVector(Centre + Bounds.BoxExtent));
+
+		if(!Box.Intersect(OtherBox))
+		{
+			OutTransforms.RemoveAt(Idx);
+		}
+	}
 }
 
 void UHierarchicalInstancedStaticMeshComponent::GetNavigationPerInstanceTransforms(const FBox& AreaBox, TArray<FTransform>& InstanceData) const

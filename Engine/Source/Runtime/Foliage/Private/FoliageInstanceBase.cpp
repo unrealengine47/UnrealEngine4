@@ -69,7 +69,7 @@ FArchive& operator << (FArchive& Ar, FFoliageInstanceBaseCache& InstanceBaseCach
 	{
 		Ar << InstanceBaseCache.InstanceBaseInvMap;
 	}
-	else if (Ar.IsLoading())
+	else if (!Ar.IsSaving())
 	{
 		InstanceBaseCache.InstanceBaseInvMap.Empty();
 		for (const auto& Pair : InstanceBaseCache.InstanceBaseMap)
@@ -78,8 +78,6 @@ FArchive& operator << (FArchive& Ar, FFoliageInstanceBaseCache& InstanceBaseCach
 			InstanceBaseCache.InstanceBaseInvMap.Add(BaseInfo.BasePtr, Pair.Key);
 		}
 	}
-	
-	check(InstanceBaseCache.InstanceBaseInvMap.Num() == InstanceBaseCache.InstanceBaseMap.Num());
 
 	return Ar;
 }
@@ -93,10 +91,10 @@ FFoliageInstanceBaseId FFoliageInstanceBaseCache::AddInstanceBaseId(UActorCompon
 		if (BaseId == FFoliageInstanceBaseCache::InvalidBaseId)
 		{
 			BaseId = NextBaseId++;
-			FFoliageInstanceBasePtr BasePtr = InComponent;
 
-			InstanceBaseMap.Add(BaseId, FFoliageInstanceBaseInfo(InComponent));
-			InstanceBaseInvMap.Add(BasePtr, BaseId);
+			FFoliageInstanceBaseInfo BaseInfo(InComponent);
+			InstanceBaseMap.Add(BaseId, BaseInfo);
+			InstanceBaseInvMap.Add(BaseInfo.BasePtr, BaseId);
 
 			check(InstanceBaseMap.Num() == InstanceBaseInvMap.Num());
 
@@ -107,7 +105,7 @@ FFoliageInstanceBaseId FFoliageInstanceBaseCache::AddInstanceBaseId(UActorCompon
 				if (ComponentWorld)
 				{
 					auto WorldKey = TAssetPtr<UWorld>(ComponentWorld);
-					InstanceBaseLevelMap.FindOrAdd(WorldKey).Add(BasePtr);
+					InstanceBaseLevelMap.FindOrAdd(WorldKey).Add(BaseInfo.BasePtr);
 				}
 			}
 		}
@@ -160,7 +158,7 @@ FFoliageInstanceBaseInfo FFoliageInstanceBaseCache::UpdateInstanceBaseInfoTransf
 void FFoliageInstanceBaseCache::CompactInstanceBaseCache(AInstancedFoliageActor* IFA)
 {
 	UWorld* World = IFA->GetWorld();
-	if (!World)
+	if (!World || World->IsGameWorld())
 	{
 		return;
 	}

@@ -12,6 +12,7 @@
 #include "ModuleManager.h"
 #include "TargetPlatform.h"
 #include "RHICommandList.h"
+#include "ShaderCache.h"
 
 
 DEFINE_LOG_CATEGORY(LogShaders);
@@ -338,6 +339,12 @@ void FShaderResource::Serialize(FArchive& Ar)
 	{
 		INC_DWORD_STAT_BY_FName(GetMemoryStatType((EShaderFrequency)Target.Frequency).GetName(), (int64)Code.Num());
 		INC_DWORD_STAT_BY(STAT_Shaders_ShaderResourceMemory, GetSizeBytes());
+		
+		FShaderCache* ShaderCache = FShaderCache::GetShaderCache();
+		if(ShaderCache)
+		{
+			ShaderCache->LogShader((EShaderPlatform)Target.Platform, (EShaderFrequency)Target.Frequency, OutputHash, Code);
+		}
 	}
 }
 
@@ -443,29 +450,31 @@ void FShaderResource::InitRHI()
 	INC_DWORD_STAT_BY(STAT_Shaders_NumShadersUsedForRendering, 1);
 	SCOPE_CYCLE_COUNTER(STAT_Shaders_RTShaderLoadTime);
 
+	FShaderCache* ShaderCache = FShaderCache::GetShaderCache();
+
 	if(Target.Frequency == SF_Vertex)
 	{
-		VertexShader = RHICreateVertexShader(Code);
+		VertexShader = ShaderCache ? ShaderCache->GetVertexShader((EShaderPlatform)Target.Platform, OutputHash, Code) : RHICreateVertexShader(Code);
 	}
 	else if(Target.Frequency == SF_Pixel)
 	{
-		PixelShader = RHICreatePixelShader(Code);
+		PixelShader = ShaderCache ? ShaderCache->GetPixelShader((EShaderPlatform)Target.Platform, OutputHash, Code) : RHICreatePixelShader(Code);
 	}
 	else if(Target.Frequency == SF_Hull)
 	{
-		HullShader = RHICreateHullShader(Code);
+		HullShader = ShaderCache ? ShaderCache->GetHullShader((EShaderPlatform)Target.Platform, OutputHash, Code) : RHICreateHullShader(Code);
 	}
 	else if(Target.Frequency == SF_Domain)
 	{
-		DomainShader = RHICreateDomainShader(Code);
+		DomainShader = ShaderCache ? ShaderCache->GetDomainShader((EShaderPlatform)Target.Platform, OutputHash, Code) : RHICreateDomainShader(Code);
 	}
 	else if(Target.Frequency == SF_Geometry)
 	{
-		GeometryShader = RHICreateGeometryShader(Code);
+		GeometryShader = ShaderCache ? ShaderCache->GetGeometryShader((EShaderPlatform)Target.Platform, OutputHash, Code) : RHICreateGeometryShader(Code);
 	}
 	else if(Target.Frequency == SF_Compute)
 	{
-		ComputeShader = RHICreateComputeShader(Code);
+		ComputeShader = ShaderCache ? ShaderCache->GetComputeShader((EShaderPlatform)Target.Platform, OutputHash, Code) : RHICreateComputeShader(Code);
 	}
 
 	if (!FPlatformProperties::HasEditorOnlyData())
@@ -752,6 +761,7 @@ FShader::FShader(const CompiledShaderInitializerType& Initializer):
 
 FShader::~FShader()
 {
+	check(!IsInitialized());
 	check(Canary == ShaderMagic_Uninitialized || Canary == ShaderMagic_Initialized);
 	check(NumRefs == 0);
 	Canary = 0;
@@ -888,6 +898,8 @@ void FShader::Release()
 		// Deregister the shader now to eliminate references to it by the type's ShaderIdMap
 		Deregister();
 
+		BeginReleaseResource(this);
+
 		BeginCleanup(this);
 	}
 }
@@ -935,6 +947,41 @@ void FShader::FinishCleanup()
 	delete this;
 }
 
+
+void FShader::InitRHI()
+{
+	checkf(Resource->GetCode().Num() > 0, TEXT("FShader::InitRHI was called with empty bytecode, which can happen if the resource is initialized multiple times on platforms with no editor data."));
+
+	// we can't have this called on the wrong platform's shaders
+	if (!ArePlatformsCompatible(GMaxRHIShaderPlatform, (EShaderPlatform)Target.Platform))
+ 	{
+ 		if (FPlatformProperties::RequiresCookedData())
+ 		{
+ 			UE_LOG(LogShaders, Fatal, TEXT("FShader::InitRHI got platform %s but it is not compatible with %s"), 
+				*LegacyShaderPlatformToShaderFormat((EShaderPlatform)Target.Platform).ToString(), *LegacyShaderPlatformToShaderFormat(GMaxRHIShaderPlatform).ToString());
+ 		}
+ 		return;
+ 	}
+
+	if (Target.Frequency == SF_Geometry)
+	{
+		FStreamOutElementList ElementList;
+		TArray<uint32> StreamStrides;
+		int32 RasterizedStream = -1;
+		GetStreamOutElements(ElementList, StreamStrides, RasterizedStream);
+
+		if (ElementList.Num() > 0)
+		{
+			GeometryShaderWithStreamOutput = RHICreateGeometryShaderWithStreamOutput(Resource->GetCode(), ElementList, StreamStrides.Num(), StreamStrides.GetData(), RasterizedStream);
+		}
+	}
+}
+
+
+void FShader::ReleaseRHI()
+{
+	GeometryShaderWithStreamOutput.SafeRelease();
+}
 
 void FShader::VerifyBoundUniformBufferParameters()
 {
