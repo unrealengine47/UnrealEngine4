@@ -476,7 +476,7 @@ bool FHotReloadModule::RecompileModule(const FName InModuleName, const bool bRel
 	Args.Add( TEXT("CodeModuleName"), FText::FromName( InModuleName ) );
 	const FText StatusUpdate = FText::Format( NSLOCTEXT("ModuleManager", "Recompile_SlowTaskName", "Compiling {CodeModuleName}..."), Args );
 
-	FScopedSlowTask SlowTask(1, StatusUpdate);
+	FScopedSlowTask SlowTask(2, StatusUpdate);
 	SlowTask.MakeDialog();
 
 	ModuleCompilerStartedEvent.Broadcast();
@@ -488,6 +488,8 @@ bool FHotReloadModule::RecompileModule(const FName InModuleName, const bool bRel
 	// the module without actually having to unload it first.
 	const bool bWasModuleLoaded = FModuleManager::Get().IsModuleLoaded( InModuleName );
 	const bool bUseRollingModuleNames = bWasModuleLoaded;
+
+	SlowTask.EnterProgressFrame();
 
 	bool bWasSuccessful = true;
 	if( bUseRollingModuleNames )
@@ -510,6 +512,8 @@ bool FHotReloadModule::RecompileModule(const FName InModuleName, const bool bRel
 		bWasSuccessful = RecompileModuleDLLs(ModulesToRecompile, Ar, bFailIfGeneratedCodeChanges, bForceCodeProject);		
 	}
 
+	SlowTask.EnterProgressFrame();
+	
 	if( bWasSuccessful )
 	{
 		// Shutdown the module if it's already running
@@ -1274,15 +1278,8 @@ bool FHotReloadModule::InvokeUnrealBuildToolForCompile(const FString& InCmdLineP
 	check(!IsCurrentlyCompiling());
 
 	// Setup output redirection pipes, so that we can harvest compiler output and display it ourselves
-#if PLATFORM_LINUX
-	int pipefd[2];
-	pipe(pipefd);
-	void* PipeRead = &pipefd[0];
-	void* PipeWrite = &pipefd[1];
-#else
 	void* PipeRead = NULL;
 	void* PipeWrite = NULL;
-#endif
 
 	verify(FPlatformProcess::CreatePipe(PipeRead, PipeWrite));
 	ModuleCompileReadPipeText = TEXT("");
@@ -1291,11 +1288,7 @@ bool FHotReloadModule::InvokeUnrealBuildToolForCompile(const FString& InCmdLineP
 
 	// We no longer need the Write pipe so close it.
 	// We DO need the Read pipe however...
-#if PLATFORM_LINUX
-	close(*(int*)PipeWrite);
-#else
 	FPlatformProcess::ClosePipe(0, PipeWrite);
-#endif
 
 	if (!ProcHandle.IsValid())
 	{
@@ -1410,11 +1403,7 @@ void FHotReloadModule::CheckForFinishedModuleDLLCompile(const bool bWaitForCompl
 			ModuleCompileProcessHandle.Close();
 			ModuleCompileProcessHandle.Reset();
 
-#if PLATFORM_LINUX
-			close(*(int *)ModuleCompileReadPipe);
-#else
 			FPlatformProcess::ClosePipe(ModuleCompileReadPipe, 0);
-#endif
 
 			Ar.Log(*ModuleCompileReadPipeText);
 			const FString FinalOutput = ModuleCompileReadPipeText;

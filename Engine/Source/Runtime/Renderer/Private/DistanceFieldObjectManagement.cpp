@@ -4,6 +4,8 @@
 	DistanceFieldSurfaceCacheLighting.cpp
 =============================================================================*/
 
+#include "RendererPrivate.h"
+
 float GAOMaxObjectBoundingRadius = 50000;
 FAutoConsoleVariableRef CVarAOMaxObjectBoundingRadius(
 	TEXT("r.AOMaxObjectBoundingRadius"),
@@ -525,7 +527,7 @@ void UpdateGlobalDistanceFieldObjectRemoves(FRHICommandListImmediate& RHICmdList
 
 	if (DistanceFieldSceneData.PendingRemoveOperations.Num() > 0)
 	{
-		static TArray<int32, SceneRenderingAllocator> PendingRemoveOperations;
+		TArray<int32, SceneRenderingAllocator> PendingRemoveOperations;
 
 		for (int32 RemoveIndex = 0; RemoveIndex < DistanceFieldSceneData.PendingRemoveOperations.Num(); RemoveIndex++)
 		{

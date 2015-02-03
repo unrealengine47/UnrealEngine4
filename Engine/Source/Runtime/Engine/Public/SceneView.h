@@ -20,7 +20,11 @@ class FSceneViewFamily;
 // Projection data for a FSceneView
 struct FSceneViewProjectionData
 {
-	FMatrix ViewMatrix;
+	/** The view origin. */
+	FVector ViewOrigin;
+
+	/** Rotation matrix transforming from world space to view space. */
+	FMatrix ViewRotationMatrix;
 
 	/** UE4 projection matrix projects such that clip space Z=1 is the near plane, and Z=0 is the infinite far plane. */
 	FMatrix ProjectionMatrix;
@@ -54,6 +58,11 @@ public:
 
 	const FIntRect& GetViewRect() const { return ViewRect; }
 	const FIntRect& GetConstrainedViewRect() const { return ConstrainedViewRect; }
+
+	FMatrix ComputeViewProjectionMatrix() const
+	{
+		return FTranslationMatrix(-ViewOrigin) * ViewRotationMatrix * ProjectionMatrix;
+	}
 };
 
 // Construction parameters for a FSceneView
@@ -159,6 +168,17 @@ struct FViewMatrices
 	FVector		PreViewTranslation;
 	/** To support ortho and other modes this is redundant, in world space */
 	FVector		ViewOrigin;
+	/** Scale applied by the projection matrix in X and Y. */
+	FVector2D ProjectionScale;
+	/**
+	 * Scale factor to use when computing the size of a sphere in pixels.
+	 * 
+	 * A common calculation is to determine the size of a sphere in pixels when projected on the screen:
+	 *		ScreenRadius = max(0.5 * ViewSizeX * ProjMatrix[0][0], 0.5 * ViewSizeY * ProjMatrix[1][1]) * SphereRadius / ProjectedSpherePosition.W
+	 * Instead you can now simply use:
+	 *		ScreenRadius = ScreenScale * SphereRadius / ProjectedSpherePosition.W
+	 */
+	float ScreenScale;
 
 	//
 	// World = TranslatedWorld - PreViewTranslation

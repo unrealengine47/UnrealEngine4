@@ -93,10 +93,13 @@ void UEditorExperimentalSettings::PostEditChangeProperty( struct FPropertyChange
 
 UEditorLoadingSavingSettings::UEditorLoadingSavingSettings( const FObjectInitializer& ObjectInitializer )
 	: Super(ObjectInitializer)
-	, bMonitorContentDirectories(false)
-	, bDeleteSourceFilesWithAssets(true)
+	, bMonitorContentDirectories(true)
+	, bAutoCreateAssets(true)
+	, bAutoDeleteAssets(true)
+	, bDeleteSourceFilesWithAssets(false)
 {
 	TextDiffToolPath.FilePath = TEXT("P4Merge.exe");
+	AutoReimportDirectories.Add("/Game/");
 }
 
 

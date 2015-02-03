@@ -327,6 +327,38 @@ FQuat UActorFactoryStaticMesh::AlignObjectToSurfaceNormal(const FVector& InSurfa
 }
 
 /*-----------------------------------------------------------------------------
+UActorFactoryBasicShape
+-----------------------------------------------------------------------------*/
+UActorFactoryBasicShape::UActorFactoryBasicShape(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	DisplayName = LOCTEXT("UActorFactoryBasicShapeDisplayName", "Basic Shape");
+	NewActorClass = AStaticMeshActor::StaticClass();
+	bUseSurfaceOrientation = true;
+}
+
+void UActorFactoryBasicShape::PostSpawnActor(UObject* Asset, AActor* NewActor)
+{
+	// Change properties
+	UStaticMesh* StaticMesh = CastChecked<UStaticMesh>(Asset);
+	GEditor->SetActorLabelUnique(NewActor, StaticMesh->GetName());
+
+	AStaticMeshActor* StaticMeshActor = CastChecked<AStaticMeshActor>(NewActor);
+	UStaticMeshComponent* StaticMeshComponent = StaticMeshActor->GetStaticMeshComponent();
+
+	if( StaticMeshComponent )
+	{
+		StaticMeshComponent->UnregisterComponent();
+
+		StaticMeshComponent->StaticMesh = StaticMesh;
+		StaticMeshComponent->StaticMeshDerivedDataKey = StaticMesh->RenderData->DerivedDataKey;
+		StaticMeshComponent->SetMaterial(0, LoadObject<UMaterial>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")));
+		// Init Component
+		StaticMeshComponent->RegisterComponent();
+	}
+}
+
+/*-----------------------------------------------------------------------------
 UActorFactoryDeferredDecal
 -----------------------------------------------------------------------------*/
 UActorFactoryDeferredDecal::UActorFactoryDeferredDecal(const FObjectInitializer& ObjectInitializer)
@@ -1152,7 +1184,7 @@ AActor* UActorFactoryEmptyActor::SpawnActor( UObject* Asset, ULevel* InLevel, co
 		// Spawn a temporary actor for dragging around
 		NewActor = Super::SpawnActor(Asset, InLevel, Location, Rotation, ObjectFlags, Name);
 
-		USceneComponent* RootComponent = ConstructObject<USceneComponent>(USceneComponent::StaticClass(), NewActor, FComponentEditorUtils::GetDefaultSceneRootVariableName(), RF_Transactional);
+		USceneComponent* RootComponent = ConstructObject<USceneComponent>(USceneComponent::StaticClass(), NewActor, USceneComponent::GetDefaultSceneRootVariableName(), RF_Transactional);
 		RootComponent->Mobility = EComponentMobility::Movable;
 		RootComponent->SetWorldLocationAndRotation(Location, Rotation);
 		NewActor->SetRootComponent(RootComponent);
@@ -1215,8 +1247,8 @@ AActor* UActorFactoryPawn::SpawnActor(UObject* Asset, ULevel* InLevel, const FVe
 	AActor* NewActor = nullptr;
 	if(GetDefault<UEditorExperimentalSettings>()->bInWorldBPEditing)
 	{
-			NewActor = Super::SpawnActor(Asset, InLevel, Location, Rotation, ObjectFlags, Name);
-		}
+		NewActor = Super::SpawnActor(Asset, InLevel, Location, Rotation, ObjectFlags, Name);
+	}
 
 	return NewActor;
 }
@@ -1773,8 +1805,9 @@ void CreateBrushForVolumeActor( AVolume* NewActor, UBrushBuilder* BrushBuilder )
 		NewActor->PreEditChange(NULL);
 
 		NewActor->PolyFlags = 0;
-		NewActor->Brush = new( NewActor, NAME_None, RF_Transactional )UModel(FObjectInitializer(), NULL, true );
-		NewActor->Brush->Polys = new( NewActor->Brush, NAME_None, RF_Transactional )UPolys(FObjectInitializer());
+		NewActor->Brush = NewNamedObject<UModel>(NewActor, NAME_None, RF_Transactional);
+		NewActor->Brush->Initialize(nullptr, true);
+		NewActor->Brush->Polys = NewNamedObject<UPolys>(NewActor->Brush, NAME_None, RF_Transactional);
 		NewActor->GetBrushComponent()->Brush = NewActor->Brush;
 		if(BrushBuilder != nullptr)
 		{

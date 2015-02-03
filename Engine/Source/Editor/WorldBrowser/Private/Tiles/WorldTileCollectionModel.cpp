@@ -2008,9 +2008,9 @@ bool FWorldTileCollectionModel::GenerateLODLevels(FLevelModelList InLevelList, i
 
 			if (SimplificationDetails.bBakeGrassToLandscape)
 			{
-				Landscape->FlushFoliageComponents();
+				Landscape->FlushGrassComponents();
 				TArray<FVector> Cameras;
-				Landscape->UpdateFoliage(Cameras, nullptr, true);
+				Landscape->UpdateFoliage(Cameras, true);
 			}
 								
 			// This is texture resolution for a landscape mesh, probably needs to be calculated using landscape size
@@ -2025,7 +2025,7 @@ bool FWorldTileCollectionModel::GenerateLODLevels(FLevelModelList InLevelList, i
 		
 			if (SimplificationDetails.bBakeGrassToLandscape)
 			{
-				Landscape->FlushFoliageComponents(); // wipe this and let it fix itself later
+				Landscape->FlushGrassComponents(); // wipe this and let it fix itself later
 			}
 			FString LandscapeBaseAssetName = Landscape->GetName();
 			// Construct landscape material
@@ -2044,8 +2044,8 @@ bool FWorldTileCollectionModel::GenerateLODLevels(FLevelModelList InLevelList, i
 				MeshOuter->FullyLoad();
 				MeshOuter->Modify();
 			}
-					
-			UStaticMesh* StaticMesh = new(MeshOuter, *LandscapeMeshAssetName, RF_Public|RF_Standalone) UStaticMesh(FObjectInitializer());
+
+			auto StaticMesh = NewNamedObject<UStaticMesh>(MeshOuter, *LandscapeMeshAssetName, RF_Public | RF_Standalone);
 			StaticMesh->InitResources();
 			{
 				FString OutputPath = StaticMesh->GetPathName();

@@ -8,9 +8,7 @@
 class UNREALED_API FComponentEditorUtils
 {
 public:
-	/** The name to use for the default scene root variable */
-	static const FName& GetDefaultSceneRootVariableName();
-
+	
 	static class USceneComponent* GetSceneComponent(class UObject* Object, class UObject* SubObject = NULL);
 
 	static void GetArchetypeInstances(class UObject* Object, TArray<class UObject*>& ArchetypeInstances);
@@ -23,13 +21,19 @@ public:
 	 * Optionally excludes an existing component from the check (ex. a component currently being renamed)
 	 * @return True if the InString is an available name for a component of ComponentOwner
 	 */
-	static bool IsComponentNameAvailable(const FString& InString, const AActor* ComponentOwner, const UActorComponent* ComponentToIgnore = nullptr);
+	static bool IsComponentNameAvailable(const FString& InString, AActor* ComponentOwner, const UActorComponent* ComponentToIgnore = nullptr);
 		
 	/** Generate a valid variable name string for the given component instance */
 	static FString GenerateValidVariableName(TSubclassOf<UActorComponent> InComponentClass, AActor* ComponentOwner);
 
 	/** Generate a valid variable name string for the given component instance based on the name of the asset referenced by the component */
 	static FString GenerateValidVariableNameFromAsset(UObject* Asset, AActor* ComponentOwner);
+
+	/**
+	* Ensures that the selection override delegate is bound for the supplied component
+	* This includes any attached editor-only primitive components (such as billboard visualizers)
+	*/
+	static void BindComponentSelectionOverride(USceneComponent* SceneComponent);
 
 	struct FTransformData
 	{

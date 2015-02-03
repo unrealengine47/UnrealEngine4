@@ -23,25 +23,22 @@ FOverlapInfo::FOverlapInfo(UPrimitiveComponent* InComponent, int32 InBodyIndex)
 	OverlapInfo.Item = InBodyIndex;
 }
 
-USceneComponent::USceneComponent()
+const FName& USceneComponent::GetDefaultSceneRootVariableName()
 {
-	InitializeDefaults();
+	static FName DefaultSceneRootVariableName = FName(TEXT("DefaultSceneRoot"));
+
+	return DefaultSceneRootVariableName;
 }
 
-USceneComponent::USceneComponent( const FObjectInitializer& ObjectInitializer )
-{
-	// Forward to default constructor (we don't use ObjectInitializer for anything, this is for compatibility with inherited classes that call Super( ObjectInitializer )
-	InitializeDefaults();
-}
-
-void USceneComponent::InitializeDefaults()
+USceneComponent::USceneComponent(const FObjectInitializer& ObjectInitializer /*= FObjectInitializer::Get()*/)
+	: Super(ObjectInitializer)
 {
 	Mobility = EComponentMobility::Movable;
-	RelativeScale3D = FVector(1.0f,1.0f,1.0f);
+	RelativeScale3D = FVector(1.0f, 1.0f, 1.0f);
 	// default behavior is visible
 	bVisible = true;
-	bAutoActivate=false;
-	
+	bAutoActivate = false;
+
 	NetUpdateTransform = false;
 }
 
@@ -258,6 +255,100 @@ void USceneComponent::EndScopedMovementUpdate(class FScopedMovementUpdate& Compl
 	}
 }
 
+
+void USceneComponent::DestroyComponent(bool bPromoteChildren/*= false*/)
+{
+	if (bPromoteChildren)
+	{
+		AActor* Owner = GetOwner();
+		if (Owner != NULL)
+		{
+			Owner->Modify();
+
+			// Find an appropriate child node to promote to this node's position in the hierarchy
+			USceneComponent* ChildToPromote = nullptr;
+			if (AttachChildren.Num() > 0)
+			{
+				// Start with the first child node
+				ChildToPromote = AttachChildren[0];
+				check(ChildToPromote != nullptr);
+
+				// Always choose non editor-only child nodes over editor-only child nodes (since we don't want editor-only nodes to end up with non editor-only child nodes)
+				if (ChildToPromote->IsEditorOnly())
+				{
+					for (int32 ChildIndex = 1; ChildIndex < AttachChildren.Num(); ++ChildIndex)
+					{
+						USceneComponent* Child = AttachChildren[ChildIndex];
+						if (Child != nullptr && !Child->IsEditorOnly())
+						{
+							ChildToPromote = Child;
+							break;
+						}
+					}
+				}
+			}
+
+			// Handle removal of the root node
+			if (this == Owner->GetRootComponent())
+			{
+				// We only promote non editor-only components to root in instanced mode
+				if (ChildToPromote == nullptr || ChildToPromote->IsEditorOnly())
+				{
+					// Construct a new default root component
+					USceneComponent* NewRootComponent = ConstructObject<USceneComponent>(USceneComponent::StaticClass(), Owner, USceneComponent::GetDefaultSceneRootVariableName(), RF_Transactional);
+					NewRootComponent->Mobility = Mobility;
+					NewRootComponent->SetWorldLocationAndRotation(GetComponentLocation(), GetComponentRotation());
+
+					// Designate the new default root as the child we're promoting
+					ChildToPromote = NewRootComponent;
+				}
+
+				Owner->Modify();
+
+				// Set the selected child node as the new root
+				check(ChildToPromote != nullptr);
+				Owner->SetRootComponent(ChildToPromote);
+			}
+			else    // ...not the root node, so we'll promote the selected child node to this position in its AttachParent's child array.
+			{
+				// Cache our AttachParent
+				USceneComponent* CachedAttachParent = AttachParent;
+				check(CachedAttachParent != nullptr);
+
+				// Find the our position in its AttachParent's child array
+				int32 Index = CachedAttachParent->AttachChildren.Find(this);
+				check(Index != INDEX_NONE);
+
+				// Detach from parent
+				DetachFromParent(true);
+
+				if (ChildToPromote != nullptr)
+				{
+					// Attach the child node that we're promoting to the parent and move it to the same position as the old node was in the array
+					ChildToPromote->AttachTo(CachedAttachParent, NAME_None, EAttachLocation::KeepWorldPosition);
+					CachedAttachParent->AttachChildren.Remove(ChildToPromote);
+					CachedAttachParent->AttachChildren.Insert(ChildToPromote, Index);
+				}
+			}
+
+			// Detach child nodes from the node that's being removed and re-attach them to the child that's being promoted
+			TArray<USceneComponent*> AttachChildrenLocalCopy(AttachChildren);
+			for (auto ChildCompIt = AttachChildrenLocalCopy.CreateIterator(); ChildCompIt; ++ChildCompIt)
+			{
+				USceneComponent* Child = *ChildCompIt;
+				check(Child != nullptr);
+
+				// Note: This will internally call Modify(), so we don't need to call it here
+				Child->DetachFromParent(true);
+				if (Child != ChildToPromote)
+				{
+					Child->AttachTo(ChildToPromote, NAME_None, EAttachLocation::KeepWorldPosition);
+				}
+			}
+		}
+	}
+	Super::DestroyComponent(bPromoteChildren);
+}
 
 void USceneComponent::OnComponentDestroyed()
 {
@@ -801,7 +892,7 @@ void USceneComponent::AttachTo(class USceneComponent* Parent, FName InSocketName
 			//Also physics state may not be created yet so we use bSimulatePhysics to determine if the object has any intention of being physically simulated
 			UPrimitiveComponent * PrimitiveComponent = Cast<UPrimitiveComponent>(this);
 
-			if (PrimitiveComponent && PrimitiveComponent->BodyInstance.bSimulatePhysics && !bWeldSimulatedBodies && GetWorld() && GetWorld()->IsGameWorld())
+			if (PrimitiveComponent && PrimitiveComponent->BodyInstance.bSimulatePhysics && !bWeldSimulatedBodies && GetWorld() && GetWorld()->IsGameWorld() && !GetWorld()->bIsRunningConstructionScript)
 			{
 				//Since the object is physically simulated it can't be the case that it's a child of object A and being attached to object B (at runtime)
 				if (bMaintainWorldPosition == false)	//User tried to attach but physically based so detach. However, if they provided relative coordinates we should still get the correct position

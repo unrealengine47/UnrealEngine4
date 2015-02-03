@@ -128,7 +128,7 @@ void ULinkerLoad::CreateActiveRedirectsMap(const FString& GEngineIniName)
 				//full redirect
 				else
 				{
-					if (NewClassName.ToString().Find(TEXT(".")) != NewClassName.ToString().Find(TEXT("."), ESearchCase::CaseSensitive, ESearchDir::FromEnd))
+					if (NewClassName.ToString().Find(TEXT("."), ESearchCase::CaseSensitive) != NewClassName.ToString().Find(TEXT("."), ESearchCase::CaseSensitive, ESearchDir::FromEnd))
 					{
 						UE_LOG(LogLinker, Error, TEXT("Currently we cannot rename nested objects for '%s'; if you want to leave the outer alone, just specify the name with no path"), *NewClassName.ToString());
 					}
@@ -492,7 +492,7 @@ ULinkerLoad* ULinkerLoad::CreateLinkerAsync( UPackage* Parent, const TCHAR* File
 		{
 			LoadFlags |= LOAD_SeekFree;
 		}
-		Linker = new ULinkerLoad( FObjectInitializer(), Parent, Filename, LoadFlags );
+		Linker = new(EC_InternalUseOnlyConstructor) ULinkerLoad(FObjectInitializer(), Parent, Filename, LoadFlags);
 		// Add to the list of linkers that haven't been finalized yet
 		GObjPendingLoaders.Add(Parent, Linker);
 	}
@@ -1183,7 +1183,7 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::FixupImportMap()
 						}
 
 						// Accepts either "PackageName.ClassName" or just "ClassName"
-						int32 Offset = RedirectName.Find(TEXT("."));
+						int32 Offset = RedirectName.Find(TEXT("."), ESearchCase::CaseSensitive);
 						if ( Offset >= 0 )
 						{
 							// A package class name redirect
@@ -2138,7 +2138,7 @@ bool ULinkerLoad::VerifyImportInner(const int32 ImportIndex, FString& WarningSuf
 	// Find or load the linker load that contains the FObjectExport for this import
 	if (Import.OuterIndex.IsNull() && Import.ClassName!=NAME_Package )
 	{
-		UE_LOG(LogLinker, Warning, TEXT("%s has an inappropriate outermost, it was probably saved with a deprecated outer."), *Import.ObjectName.ToString());
+		UE_LOG(LogLinker, Warning, TEXT("%s has an inappropriate outermost, it was probably saved with a deprecated outer (file: %s)"), *Import.ObjectName.ToString(), *Filename);
 		Import.SourceLinker = NULL;
 		return false;
 	}

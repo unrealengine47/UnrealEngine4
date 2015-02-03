@@ -60,13 +60,37 @@ void FContentDirectoryMonitor::StartProcessing()
 	auto OutstandingChanges = Cache.GetOutstandingChanges();
 	if (OutstandingChanges.Num() != 0)
 	{
+		const auto* Settings = GetDefault<UEditorLoadingSavingSettings>();
+
 		for (auto& Transaction : OutstandingChanges)
 		{
 			switch(Transaction.Action)
 			{
-				case FFileChangeData::FCA_Added:		AddedFiles.Emplace(MoveTemp(Transaction));		break;
-				case FFileChangeData::FCA_Modified:		ModifiedFiles.Emplace(MoveTemp(Transaction));	break;
-				case FFileChangeData::FCA_Removed:		DeletedFiles.Emplace(MoveTemp(Transaction));	break;
+				case FFileChangeData::FCA_Added:
+					if (Settings->bAutoCreateAssets && !MountedContentPath.IsEmpty())
+					{
+						AddedFiles.Emplace(MoveTemp(Transaction));
+					}
+					else
+					{
+						Cache.CompleteTransaction(MoveTemp(Transaction));
+					}
+					break;
+
+				case FFileChangeData::FCA_Modified:
+					ModifiedFiles.Emplace(MoveTemp(Transaction));
+					break;
+
+				case FFileChangeData::FCA_Removed:
+					if (Settings->bAutoDeleteAssets && !MountedContentPath.IsEmpty())
+					{
+						DeletedFiles.Emplace(MoveTemp(Transaction));
+					}
+					else
+					{
+						Cache.CompleteTransaction(MoveTemp(Transaction));
+					}
+					break;
 			}
 		}
 
@@ -76,12 +100,6 @@ void FContentDirectoryMonitor::StartProcessing()
 
 void FContentDirectoryMonitor::ProcessAdditions(TArray<UPackage*>& OutPackagesToSave, const FTimeLimit& TimeLimit, const TMap<FString, TArray<UFactory*>>& InFactoriesByExtension, FReimportFeedbackContext& Context)
 {
-	if (MountedContentPath.IsEmpty())
-	{
-		// @todo: arodham: Prompt user for import location
-		return;
-	}
-	
 	bool bCancelled = false;
 	for (int32 Index = 0; Index < AddedFiles.Num(); ++Index)
 	{
@@ -142,19 +160,35 @@ void FContentDirectoryMonitor::ProcessAdditions(TArray<UPackage*>& OutPackagesTo
 
 				UObject* NewAsset = nullptr;
 				UFactory* FactoryInstance = FactoryType ? ConstructObject<UFactory>(FactoryType->GetClass()) : nullptr;
-				if (FactoryInstance && FactoryInstance->ConfigureProperties())
+				if (FactoryInstance)
 				{
-					UClass* ImportAssetType = FactoryInstance->SupportedClass;
-					NewAsset = UFactory::StaticImportObject(ImportAssetType, NewPackage, FName(*NewAssetName), RF_Public | RF_Standalone, bCancelled, *FullFilename, nullptr, FactoryInstance);
+					FactoryInstance->AddToRoot();
+					if (FactoryInstance->ConfigureProperties())
+					{
+						UClass* ImportAssetType = FactoryInstance->SupportedClass;
+						NewAsset = UFactory::StaticImportObject(ImportAssetType, NewPackage, FName(*NewAssetName), RF_Public | RF_Standalone, bCancelled, *FullFilename, nullptr, FactoryInstance);
+					}
+					FactoryInstance->RemoveFromRoot();
 				}
 
 				if (!bCancelled)
 				{
 					if (!NewAsset)
 					{
+						TArray<UPackage*> Packages;
+						Packages.Add(NewPackage);
+
+						FText ErrorMessage;
+						if (!PackageTools::UnloadPackages(Packages, ErrorMessage))
+						{
+							Context.AddMessage(EMessageSeverity::Error, FText::Format(LOCTEXT("Error_UnloadingPackage", "There was an error unloading a package: {0}."), ErrorMessage));
+						}						
+
 						Context.AddMessage(EMessageSeverity::Error, FText::Format(LOCTEXT("Error_FailedToImportAsset", "Failed to import file {0}."), FText::FromString(FullFilename)));
 						continue;
 					}
+
+					Context.AddMessage(EMessageSeverity::Info, FText::Format(LOCTEXT("Success_CreatedNewAsset", "Created new asset {0}."), FText::FromString(PackagePath)));
 
 					FAssetRegistryModule::AssetCreated(NewAsset);
 					GEditor->BroadcastObjectReimported(NewAsset);
@@ -191,12 +225,17 @@ void FContentDirectoryMonitor::ProcessModifications(const IAssetRegistry& Regist
 		auto& Change = ModifiedFiles[Index];
 
 		const FString FullFilename = Cache.GetDirectory() + Change.Filename.Get();
+
 		for (const auto& AssetData : Utils::FindAssetsPertainingToFile(Registry, FullFilename))
 		{
 			UObject* Asset = AssetData.GetAsset();
 			if (!ReimportManager->Reimport(Asset, false /* Ask for new file */, false /* Show notification */))
 			{
 				Context.AddMessage(EMessageSeverity::Error, FText::Format(LOCTEXT("Error_FailedToReimportAsset", "Failed to reimport asset {0}."), FText::FromString(Asset->GetName())));
+			}
+			else
+			{
+				Context.AddMessage(EMessageSeverity::Info, FText::Format(LOCTEXT("Success_CreatedNewAsset", "Reimported asset {0} from {1}."), FText::FromString(Asset->GetName()), FText::FromString(FullFilename)));
 			}
 		}
 

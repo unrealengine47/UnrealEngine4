@@ -2550,7 +2550,7 @@ void FSlateEditorStyle::FStyle::SetupTutorialStyles()
 
 		const FTextBlockStyle DocumentationTooltipTextSubdued = FTextBlockStyle( NormalText )
 			.SetFont( TTF_CORE_FONT( "Fonts/Roboto-Regular", 8 ) )
-			.SetColorAndOpacity( FLinearColor( 0.3f, 0.3f, 0.3f ) );
+			.SetColorAndOpacity( FLinearColor( 0.2f, 0.2f, 0.2f ) );
 		Set("Documentation.SDocumentationTooltipSubdued", FTextBlockStyle(DocumentationTooltipTextSubdued));
 
 		const FTextBlockStyle DocumentationTooltipHyperlinkText = FTextBlockStyle( NormalText )
@@ -4921,6 +4921,8 @@ void FSlateEditorStyle::FStyle::SetupClassIconsAndThumbnails()
 			Set("ClassIcon.PaperTerrainComponent", new IMAGE_BRUSH("Icons/ActorIcons/Paper2DTerrainActor_16x", Icon16x16));
 
 			Set("ClassIcon.PaperTileMapActor", new IMAGE_BRUSH("Icons/ActorIcons/Paper2DTileMapActor_16x", Icon16x16));
+			Set("ClassIcon.PaperTileMapComponent", new IMAGE_BRUSH("Icons/ActorIcons/Paper2DTileMapComponent_16x", Icon16x16));
+			Set("ClassThumbnail.PaperTileMapComponent", new IMAGE_BRUSH("Icons/ActorIcons/Paper2DTileMapComponent_64x", Icon64x64));
 
 			Set("ClassIcon.PaperSpriteActor", new IMAGE_BRUSH("Icons/AssetIcons/Paper2DSprite_16x", Icon16x16));
 			Set("ClassIcon.PaperSpriteComponent", new IMAGE_BRUSH("Icons/AssetIcons/Paper2DSprite_16x", Icon16x16));
@@ -4934,6 +4936,15 @@ void FSlateEditorStyle::FStyle::SetupClassIconsAndThumbnails()
 
 			Set("ClassIcon.PaperSpriteAtlas", new IMAGE_BRUSH("Icons/AssetIcons/Paper2DSpriteAtlasGroup_16x", Icon16x16));
 			Set("ClassThumbnail.PaperSpriteAtlas", new IMAGE_BRUSH("Icons/AssetIcons/Paper2DSpriteAtlasGroup_64x", Icon64x64));
+
+			Set("ClassIcon.PaperCharacter", new IMAGE_BRUSH("Icons/AssetIcons/PaperCharacter_16x", Icon16x16));
+			Set("ClassThumbnail.PaperCharacter", new IMAGE_BRUSH("Icons/AssetIcons/PaperCharacter_64x", Icon64x64));
+
+			Set("ClassIcon.PaperTileMap", new IMAGE_BRUSH("Icons/AssetIcons/TileMap_16x", Icon16x16));
+			Set("ClassThumbnail.PaperTileMap", new IMAGE_BRUSH("Icons/AssetIcons/TileMap_64x", Icon64x64));
+
+			Set("ClassIcon.PaperTileSet", new IMAGE_BRUSH("Icons/AssetIcons/TileMap_16x", Icon16x16));
+			Set("ClassThumbnail.PaperTileSet", new IMAGE_BRUSH("Icons/AssetIcons/TileMap_64x", Icon64x64));
 
 			// ClassIcon and ClassThumbnail for tile sets and/or terrain materials?  Might not be needed/feasible due to them being a UDataAsset
 			//Set("ClassIcon.PaperTerrainMaterial", new IMAGE_BRUSH("Icons/AssetIcons/Paper2DSpriteAtlasGroup_16x", Icon16x16));
@@ -4972,6 +4983,7 @@ void FSlateEditorStyle::FStyle::SetupClassIconsAndThumbnails()
 			TEXT("BoxReflectionCapture"),
 			TEXT("ButtonStyleAsset"),
 			TEXT("CableActor"),
+			TEXT("CableComponent"),
 			TEXT("CameraActor"),
 			TEXT("CameraAnim"),
 			TEXT("CameraBlockingVolume"),
@@ -4980,15 +4992,19 @@ void FSlateEditorStyle::FStyle::SetupClassIconsAndThumbnails()
 			TEXT("CullDistanceVolume"),
 			TEXT("CurveBase"),
 			TEXT("DataAsset"),
+			TEXT("DataTable"),
 			TEXT("DecalActor"),
 			TEXT("Default"),
 			TEXT("DefaultPawn"),
+			TEXT("DialogueWave"),
+			TEXT("DialogueVoice"),
 			TEXT("DirectionalLight"),
 			TEXT("DirectionalLightMovable"),
 			TEXT("DirectionalLightStatic"),
 			TEXT("DirectionalLightStationary"),
 			TEXT("DocumentationActor"),
 			TEXT("EditorTutorial"),
+			TEXT("EnvQuery"),
 			TEXT("ExponentialHeightFog"),
 			TEXT("Font"),
 			TEXT("ForceFeedbackEffect"),
@@ -5019,13 +5035,14 @@ void FSlateEditorStyle::FStyle::SetupClassIconsAndThumbnails()
 			TEXT("Note"),
 			TEXT("ObjectLibrary"),
 			TEXT("PainCausingVolume"),
-			TEXT("PaperCharacter"),
 			TEXT("ParticleSystem"),
 			TEXT("Pawn"),
 			TEXT("PhysicalMaterial"),
 			TEXT("PhysicsAsset"),
 			TEXT("PhysicsConstraintActor"),
+			TEXT("PhysicsConstraintComponent"),
 			TEXT("PhysicsThruster"),
+			TEXT("PhysicsThrusterComponent"),
 			TEXT("PhysicsVolume"),
 			TEXT("PlaneReflectionCapture"),
 			TEXT("PlayerController"),
@@ -5035,12 +5052,14 @@ void FSlateEditorStyle::FStyle::SetupClassIconsAndThumbnails()
 			TEXT("PrecomputedVisibilityOverrideVolume"),
 			TEXT("PrecomputedVisibilityVolume"),
 			TEXT("RadialForceActor"),
+			TEXT("RadialForceComponent"),
 			TEXT("ReflectionCapture"),
 			TEXT("ReverbEffect"),
 			TEXT("SceneCapture2D"),
 			TEXT("SceneCaptureCube"),
 			TEXT("SceneComponent"),
 			TEXT("SkyLight"),
+			TEXT("SkyLightComponent"),
 			TEXT("SkeletalMesh"),
 			TEXT("Skeleton"),
 			TEXT("SlateBrushAsset"),
@@ -5055,6 +5074,7 @@ void FSlateEditorStyle::FStyle::SetupClassIconsAndThumbnails()
 			TEXT("SpotLightStatic"),
 			TEXT("SpotLightStationary"),
 			TEXT("StaticMesh"),
+			TEXT("SubsurfaceProfile"),
 			TEXT("TargetPoint"),
 			TEXT("TextRenderActor"),
 			TEXT("Texture2D"),
@@ -6284,17 +6304,20 @@ void FSlateEditorStyle::FStyle::SetupLocalizationDashboardStyles()
 	Set("LocalizationDashboard.GatherAllTargets", new IMAGE_BRUSH("Icons/icon_Refresh_16x", Icon40x40));
 	Set("LocalizationDashboard.ImportForAllTargetsCultures", new IMAGE_BRUSH("Icons/icon_Samples_Download_40x", Icon40x40));
 	Set("LocalizationDashboard.ExportForAllTargetsCultures", new IMAGE_BRUSH("Icons/icon_Import_40x", Icon40x40));
+	Set("LocalizationDashboard.CompileAllTargets", new IMAGE_BRUSH("Icons/icon_package_16x", Icon40x40));
 
 	Set("LocalizationDashboard.GatherTarget", new IMAGE_BRUSH("Icons/icon_Refresh_16x", Icon16x16));
 	Set("LocalizationDashboard.RefreshWordCount", new IMAGE_BRUSH("Icons/icon_Refresh_16x", Icon16x16));
 	Set("LocalizationDashboard.ImportForAllCultures", new IMAGE_BRUSH("Icons/icon_Samples_Download_20x", Icon16x16));
 	Set("LocalizationDashboard.ExportForAllCultures", new IMAGE_BRUSH("Icons/icon_Import_16x", Icon16x16));
+	Set("LocalizationDashboard.CompileTarget", new IMAGE_BRUSH("Icons/icon_package_16x", Icon16x16));
 	Set("LocalizationDashboard.DeleteTarget", new IMAGE_BRUSH("Icons/Cross_12x", Icon12x12 ) );
 
 	Set("LocalizationTargetEditor.Gather", new IMAGE_BRUSH("Icons/icon_Refresh_16x", Icon40x40));
 	Set("LocalizationTargetEditor.ImportForAllCultures", new IMAGE_BRUSH("Icons/icon_Samples_Download_40x", Icon40x40));
 	Set("LocalizationTargetEditor.ExportForAllCultures", new IMAGE_BRUSH("Icons/icon_Import_40x", Icon40x40));
 	Set("LocalizationTargetEditor.RefreshWordCounts", new IMAGE_BRUSH("Icons/icon_Refresh_16x", Icon40x40));
+	Set("LocalizationTargetEditor.Compile", new IMAGE_BRUSH( "Icons/icon_package_16x", Icon40x40));
 
 	Set("LocalizationTargetEditor.NativeCulture", new IMAGE_BRUSH( "Icons/Star_16x", Icon16x16 ) );
 	Set("LocalizationTargetEditor.EditTranslations", new IMAGE_BRUSH("Icons/icon_file_open_16px", Icon16x16));
@@ -6302,7 +6325,6 @@ void FSlateEditorStyle::FStyle::SetupLocalizationDashboardStyles()
 	Set("LocalizationTargetEditor.ExportForCulture", new IMAGE_BRUSH("Icons/icon_Import_16x", Icon16x16));
 	Set("LocalizationTargetEditor.DeleteCulture", new IMAGE_BRUSH("Icons/Cross_12x", Icon12x12 ) );
 
-	Set( "LocalizationDashboard.CommandletLog.ListBorder", new BOX_BRUSH( "/Docking/AppTabContentArea", FMargin(4/16.0f) ) );
 	Set( "LocalizationDashboard.CommandletLog.Text", FTextBlockStyle(NormalText)
 		.SetFont( TTF_CORE_FONT( "Fonts/Roboto-Regular", 8 ) )
 		.SetShadowOffset( FVector2D::ZeroVector )

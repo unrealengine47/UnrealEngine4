@@ -467,7 +467,7 @@ UPackage* CreatePackage( UObject* InOuter, const TCHAR* PackageName )
 		InName = PackageName;
 	}
 
-	if (InName.Contains(TEXT("//")))
+	if (InName.Contains(TEXT("//"), ESearchCase::CaseSensitive))
 	{
 		UE_LOG(LogUObjectGlobals, Fatal, TEXT("Attempted to create a package with name containing double slashes. PackageName: %s"), PackageName);
 	}
@@ -504,7 +504,7 @@ UPackage* CreatePackage( UObject* InOuter, const TCHAR* PackageName )
 			}
 			else
 			{
-				Result = new( InOuter, NewPackageName, RF_Public )UPackage(FObjectInitializer());
+				Result = NewNamedObject<UPackage>(InOuter, NewPackageName, RF_Public);
 			}
 		}
 	}
@@ -542,7 +542,7 @@ bool ResolveName( UObject*& InPackage, FString& InOutName, bool Create, bool Thr
 	}
 
 
-	if( IniFilename && InOutName.Contains(TEXT(".")) )
+	if( IniFilename && InOutName.Contains(TEXT("."), ESearchCase::CaseSensitive) )
 	{
 		// Get .ini key and section.
 		FString Section = InOutName.Mid(1+InOutName.Find(TEXT(":"), ESearchCase::CaseSensitive));
@@ -583,8 +583,8 @@ bool ResolveName( UObject*& InPackage, FString& InOutName, bool Create, bool Thr
 	bool bSubobjectPath = false;
 
 	// to make parsing the name easier, replace the subobject delimiter with an extra dot
-	InOutName.ReplaceInline(SUBOBJECT_DELIMITER, TEXT(".."));
-	while( (i=InOutName.Find(TEXT("."))) != -1 )
+	InOutName.ReplaceInline(SUBOBJECT_DELIMITER, TEXT(".."), ESearchCase::CaseSensitive);
+	while ((i = InOutName.Find(TEXT("."), ESearchCase::CaseSensitive)) != -1)
 	{
 		FString PartialName = InOutName.Left(i);
 
@@ -1890,6 +1890,16 @@ void UObject::PostInitProperties()
 #endif
 }
 
+UObject::UObject()
+{
+	FObjectInitializer* ObjectInitializerPtr = FTlsObjectInitializers::Top();
+	UE_CLOG(!ObjectInitializerPtr, LogUObjectGlobals, Fatal, TEXT("%s is not being constructed with either NewObject, NewNamedObject or ConstructObject."), *GetName());
+	FObjectInitializer& ObjectInitializer = *ObjectInitializerPtr;
+	check(!ObjectInitializer.Obj || ObjectInitializer.Obj == this);
+	const_cast<FObjectInitializer&>(ObjectInitializer).Obj = this;
+	const_cast<FObjectInitializer&>(ObjectInitializer).FinalizeSubobjectClassInitialization();
+}
+
 UObject::UObject(const FObjectInitializer& ObjectInitializer)
 {
 	check(!ObjectInitializer.Obj || ObjectInitializer.Obj == this);
@@ -2257,6 +2267,12 @@ UObject* StaticConstructObject
 void FObjectInitializer::AssertIfInConstructor(UObject* Outer, const TCHAR* ErrorMessage)
 {
 	UE_CLOG(GIsInConstructor && Outer == GConstructedObject, LogUObjectGlobals, Fatal, TEXT("%s"), ErrorMessage);
+}
+
+FObjectInitializer& FObjectInitializer::Get()
+{
+	UE_CLOG(!GIsInConstructor, LogUObjectGlobals, Fatal, TEXT("FObjectInitializer::Get() can only be used inside of UObject-derived class constructor."));
+	return FTlsObjectInitializers::TopChecked();
 }
 
 /**

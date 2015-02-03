@@ -2122,13 +2122,20 @@ UActorComponent* AActor::GetComponentByClass(TSubclassOf<UActorComponent> Compon
 
 TArray<UActorComponent*> AActor::GetComponentsByClass(TSubclassOf<UActorComponent> ComponentClass) const
 {
+	TArray<UActorComponent*> ValidComponents;
+
+        // In the UActorComponent case we can skip the IsA checks for a slight performance benefit
 	if (ComponentClass == UActorComponent::StaticClass())
 	{
-		return OwnedComponents;
+		for (UActorComponent* Component : OwnedComponents)
+		{
+			if (Component)
+			{
+				ValidComponents.Add(Component);
+			}
+		}
 	}
-
-	TArray<UActorComponent*> ValidComponents;
-	if (*ComponentClass)
+	else if (*ComponentClass)
 	{
 		for (UActorComponent* Component : OwnedComponents)
 		{
@@ -2166,7 +2173,7 @@ static void DispatchOnComponentsCreated(AActor* NewActor)
 	for (int32 Idx = 0; Idx < Components.Num(); Idx++)
 	{
 		UActorComponent* ActorComp = Components[Idx];
-		if (ActorComp != NULL)
+		if (ActorComp != NULL && !ActorComp->bHasBeenCreated)
 		{
 			ActorComp->OnComponentCreated();
 		}

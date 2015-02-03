@@ -124,6 +124,23 @@ TSharedRef<SWidget> SLocalizationDashboardTargetRow::GenerateWidgetForColumn( co
 				]
 			];
 
+		// Compile
+		HorizontalBox->AddSlot()
+			.FillWidth(1.0f)
+			.HAlign(HAlign_Center)
+			.VAlign(VAlign_Center)
+			[
+				SNew(SButton)
+				.ButtonStyle( FEditorStyle::Get(), TEXT("HoverHintOnly") )
+				.ToolTipText( LOCTEXT("CompileButtonLabel", "Compile") )
+				.OnClicked(this, &SLocalizationDashboardTargetRow::Compile)
+				.Content()
+				[
+					SNew(SImage)
+					.Image( FEditorStyle::GetBrush("LocalizationDashboard.CompileTarget") )
+				]
+			];
+
 		// Delete Target
 		HorizontalBox->AddSlot()
 			.FillWidth(1.0f)
@@ -342,12 +359,32 @@ FReply SLocalizationDashboardTargetRow::Gather()
 FReply SLocalizationDashboardTargetRow::ImportAll()
 {
 	ULocalizationTarget* const LocalizationTarget = GetTarget();
-	if (LocalizationTarget)
+	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
+	if (LocalizationTarget && DesktopPlatform)
 	{
+		void* ParentWindowWindowHandle = NULL;
 		const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(AsShared());
-		LocalizationCommandletTasks::ImportTarget(ParentWindow.ToSharedRef(), LocalizationTarget->Settings);
+		if (ParentWindow.IsValid() && ParentWindow->GetNativeWindow().IsValid())
+		{
+			ParentWindowWindowHandle = ParentWindow->GetNativeWindow()->GetOSWindowHandle();
+		}
 
-		UpdateTargetFromReports();
+		const FString DefaultPath = FPaths::ConvertRelativePathToFull(LocalizationConfigurationScript::GetDataDirectory(LocalizationTarget->Settings));
+
+		FText DialogTitle;
+		{
+			FFormatNamedArguments FormatArguments;
+			FormatArguments.Add(TEXT("TargetName"), FText::FromString(LocalizationTarget->Settings.Name));
+			DialogTitle = FText::Format(LOCTEXT("ImportAllTranslationsForTargetDialogTitleFormat", "Import All Translations for {TargetName} from Directory"), FormatArguments);
+		}
+
+		// Prompt the user for the directory
+		FString OutputDirectory;
+		if (DesktopPlatform->OpenDirectoryDialog(ParentWindowWindowHandle, DialogTitle.ToString(), DefaultPath, OutputDirectory))
+		{
+			LocalizationCommandletTasks::ImportTarget(ParentWindow.ToSharedRef(), LocalizationTarget->Settings, TOptional<FString>(OutputDirectory));
+			UpdateTargetFromReports();
+		}
 	}
 
 	return FReply::Handled();
@@ -356,10 +393,44 @@ FReply SLocalizationDashboardTargetRow::ImportAll()
 FReply SLocalizationDashboardTargetRow::ExportAll()
 {
 	ULocalizationTarget* const LocalizationTarget = GetTarget();
+	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
+	if (LocalizationTarget && DesktopPlatform)
+	{
+		void* ParentWindowWindowHandle = NULL;
+		const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(AsShared());
+		if (ParentWindow.IsValid() && ParentWindow->GetNativeWindow().IsValid())
+		{
+			ParentWindowWindowHandle = ParentWindow->GetNativeWindow()->GetOSWindowHandle();
+		}
+
+		const FString DefaultPath = FPaths::ConvertRelativePathToFull(LocalizationConfigurationScript::GetDataDirectory(LocalizationTarget->Settings));
+
+		FText DialogTitle;
+		{
+			FFormatNamedArguments FormatArguments;
+			FormatArguments.Add(TEXT("TargetName"), FText::FromString(LocalizationTarget->Settings.Name));
+			DialogTitle = FText::Format(LOCTEXT("ExportAllTranslationsForTargetDialogTitleFormat", "Export All Translations for {TargetName} to Directory"), FormatArguments);
+		}
+
+		// Prompt the user for the directory
+		FString OutputDirectory;
+		if (DesktopPlatform->OpenDirectoryDialog(ParentWindowWindowHandle, DialogTitle.ToString(), DefaultPath, OutputDirectory))
+		{
+			LocalizationCommandletTasks::ExportTarget(ParentWindow.ToSharedRef(), LocalizationTarget->Settings, TOptional<FString>(OutputDirectory));
+		}
+	}
+
+	return FReply::Handled();
+}
+
+FReply SLocalizationDashboardTargetRow::Compile()
+{
+	ULocalizationTarget* const LocalizationTarget = GetTarget();
 	if (LocalizationTarget)
 	{
+		// Execute compile.
 		const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(AsShared());
-		LocalizationCommandletTasks::ExportTarget(ParentWindow.ToSharedRef(), LocalizationTarget->Settings);
+		LocalizationCommandletTasks::CompileTarget(ParentWindow.ToSharedRef(), LocalizationTarget->Settings);
 	}
 
 	return FReply::Handled();

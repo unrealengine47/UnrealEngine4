@@ -38,10 +38,21 @@ void UBlueprintGeneratedClass::PostLoad()
 	TArray<UObject*> SubObjects;
 	GetObjectsWithOuter(ClassCDO, SubObjects);
 
+	struct FCheckIfComponentChildHelper
+	{
+		static bool IsComponentChild(UObject* CurrObj, const UObject* CDO)
+		{
+			UObject*  OuterObject = CurrObj ? CurrObj->GetOuter() : nullptr;
+			const bool bValidOuter = OuterObject && (OuterObject != CDO);
+			return bValidOuter ? (OuterObject->IsDefaultSubobject() || IsComponentChild(OuterObject, CDO)) : false;
+		};
+	};
+
 	for( auto SubObjIt = SubObjects.CreateIterator(); SubObjIt; ++SubObjIt )
 	{
 		UObject* CurrObj = *SubObjIt;
-		if( !CurrObj->IsDefaultSubobject() && !CurrObj->IsRooted() )
+		const bool bComponentChild = FCheckIfComponentChildHelper::IsComponentChild(CurrObj, ClassCDO);
+		if (!CurrObj->IsDefaultSubobject() && !CurrObj->IsRooted() && !bComponentChild)
 		{
 			CurrObj->MarkPendingKill();
 		}

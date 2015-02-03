@@ -13,7 +13,6 @@
 #include "AssetSelection.h"
 #include "LevelEditorContextMenu.h"
 #include "LevelEditorToolBar.h"
-#include "ScopedTransaction.h"
 #include "SLevelEditorToolBox.h"
 #include "SLevelEditorModeContent.h"
 #include "SLevelEditorBuildAndSubmit.h"
@@ -27,23 +26,18 @@
 #include "Toolkits/ToolkitManager.h"
 #include "Editor/PropertyEditor/Public/PropertyEditorModule.h"
 #include "Editor/ContentBrowser/Public/ContentBrowserModule.h"
-#include "LevelEditorGenericDetails.h"
 #include "Editor/MainFrame/Public/MainFrame.h"
 #include "Editor/WorkspaceMenuStructure/Public/WorkspaceMenuStructureModule.h"
 #include "Editor/Sequencer/Public/ISequencerModule.h"
 #include "Editor/StatsViewer/Public/StatsViewerModule.h"
-#include "Editor/UMGEditor/Public/UMGEditorModule.h"
 #include "EditorModes.h"
 #include "IDocumentation.h"
 #include "NewsFeed.h"
 #include "TutorialMetaData.h"
 #include "SDockTab.h"
+#include "SActorDetails.h"
 
 
-
-#include "SSCSEditor.h"
-#include "ComponentEditorUtils.h"
-#include "SExpandableArea.h"
 
 static const FName LevelEditorBuildAndSubmitTab("LevelEditorBuildAndSubmit");
 static const FName LevelEditorStatsViewerTab("LevelEditorStatsViewer");
@@ -505,335 +499,9 @@ TSharedRef<FTabManager> SLevelEditor::GetTabManager() const
 	return LevelEditorTabManager.ToSharedRef();
 }
 
-class SActorDetails : public SCompoundWidget, public FEditorUndoClient
-{
-public:
-	SLATE_BEGIN_ARGS( SActorDetails )
-	{}
-	SLATE_END_ARGS()
-
-	void Construct( const FArguments& InArgs, const FName TabIdentifier )
-	{
-		struct Local
-		{
-			static bool IsPropertyVisible( const FPropertyAndParent& PropertyAndParent )
-			{
-				// For details views in the level editor all properties are the instanced versions
-				if (PropertyAndParent.Property.HasAllPropertyFlags(CPF_DisableEditOnInstance))
-				{
-					return false;
-				}
-
-				return true;
-			}
-		};
-
-		bSelectionGuard = false;
-
-		// Event subscriptions
-		USelection::SelectionChangedEvent.AddRaw(this, &SActorDetails::OnEditorSelectionChanged);
-
-		FPropertyEditorModule& PropPlugin = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
-		FDetailsViewArgs DetailsViewArgs;
-		DetailsViewArgs.bUpdatesFromSelection = true;
-		DetailsViewArgs.bLockable = true;
-		DetailsViewArgs.NameAreaSettings = FDetailsViewArgs::ComponentsAndActorsUseNameArea;
-		DetailsViewArgs.NotifyHook = GUnrealEd;
-		DetailsViewArgs.ViewIdentifier = TabIdentifier;
-		DetailsViewArgs.bCustomNameAreaLocation = true;
-		DetailsViewArgs.bCustomFilterAreaLocation = true;
-
-		DetailsView = PropPlugin.CreateDetailView(DetailsViewArgs);
-
-		DetailsView->SetIsPropertyVisibleDelegate( FIsPropertyVisible::CreateStatic( &Local::IsPropertyVisible ) );
-
-		// Set up a delegate to call to add generic details to the view
-		DetailsView->SetGenericLayoutDetailsDelegate( FOnGetDetailCustomizationInstance::CreateStatic( &FLevelEditorGenericDetails::MakeInstance ) );
-
-		GEditor->RegisterForUndo(this);
-
-		SAssignNew(ComponentsBox, SBox)
-		.Visibility(EVisibility::Collapsed);
-
-		ComponentsBox->SetContent
-		(
-			SAssignNew(SCSEditor, SSCSEditor)
-			.EditorMode(SSCSEditor::EEditorMode::ActorInstance)
-			.ActorContext(this, &SActorDetails::GetSelectedActor)												// Get the instance of the actor in the world
-			.OnSelectionUpdated(this, &SActorDetails::OnSCSEditorTreeViewSelectionChanged)						// A selection has been made in the tree view, so inform the level editor
-			//.OnHighlightPropertyInDetailsView(this, &SLevelEditor::OnSCSEditorHighlightPropertyInDetailsView)	// Also unsure and don't think it's needed
-		);
-
-		ChildSlot
-		[
-			SNew( SVerticalBox )
-			+SVerticalBox::Slot()
-			.Padding(0.0f, 0.0f, 0.0f, 2.0f)
-			.AutoHeight()
-			[
-				DetailsView->GetNameAreaWidget().ToSharedRef()
-			]
-			+ SVerticalBox::Slot()
-			.Padding(0.0f, 0.0f, 0.0f, 2.0f)
-			.AutoHeight()
-			[
-				DetailsView->GetFilterAreaWidget().ToSharedRef()
-			]
-			+SVerticalBox::Slot()
-			[
-				SAssignNew(DetailsSplitter, SSplitter)
-				.Orientation(Orient_Vertical)
-				+ SSplitter::Slot()
-				[
-					DetailsView.ToSharedRef()
-				]
-			]
-		];
-
-		DetailsSplitter->AddSlot(0)
-		.Value(.2f)
-		[
-			ComponentsBox.ToSharedRef()
-		];
-	}
-
-	~SActorDetails()
-	{
-		USelection::SelectionChangedEvent.RemoveAll(this);
-	}
-
-	void SetObjects( const TArray<UObject*>& InObjects )
-	{
-		if(!DetailsView->IsLocked() )
-		{
-			DetailsView->SetObjects( InObjects );
-			
-			bool bShowingComponents = false;
-
-			if( InObjects.Num() == 1 && FKismetEditorUtilities::CanCreateBlueprintOfClass( InObjects[0]->GetClass() ) && GetDefault<UEditorExperimentalSettings>()->bInWorldBPEditing )
-			{
-				auto Actor = GetSelectedActor();
-				if (Actor)
-				{
-					bShowingComponents = true;
-
-					// Update the tree if a new actor is selected
-					if (GEditor->GetSelectedComponentCount() == 0)
-					{
-						SCSEditor->UpdateTree();
-					}
-				}
-			}
-
-			ComponentsBox->SetVisibility(bShowingComponents ? EVisibility::Visible : EVisibility::Collapsed);
-		}
-	}
-
-	virtual void PostUndo(bool bSuccess)
-	{
-		// Enable the selection guard to prevent OnTreeSelectionChanged() from altering the editor's component selection
-		TGuardValue<bool> SelectionGuard(bSelectionGuard, true);
-
-		// Refresh the tree and update the selection to match the world
-		SCSEditor->UpdateTree();
-		UpdateComponentTreeFromEditorSelection();
-	}
-
-	virtual void PostRedo(bool bSuccess)
-	{
-		PostUndo(bSuccess);
-	}
-
-private:
-
-	void OnEditorSelectionChanged(UObject* Object)
-	{
-		if (!bSelectionGuard && SCSEditor.IsValid())
-		{
-			// Make sure the selection set that changed is relevant to us
-			auto Selection = Cast<USelection>(Object);
-			if (Selection == GEditor->GetSelectedComponents() || Selection == GEditor->GetSelectedActors())
-			{
-				UpdateComponentTreeFromEditorSelection();
-
-				if (GEditor->GetSelectedComponentCount() == 0) // An actor was selected
-				{
-					// Ensure the selection flags are up to date for the components in the selected actor
-					for (FSelectionIterator It(GEditor->GetSelectedActorIterator()); It; ++It)
-					{
-						auto Actor = CastChecked<AActor>(*It);
-						GUnrealEd->SetActorSelectionFlags(Actor);
-					}
-				}
-			}
-		}
-	}
-	
-	AActor* GetSelectedActor() const
-	{
-		//@todo this won't work w/ multi-select
-		return Cast<AActor>(*GEditor->GetSelectedActorIterator());
-	}
-
-	void OnSCSEditorRootSelected(AActor* Actor)
-	{
-		if (!bSelectionGuard)
-		{
-			GEditor->SelectNone(true, true, false);
-			GEditor->SelectActor(Actor, true, true, true);
-		}
-	}
-
-	void OnSCSEditorTreeViewSelectionChanged(const TArray<FSCSEditorTreeNodePtrType>& SelectedNodes)
-	{
-		if (!bSelectionGuard && SelectedNodes.Num() > 0 )
-		{
-			auto Actor = GetSelectedActor();
-			if (Actor)
-			{
-				TArray<UObject*> DetailsObjects;
-
-				bool bActorSelected = false;
-				for (auto& SelectedNode : SelectedNodes)
-				{
-					if (SelectedNode.IsValid() && SelectedNode->GetNodeType() == FSCSEditorTreeNode::RootActorNode)
-					{
-						bActorSelected = true;
-						break;
-					}
-				}
-
-				if (bActorSelected)
-				{
-					DetailsObjects.Add(Actor);
-				}
-
-				USelection* SelectedComponents = GEditor->GetSelectedComponents();
-
-				// Don't bother doing anything if the node selection already matches the current world selection
-				bool bSelectionChanged = GEditor->GetSelectedComponentCount() != SelectedNodes.Num() - (bActorSelected ? 1 : 1);
-				if (!bSelectionChanged)
-				{
-					// Check to see if any of the selected nodes aren't already selected in the world
-					for (auto& SelectedNode : SelectedNodes)
-					{
-						UActorComponent* ComponentInstance = SelectedNode->FindComponentInstanceInActor(Actor);
-						if (ComponentInstance && !SelectedComponents->IsSelected(ComponentInstance))
-						{
-							// At least one of the selected nodes isn't selected in the world, so update the selection
-							bSelectionChanged = true;
-							break;
-						}
-					}
-				}
-				
-				if (bActorSelected || bSelectionChanged)
-				{
-					// Enable the selection guard to prevent OnEditorSelectionChanged() from altering the contents of the SCSTreeWidget
-					TGuardValue<bool> SelectionGuard(bSelectionGuard, true);
-
-					// Update the editor's component selection to match the node selection
-					const FScopedTransaction Transaction(NSLOCTEXT("UnrealEd", "ClickingOnComponentInTree", "Clicking on Component (tree view)"), !GIsTransacting);
-
-					SelectedComponents->Modify();
-					SelectedComponents->BeginBatchSelectOperation();
-					SelectedComponents->DeselectAll();
-
-					for (auto& SelectedNode : SelectedNodes)
-					{
-						if (SelectedNode.IsValid())
-						{
-							UActorComponent* ComponentInstance = SelectedNode->FindComponentInstanceInActor(Actor);
-							if (ComponentInstance)
-							{
-								DetailsObjects.Add(ComponentInstance);
-								SelectedComponents->Select(ComponentInstance);
-
-								// Ensure the selection override is bound for this component (including any attached editor-only children)
-								auto PrimComponent = Cast<UPrimitiveComponent>(ComponentInstance);
-								if (PrimComponent && !PrimComponent->SelectionOverrideDelegate.IsBound())
-								{
-									PrimComponent->SelectionOverrideDelegate = UPrimitiveComponent::FSelectionOverride::CreateUObject(GUnrealEd, &UUnrealEdEngine::IsComponentSelected);
-								}
-								else
-								{
-									//@todo move the selection override binding check to FComponentEditorUtils
-									auto SceneComponent = Cast<USceneComponent>(ComponentInstance);
-									if (SceneComponent)
-									{
-										for (auto Component : SceneComponent->AttachChildren)
-										{
-											PrimComponent = Cast<UPrimitiveComponent>(Component);
-											if (PrimComponent && !PrimComponent->SelectionOverrideDelegate.IsBound())
-											{
-												PrimComponent->SelectionOverrideDelegate = UPrimitiveComponent::FSelectionOverride::CreateUObject(GUnrealEd, &UUnrealEdEngine::IsComponentSelected);
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-
-					SelectedComponents->EndBatchSelectOperation();
-
-					DetailsView->SetObjects(DetailsObjects);
-
-					GUnrealEd->SetActorSelectionFlags(Actor);
-					GUnrealEd->UpdatePivotLocationForSelection(true);
-					GEditor->RedrawLevelEditingViewports();
-				}
-			}
-		}
-	}
-	
-	void UpdateComponentTreeFromEditorSelection()
-	{
-		// Enable the selection guard to prevent OnTreeSelectionChanged() from altering the editor's component selection
-		TGuardValue<bool> SelectionGuard(bSelectionGuard, true);
-
-		auto& SCSTreeWidget = SCSEditor->SCSTreeWidget;
-		TArray<UObject*> DetailsObjects;
-
-		// Update the tree selection to match the level editor component selection
-		SCSTreeWidget->ClearSelection();
-		for (FSelectionIterator It(GEditor->GetSelectedComponentIterator()); It; ++It)
-		{
-			UActorComponent* Component = CastChecked<UActorComponent>(*It);
-
-			auto SCSTreeNode = SCSEditor->GetNodeFromActorComponent(Component, false);
-			if (SCSTreeNode.IsValid() && SCSTreeNode->GetComponentTemplate())
-			{
-				SCSTreeWidget->RequestScrollIntoView(SCSTreeNode);
-				SCSTreeWidget->SetItemSelection(SCSTreeNode, true);
-
-				auto ComponentTemplate = SCSTreeNode->GetComponentTemplate();
-				check(Component == ComponentTemplate);
-				DetailsObjects.Add(Component);
-			}
-		}
-
-		if (DetailsObjects.Num() > 0)
-		{
-			DetailsView->SetObjects(DetailsObjects);
-		}
-		else
-		{
-			SCSEditor->SelectRoot();
-		}
-	}
-
-private:
-	TSharedPtr<SSplitter> DetailsSplitter;
-	TSharedPtr<IDetailsView> DetailsView;
-	TSharedPtr<SBox> ComponentsBox;
-	TSharedPtr<SSCSEditor> SCSEditor;
-
-	bool bSelectionGuard;
-};
 
 
-TSharedRef<SDockTab> SLevelEditor::SummonDetailsPanel( FName TabIdentifier )
+TSharedRef<SDockTab> SLevelEditor::SummonDetailsPanel( FName TabIdentifier, TSharedPtr<FExtender> ActorMenuExtender )
 {
 	TSharedPtr<SActorDetails> ActorDetails;
 
@@ -848,6 +516,7 @@ TSharedRef<SDockTab> SLevelEditor::SummonDetailsPanel( FName TabIdentifier )
 			.AddMetaData<FTutorialMetaData>(FTutorialMetaData(TEXT("ActorDetails"), TEXT("LevelEditorSelectionDetails")))
 			[
 				SAssignNew( ActorDetails, SActorDetails, TabIdentifier )
+					.ActorMenuExtender(ActorMenuExtender)
 			]
 		];
 
@@ -895,7 +564,20 @@ TSharedRef<SDockTab> SLevelEditor::SpawnLevelEditorTab( const FSpawnTabArgs& Arg
 	}
 	else if( TabIdentifier == TEXT("LevelEditorSelectionDetails") || TabIdentifier == TEXT("LevelEditorSelectionDetails2") || TabIdentifier == TEXT("LevelEditorSelectionDetails3") || TabIdentifier == TEXT("LevelEditorSelectionDetails4") )
 	{
-		TSharedRef<SDockTab> DetailsPanel = SummonDetailsPanel( TabIdentifier );
+		TWeakPtr<SLevelEditor> WeakLevelEditor = SharedThis(this);
+		TSharedPtr<FExtender> MenuExtender = MakeShareable(new FExtender);
+		MenuExtender->AddMenuExtension(
+			"MainSection", EExtensionHook::Before, GetLevelEditorActions(),
+			FMenuExtensionDelegate::CreateStatic([](FMenuBuilder& MenuBuilder, TWeakPtr<SLevelEditor> InWeakLevelEditor){
+				// Only extend the menu if we have actors selected
+				if (GEditor->GetSelectedActors()->Num())
+				{
+					FLevelEditorContextMenu::FillMenu(MenuBuilder, InWeakLevelEditor, LevelEditorMenuContext::NonViewport, TSharedPtr<FExtender>());
+				}
+			}, WeakLevelEditor)
+		);
+
+		TSharedRef<SDockTab> DetailsPanel = SummonDetailsPanel( TabIdentifier, MenuExtender );
 		GUnrealEd->UpdateFloatingPropertyWindows();
 		return DetailsPanel;
 	}
@@ -1407,75 +1089,74 @@ TSharedRef<SWidget> SLevelEditor::RestoreContentArea( const TSharedRef<SDockTab>
 		->AddArea
 		(
 			FTabManager::NewPrimaryArea()
-			->SetOrientation( Orient_Vertical )
+			->SetOrientation( Orient_Horizontal )
 			->Split
 			(
 				FTabManager::NewSplitter()
-				->SetOrientation( Orient_Horizontal )
+				->SetOrientation( Orient_Vertical )
+				->SetSizeCoefficient( 1 )
 				->Split
 				(
 					FTabManager::NewSplitter()
-					->SetSizeCoefficient( 0.2f )
-					->SetOrientation(Orient_Vertical)
+					->SetSizeCoefficient( .75f )
+					->SetOrientation(Orient_Horizontal)
 					->Split
 					(
 						FTabManager::NewStack()
-						->SetSizeCoefficient( 0.45f )
+						->SetSizeCoefficient( 0.3f )
 						->AddTab( "LevelEditorToolBox", ETabState::OpenedTab )
 					)
 					->Split
 					(
-						FTabManager::NewStack()->AddTab("ContentBrowserTab1", ETabState::OpenedTab)
+						FTabManager::NewSplitter()
+						->SetOrientation(Orient_Vertical)
+						->SetSizeCoefficient( 1.15f )
+						->Split
+						(
+							FTabManager::NewStack()
+							->SetHideTabWell(true)
+							->AddTab("LevelEditorToolBar", ETabState::OpenedTab)
+						)
+						->Split
+						(
+							FTabManager::NewStack()
+							->SetHideTabWell(true)
+							->SetSizeCoefficient( 1.0f )
+							->AddTab("LevelEditorViewport", ETabState::OpenedTab)
+						)
 					)
 				)
 				->Split
 				(
-					FTabManager::NewSplitter()
-					->SetSizeCoefficient( 0.60f )
-					->SetOrientation(Orient_Vertical)
-					->Split
-					(
-						FTabManager::NewStack()
-						->SetHideTabWell(true)
-						->AddTab( "LevelEditorToolBar", ETabState::OpenedTab )
-					)
-					->Split
-					(
-						FTabManager::NewStack()
-						->SetHideTabWell(true)
-						->SetSizeCoefficient(0.75f)
-						->AddTab( "LevelEditorViewport", ETabState::OpenedTab )
-					)
-					->Split
-					(
-						FTabManager::NewStack()
-						->SetSizeCoefficient(0.25f)
-						->AddTab( "OutputLog", ETabState::ClosedTab )
-					)
-				)
-				->Split
-				(
-					FTabManager::NewSplitter()
-					->SetSizeCoefficient( 0.2f )
-					->SetOrientation(Orient_Vertical)
-					->Split
-					(
-						FTabManager::NewStack()
-						->SetSizeCoefficient(0.4f)
-						->AddTab("LevelEditorSceneOutliner", ETabState::OpenedTab)
-						->AddTab("LevelEditorLayerBrowser", ETabState::ClosedTab)	
-					)
-					->Split
-					(
-						FTabManager::NewStack()
-						->AddTab("LevelEditorSelectionDetails", ETabState::OpenedTab)
-						->AddTab("WorldSettingsTab", ETabState::ClosedTab)
-						->SetForegroundTab(FName("LevelEditorSelectionDetails"))
-					)
+					FTabManager::NewStack()
+					->SetSizeCoefficient(.4)
+					->AddTab("ContentBrowserTab1", ETabState::OpenedTab)
+					->AddTab("OutputLog", ETabState::ClosedTab)
 				)
 			)
-		)
-	);
+			->Split
+			(
+				FTabManager::NewSplitter()
+				->SetSizeCoefficient(0.25f)
+				->SetOrientation(Orient_Vertical)
+				->Split
+				(
+					FTabManager::NewStack()
+					->SetSizeCoefficient(0.4f)
+					->AddTab("LevelEditorSceneOutliner", ETabState::OpenedTab)
+					->AddTab("LevelEditorLayerBrowser", ETabState::ClosedTab)
+
+				)
+				->Split
+				(
+					FTabManager::NewStack()
+					->AddTab("LevelEditorSelectionDetails", ETabState::OpenedTab)
+					->AddTab("WorldSettingsTab", ETabState::ClosedTab)
+					->SetForegroundTab(FName("LevelEditorSelectionDetails"))
+				)
+			)
+			
+		));
 	
 
 	return LevelEditorTabManager->RestoreFrom( Layout, OwnerWindow ).ToSharedRef();

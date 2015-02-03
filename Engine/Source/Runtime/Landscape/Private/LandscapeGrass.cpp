@@ -225,8 +225,9 @@ public:
 	TArray<FComponentInfo> ComponentInfos;
 	FIntPoint TargetSize;
 	int32 NumPasses;
-	int32 PassOffsetX;
-	FMatrix ViewMatrix;
+	float PassOffsetX;
+	FVector ViewOrigin;
+	FMatrix ViewRotationMatrix;
 	FMatrix ProjectionMatrix;
 
 	void RenderLandscapeComponentToTexture_RenderThread(FRHICommandListImmediate& RHICmdList)
@@ -239,7 +240,8 @@ public:
 
 		FSceneViewInitOptions ViewInitOptions;
 		ViewInitOptions.SetViewRectangle(FIntRect(0, 0, TargetSize.X, TargetSize.Y));
-		ViewInitOptions.ViewMatrix = ViewMatrix;
+		ViewInitOptions.ViewOrigin = ViewOrigin;
+		ViewInitOptions.ViewRotationMatrix = ViewRotationMatrix;
 		ViewInitOptions.ProjectionMatrix = ProjectionMatrix;
 		ViewInitOptions.ViewFamily = &ViewFamily;
 
@@ -298,7 +300,7 @@ public:
 
 		TargetSize = FIntPoint(ComponentSizeVerts * NumPasses * InLandscapeComponents.Num(), ComponentSizeVerts);
 		FIntPoint TargetSizeMinusOne(TargetSize - FIntPoint(1,1));
-		PassOffsetX = 2.0f * ComponentSizeVerts / TargetSize.X;
+		PassOffsetX = 2.0f * (float)ComponentSizeVerts / (float)TargetSize.X;
 
 		for (int32 Idx = 0; Idx<InLandscapeComponents.Num();Idx++)
 		{
@@ -320,9 +322,9 @@ public:
 		// extent of target in world space
 		FVector TargetExtent = FVector(TargetSize, 0.f)*LandscapeProxy->GetActorScale()*0.5f;
 
-		ViewMatrix = FTranslationMatrix(-TargetCenter);
-		ViewMatrix *= FInverseRotationMatrix(LandscapeProxy->GetActorRotation());
-		ViewMatrix *= FMatrix(FPlane(1, 0, 0, 0),
+		ViewOrigin = TargetCenter;
+		ViewRotationMatrix = FInverseRotationMatrix(LandscapeProxy->GetActorRotation());
+		ViewRotationMatrix *= FMatrix(FPlane(1, 0, 0, 0),
 			FPlane(0, -1, 0, 0),
 			FPlane(0, 0, -1, 0),
 			FPlane(0, 0, 0, 1));
@@ -334,7 +336,7 @@ public:
 			0.5f / ZOffset,
 			ZOffset);
 
-		RenderTargetTexture = new UTextureRenderTarget2D(FObjectInitializer());
+		RenderTargetTexture = NewObject<UTextureRenderTarget2D>();
 		check(RenderTargetTexture);
 		RenderTargetTexture->ClearColor = FLinearColor::Transparent;
 		RenderTargetTexture->TargetGamma = 1.f;
@@ -363,7 +365,7 @@ public:
 
 		for (auto& ComponentInfo : ComponentInfos)
 		{
-			FLandscapeComponentGrassData* NewGrassData = new FLandscapeComponentGrassData();
+			FLandscapeComponentGrassData* NewGrassData = new FLandscapeComponentGrassData(ComponentInfo.Component->MaterialInstance->GetMaterial()->StateId);
 
 			NewGrassData->HeightData.Empty(FMath::Square(ComponentSizeVerts));
 
@@ -461,10 +463,23 @@ public:
 
 #if WITH_EDITOR
 
-bool ULandscapeComponent::CanRenderGrassMap()
+bool ULandscapeComponent::IsGrassMapOutdated() const
+{
+	if (GrassData->HasData())
+	{
+		if (GrassData->MaterialStateId != MaterialInstance->GetMaterial()->StateId)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool ULandscapeComponent::CanRenderGrassMap() const
 {
 	// Check we can render
-	if (!GIsEditor || GUsingNullRHI || !GetWorld() || GetWorld()->FeatureLevel < ERHIFeatureLevel::SM4 || !SceneProxy)
+	UWorld* World = GetWorld();
+	if (!GIsEditor || GUsingNullRHI || !World || World->IsGameWorld() || World->FeatureLevel < ERHIFeatureLevel::SM4 || !SceneProxy)
 	{
 		return false;
 	}
@@ -476,7 +491,8 @@ bool ULandscapeComponent::CanRenderGrassMap()
 	}
 	
 	// Check for valid heightmap that is fully streamed in
-	if (!HeightmapTexture || HeightmapTexture->ResidentMips != HeightmapTexture->GetNumMips())
+	if (!HeightmapTexture || HeightmapTexture->ResidentMips != HeightmapTexture->GetNumMips()
+		|| !HeightmapTexture->Resource || ((FTexture2DResource*)HeightmapTexture->Resource)->GetCurrentFirstMip() > 0)
 	{
 		return false;
 	}
@@ -516,6 +532,12 @@ void ULandscapeComponent::RenderGrassMap()
 void ULandscapeComponent::RemoveGrassMap()
 {
 	GrassData = MakeShareable(new FLandscapeComponentGrassData());
+}
+
+void ALandscapeProxy::RenderGrassMaps(const TArray<ULandscapeComponent*>& LandscapeComponents, const TArray<ULandscapeGrassType*>& GrassTypes)
+{
+	FLandscapeGrassWeightExporter Exporter(this, LandscapeComponents, GrassTypes);
+	Exporter.ApplyResults();
 }
 
 #endif
@@ -669,7 +691,7 @@ void ULandscapeGrassType::PostEditChangeProperty(FPropertyChangedEvent& Property
 					{
 						if (Output.GrassType == this)
 						{
-							Proxy->FlushFoliageComponents();
+							Proxy->FlushGrassComponents();
 							break;
 						}
 					}
@@ -685,6 +707,11 @@ void ULandscapeGrassType::PostEditChangeProperty(FPropertyChangedEvent& Property
 //
 FArchive& operator<<(FArchive& Ar, FLandscapeComponentGrassData& Data)
 {
+	if (Ar.UE4Ver() >= VER_UE4_SERIALIZE_LANDSCAPE_GRASS_DATA_MATERIAL_GUID)
+	{
+		Ar << Data.MaterialStateId;
+	}
+
 	Data.HeightData.BulkSerialize(Ar);
 	// Each weight data array, being 1 byte will be serialized in bulk.
 	return Ar << Data.WeightData;

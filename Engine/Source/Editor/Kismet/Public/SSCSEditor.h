@@ -13,13 +13,15 @@ class USimpleConstructionScript;
 typedef TSharedPtr<class FSCSEditorTreeNode> FSCSEditorTreeNodePtrType;
 
 /**
- * FSCSEditorTreeNodeBase
+ * FSCSEditorTreeNode
  *
  * Wrapper class for component template nodes displayed in the SCS editor tree widget.
  */
 class KISMET_API FSCSEditorTreeNode : public TSharedFromThis<FSCSEditorTreeNode>
 {
 public:
+	/** Delegate for when the context menu requests a rename */
+	DECLARE_DELEGATE(FOnRenameRequested);
 
 	enum ENodeType
 	{
@@ -28,60 +30,45 @@ public:
 		SeparatorNode,
 	};
 
-	/** 
+	/**
 	 * Constructs an empty tree node.
 	 */
 	FSCSEditorTreeNode(FSCSEditorTreeNode::ENodeType InNodeType);
 
 	/**
-	 * Constructs a wrapper around a component template contained within an SCS tree node.
-	 *
-	 * @param InSCSNode The SCS tree node represented by this object.
-	 * @param bInIsInherited Whether or not the SCS tree node is inherited from a parent Blueprint class.
-	 */
-	FSCSEditorTreeNode(class USCS_Node* InSCSNode, bool bInIsInherited = false);
-
-	/**
-	 * Constructs a wrapper around a component template not contained within an SCS tree node (e.g. "native" components).
-	 *
-	 * @param InComponentTemplate The component template represented by this object.
-	 */
-	FSCSEditorTreeNode(UActorComponent* InComponentTemplate);
-
-	/** 
 	 * @return The name of the variable represented by this node.
 	 */
-	FName GetVariableName() const;
+	virtual FName GetVariableName() const;
 	/**
 	 * @return The string to be used in the tree display.
 	 */
-	FString GetDisplayString() const;
+	virtual FString GetDisplayString() const;
 	/**
 	* @return The name of this node in text.
 	*/
-	FText GetDisplayName() const;
-	/** 
-     * @return The SCS node that is represented by this object, or NULL if there is no SCS node associated with the component template.
+	virtual FText GetDisplayName() const;
+	/**
+	 * @return The SCS node that is represented by this object, or NULL if there is no SCS node associated with the component template.
 	 */
-	class USCS_Node* GetSCSNode() const { return SCSNodePtr.Get(); }
+	virtual class USCS_Node* GetSCSNode() const;
 	/**
 	 * @return The component template or instance represented by this object.
 	 */
-	UActorComponent* GetComponentTemplate() const;
+	virtual UActorComponent* GetComponentTemplate() const;
 	/**
 	 * @param ActualEditedBlueprint currently edited blueprint
 	 *
 	 * @return The component template that can be editable for actual class.
 	 */
-	UActorComponent* GetEditableComponentTemplate(UBlueprint* ActualEditedBlueprint);
+	virtual UActorComponent* GetEditableComponentTemplate(UBlueprint* ActualEditedBlueprint);
 	/**
 	 * Finds the component instance represented by this node contained within a given Actor instance.
 	 *
 	 * @param InActor The Actor instance to use as the container object for finding the component instance.
 	 * @return The component instance represented by this node and contained within the given Actor instance, or NULL if not found.
 	 */
-	UActorComponent* FindComponentInstanceInActor(const AActor* InActor) const;
-	/** 
+	virtual UActorComponent* FindComponentInstanceInActor(const AActor* InActor) const;
+	/**
 	 * @return This object's parent node (or an invalid reference if no parent is assigned).
 	 */
 	FSCSEditorTreeNodePtrType GetParent() const { return ParentNodePtr; }
@@ -90,95 +77,51 @@ public:
 	 */
 	const TArray<FSCSEditorTreeNodePtrType>& GetChildren() const { return Children; }
 	/**
-	 * @return The Blueprint to which this node belongs.
-	 */
-	UBlueprint* GetBlueprint() const;
-	/**
 	 * @return Type of node
 	 */
 	ENodeType GetNodeType() const;
 	/**
-	 * @return Whether or not this object represents a root component.
-	 */
-	bool IsRootComponent() const;
-	/**
 	 * @return Whether or not this node is a direct child of the given node.
 	 */
-	bool IsDirectlyAttachedTo(FSCSEditorTreeNodePtrType InNodePtr) const { return ParentNodePtr == InNodePtr; } 
+	bool IsDirectlyAttachedTo(FSCSEditorTreeNodePtrType InNodePtr) const { return ParentNodePtr == InNodePtr; }
 	/**
 	 * @return Whether or not this node is a child (direct or indirect) of the given node.
 	 */
 	bool IsAttachedTo(FSCSEditorTreeNodePtrType InNodePtr) const;
-	/**
-	 * @return Whether or not this object represents a "native" component template (i.e. one that is not found in the SCS tree).
-	 */
-	bool IsNative() const { return GetSCSNode() == NULL && GetComponentTemplate() != NULL; }
-	/** 
-	 * @return Whether or not this object represents a component template that was inherited from a parent Blueprint class SCS.
-	 */
-	bool IsInherited() const { return bIsInherited; }
-	/**
-	 * @return Whether or not this object represents a component instance rather than a template.
-	 */
-	bool IsInstanced() const { return bIsInstanced; }
-	/**
-	 * @return Whether or not this object represents a component instance that was created by the user and not by a native or Blueprint-generated class.
-	 */
-	bool IsUserInstanced() const;
-	/** 
-	 * @return Whether or not this object represents the default SCS scene root component.
-	 */
-	bool IsDefaultSceneRoot() const;
-	/** 
-	 * @return Whether or not this object represents a node that can be deleted from the SCS tree.
-	 */
-	bool CanDelete() const { return (IsUserInstanced() || (!IsNative() && !IsInherited())) && !IsDefaultSceneRoot(); }
-	/** 
-	 * @return Whether or not this object represents a node that can be renamed from the SCS tree.
-	 */
-	bool CanRename() const { return (IsUserInstanced() || (!IsNative() && !IsInherited())) && !IsDefaultSceneRoot(); }
-	/** 
-	 * @return Whether or not this object represents a node that can be reparented to other nodes based on its context.
-	 */
-	bool CanReparent() const { return (IsUserInstanced() || (!IsNative() && !IsInherited())) && !IsDefaultSceneRoot() && Cast<USceneComponent>(GetComponentTemplate()) != NULL; }
-	/** 
-	 * @return Whether or not we can edit default properties for the component template represented by this object.
-	 */
-	bool CanEditDefaults() const;
 
 	/**
 	 * Finds the closest ancestor node in the given node set.
-	 * 
+	 *
 	 * @param InNodes The given node set.
 	 * @return One of the nodes from the set, or an invalid node reference if the set does not contain any ancestor nodes.
 	 */
 	FSCSEditorTreeNodePtrType FindClosestParent(TArray<FSCSEditorTreeNodePtrType> InNodes);
 
-	/** 
+	/**
 	 * Adds the given node as a child node.
 	 *
 	 * @param InChildNodePtr The node to add as a child node.
 	 */
 	void AddChild(FSCSEditorTreeNodePtrType InChildNodePtr);
 
-	/** 
+	/**
 	 * Adds a child node for the given SCS node.
 	 *
 	 * @param InSCSNode The SCS node to for which to create a child node.
-	 * @param bIsInherited Whether or not the given SCS node is inherited from a parent.
+	 * @param bIsInheritedSCS Whether or not the given SCS node is inherited from a parent.
 	 * @return A reference to the new child node or the existing child node if a match is found.
 	 */
-	FSCSEditorTreeNodePtrType AddChild(USCS_Node* InSCSNode, bool bIsInherited);
+	FSCSEditorTreeNodePtrType AddChild(USCS_Node* InSCSNode, bool bIsInheritedSCS);
 
-	/** 
+	/**
 	 * Adds a child node for the given component template.
 	 *
 	 * @param InComponentTemplate The component template for which to create a child node.
 	 * @return A reference to the new child node or the existing child node if a match is found.
 	 */
-	FSCSEditorTreeNodePtrType AddChild(UActorComponent* InComponentTemplate);
+	FSCSEditorTreeNodePtrType AddChildFromComponent(UActorComponent* InComponentTemplate);
 
-	/** 
+	/**
 	 * Attempts to find a reference to the child node that matches the given SCS node.
 	 *
 	 * @param InSCSNode The SCS node to match.
@@ -188,7 +131,7 @@ public:
 	 */
 	FSCSEditorTreeNodePtrType FindChild(const USCS_Node* InSCSNode, bool bRecursiveSearch = false, uint32* OutDepth = NULL) const;
 
-	/** 
+	/**
 	 * Attempts to find a reference to the child node that matches the given component template.
 	 *
 	 * @param InComponentTemplate The component template instance to match.
@@ -198,7 +141,7 @@ public:
 	 */
 	FSCSEditorTreeNodePtrType FindChild(const UActorComponent* InComponentTemplate, bool bRecursiveSearch = false, uint32* OutDepth = NULL) const;
 
-	/** 
+	/**
 	 * Attempts to find a reference to the child node that matches the given component variable or instance name.
 	 *
 	 * @param InVariableOrInstanceName The component variable or instance name to match.
@@ -208,44 +151,300 @@ public:
 	 */
 	FSCSEditorTreeNodePtrType FindChild(const FName& InVariableOrInstanceName, bool bRecursiveSearch = false, uint32* OutDepth = NULL) const;
 
-	/** 
+	/**
 	 * Removes the given node from the list of child nodes.
 	 *
 	 * @param InChildNodePtr The child node to remove.
 	 */
 	void RemoveChild(FSCSEditorTreeNodePtrType InChildNodePtr);
 
-	/** Delegate for when the context menu requests a rename */
-	DECLARE_DELEGATE(FOnRenameRequested);
+	bool IsSceneComponent() const
+	{
+		return Cast<USceneComponent>(GetComponentTemplate()) != nullptr;
+	}
+
+	// Tries to find a SCS node that was likely responsible for creating the specified instance component.  Note: This is not always possible to do!
+	static USCS_Node* FindSCSNodeForInstance(UActorComponent* InstanceComponent, UClass* ClassToSearch);
+
+	/**
+	 * Creates the correct type of node based on the component (instanced or not, etc...)
+	 */
+	static FSCSEditorTreeNodePtrType FactoryNodeFromComponent(UActorComponent* InComponent);
+
+	// Destructor
+	virtual ~FSCSEditorTreeNode() {}
+protected:
+	// Called when this node is being removed via a RemoveChild call
+	virtual void RemoveMeAsChild() {}
+
+
+public:
+
+
+
+	/**
+	* @return The Blueprint to which this node belongs.
+	*/
+	UBlueprint* GetBlueprint() const;
+
+	/**
+	 * @return Whether or not this object represents a "native" component template (i.e. one that is not found in the SCS tree).
+	 */
+	virtual bool IsNative() const { return false; }
+
+	/**
+	 * @return Whether or not this object represents a root component.
+	 */
+	virtual bool IsRootComponent() const { return false; }
+
+	/**
+	 * @return Whether or not this object represents an inherited SCS node (one from a SCS node in a parent Blueprint).
+	 */
+	virtual bool IsInheritedSCS() const { return false; }
+
+	/**
+	 * @return Whether or not this object was declared in the current class (or instance).  Anything inherited cannot be reorganized (renamed, reparented, etc...).
+	 */
+	virtual bool IsInherited() const
+	{
+		return IsNative() || IsInheritedSCS();
+	}
+
+	/**
+	 * @return Whether or not this object represents a component instance rather than a template.
+	 */
+	virtual bool IsInstanced() const { return false; }
+
+	/**
+	 * @return Whether or not this object represents a component instance that was created by the user and not by a native or Blueprint-generated class.
+	 */
+	virtual bool IsUserInstanced() const { return false; }
+
+	/**
+	* @return Whether or not this object represents the default SCS scene root component.
+	*/
+	virtual bool IsDefaultSceneRoot() const { return false; }
+
+	/**
+	 * @return Whether or not this object represents a node that can be deleted from the SCS tree.
+	 */
+	virtual bool CanDelete() const { return false; }
+
+	/**
+	 * @return Whether or not this object represents a node that can be reparented to other nodes based on its context.
+	 */
+	virtual bool CanReparent() const { return false; }
+
+	/**
+	 * @return Whether or not we can edit default properties for the component template represented by this object.
+	 */
+	virtual bool CanEditDefaults() const { return false; }
+
+	/**
+	 * @return Whether or not this object represents a node that can be renamed from the components tree.
+	 */
+	virtual bool CanRename() const { return false; }
 
 	/** Requests a rename on the component */
 	void OnRequestRename(bool bTransactional);
 
 	/** Renames the component */
-	void OnCompleteRename(const FText& InNewName);
+	virtual void OnCompleteRename(const FText& InNewName);
 
 	/** Sets up the delegate for renaming a component */
 	void SetRenameRequestedDelegate(FOnRenameRequested InRenameRequested) { RenameRequestedDelegate = InRenameRequested; }
 
-	/** Get overridden template component, specialized in given blueprint */
-	UActorComponent* GetOverridenComponentTemplate(UBlueprint* Blueprint, bool bCreateIfNecessary) const;
+
+protected:
+	bool GetAndClearNonTransactionalRenameFlag()
+	{
+		const bool bResult = bNonTransactionalRename;
+		bNonTransactionalRename = false;
+		return bResult;
+	}
 
 private:
+	// The type of component tree node
 	ENodeType NodeType;
-	bool bIsInherited;
-	bool bIsInstanced;
-	TWeakObjectPtr<class USCS_Node> SCSNodePtr;
-	TWeakObjectPtr<UActorComponent> ComponentTemplatePtr;
+
+	// Actual tree structure
 	FSCSEditorTreeNodePtrType ParentNodePtr;
 	TArray<FSCSEditorTreeNodePtrType> Children;
 
 	/** Handles rename requests */
 	bool bNonTransactionalRename;
 	FOnRenameRequested RenameRequestedDelegate;
+};
 
-	bool bWasInstancedFromNativeClass;
+//////////////////////////////////////////////////////////////////////////
+//
+
+class KISMET_API FSCSEditorTreeNodeComponentBase : public FSCSEditorTreeNode
+{
+protected:
+	FSCSEditorTreeNodeComponentBase()
+		: FSCSEditorTreeNode(FSCSEditorTreeNode::ComponentNode)
+	{
+	}
+
+public:
+	// FSCSEditorTreeNode interface
+	virtual FName GetVariableName() const override;
+	virtual FString GetDisplayString() const override;
+	virtual bool CanRename() const { return !IsInherited() && !IsDefaultSceneRoot(); }
+	virtual bool CanDelete() const { return !IsInherited() && !IsDefaultSceneRoot(); }
+	virtual bool CanReparent() const { return !IsInherited() && !IsDefaultSceneRoot() && IsSceneComponent(); }
+	// End of FSCSEditorTreeNode interface
+};
+
+
+//////////////////////////////////////////////////////////////////////////
+// FSCSEditorTreeNodeInstancedInheritedComponent - A inherited component in the instanced case (either an inherited SCS node or an inherited native component)
+
+class KISMET_API FSCSEditorTreeNodeInstancedInheritedComponent : public FSCSEditorTreeNodeComponentBase
+{
+public:
+	/**
+	 * Constructs a wrapper around a component template not contained within an SCS tree node (e.g. "native" components).
+	 *
+	 * @param InComponentTemplate The component template represented by this object.
+	 */
+	FSCSEditorTreeNodeInstancedInheritedComponent(AActor* Owner, FName InComponentName);
+
+	// FSCSEditorTreeNode public interface
+	virtual bool IsNative() const override;
+	virtual bool IsRootComponent() const override;
+	virtual bool IsInheritedSCS() const override;
+	virtual bool IsInstanced() const override { return true; }
+	virtual bool IsInherited() const override { return true; }
+	virtual bool IsUserInstanced() const override { return false; }
+	virtual bool IsDefaultSceneRoot() const override;
+	virtual bool CanEditDefaults() const { return IsNative(); }
+	//virtual FName GetVariableName() const override;
+	//virtual FString GetDisplayString() const override;
+	virtual FText GetDisplayName() const override;
+	virtual UActorComponent* GetComponentTemplate() const override;
+	virtual UActorComponent* GetEditableComponentTemplate(UBlueprint* ActualEditedBlueprint) override;
+	// End of FSCSEditorTreeNode public interface
+
+private:
 	FName InstancedComponentName;
 	TWeakObjectPtr<AActor> InstancedComponentOwnerPtr;
+};
+
+//////////////////////////////////////////////////////////////////////////
+// FSCSEditorTreeNodeInstanceAddedComponent - A unique-to-this instance component
+
+class KISMET_API FSCSEditorTreeNodeInstanceAddedComponent : public FSCSEditorTreeNodeComponentBase
+{
+public:
+	/**
+	* Constructs a wrapper around a component template not contained within an SCS tree node (e.g. "native" components).
+	*
+	* @param InComponentTemplate The component template represented by this object.
+	*/
+	FSCSEditorTreeNodeInstanceAddedComponent(AActor* Owner, FName InComponentName);
+
+	// FSCSEditorTreeNode public interface
+	virtual bool IsNative() const override { return false; }
+	virtual bool IsRootComponent() const override;
+	virtual bool IsInheritedSCS() const override { return false; }
+	virtual bool IsInstanced() const override { return true; }
+	virtual bool IsUserInstanced() const override { return true; }
+	virtual bool IsDefaultSceneRoot() const override;
+	virtual bool CanEditDefaults() const { return true; }
+	virtual FName GetVariableName() const override { return NAME_None; }
+	virtual FString GetDisplayString() const override;
+	virtual FText GetDisplayName() const override;
+	virtual UActorComponent* GetComponentTemplate() const override;
+	virtual UActorComponent* GetEditableComponentTemplate(UBlueprint* ActualEditedBlueprint) override;
+	virtual void OnCompleteRename(const FText& InNewName) override;
+	// End of FSCSEditorTreeNode public interface
+
+protected:
+	// FSCSEditorTreeNode protected interface
+	virtual void RemoveMeAsChild() override;
+	// End of FSCSEditorTreeNode protected interface
+
+private:
+	FName InstancedComponentName;
+	TWeakObjectPtr<AActor> InstancedComponentOwnerPtr;
+};
+
+//////////////////////////////////////////////////////////////////////////
+// FSCSEditorTreeNodeComponent - A generic component in the non-instanced case (either a SCS node or an inherited native component)
+
+class KISMET_API FSCSEditorTreeNodeComponent : public FSCSEditorTreeNodeComponentBase
+{
+public:
+	/**
+	 * Constructs a wrapper around a component template contained within an SCS tree node.
+	 *
+	 * @param InSCSNode The SCS tree node represented by this object.
+	 * @param bInIsInherited Whether or not the SCS tree node is inherited from a parent Blueprint class.
+	 */
+	FSCSEditorTreeNodeComponent(class USCS_Node* InSCSNode, bool bInIsInherited = false);
+
+	/**
+	 * Constructs a wrapper around a component template not contained within an SCS tree node (e.g. "native" components).
+	 *
+	 * @param InComponentTemplate The component template represented by this object.
+	 */
+	FSCSEditorTreeNodeComponent(UActorComponent* InComponentTemplate);
+
+
+	// FSCSEditorTreeNode public interface
+	virtual bool IsNative() const override;
+	virtual bool IsRootComponent() const override;
+	virtual bool IsInheritedSCS() const override;
+	virtual bool IsInstanced() const override { return false; }
+	virtual bool IsUserInstanced() const override { return false; }
+	virtual bool IsDefaultSceneRoot() const override;
+	virtual bool CanEditDefaults() const override;
+	//virtual FName GetVariableName() const override;
+	//virtual FString GetDisplayString() const override;
+	virtual FText GetDisplayName() const override;
+	virtual class USCS_Node* GetSCSNode() const override;
+	virtual UActorComponent* GetComponentTemplate() const override;
+	virtual UActorComponent* GetEditableComponentTemplate(UBlueprint* ActualEditedBlueprint) override;
+	virtual void OnCompleteRename(const FText& InNewName) override;
+	// End of FSCSEditorTreeNode public interface
+
+protected:
+	// FSCSEditorTreeNode protected interface
+	virtual void RemoveMeAsChild() override;
+	// End of FSCSEditorTreeNode protected interface
+
+	/** Get overridden template component, specialized in given blueprint */
+	UActorComponent* INTERNAL_GetOverridenComponentTemplate(UBlueprint* Blueprint, bool bCreateIfNecessary) const;
+
+private:
+	// Was this component inherited from a parent class or introduced in this class?
+	bool bIsInheritedSCS;
+
+	// Is this the template coming from an SCS node?
+	TWeakObjectPtr<class USCS_Node> SCSNodePtr;
+
+	TWeakObjectPtr<UActorComponent> ComponentTemplatePtr;
+};
+
+
+class KISMET_API FSCSEditorTreeNodeRootActor : public FSCSEditorTreeNode
+{
+public:
+	FSCSEditorTreeNodeRootActor()
+		: FSCSEditorTreeNode(FSCSEditorTreeNode::RootActorNode)
+	{
+	}
+};
+
+class KISMET_API FSCSEditorTreeNodeSeparator : public FSCSEditorTreeNode
+{
+public:
+	FSCSEditorTreeNodeSeparator()
+		: FSCSEditorTreeNode(FSCSEditorTreeNode::SeparatorNode)
+	{
+	}
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -290,6 +489,9 @@ public:
 	/* Get the node used by the row Widget */
 	virtual FSCSEditorTreeNodePtrType GetNode() const { return TreeNodePtr; };
 
+protected:
+	virtual ESelectionMode::Type GetSelectionMode() const override;
+
 private:
 	/** Verifies the name of the component when changing it */
 	bool OnNameTextVerifyChanged(const FText& InNewText, FText& OutErrorMessage);
@@ -326,18 +528,23 @@ private:
 	/**
 	 * Retrieves an image brush signifying the specified component's mobility (could sometimes be NULL).
 	 * 
-	 * @param   SCSNode		A weak-pointer to the component node that you want a mobility icon for
 	 * @returns A pointer to the FSlateBrush to use (NULL for Static and Non-SceneComponents)
 	 */
-	FSlateBrush const* GetMobilityIconImage(TWeakObjectPtr<USCS_Node> SCSNode) const;
+	FSlateBrush const* GetMobilityIconImage() const;
 
 	/**
 	 * Retrieves tooltip text describing the specified component's mobility.
 	 * 
-	 * @param   SCSNode		A weak-pointer to the component node that you want tooltip text for
 	 * @returns An FText object containing a description of the component's mobility
 	 */
-	FText GetMobilityToolTipText(TWeakObjectPtr<USCS_Node> SCSNode) const;
+	FText GetMobilityToolTipText() const;
+
+	/**
+	 * Retrieves tooltip text describing where the component was first introduced (for inherited components).
+	 * 
+	 * @returns An FText object containing a description of when the component was first introduced
+	 */
+	FText GetIntroducedInToolTipText() const;
 public:
 	/** Pointer back to owning SCSEditor 2 tool */
 	TWeakPtr<SSCSEditor> SCSEditor;
@@ -354,9 +561,6 @@ public:
 	// SMultiColumnTableRow<T> interface
 	virtual TSharedRef<SWidget> GenerateWidgetForColumn(const FName& ColumnName) override;
 	// End of SMultiColumnTableRow<T>
-
-	/* Get the node used by the row Widget */
-	virtual FSCSEditorTreeNodePtrType GetNode() const override;
 
 private:
 	/** Creates a tooltip for this row */
@@ -450,18 +654,21 @@ private:
 
 typedef SSCSEditorDragDropTree SSCSTreeType;
 
-class KISMET_API SSCSEditor : public SCompoundWidget
+/* Component editor mode */
+namespace EComponentEditorMode
 {
-public:
-	/* Editor mode */
-	enum EEditorMode
+	enum Type
 	{
 		/* View/edit the SCS in a BGPC */
 		BlueprintSCS,
 		/* View/edit the Actor instance */
 		ActorInstance
 	};
+};
 
+class KISMET_API SSCSEditor : public SCompoundWidget
+{
+public:
 	DECLARE_DELEGATE_RetVal_OneParam(class USCS_Node*, FOnAddNewComponent, class UClass*);
 	DECLARE_DELEGATE_RetVal_OneParam(class USCS_Node*, FOnAddExistingComponent, class UActorComponent*);
 	DECLARE_DELEGATE_OneParam(FOnSelectionUpdated, const TArray<FSCSEditorTreeNodePtrType>&);
@@ -469,7 +676,7 @@ public:
 	DECLARE_DELEGATE_OneParam(FOnHighlightPropertyInDetailsView, const class FPropertyPath&);
 
 	SLATE_BEGIN_ARGS( SSCSEditor )
-		:_EditorMode(BlueprintSCS)
+		:_EditorMode(EComponentEditorMode::BlueprintSCS)
 		,_ActorContext(nullptr)
 		,_PreviewActor(nullptr)
 		,_AllowEditing(true)
@@ -478,7 +685,8 @@ public:
 		,_OnHighlightPropertyInDetailsView()
 		{}
 
-		SLATE_ARGUMENT(EEditorMode, EditorMode)
+		SLATE_ARGUMENT(EComponentEditorMode::Type, EditorMode)
+		SLATE_ARGUMENT(TSharedPtr<FExtender>, ActorMenuExtender)
 		SLATE_ATTRIBUTE(class AActor*, ActorContext)
 		SLATE_ATTRIBUTE(class AActor*, PreviewActor)
 		SLATE_ATTRIBUTE(bool, AllowEditing)
@@ -523,7 +731,7 @@ public:
 		@param Asset	(In) Optional asset to assign to the component
 		@param bSetFocusToNewItem (In) Select the new item and activate the inline rename widget (default is true)
 		@return The reference of the newly created ActorComponent */
-	UActorComponent* AddNewNode(UActorComponent* NewInstanceComponent, UObject* Asset, bool bSetFocusToNewItem = true);
+	UActorComponent* AddNewNodeForInstancedComponent(UActorComponent* NewInstanceComponent, UObject* Asset, bool bSetFocusToNewItem = true);
 	
 	/** Returns true if the specified component is currently selected */
 	bool IsComponentSelected(const UPrimitiveComponent* PrimComponent) const;
@@ -583,6 +791,12 @@ public:
 	 * @param GetSelectedObjectsDelegate		the delegate to fill the currently select variables / components
 	 */
 	static void BuildMenuEventsSection( FMenuBuilder& Menu, UBlueprint* Blueprint, UClass* SelectedClass, FCanExecuteAction CanExecuteActionDelegate, FGetSelectedObjectsDelegate GetSelectedObjectsDelegate );
+
+	void OnEditBlueprint(UObject* Blueprint) const;
+
+	void OnGoToAssetInBrowser(UObject* Asset) const;
+
+	void OnOpenCodeFile(const FString CodeFileName) const;
 
 	/**
 	 * Given an actor component, attempts to find an associated tree node.
@@ -645,12 +859,12 @@ public:
 	const TArray<FSCSEditorTreeNodePtrType>& GetRootComponentNodes();
 
 	/** @return The current editor mode (editing live actors or editing blueprints) */
-	EEditorMode GetEditorMode() const { return EditorMode; }
+	EComponentEditorMode::Type GetEditorMode() const { return EditorMode; }
 protected:
 	FString GetSelectedClassText() const;
 
 	/** Add a component from the selection in the combo box */
-	void PerformComboAddClass(TSubclassOf<UActorComponent> ComponentClass, EComponentCreateAction::Type ComponentCreateAction );
+	UActorComponent* PerformComboAddClass(TSubclassOf<UActorComponent> ComponentClass, EComponentCreateAction::Type ComponentCreateAction, UObject* AssetOverride);
 
 	/** Called to display context menu when right clicking on the widget */
 	TSharedPtr< SWidget > CreateContextMenu();
@@ -694,10 +908,10 @@ protected:
 	void OnDuplicateComponent();
 
 	/** Helper method to add a tree node for the given SCS node */
-	FSCSEditorTreeNodePtrType AddTreeNode(USCS_Node* InSCSNode, FSCSEditorTreeNodePtrType InParentNodePtr, const bool bIsInherited);
+	FSCSEditorTreeNodePtrType AddTreeNode(USCS_Node* InSCSNode, FSCSEditorTreeNodePtrType InParentNodePtr, const bool bIsInheritedSCS);
 
 	/** Helper method to add a tree node for the given scene component */
-	FSCSEditorTreeNodePtrType AddTreeNode(USceneComponent* InSceneComponent);
+	FSCSEditorTreeNodePtrType AddTreeNodeFromComponent(USceneComponent* InSceneComponent);
 
 	/** Helper method to recursively find a tree node for the given SCS node starting at the given tree node */
 	FSCSEditorTreeNodePtrType FindTreeNode(const USCS_Node* InSCSNode, FSCSEditorTreeNodePtrType InStartNodePtr = FSCSEditorTreeNodePtrType()) const;
@@ -750,6 +964,9 @@ protected:
 	/** Adds a root component tree node */
 	TSharedPtr<FSCSEditorTreeNode> AddRootComponentTreeNode(UActorComponent* ActorComp);
 
+	/** Given a class, makes up a default prefix and name for a newly created derived class */
+	void MakeDefaultComponentPrefixAndName( TSubclassOf<UActorComponent> ComponentClass, FString& DefaultClassPrefix, FString& DefaultClassName ) const;
+
 	/**
 	 * Creates a new C++ component from the specified class type
 	 * The user will be prompted to pick a new subclass name and code will be recompiled
@@ -800,18 +1017,24 @@ public:
 
 	/** Delegate to invoke when the given property should be highlighted in the details view (e.g. diff). */
 	FOnHighlightPropertyInDetailsView OnHighlightPropertyInDetailsView;
+
+	/** Returns the Actor context for which we are viewing/editing the SCS.  Can return null.  Should not be cached as it may change from frame to frame. */
+	class AActor* GetActorContext() const;
 private:
 	/** Indicates which editor mode we're in. */
-	EEditorMode EditorMode;
+	EComponentEditorMode::Type EditorMode;
 
 	/** Root set of tree */
 	TArray<FSCSEditorTreeNodePtrType> RootNodes;
 
-	/** Root set of components*/
+	/** Root set of components (contains the root scene component and any non-scene component nodes) */
 	TArray<FSCSEditorTreeNodePtrType> RootComponentNodes;
 
-	/* Root Tree Node*/
+	/* Root Tree Node (for scene components) */
 	TSharedPtr<FSCSEditorTreeNode> RootTreeNode;
+
+	/* Root Tree Node*/
+	TSharedPtr<FExtender> ActorMenuExtender;
 
 	/** Flag to enable/disable component editing */
 	bool bEnableComponentEditing;
@@ -819,6 +1042,4 @@ private:
 	/** Gate to prevent changing the selection while selection change is being broadcast. */
 	bool bUpdatingSelection;
 
-	/** Flag to track if we have the Actor selected curently */
-	bool bIsActorSelected;
 };

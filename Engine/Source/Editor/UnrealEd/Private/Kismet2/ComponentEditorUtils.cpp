@@ -7,12 +7,6 @@
 #include "Engine/SCS_Node.h"
 #include "Engine/SimpleConstructionScript.h"
 
-const FName& FComponentEditorUtils::GetDefaultSceneRootVariableName()
-{
-	static FName DefaultSceneRootVariableName = FName(TEXT("DefaultSceneRoot"));
-
-	return DefaultSceneRootVariableName;
-}
 
 USceneComponent* FComponentEditorUtils::GetSceneComponent( UObject* Object, UObject* SubObject /*= NULL*/ )
 {
@@ -100,7 +94,7 @@ void FComponentEditorUtils::GetArchetypeInstances( UObject* Object, TArray<UObje
 bool FComponentEditorUtils::IsValidVariableNameString(const UActorComponent* InComponent, const FString& InString)
 {
 	// First test to make sure the string is not empty and does not equate to the DefaultSceneRoot node name
-	bool bIsValid = !InString.IsEmpty() && !InString.Equals(GetDefaultSceneRootVariableName().ToString());
+	bool bIsValid = !InString.IsEmpty() && !InString.Equals(USceneComponent::GetDefaultSceneRootVariableName().ToString());
 	if(bIsValid && InComponent != NULL)
 	{
 		// Next test to make sure the string doesn't conflict with the format that MakeUniqueObjectName() generates
@@ -114,24 +108,11 @@ bool FComponentEditorUtils::IsValidVariableNameString(const UActorComponent* InC
 	return bIsValid;
 }
 
-bool FComponentEditorUtils::IsComponentNameAvailable(const FString& InString, const AActor* ComponentOwner, const UActorComponent* ComponentToIgnore)
+bool FComponentEditorUtils::IsComponentNameAvailable(const FString& InString, AActor* ComponentOwner, const UActorComponent* ComponentToIgnore)
 {
-	bool bNameIsAvailable = true;
+	UObject* Object = FindObjectFast<UObject>(ComponentOwner, *InString);
 
-	if (ComponentOwner != nullptr)
-	{
-		TInlineComponentArray<UActorComponent*> Components;
-		ComponentOwner->GetComponents(Components);
-
-		for (auto Component : Components)
-		{
-			if (Component != ComponentToIgnore && Component->GetName() == InString)
-			{
-				bNameIsAvailable = false;
-				break;
-			}
-		}
-	}
+	bool bNameIsAvailable = Object == nullptr || Object == ComponentToIgnore;
 
 	return bNameIsAvailable;
 }
@@ -140,10 +121,22 @@ FString FComponentEditorUtils::GenerateValidVariableName(TSubclassOf<UActorCompo
 {
 	check(ComponentOwner);
 
-	int32 Counter = 1;
-	FString ComponentTypeName = *ComponentClass->GetName().Replace(TEXT("Component"), TEXT(""));
+	// Strip off "_C" suffix if it has one
+	FString ComponentTypeName = *ComponentClass->GetName();
+	if (ComponentClass->ClassGeneratedBy && ComponentTypeName.EndsWith(TEXT("_C")))
+	{
+		ComponentTypeName = ComponentTypeName.Left( ComponentTypeName.Len() - 2 );
+	}
+
+	// Strip off 'Component' if the class ends with that.  It just looks better in the UI.
+	const FString SuffixToStrip( TEXT( "Component" ) );
+	if( ComponentTypeName.EndsWith( SuffixToStrip ) )
+	{
+		ComponentTypeName = ComponentTypeName.Left( ComponentTypeName.Len() - SuffixToStrip.Len() );
+	}
 	
 	// Try to create a name without any numerical suffix first
+	int32 Counter = 1;
 	FString ComponentInstanceName = ComponentTypeName;
 	while (!IsComponentNameAvailable(ComponentInstanceName, ComponentOwner))
 	{
@@ -187,6 +180,33 @@ void FComponentEditorUtils::AdjustComponentDelta(USceneComponent* Component, FVe
 		if (!Component->bAbsoluteRotation)
 		{
 			Rotation = ( ParentToWorldSpace.Inverse().GetRotation() * Rotation.Quaternion() * ParentToWorldSpace.GetRotation() ).Rotator();
+		}
+	}
+}
+
+void FComponentEditorUtils::BindComponentSelectionOverride(USceneComponent* SceneComponent)
+{
+	if (SceneComponent)
+	{
+		// If the scene component is a primitive component, ensure the override is bound
+		auto PrimComponent = Cast<UPrimitiveComponent>(SceneComponent);
+		if (PrimComponent && !PrimComponent->SelectionOverrideDelegate.IsBound())
+		{
+			PrimComponent->Modify();
+			PrimComponent->SelectionOverrideDelegate = UPrimitiveComponent::FSelectionOverride::CreateUObject(GUnrealEd, &UUnrealEdEngine::IsComponentSelected);
+		}
+		else
+		{
+			// Otherwise, make sure the override is bound on any attached primitive components (to make sure we catch any editor-only billboards and the like)
+			for (auto Component : SceneComponent->AttachChildren)
+			{
+				PrimComponent = Cast<UPrimitiveComponent>(Component);
+				if (PrimComponent && !PrimComponent->SelectionOverrideDelegate.IsBound())
+				{
+					PrimComponent->Modify();
+					PrimComponent->SelectionOverrideDelegate = UPrimitiveComponent::FSelectionOverride::CreateUObject(GUnrealEd, &UUnrealEdEngine::IsComponentSelected);
+				}
+			}
 		}
 	}
 }

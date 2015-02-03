@@ -262,7 +262,7 @@ void UUnrealEdEngine::edactPasteSelected(UWorld* InWorld, bool bDuplicate, bool 
 	const TCHAR* Paste = *PasteString;
 
 	// Import the actors.
-	ULevelFactory* Factory = new ULevelFactory(FObjectInitializer());
+	auto Factory = NewObject<ULevelFactory>();
 	Factory->FactoryCreateText( ULevel::StaticClass(), InWorld->GetCurrentLevel(), InWorld->GetCurrentLevel()->GetFName(), RF_Transactional, NULL, bDuplicate ? TEXT("move") : TEXT("paste"), Paste, Paste+FCString::Strlen(Paste), GWarn );
 
 	// Fire ULevel::LevelDirtiedEvent when falling out of scope.
@@ -549,6 +549,22 @@ bool UUnrealEdEngine::edactDeleteSelected( UWorld* InWorld, bool bVerifyDeletion
 	const double StartSeconds = FPlatformTime::Seconds();
 
 	GetSelectedActors()->Modify();
+
+	if (GetSelectedComponentCount() > 0)
+	{
+		bool bComponentWasDeleted = false;
+		// Delete selected components if they are an Instance component
+		for (FSelectionIterator It(GetSelectedComponentIterator()); It; ++It)
+		{
+			UActorComponent* CurActor = CastChecked<UActorComponent>(*It);
+			if (CurActor->CreationMethod == EComponentCreationMethod::Instance)
+			{
+				CurActor->DestroyComponent(true);
+				bComponentWasDeleted = true;
+			}
+		}
+		return bComponentWasDeleted;
+	}
 
 	// Fire ULevel::LevelDirtiedEvent when falling out of scope.
 	FScopedLevelDirtied			LevelDirtyCallback;

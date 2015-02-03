@@ -565,7 +565,7 @@ bool UEditorEngine::Exec_Brush( UWorld* InWorld, const TCHAR* Str, FOutputDevice
 			WorldBrush->SetActorLocation(SnapLocation - PrePivot, false);
 			WorldBrush->SetPrePivot( FVector::ZeroVector );
 			WorldBrush->Brush->Polys->Element.Empty();
-			UPolysFactory* It = new UPolysFactory(FObjectInitializer());
+			UPolysFactory* It = NewObject<UPolysFactory>();
 			It->FactoryCreateText( UPolys::StaticClass(), WorldBrush->Brush->Polys->GetOuter(), *WorldBrush->Brush->Polys->GetName(), RF_NoFlags, WorldBrush->Brush->Polys, TEXT("t3d"), GStream, GStream+FCString::Strlen(GStream), GWarn );
 			// Do NOT merge faces.
 			FBSPOps::bspValidateBrush( WorldBrush->Brush, 0, 1 );
@@ -1111,7 +1111,8 @@ UTransactor* UEditorEngine::CreateTrans()
 		UndoBufferSize = 16;
 	}
 
-	UTransBuffer* TransBuffer = new UTransBuffer(FObjectInitializer(), UndoBufferSize * 1024 * 1024);
+	UTransBuffer* TransBuffer = NewObject<UTransBuffer>();
+	TransBuffer->Initialize(UndoBufferSize * 1024 * 1024);
 	TransBuffer->OnBeforeRedoUndo().AddUObject(this, &UEditorEngine::HandleTransactorBeforeRedoUndo);
 	TransBuffer->OnRedo().AddUObject(this, &UEditorEngine::HandleTransactorRedo);
 	TransBuffer->OnUndo().AddUObject(this, &UEditorEngine::HandleTransactorUndo);
@@ -1121,7 +1122,57 @@ UTransactor* UEditorEngine::CreateTrans()
 
 void UEditorEngine::PostUndo (bool bSuccess)
 {
-	//Make sure that the proper objects display as selected
+	//Update the actor selection followed by the component selection if needed (note: order is important)
+
+	//Get the list of all selected actors after the operation
+	TArray<AActor*> SelectedActors;
+	for (FSelectionIterator It(GEditor->GetSelectedActorIterator()); It; ++It)
+	{
+		AActor* Actor = CastChecked<AActor>(*It);
+		//if this actor is NOT in a hidden level add it to the list - otherwise de-select it
+		if (FLevelUtils::IsLevelLocked(Actor) == false)
+		{
+			SelectedActors.Add(Actor);
+		}
+		else
+		{
+			GetSelectedActors()->Select(Actor, false);
+		}
+	}
+
+	USelection* Selection = GetSelectedActors();
+	Selection->BeginBatchSelectOperation();
+
+	//Deselect all of the actors that were selected prior to the operation
+	for (int32 OldSelectedActorIndex = OldSelectedActors.Num() - 1; OldSelectedActorIndex >= 0; --OldSelectedActorIndex)
+	{
+		AActor* Actor = OldSelectedActors[OldSelectedActorIndex];
+
+		//To stop us from unselecting and then reselecting again (causing two force update components, we will remove (from both lists) any object that was selected and should continue to be selected
+		int32 FoundIndex;
+		if (SelectedActors.Find(Actor, FoundIndex))
+		{
+			OldSelectedActors.RemoveAt(OldSelectedActorIndex);
+			SelectedActors.RemoveAt(FoundIndex);
+		}
+		else
+		{
+			SelectActor(Actor, false, false);//First false is to deselect, 2nd is to notify
+			Actor->UpdateComponentTransforms();
+		}
+	}
+
+	//Select all of the actors in SelectedActors
+	for (int32 SelectedActorIndex = 0; SelectedActorIndex < SelectedActors.Num(); ++SelectedActorIndex)
+	{
+		AActor* Actor = SelectedActors[SelectedActorIndex];
+		SelectActor(Actor, true, false);	//false is to stop notify which is done below if bOpWasSuccessful
+		Actor->UpdateComponentTransforms();
+	}
+
+	OldSelectedActors.Empty();
+	Selection->EndBatchSelectOperation();
+	
 	if (GetSelectedComponentCount() > 0)
 	{
 		//@todo Check to see if component owner is in a hidden level
@@ -1168,57 +1219,6 @@ void UEditorEngine::PostUndo (bool bSuccess)
 
 		// We want to broadcast the component SelectionChangedEvent even if the selection didn't actually change
 		Selection->MarkBatchDirty();
-		Selection->EndBatchSelectOperation();
-	}
-	else
-	{
-		//Get the list of all selected actors after the operation
-		TArray<AActor*> SelectedActors;
-		for (FSelectionIterator It(GEditor->GetSelectedActorIterator()); It; ++It)
-		{
-			AActor* Actor = CastChecked<AActor>(*It);
-			//if this actor is NOT in a hidden level add it to the list - otherwise de-select it
-			if (FLevelUtils::IsLevelLocked(Actor) == false)
-			{
-				SelectedActors.Add(Actor);
-			}
-			else
-			{
-				GetSelectedActors()->Select(Actor, false);
-			}
-		}
-
-		USelection* Selection = GetSelectedActors();
-		Selection->BeginBatchSelectOperation();
-
-		//Deselect all of the actors that were selected prior to the operation
-		for (int32 OldSelectedActorIndex = OldSelectedActors.Num() - 1; OldSelectedActorIndex >= 0; --OldSelectedActorIndex)
-		{
-			AActor* Actor = OldSelectedActors[OldSelectedActorIndex];
-
-			//To stop us from unselecting and then reselecting again (causing two force update components, we will remove (from both lists) any object that was selected and should continue to be selected
-			int32 FoundIndex;
-			if (SelectedActors.Find(Actor, FoundIndex))
-			{
-				OldSelectedActors.RemoveAt(OldSelectedActorIndex);
-				SelectedActors.RemoveAt(FoundIndex);
-			}
-			else
-			{
-				SelectActor(Actor, false, false);//First false is to deselect, 2nd is to notify
-				Actor->UpdateComponentTransforms();
-			}
-		}
-
-		//Select all of the actors in SelectedActors
-		for (int32 SelectedActorIndex = 0; SelectedActorIndex < SelectedActors.Num(); ++SelectedActorIndex)
-		{
-			AActor* Actor = SelectedActors[SelectedActorIndex];
-			SelectActor(Actor, true, false);	//false is to stop notify which is done below if bOpWasSuccessful
-			Actor->UpdateComponentTransforms();
-		}
-
-		OldSelectedActors.Empty();
 		Selection->EndBatchSelectOperation();
 	}
 }
@@ -2827,11 +2827,13 @@ void UEditorEngine::DoMoveSelectedActorsToLevel( ULevel* InDestLevel )
 
 ULevel*  UEditorEngine::CreateTransLevelMoveBuffer( UWorld* InWorld )
 {
-	ULevel* BufferLevel = new(GetTransientPackage(), TEXT("TransLevelMoveBuffer")) ULevel(FObjectInitializer(),FURL(NULL));
+	ULevel* BufferLevel = NewNamedObject<ULevel>(GetTransientPackage(), TEXT("TransLevelMoveBuffer"));
+	BufferLevel->Initialize(FURL(nullptr));
 	check( BufferLevel );
 	BufferLevel->AddToRoot();
 	BufferLevel->OwningWorld = InWorld;
-	BufferLevel->Model = new( BufferLevel ) UModel( FObjectInitializer(), NULL, true );
+	BufferLevel->Model = NewObject<UModel>(BufferLevel);
+	BufferLevel->Model->Initialize(nullptr, true);
 	BufferLevel->bIsVisible = true;
 		
 	BufferLevel->SetFlags( RF_Transactional );
@@ -2850,7 +2852,8 @@ ULevel*  UEditorEngine::CreateTransLevelMoveBuffer( UWorld* InWorld )
 	BufferDefaultBrush->Brush = CastChecked<UModel>(StaticFindObject(UModel::StaticClass(), BufferLevel->OwningWorld->GetOuter(), TEXT("Brush"), true), ECastCheckedType::NullAllowed);
 	if (!BufferDefaultBrush->Brush)
 	{
-		BufferDefaultBrush->Brush = new( InWorld, TEXT("Brush") )UModel( FObjectInitializer(), BufferDefaultBrush, 1 );
+		BufferDefaultBrush->Brush = NewNamedObject<UModel>(InWorld, TEXT("Brush"));
+		BufferDefaultBrush->Brush->Initialize(BufferDefaultBrush, 1);
 	}
 	BufferDefaultBrush->GetBrushComponent()->Brush = BufferDefaultBrush->Brush;
 	BufferDefaultBrush->SetNotForClientOrServer();
@@ -4469,25 +4472,23 @@ void UEditorEngine::MoveViewportCamerasToActor(const TArray<AActor*> &Actors, co
  * @param InDestination		The destination actor we want to move this actor to, NULL assumes we just want to go towards the floor
  * @return					Whether or not the actor was moved.
  */
-bool UEditorEngine::SnapActorTo( AActor* InActor, const bool InAlign, const bool InUseLineTrace, const bool InUseBounds, const bool InUsePivot, const AActor* InDestination/* = NULL*/ )
+bool UEditorEngine::SnapObjectTo( FActorOrComponent Object, const bool InAlign, const bool InUseLineTrace, const bool InUseBounds, const bool InUsePivot, FActorOrComponent InDestination )
 {
-	check( InActor );
-	if ( InActor == InDestination )	// Early out
+	if ( !Object.IsValid() || Object == InDestination )	// Early out
 	{
 		return false;
 	}
 
 
-	FVector	StartLocation = InActor->GetActorLocation();
+	FVector	StartLocation = Object.GetWorldLocation();
 	FVector	LocationOffset = FVector::ZeroVector;
 	FVector	Extent = FVector::ZeroVector;
-	ABrush* Brush = Cast< ABrush >( InActor );
+	ABrush* Brush = Cast< ABrush >( Object.Actor );
 	bool UseLineTrace = Brush ? true: InUseLineTrace;
 	bool UseBounds = Brush ? true: InUseBounds;
 
 	if( UseLineTrace && UseBounds )
 	{
-		check(InActor->GetRootComponent()->IsRegistered());
 		if (InUsePivot)
 		{
 			// Will do a line trace from the pivot location.
@@ -4496,68 +4497,65 @@ bool UEditorEngine::SnapActorTo( AActor* InActor, const bool InAlign, const bool
 		else
 		{
 			// Will do a line trace from the center bottom of the bounds through the world. Will begin at the bottom center of the component's bounds.
-			StartLocation = InActor->GetRootComponent()->Bounds.Origin;
-			StartLocation.Z -= InActor->GetRootComponent()->Bounds.BoxExtent.Z;
+			StartLocation = Object.GetBounds().Origin;
+			StartLocation.Z -= Object.GetBounds().BoxExtent.Z;
 		}
 
 		// Forces a line trace.
 		Extent = FVector::ZeroVector;
-		LocationOffset = StartLocation - InActor->GetActorLocation();
+		LocationOffset = StartLocation - Object.GetWorldLocation();
 	}
 	else if( UseLineTrace )
 	{
 		// This will be false if multiple objects are selected. In that case the actor's position should be used so all the objects do not go to the same point.
-		if( InUsePivot && !InDestination )	// @todo: If the destination actor is part of the selection tho, we can't use the pivot! (remove check if not)
+		if( InUsePivot && !InDestination.IsValid() )	// @todo: If the destination actor is part of the selection tho, we can't use the pivot! (remove check if not)
 		{
 			StartLocation = GetPivotLocation();
 		}
 		else
 		{
-			StartLocation = InActor->GetActorLocation();
+			StartLocation = Object.GetWorldLocation();
 		}
 
 		// Forces a line trace.
 		Extent = FVector::ZeroVector;
-		LocationOffset = StartLocation - InActor->GetActorLocation();
+		LocationOffset = StartLocation - Object.GetWorldLocation();
 	}
-	else if(InActor->GetRootComponent()) // Casts the entire bounds through the world to find collision.
+	else 
 	{
-		check(InActor->GetRootComponent()->IsRegistered());
-		StartLocation = InActor->GetRootComponent()->Bounds.Origin;
+		StartLocation = Object.GetBounds().Origin;
 
-		Extent = InActor->GetRootComponent()->Bounds.BoxExtent;
-		LocationOffset = StartLocation - InActor->GetActorLocation();
+		Extent = Object.GetBounds().BoxExtent;
+		LocationOffset = StartLocation - Object.GetWorldLocation();
 	}
 
 
 	FVector Direction = FVector(0.f,0.f,-1.f);
-	if ( InDestination )	// If a destination actor was specified, work out the direction
+	if ( InDestination.IsValid() )	// If a destination actor was specified, work out the direction
 	{
-		FVector	EndLocation = InDestination->GetActorLocation();
+		FVector	EndLocation = InDestination.GetWorldLocation();
 
 		// Code here assumes you want to same type of end point as the start point used, comment out to just use the destination actors origin!
 		if( UseLineTrace && UseBounds )
 		{
-			check(InDestination->GetRootComponent()->IsRegistered());
-			EndLocation = InDestination->GetRootComponent()->Bounds.Origin;
-			EndLocation.Z -= InDestination->GetRootComponent()->Bounds.BoxExtent.Z;
+			EndLocation = InDestination.GetBounds().Origin;
+			EndLocation.Z -= InDestination.GetBounds().BoxExtent.Z;
 		}
 		else if( UseLineTrace )
 		{
 			// This will be false if multiple objects are selected. In that case the actor's position should be used so all the objects do not go to the same point.
-			if( InUsePivot && !InDestination )	// @todo: If the destination actor is part of the selection tho, we can't use the pivot! (remove check if not)
+			if( InUsePivot && !InDestination.IsValid() )	// @todo: If the destination actor is part of the selection tho, we can't use the pivot! (remove check if not)
 			{
 				EndLocation = GetPivotLocation();
 			}
 			else
 			{
-				EndLocation = InDestination->GetActorLocation();
+				EndLocation = InDestination.GetWorldLocation();
 			}
 		}
-		else if( InDestination->GetRootComponent() )
+		else
 		{
-			check(InDestination->GetRootComponent()->IsRegistered());
-			EndLocation = InDestination->GetRootComponent()->Bounds.Origin;
+			EndLocation = InDestination.GetBounds().Origin;
 		}
 
 		if ( EndLocation.Equals( StartLocation ) )
@@ -4573,32 +4571,43 @@ bool UEditorEngine::SnapActorTo( AActor* InActor, const bool InAlign, const bool
 	if (Brush)
 	{
 		const float fTinyOffset = 0.01f;
-		StartLocation.Z = InActor->GetRootComponent()->Bounds.Origin.Z - InActor->GetRootComponent()->Bounds.BoxExtent.Z - fTinyOffset;
+		StartLocation.Z = Brush->GetRootComponent()->Bounds.Origin.Z - Brush->GetRootComponent()->Bounds.BoxExtent.Z - fTinyOffset;
 	}
 
 	// Do the actual actor->world check.  We try to collide against the world, straight down from our current position.
 	// If we hit anything, we will move the actor to a position that lets it rest on the floor.
 	FHitResult Hit(1.0f);
-	FCollisionQueryParams Params(FName(TEXT("MoveActorToTrace")), false, InActor);
-	if ( InActor->GetWorld()->SweepSingle(Hit, StartLocation, StartLocation + Direction*WORLD_MAX, FQuat::Identity, FCollisionShape::MakeBox(Extent), Params, FCollisionObjectQueryParams(ECC_WorldStatic)))
+	FCollisionQueryParams Params(FName(TEXT("MoveActorToTrace")), false);
+	if( Object.Actor )
+	{
+		Params.AddIgnoredActor( Object.Actor );
+	}
+	else
+	{
+		Params.AddIgnoredComponent( Cast<UPrimitiveComponent>(Object.Component) );
+	}
+
+	if ( Object.GetWorld()->SweepSingle(Hit, StartLocation, StartLocation + Direction*WORLD_MAX, FQuat::Identity, FCollisionShape::MakeBox(Extent), Params, FCollisionObjectQueryParams(ECC_WorldStatic)))
 	{
 		FVector NewLocation = Hit.Location - LocationOffset;
 		NewLocation.Z += KINDA_SMALL_NUMBER;	// Move the new desired location up by an error tolerance
-		
-		InActor->TeleportTo( NewLocation, InActor->GetActorRotation(), false,true );
+
+		Object.SetWorldLocation( NewLocation );
+		//InActor->TeleportTo( NewLocation, InActor->GetActorRotation(), false,true );
 		
 		if( InAlign )
 		{
 			//@todo: This doesn't take into account that rotating the actor changes LocationOffset.
 			FRotator NewRotation( Hit.Normal.Rotation() );
 			NewRotation.Pitch -= 90.f;
-			InActor->SetActorRotation(NewRotation);
+			Object.SetWorldRotation( NewRotation );
 		}
 
 		// Switch to the pie world if we have one
 		FScopedConditionalWorldSwitcher WorldSwitcher( GCurrentLevelEditingViewportClient );
 
-		InActor->PostEditMove( true );
+		Object.Actor ? Object.Actor->PostEditMove(true) : Object.Component->GetOwner()->PostEditMove(true);
+		//InActor->PostEditMove( true );
 		if (Brush)
 		{
 			RebuildAlteredBSP();

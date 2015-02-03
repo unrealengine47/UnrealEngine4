@@ -98,20 +98,8 @@ FGlobalComponentReregisterContext::~FGlobalComponentReregisterContext()
 	ActiveGlobalReregisterContextCount--;
 }
 
-
-UActorComponent::UActorComponent()
-{
-	InitializeDefaults();
-}
-
-
-UActorComponent::UActorComponent( const FObjectInitializer& ObjectInitializer )
-{
-	// Forward to default constructor (we don't use ObjectInitializer for anything, this is for compatibility with inherited classes that call Super( ObjectInitializer )
-	InitializeDefaults();
-}
-
-void UActorComponent::InitializeDefaults()
+UActorComponent::UActorComponent(const FObjectInitializer& ObjectInitializer /*= FObjectInitializer::Get()*/)
+	: Super(ObjectInitializer)
 {
 	PrimaryComponentTick.TickGroup = TG_DuringPhysics;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
@@ -423,6 +411,15 @@ void UActorComponent::PostEditUndo()
 			EditReregisterContexts.Remove(this);
 		}
 	}
+	else
+	{
+		//Let the component be properly registered, after it was restored.
+		AActor* Owner = GetOwner();
+		if (Owner)
+		{
+			Owner->AddOwnedComponent(this);
+		}
+	}
 	Super::PostEditUndo();
 }
 
@@ -478,12 +475,22 @@ void UActorComponent::InitializeComponent()
 {
 	check(bRegistered);
 	check(!bHasBeenInitialized);
+
+	ReceiveInitializeComponent();
+
 	bHasBeenInitialized = true;
 }
 
 void UActorComponent::UninitializeComponent()
 {
 	check(bHasBeenInitialized);
+
+	// If we're already pending kill blueprints don't get to be notified
+	if (!HasAnyFlags(RF_BeginDestroyed))
+	{
+		ReceiveUninitializeComponent();
+	}
+
 	bHasBeenInitialized = false;
 }
 
@@ -582,10 +589,7 @@ void UActorComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, F
 {
 	check(bRegistered);
 
-	if (!bIsActive)
-	{
-		SetComponentTickEnabled(false);
-	}
+	ReceiveTick(DeltaTime);
 }
 
 void UActorComponent::RegisterComponentWithWorld(UWorld* InWorld)
@@ -707,7 +711,7 @@ void UActorComponent::UnregisterComponent()
 	World = NULL;
 }
 
-void UActorComponent::DestroyComponent()
+void UActorComponent::DestroyComponent(bool bPromoteChildren/*= false*/)
 {
 	// Ensure that we call UninitializeComponent before we destroy this component
 	if (bHasBeenInitialized)

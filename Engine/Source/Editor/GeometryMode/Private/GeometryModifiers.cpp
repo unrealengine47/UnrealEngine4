@@ -1841,7 +1841,8 @@ static ABrush* ClipBrushAgainstPlane( const FPlane& InPlane, ABrush* InBrush)
 	// perhaps there were additional brushes were selected. 
 	check( ClippedBrush->GetClass() == InBrush->GetClass() );
 
-	ClippedBrush->Brush = new( InBrush->GetOuter(), NAME_None )UModel( FObjectInitializer(),NULL );
+	ClippedBrush->Brush = NewObject<UModel>(InBrush->GetOuter());
+	ClippedBrush->Brush->Initialize(nullptr);
 	ClippedBrush->GetBrushComponent()->Brush = ClippedBrush->Brush;
 
 	GeometryClipping::BuildGiantAlignedBrush( *ClippedBrush, InPlane );
@@ -3152,6 +3153,12 @@ bool UGeomModifier_Turn::OnApply()
 				for( int32 v = 0 ; v < Poly->Vertices.Num() ; ++v )
 				{
 					Quad.AddUnique( Poly->Vertices[v] );
+				}
+
+				// If the adjoining polys were coincident, don't try to turn the edge
+				if (Quad.Num() == 3)
+				{
+					continue;
 				}
 
 				// Create new polygons

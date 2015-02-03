@@ -435,7 +435,7 @@ void UWidgetComponent::OnUnregister()
 	Super::OnUnregister();
 }
 
-void UWidgetComponent::DestroyComponent()
+void UWidgetComponent::DestroyComponent(bool bPromoteChildren/*= false*/)
 {
 	Super::DestroyComponent();
 
@@ -817,6 +817,26 @@ TArray<FWidgetAndPointer> UWidgetComponent::GetHitWidgetPath( const FHitResult& 
 TSharedPtr<SWidget> UWidgetComponent::GetSlateWidget() const
 {
 	return SlateWidget;
+}
+
+FVector2D UWidgetComponent::GetDrawSize() const
+{
+	return DrawSize;
+}
+
+void UWidgetComponent::SetDrawSize(FVector2D Size)
+{
+	DrawSize = FIntPoint((int32)Size.X, (int32)Size.Y);
+}
+
+float UWidgetComponent::GetMaxInteractionDistance() const
+{
+	return MaxInteractionDistance;
+}
+
+void UWidgetComponent::SetMaxInteractionDistance(float Distance)
+{
+	MaxInteractionDistance = Distance;
 }
 
 void UWidgetComponent::PostLoad()

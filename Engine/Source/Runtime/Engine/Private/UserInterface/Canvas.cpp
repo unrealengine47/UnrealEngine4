@@ -425,8 +425,6 @@ bool FCanvasBatchedElementRenderItem::Render_GameThread(const FCanvas* Canvas)
 			BatchedDrawCommand,
 			FBatchedDrawParameters,Parameters,DrawParameters,
 		{
-			SCOPED_DRAW_EVENT(RHICmdList, CanvasBatchedElements);
-
 			// draw batched items
 			Parameters.RenderData->BatchedElements.Draw(
 				RHICmdList,
@@ -481,7 +479,8 @@ bool FCanvasTileRendererItem::Render_RenderThread(FRHICommandListImmediate& RHIC
 	FSceneViewInitOptions ViewInitOptions;
 	ViewInitOptions.ViewFamily = ViewFamily;
 	ViewInitOptions.SetViewRectangle(ViewRect);
-	ViewInitOptions.ViewMatrix = FMatrix::Identity;
+	ViewInitOptions.ViewOrigin = FVector::ZeroVector;
+	ViewInitOptions.ViewRotationMatrix = FMatrix::Identity;
 	ViewInitOptions.ProjectionMatrix = Data->Transform.GetMatrix();
 	ViewInitOptions.BackgroundColor = FLinearColor::Black;
 	ViewInitOptions.OverlayColor = FLinearColor::White;
@@ -547,7 +546,8 @@ bool FCanvasTileRendererItem::Render_GameThread(const FCanvas* Canvas)
 	FSceneViewInitOptions ViewInitOptions;
 	ViewInitOptions.ViewFamily = ViewFamily;
 	ViewInitOptions.SetViewRectangle(ViewRect);
-	ViewInitOptions.ViewMatrix = FMatrix::Identity;
+	ViewInitOptions.ViewOrigin = FVector::ZeroVector;
+	ViewInitOptions.ViewRotationMatrix = FMatrix::Identity;
 	ViewInitOptions.ProjectionMatrix = Data->Transform.GetMatrix();
 	ViewInitOptions.BackgroundColor = FLinearColor::Black;
 	ViewInitOptions.OverlayColor = FLinearColor::White;
@@ -1186,7 +1186,8 @@ void UCanvas::MeasureStringInternal( FTextSizingParameters& Parameters, const TC
 				if( CharIndexFormat == ELastCharacterIndexFormat::CharacterAtOffset )
 				{
 					// Round our test toward the character's center position
-					if( StopAfterHorizontalOffset < Parameters.DrawXL - CharWidth / 2 )
+					const float TotalCharWidth = CharWidth + Parameters.DrawFont->GetCharHorizontalOffset(Ch);
+					if( StopAfterHorizontalOffset < Parameters.DrawXL - TotalCharWidth / 2 )
 					{
 						// We've reached the stopping point, so bail
 						break;

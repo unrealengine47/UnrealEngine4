@@ -548,7 +548,7 @@ protected:
 
 public:
 	/** Returns the value of a named curve. */
-	UFUNCTION(BlueprintPure, Category="Animation", meta=(BlueprintProtected = "true"))
+	UFUNCTION(BlueprintPure, Category="Animation")
 	float GetCurveValue(FName CurveName);
 
 	/** Returns the length (in seconds) of an animation AnimAsset. */
@@ -741,7 +741,7 @@ public:
 	FAnimMontageInstance * GetRootMotionMontageInstance() const;
 
 	/** Get current accumulated root motion, removing it from the AnimInstance in the process */
-	FRootMotionMovementParams ConsumeExtractedRootMotion();
+	FRootMotionMovementParams ConsumeExtractedRootMotion(float Alpha);
 
 private:
 	/** Active Root Motion Montage Instance, if any. */

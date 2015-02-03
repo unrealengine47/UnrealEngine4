@@ -771,23 +771,14 @@ void FBlueprintEditor::OnSelectionUpdated(const TArray<FSCSEditorTreeNodePtrType
 				}
 				else
 				{
-				UActorComponent* EditableComponent = nullptr;
-				if (NodePtr->CanEditDefaults())
-				{
-					EditableComponent = NodePtr->GetComponentTemplate();
-				}
-				else if (!NodePtr->IsNative() && NodePtr->IsInherited())
-				{
-					EditableComponent = NodePtr->GetOverridenComponentTemplate(GetBlueprintObj(), true);
-				}
-
-				if (EditableComponent)
-				{
-					InspectorTitle = FText::FromString(NodePtr->GetDisplayString());
-					InspectorObjects.Add(EditableComponent);
+					UActorComponent* EditableComponent = NodePtr->GetEditableComponentTemplate(GetBlueprintObj());
+					if (EditableComponent)
+					{
+						InspectorTitle = FText::FromString(NodePtr->GetDisplayString());
+						InspectorObjects.Add(EditableComponent);
+					}
 				}
 			}
-		}
 		}
 
 		// Update the details panel
@@ -1278,6 +1269,13 @@ void FBlueprintEditor::EnsureBlueprintIsUpToDate(UBlueprint* BlueprintObj)
 			UEdGraph* UCSGraph = FBlueprintEditorUtils::CreateNewGraph(BlueprintObj, K2Schema->FN_UserConstructionScript, UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
 			FBlueprintEditorUtils::AddFunctionGraph(BlueprintObj, UCSGraph, /*bIsUserCreated=*/ false, AActor::StaticClass());
 			UCSGraph->bAllowDeletion = false;
+		}
+
+		// Check to see if we have gained a component from our parent (that would require us removing our scene root)
+		// (or lost one, which requires adding one)
+		if (BlueprintObj->SimpleConstructionScript != nullptr)
+		{
+			BlueprintObj->SimpleConstructionScript->ValidateSceneRootNodes();
 		}
 	}
 	else
@@ -2474,6 +2472,9 @@ void FBlueprintEditor::ReparentBlueprint_NewParentChosen(UClass* ChosenClass)
 			FBlueprintEditorUtils::MarkBlueprintAsModified(BlueprintObj);
 
 			Compile();
+
+			// Ensure that the Blueprint is up-to-date (valid SCS etc.) after compiling (new parent class)
+			EnsureBlueprintIsUpToDate(BlueprintObj);
 
 			if (SCSEditor.IsValid())
 			{
@@ -6272,20 +6273,10 @@ void FBlueprintEditor::OnAddNewVariable()
 {
 	const FScopedTransaction Transaction( LOCTEXT("AddVariable", "Add Variable") );
 
-	FString VarNameString = TEXT("NewVar");
-	FName VarName = FName(*VarNameString);
-
 	// Reset MyBlueprint item filter so new variable is visible
 	MyBlueprintWidget->OnResetItemFilter();
 
-	// Make sure the new name is valid
-	TSharedPtr<INameValidatorInterface> NameValidator = MakeShareable(new FKismetNameValidator(GetBlueprintObj()));
-	int32 Index = 0;
-	while (NameValidator->IsValid(VarName) != Ok)
-	{
-		VarName = FName(*FString::Printf(TEXT("%s%i"), *VarNameString, Index));
-		++Index;
-	}
+	FName VarName = FBlueprintEditorUtils::FindUniqueKismetName(GetBlueprintObj(), TEXT("NewVar"));
 
 	bool bSuccess = MyBlueprintWidget.IsValid() && FBlueprintEditorUtils::AddMemberVariable(GetBlueprintObj(), VarName, MyBlueprintWidget->GetLastPinTypeUsed());
 
@@ -6329,16 +6320,8 @@ void FBlueprintEditor::OnAddNewDelegate()
 	// Reset MyBlueprint item filter so new variable is visible
 	MyBlueprintWidget->OnResetItemFilter();
 
-	const FString NameString = TEXT("NewEventDispatcher");
-	FName Name = FName(*NameString);
-	TArray<FName> Variables;
-	FBlueprintEditorUtils::GetClassVariableList(Blueprint, Variables);
-	int32 Index = 0;
-	while (Variables.Contains(Name) || !FBlueprintEditorUtils::IsGraphNameUnique(Blueprint, Name))
-	{
-		Name = FName(*FString::Printf(TEXT("%s%i"), *NameString, Index));
-		++Index;
-	}
+	FName Name = FBlueprintEditorUtils::FindUniqueKismetName(GetBlueprintObj(), TEXT("NewEventDispatcher"));
+
 
 	const FScopedTransaction Transaction( LOCTEXT("AddNewDelegate", "Add New Event Dispatcher") ); 
 	Blueprint->Modify();

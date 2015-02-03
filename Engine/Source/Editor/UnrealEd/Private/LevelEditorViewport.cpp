@@ -411,7 +411,7 @@ static UObject* GetOrCreateMaterialFromTexture( UTexture* UnrealTexture )
 	}
 
 	// create an unreal material asset
-	UMaterialFactoryNew* MaterialFactory = new UMaterialFactoryNew( FObjectInitializer() );
+	auto MaterialFactory = NewObject<UMaterialFactoryNew>();
 
 	UMaterial* UnrealMaterial = (UMaterial*)MaterialFactory->FactoryCreateNew(
 		UMaterial::StaticClass(), Package, *MaterialFullName, RF_Standalone | RF_Public, NULL, GWarn );
@@ -1121,8 +1121,15 @@ FDropQuery FLevelEditorViewportClient::CanDropObjectsAtCoordinates(int32 MouseX,
 	UObject* AssetObj = AssetData.GetAsset();
 	UClass* ClassObj = Cast<UClass>( AssetObj );
 
-	if ( ClassObj != NULL )
+	if ( ClassObj )
 	{
+		if ( !ObjectTools::IsClassValidForPlacing(ClassObj) )
+		{
+			Result.bCanDrop = false;
+			Result.HintText = FText::Format(LOCTEXT("DragAndDrop_CannotDropAssetClassFmt", "The class '{0}' cannot be placed in a level"), FText::FromString(ClassObj->GetName()));
+			return Result;
+		}
+
 		AssetObj = ClassObj->GetDefaultObject();
 	}
 
@@ -1787,19 +1794,13 @@ void FLevelEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* HitPr
 			// We want to process the click on the component only if:
 			// 1. The actor clicked is already selected
 			// 2. The actor selected is the only actor selected
-			// 3. The LMB was pressed or we already have a component selected (so that right-clicking a selected actor won't select a component)
-			// And, if a component is not selected already:
-			// 4. The click was not a double click
-			// 5. The level viewport didn't just receive focus this frame
-			// 6. No modifier keys are pressed
+			// 3. No components are already selected and the click was a double click
+			// 4. OR, a component is already selected and the click was NOT a double click
 			const bool bActorAlreadySelectedExclusively = GEditor->GetSelectedActors()->IsSelected(ActorHitProxy->Actor) && ( GEditor->GetSelectedActorCount() == 1 );
 			const bool bComponentAlreadySelected = GEditor->GetSelectedComponentCount() > 0;
-			const bool bCanBeginSelectingComponents =  (Click.GetKey() == EKeys::LeftMouseButton) 
-													&& (Click.GetEvent() != IE_DoubleClick) 
-													&& !bReceivedFocusRecently
-													&& !( Click.IsAltDown() || Click.IsControlDown() || Click.IsShiftDown() );
+			const bool bWasDoubleClick = ( Click.GetEvent() == IE_DoubleClick );
 
-			const bool bSelectComponent = bActorAlreadySelectedExclusively && ( bComponentAlreadySelected || bCanBeginSelectingComponents );
+			const bool bSelectComponent = bActorAlreadySelectedExclusively && (bComponentAlreadySelected != bWasDoubleClick);
 
 			if (bSelectComponent && GetDefault<UEditorExperimentalSettings>()->bInWorldBPEditing)
 			{
@@ -3029,31 +3030,31 @@ void FLevelEditorViewportClient::ApplyDeltaToActors(const FVector& InDrag,
 			}
 			else
 			{
-			AGroupActor* ParentGroup = AGroupActor::GetRootForActor(Actor, true, true);
-			if(ParentGroup && GEditor->bGroupingActive )
-			{
-				ActorGroups.AddUnique(ParentGroup);
-			}
-			else
-			{
-				// Finally, verify that no actor in the parent hierarchy is also selected
-				bool bHasParentInSelection = false;
-				AActor* ParentActor = Actor->GetAttachParentActor();
-				while(ParentActor!=NULL && !bHasParentInSelection)
+				AGroupActor* ParentGroup = AGroupActor::GetRootForActor(Actor, true, true);
+				if (ParentGroup && GEditor->bGroupingActive)
 				{
-					if(ParentActor->IsSelected())
-					{
-						bHasParentInSelection = true;
-					}
-					ParentActor = ParentActor->GetAttachParentActor();
+					ActorGroups.AddUnique(ParentGroup);
 				}
-				if(!bHasParentInSelection)
+				else
 				{
-					ApplyDeltaToActor( Actor, InDrag, InRot, ModifiedScale );
+					// Finally, verify that no actor in the parent hierarchy is also selected
+					bool bHasParentInSelection = false;
+					AActor* ParentActor = Actor->GetAttachParentActor();
+					while (ParentActor != NULL && !bHasParentInSelection)
+					{
+						if (ParentActor->IsSelected())
+						{
+							bHasParentInSelection = true;
+						}
+						ParentActor = ParentActor->GetAttachParentActor();
+					}
+					if (!bHasParentInSelection)
+					{
+						ApplyDeltaToActor(Actor, InDrag, InRot, ModifiedScale);
+					}
 				}
 			}
 		}
-	}
 	}
 	AGroupActor::RemoveSubGroupsFromArray(ActorGroups);
 	for(int32 ActorGroupsIndex=0; ActorGroupsIndex<ActorGroups.Num(); ++ActorGroupsIndex)
@@ -3084,13 +3085,19 @@ void FLevelEditorViewportClient::ApplyDeltaToComponent(USceneComponent* InCompon
 	FRotator AdjustedRot = InDeltaRot;
 	FComponentEditorUtils::AdjustComponentDelta(InComponent, AdjustedDrag, AdjustedRot);
 
+	FVector EditorWorldPivotLocation = GEditor->GetPivotLocation();
+
+	// If necessary, transform the editor pivot location to be relative to the component's parent
+	const bool bIsRootComponent = InComponent->GetOwner()->GetRootComponent() == InComponent;
+	FVector RelativePivotLocation = bIsRootComponent ? EditorWorldPivotLocation : InComponent->GetAttachParent()->GetComponentToWorld().Inverse().TransformPosition(EditorWorldPivotLocation);
+
 	GEditor->ApplyDeltaToComponent(
 		InComponent,
 		true,
 		&AdjustedDrag,
 		&AdjustedRot,
 		&ModifiedDeltaScale,
-		InComponent->RelativeLocation);
+		RelativePivotLocation);
 }
 
 /** Helper function for ModifyScale - Convert the active Dragging Axis to per-axis flags */

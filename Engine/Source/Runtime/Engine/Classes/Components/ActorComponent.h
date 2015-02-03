@@ -24,31 +24,22 @@ enum class EComponentCreationMethod : uint8
  * @see USceneComponent
  * @see UPrimitiveComponent
  */
-UCLASS(DefaultToInstanced, abstract, hidecategories=(ComponentReplication))
+UCLASS(DefaultToInstanced, BlueprintType, abstract, hidecategories=(ComponentReplication))
 class ENGINE_API UActorComponent : public UObject, public IInterface_AssetUserData
 {
 	GENERATED_BODY()
 public:
 
 	/**
-	 * Default UObject constructor.
+	 * Default UObject constructor that takes an optional ObjectInitializer.
 	 */
-	UActorComponent();
-
-	/**
-	 * UObject constructor that takes an ObjectInitializer
-	 */
-	UActorComponent(const FObjectInitializer& ObjectInitializer);
-
-private:
-	/** Called from the constructor to initialize the object to its default settings */
-	void InitializeDefaults();
+	UActorComponent(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	/** Main tick function for the Actor */
-	UPROPERTY()
+	UPROPERTY(EditDefaultsOnly, Category="Tick")
 	struct FActorComponentTickFunction PrimaryComponentTick;
 
 	/** Array of tags that can be used for grouping and categorizing. Can also be accessed from scripting. */
@@ -121,6 +112,7 @@ public:
 	uint32 bIsActive:1;
 
 	/** If TRUE, we call the virtual InitializeComponent */
+	UPROPERTY()
 	uint32 bWantsInitializeComponent:1;
 
 	/** Indicates that OnCreatedComponent has been called, but OnDestroyedComponent has not yet */
@@ -296,12 +288,20 @@ public:
 	 */
 	virtual void InitializeComponent();
 
+	/** Event when the component is initialized, either via creation or its Actor's BeginPlay. */
+	UFUNCTION(BlueprintImplementableEvent, meta=(Keywords = "Begin", FriendlyName = "Initialize Component"))
+	virtual void ReceiveInitializeComponent();
+
 	/**
 	 * Ends gameplay for this component.
 	 * Called from AActor::EndPlay only if bHasBeenInitialized is true
 	 */
 	virtual void UninitializeComponent();
 
+	/** Event when the component is uninitialized, generally via descruction or its Actor's EndPlay. */
+	UFUNCTION(BlueprintImplementableEvent, meta=(Keywords = "End Delete", FriendlyName = "Uninitialize Component"))
+	virtual void ReceiveUninitializeComponent();
+	
 	/**
 	 * When called, will call the virtual call chain to register all of the tick functions
 	 * Do not override this function or make it virtual
@@ -343,6 +343,7 @@ public:
 	/** 
 	 * Returns whether this component has tick enabled or not
 	 */
+	UFUNCTION(BlueprintCallable, Category="Utilities")
 	bool IsComponentTickEnabled() const;
 
 	/**
@@ -512,7 +513,7 @@ public:
 	void UnregisterComponent();
 
 	/** Unregister the component, remove it from its outer Actor's Components array and mark for pending kill. */
-	virtual void DestroyComponent();
+	virtual void DestroyComponent(bool bPromoteChildren = false);
 
 	/** Called when a component is created (not loaded) */
 	virtual void OnComponentCreated();
@@ -548,6 +549,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Utilities", meta=(Keywords = "dependency"))
 	virtual void RemoveTickPrerequisiteComponent(UActorComponent* PrerequisiteComponent);
 
+	/** Event called every frame */
+	UFUNCTION(BlueprintImplementableEvent, meta=(FriendlyName = "Tick"))
+	virtual void ReceiveTick(float DeltaSeconds);
+	
 	/** 
 	 *  Called by owner actor on position shifting
 	 *  Component should update all relevant data structures to reflect new actor location

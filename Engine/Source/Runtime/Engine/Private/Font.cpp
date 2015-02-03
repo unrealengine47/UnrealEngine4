@@ -46,7 +46,9 @@ void UFont::Serialize( FArchive& Ar )
 		{
 			if( InFontData.FontData_DEPRECATED.Num() > 0 )
 			{
-				InFontData.BulkDataPtr = new(this) UFontBulkData(InFontData.FontData_DEPRECATED.GetData(), InFontData.FontData_DEPRECATED.Num());
+				UFontBulkData* FontBulkData = NewObject<UFontBulkData>(this);
+				FontBulkData->Initialize(InFontData.FontData_DEPRECATED.GetData(), InFontData.FontData_DEPRECATED.Num());
+				InFontData.BulkDataPtr = FontBulkData;					
 				InFontData.FontData_DEPRECATED.Empty();
 			}
 		};
@@ -207,7 +209,7 @@ void UFont::GetCharSize(TCHAR InCh, float& Width, float& Height) const
 			FCharacterList& CharacterList = FontCache->GetCharacterList(LegacyFontInfo, FontScale);
 
 			const FCharacterEntry& Entry = CharacterList[InCh];
-			Width = Entry.HorizontalOffset + Entry.XAdvance;
+			Width = Entry.XAdvance;
 
 			// The height of the character will always be the maximum height of any character in this font
 			Height = CharacterList.GetMaxHeight();
@@ -243,6 +245,23 @@ int8 UFont::GetCharKerning(TCHAR First, TCHAR Second) const
 
 	default:
 		break;
+	}
+
+	return 0;
+}
+
+int16 UFont::GetCharHorizontalOffset(TCHAR InCh) const
+{
+	if(FontCacheType == EFontCacheType::Runtime)
+	{
+		TSharedRef<FSlateFontCache> FontCache = FSlateApplication::Get().GetRenderer()->GetFontCache();
+	
+		const float FontScale = 1.0f;
+		const FSlateFontInfo LegacyFontInfo = GetLegacySlateFontInfo();
+		FCharacterList& CharacterList = FontCache->GetCharacterList(LegacyFontInfo, FontScale);
+
+		const FCharacterEntry& Entry = CharacterList[InCh];
+		return Entry.HorizontalOffset;
 	}
 
 	return 0;

@@ -1041,6 +1041,11 @@ void FLandscapeComponentSceneProxy::DrawStaticElements(FStaticPrimitiveDrawInter
 	// Could be different from bRequiresAdjacencyInformation during shader compilation
 	bool bCurrentRequiresAdjacencyInformation = RequiresAdjacencyInformation(RenderProxy, GetScene().GetFeatureLevel());
 
+	if (bCurrentRequiresAdjacencyInformation)
+	{
+		check(SharedBuffers->AdjacencyIndexBuffers);
+	}
+
 	MeshBatch.VertexFactory = VertexFactory;
 	MeshBatch.MaterialRenderProxy = RenderProxy;
 	MeshBatch.LCI = ComponentLightInfo.Get();
@@ -1083,17 +1088,14 @@ void FLandscapeComponentSceneProxy::DrawStaticElements(FStaticPrimitiveDrawInter
 					FMeshBatchElement* BatchElement = new(MeshBatch.Elements) FMeshBatchElement;
 					FLandscapeBatchElementParams* BatchElementParams = new(StaticBatchParamArray)FLandscapeBatchElementParams;
 					BatchElement->UserData = BatchElementParams;
-
 					BatchElement->PrimitiveUniformBufferResource = &GetUniformBuffer();
-
 					BatchElementParams->LandscapeUniformShaderParametersResource = &LandscapeUniformShaderParameters;
 					BatchElementParams->LocalToWorldNoScalingPtr = &LocalToWorldNoScaling;
 					BatchElementParams->SceneProxy = this;
 					BatchElementParams->SubX = SubX;
 					BatchElementParams->SubY = SubY;
 					BatchElementParams->CurrentLOD = LOD;
-
-					BatchElement->IndexBuffer = SharedBuffers->IndexBuffers[LOD];
+					BatchElement->IndexBuffer = bCurrentRequiresAdjacencyInformation ? SharedBuffers->AdjacencyIndexBuffers->IndexBuffers[LOD] : SharedBuffers->IndexBuffers[LOD];
 					BatchElement->NumPrimitives = FMath::Square((LodSubsectionSizeVerts - 1)) * 2;
 					BatchElement->FirstIndex = (SubX + SubY * NumSubsections) * BatchElement->NumPrimitives * 3;
 					BatchElement->MinVertexIndex = SharedBuffers->IndexRanges[LOD].MinIndex[SubX][SubY];
@@ -1113,17 +1115,7 @@ void FLandscapeComponentSceneProxy::DrawStaticElements(FStaticPrimitiveDrawInter
 		BatchElementParams->SubX = -1;
 		BatchElementParams->SubY = -1;
 		BatchElementParams->CurrentLOD = LOD;
-
-		if (bCurrentRequiresAdjacencyInformation)
-		{
-			check(SharedBuffers->AdjacencyIndexBuffers);
-			BatchElement->IndexBuffer = SharedBuffers->AdjacencyIndexBuffers->IndexBuffers[LOD];
-		}
-		else
-		{
-			BatchElement->IndexBuffer = SharedBuffers->IndexBuffers[LOD];
-		}
-
+		BatchElement->IndexBuffer = bCurrentRequiresAdjacencyInformation ? SharedBuffers->AdjacencyIndexBuffers->IndexBuffers[LOD] : SharedBuffers->IndexBuffers[LOD];
 		BatchElement->NumPrimitives = FMath::Square((LodSubsectionSizeVerts - 1)) * FMath::Square(NumSubsections) * 2;
 		BatchElement->FirstIndex = 0;
 		BatchElement->MinVertexIndex = SharedBuffers->IndexRanges[LOD].MinIndexFull;
@@ -1218,6 +1210,13 @@ uint64 FLandscapeComponentSceneProxy::GetStaticBatchElementVisibility(const clas
 
 float FLandscapeComponentSceneProxy::CalcDesiredLOD(const class FSceneView& View, const FVector2D& CameraLocalPos, int32 SubX, int32 SubY) const
 {
+#if WITH_EDITOR
+	if (View.Family->LandscapeLODOverride >= 0)
+	{
+		return View.Family->LandscapeLODOverride;
+	}
+#endif
+
 	// FLandscapeComponentSceneProxy::NumSubsections, SubsectionSizeQuads, MaxLOD, LODFalloff and LODDistance are the same for all components and so are safe to use in the neighbour LOD calculations
 	// HeightmapTexture, LODBias, ForcedLOD are component-specific with neighbor lookup
 	const bool bIsInThisComponent = (SubX >= 0 && SubX < NumSubsections && SubY >= 0 && SubY < NumSubsections);
@@ -1260,13 +1259,6 @@ float FLandscapeComponentSceneProxy::CalcDesiredLOD(const class FSceneView& View
 		fLOD = SubsectionForcedLOD;
 	}
 	else
-#if WITH_EDITOR
-	if (View.Family->LandscapeLODOverride >= 0)
-	{
-		fLOD = View.Family->LandscapeLODOverride;
-	}
-	else
-#endif
 	{
 		if (View.IsPerspectiveProjection())
 		{
@@ -2529,9 +2521,10 @@ void ULandscapeComponent::GetStreamingTextureInfo(TArray<FStreamingTexturePrimit
 	// Heightmap
 	if (HeightmapTexture)
 	{
-		float HeightmapTexelFactor = TexelFactor * (HeightmapTexture->GetSizeY() / (ComponentSizeQuads + 1));
 		FStreamingTexturePrimitiveInfo& StreamingHeightmap = *new(OutStreamingTextures)FStreamingTexturePrimitiveInfo;
 		StreamingHeightmap.Bounds = BoundingSphere;
+
+		float HeightmapTexelFactor = TexelFactor * (HeightmapTexture->GetSizeY() / (ComponentSizeQuads + 1));
 		StreamingHeightmap.TexelFactor = ForcedLOD >= 0 ? -13 + ForcedLOD : HeightmapTexelFactor; // Minus Value indicate ForcedLOD, 13 for 8k texture
 		StreamingHeightmap.Texture = HeightmapTexture;
 	}

@@ -390,6 +390,19 @@ namespace UnrealBuildTool
 				// Place projects into root level solution folders
 				if( IncludeEngineSource )
 				{
+					// If we're still missing an engine project because we don't have any targets for it, make one up.
+					if( EngineProject == null )
+					{
+						string ProjectFilePath = Path.Combine(IntermediateProjectFilesPath, "UE4" + ProjectFileExtension);
+
+						bool bAlreadyExisted;
+						EngineProject = FindOrAddProject(Utils.MakePathRelativeTo(ProjectFilePath, MasterProjectRelativePath), true, out bAlreadyExisted);
+
+						EngineProject.IsForeignProject = false;
+						EngineProject.IsGeneratedProject = true;
+						EngineProject.IsStubProject = true;
+					}
+
 					if( EngineProject != null )
 					{
 						RootFolder.AddSubFolder( "Engine" ).ChildProjects.Add( EngineProject );
@@ -741,23 +754,7 @@ namespace UnrealBuildTool
 			}
 
 
-			if( bGeneratingGameProjectFiles )
-			{
-				GameProjectName = Path.GetFileNameWithoutExtension(UnrealBuildTool.GetUProjectFile());
-				if (String.IsNullOrEmpty(GameProjectName))
-				{
-					throw new BuildException("A valid game project was not found in the specified location (" + UnrealBuildTool.GetUProjectPath() + ")");
-				}
-
-				IncludeEngineSource = bAlwaysIncludeEngineModules;
-				IncludeDocumentation = false;
-				IncludeBuildSystemFiles = false;
-				IncludeShaderSource = true;
-				IncludeTemplateFiles = false;
-				IncludeConfigFiles = true;
-				IncludeEnginePrograms = bAlwaysIncludeEngineModules;
-			}
-			else if( bGeneratingRocketProjectFiles )
+			if( bGeneratingRocketProjectFiles )
 			{
 				// We expected a project path to be passed in
 				if (!UnrealBuildTool.HasUProjectFile())
@@ -779,6 +776,22 @@ namespace UnrealBuildTool
 				IncludeTemplateFiles = false;
 				IncludeConfigFiles = true;
 				IncludeEnginePrograms = false;
+			}
+			else if( bGeneratingGameProjectFiles )
+			{
+				GameProjectName = Path.GetFileNameWithoutExtension(UnrealBuildTool.GetUProjectFile());
+				if (String.IsNullOrEmpty(GameProjectName))
+				{
+					throw new BuildException("A valid game project was not found in the specified location (" + UnrealBuildTool.GetUProjectPath() + ")");
+				}
+
+				IncludeEngineSource = bAlwaysIncludeEngineModules;
+				IncludeDocumentation = false;
+				IncludeBuildSystemFiles = false;
+				IncludeShaderSource = true;
+				IncludeTemplateFiles = false;
+				IncludeConfigFiles = true;
+				IncludeEnginePrograms = bAlwaysIncludeEngineModules;
 			}
 			else
 			{

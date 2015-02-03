@@ -49,6 +49,10 @@ void UProceduralFoliage::CreateProceduralFoliageInstances()
 			TypeData.TypeInstance = ConstructObject<UFoliageType_InstancedStaticMesh>(TypeData.Type, this);
 			TypeData.ChangeCount = TypeData.TypeInstance->ChangeCount;
 		}
+		else
+		{
+			TypeData.TypeInstance = nullptr;
+		}
 	}
 }
 
@@ -99,25 +103,21 @@ void UProceduralFoliage::Serialize(FArchive& Ar)
 
 bool UProceduralFoliage::AnyDirty() const
 {
-	bool bDirty = false;
+	bool bDirty = bNeedsSimulation;
 
-	if( Types.Num() > 0 )
-	{
-		bDirty = bNeedsSimulation;
 	for (const FProceduralFoliageTypeData& TypeData : Types)
 	{
 		if (TypeData.Type)
 		{
 			if (TypeData.TypeInstance && TypeData.Type->GetDefaultObject<UFoliageType_InstancedStaticMesh>()->ChangeCount != TypeData.ChangeCount)
 			{
-					bDirty = true;
-					break;
+				bDirty = true;
+				break;
 			}
 			else if (!TypeData.TypeInstance)
 			{
-					bDirty = true;
-					break;
-				}
+				bDirty = true;
+				break;
 			}
 		}
 	}
@@ -140,7 +140,7 @@ const UProceduralFoliageTile* UProceduralFoliage::GetRandomTile(int32 X, int32 Y
 		HashStream.Initialize(Y);
 		const float YRand = HashStream.FRand();
 		const int32 RandomNumber = (RAND_MAX * XRand / (YRand + 0.01f));
-		const int32 Idx = RandomNumber % PrecomputedTiles.Num();
+		const int32 Idx = FMath::Clamp(RandomNumber % PrecomputedTiles.Num(), 0, PrecomputedTiles.Num() - 1);
 		return PrecomputedTiles[Idx];
 	}
 
