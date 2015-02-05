@@ -185,7 +185,7 @@ bool UObject::Rename( const TCHAR* InName, UObject* NewOuter, ERenameFlags Flags
 		if ( Redirector == NULL )
 		{
 			// create a UObjectRedirector with the same name as the old object we are redirecting
-			Redirector = ConstructObject<UObjectRedirector>(UObjectRedirector::StaticClass(), OldOuter, OldName, RF_Standalone | RF_Public);
+			Redirector = NewObject<UObjectRedirector>(OldOuter, OldName, RF_Standalone | RF_Public);
 		}
 
 		// point the redirector object to this object
@@ -828,17 +828,10 @@ void UObject::Serialize( FArchive& Ar )
 	}
 
 	// Serialize object properties which are defined in the class.
-	if( !Class->IsChildOf(UClass::StaticClass()) )
+	// Handle derived UClass objects (exact UClass objects are native only and shouldn't be touched)
+	if (Class != UClass::StaticClass())
 	{
 		SerializeScriptProperties(Ar);
-	}
-	else
-	{
-		// Handle derived UClass objects (exact UClass objects are native only and shouldn't be touched)
-		if (Class != UClass::StaticClass())
-		{
-			SerializeScriptProperties(Ar);
-		}
 	}
 
 	// Keep track of pending kill
@@ -3567,7 +3560,7 @@ void StaticUObjectInit()
 	UObjectBaseInit();
 
 	// Allocate special packages.
-	GObjTransientPkg = NewNamedObject<UPackage>(nullptr, TEXT("/Engine/Transient"));
+	GObjTransientPkg = NewObject<UPackage>(nullptr, TEXT("/Engine/Transient"));
 	GObjTransientPkg->AddToRoot();
 
 	if( FParse::Param( FCommandLine::Get(), TEXT("VERIFYGC") ) )

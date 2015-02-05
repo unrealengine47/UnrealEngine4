@@ -316,7 +316,7 @@ bool UEditorEngine::SafeExec( UWorld* InWorld, const TCHAR* InStr, FOutputDevice
 		UFactory* Factory = NULL;
 		if( Class->IsChildOf(UFactory::StaticClass()) )
 		{
-			Factory = ConstructObject<UFactory>( Class );
+			Factory = NewObject<UFactory>(GetTransientPackage(), Class);
 		}
 
 		UObject* NewObject = NULL;
@@ -1959,7 +1959,7 @@ UWorld* UEditorEngine::NewMap()
 	EditorDestroyWorld( Context, CleanseText );
 
 	// Create a new world
-	UWorldFactory* Factory = ConstructObject<UWorldFactory>(UWorldFactory::StaticClass());
+	UWorldFactory* Factory = NewObject<UWorldFactory>();
 	Factory->WorldType = EWorldType::Editor;
 	Factory->bInformEngineOfWorld = true;
 	Factory->FeatureLevel = GEditor->DefaultWorldFeatureLevel;
@@ -2827,7 +2827,7 @@ void UEditorEngine::DoMoveSelectedActorsToLevel( ULevel* InDestLevel )
 
 ULevel*  UEditorEngine::CreateTransLevelMoveBuffer( UWorld* InWorld )
 {
-	ULevel* BufferLevel = NewNamedObject<ULevel>(GetTransientPackage(), TEXT("TransLevelMoveBuffer"));
+	ULevel* BufferLevel = NewObject<ULevel>(GetTransientPackage(), TEXT("TransLevelMoveBuffer"));
 	BufferLevel->Initialize(FURL(nullptr));
 	check( BufferLevel );
 	BufferLevel->AddToRoot();
@@ -2852,7 +2852,7 @@ ULevel*  UEditorEngine::CreateTransLevelMoveBuffer( UWorld* InWorld )
 	BufferDefaultBrush->Brush = CastChecked<UModel>(StaticFindObject(UModel::StaticClass(), BufferLevel->OwningWorld->GetOuter(), TEXT("Brush"), true), ECastCheckedType::NullAllowed);
 	if (!BufferDefaultBrush->Brush)
 	{
-		BufferDefaultBrush->Brush = NewNamedObject<UModel>(InWorld, TEXT("Brush"));
+		BufferDefaultBrush->Brush = NewObject<UModel>(InWorld, TEXT("Brush"));
 		BufferDefaultBrush->Brush->Initialize(BufferDefaultBrush, 1);
 	}
 	BufferDefaultBrush->GetBrushComponent()->Brush = BufferDefaultBrush->Brush;
@@ -4587,7 +4587,7 @@ bool UEditorEngine::SnapObjectTo( FActorOrComponent Object, const bool InAlign, 
 		Params.AddIgnoredComponent( Cast<UPrimitiveComponent>(Object.Component) );
 	}
 
-	if ( Object.GetWorld()->SweepSingle(Hit, StartLocation, StartLocation + Direction*WORLD_MAX, FQuat::Identity, FCollisionShape::MakeBox(Extent), Params, FCollisionObjectQueryParams(ECC_WorldStatic)))
+	if (Object.GetWorld()->SweepSingle(Hit, StartLocation, StartLocation + Direction*WORLD_MAX, FQuat::Identity, ECC_WorldStatic, FCollisionShape::MakeBox(Extent), Params))
 	{
 		FVector NewLocation = Hit.Location - LocationOffset;
 		NewLocation.Z += KINDA_SMALL_NUMBER;	// Move the new desired location up by an error tolerance
@@ -5513,11 +5513,11 @@ bool UEditorEngine::HandleTestPropsCommand( const TCHAR* Str, FOutputDevice& Ar 
 	UClass* Class = NULL;
 	if( ParseObject<UClass>( Str, TEXT("CLASS="), Class, ANY_PACKAGE ) != false )
 	{ 
-		Object = ConstructObject<UObject>( Class );
+		Object = NewObject<UObject>(GetTransientPackage(), Class);
 	}
 	else
 	{
-		Object = ConstructObject<UPropertyEditorTestObject>( UPropertyEditorTestObject::StaticClass() );
+		Object = NewObject<UPropertyEditorTestObject>();
 	}
 
 	TSharedRef<SWindow> Window = SNew(SWindow)
@@ -5555,7 +5555,7 @@ bool UEditorEngine::HandleTestPropsCommand( const TCHAR* Str, FOutputDevice& Ar 
 
 		for (int Count = 0; Count < 50; Count++)
 		{
-			Objects.Add( ConstructObject<UPropertyEditorTestObject>( UPropertyEditorTestObject::StaticClass() ) );
+			Objects.Add(NewObject<UPropertyEditorTestObject>());
 		}
 
 		Table->SetObjects( Objects );

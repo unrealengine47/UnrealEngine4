@@ -504,7 +504,7 @@ UPackage* CreatePackage( UObject* InOuter, const TCHAR* PackageName )
 			}
 			else
 			{
-				Result = NewNamedObject<UPackage>(InOuter, NewPackageName, RF_Public);
+				Result = NewObject<UPackage>(InOuter, NewPackageName, RF_Public);
 			}
 		}
 	}
@@ -910,7 +910,7 @@ UPackage* LoadPackageInternal(UPackage* InOuter, const TCHAR* InLongPackageName,
 		{
 			// Make sure we pass the property that's currently being serialized by the linker that owns the import 
 			// that triggered this LoadPackage call
-			auto OldSerialziedProperty = Linker->GetSerializedProperty();
+			UProperty* OldSerializedProperty = Linker->GetSerializedProperty();
 			if (ImportLinker)
 			{
 				Linker->SetSerializedProperty(ImportLinker->GetSerializedProperty());
@@ -918,7 +918,7 @@ UPackage* LoadPackageInternal(UPackage* InOuter, const TCHAR* InLongPackageName,
 
 			Linker->LoadAllObjects();
 
-			Linker->SetSerializedProperty(OldSerialziedProperty);
+			Linker->SetSerializedProperty(OldSerializedProperty);
 		}
 
 		SlowTask.EnterProgressFrame(30);
@@ -2213,6 +2213,11 @@ void FObjectInitializer::AssertIfSubobjectSetupIsNotAllowed(const TCHAR* Subobje
 {
 	UE_CLOG(!bSubobjectClassInitializationAllowed, LogUObjectGlobals, Fatal,
 		TEXT("%s.%s: Subobject class setup is only allowed in base class constructor call (in the initialization list)"), Obj ? *Obj->GetFullName() : TEXT("NULL"), SubobjectName);
+}
+
+bool DebugIsClassChildOf_Internal(UClass* Parent, UClass* Child)
+{
+	return Child->IsChildOf(Parent);
 }
 
 UObject* StaticConstructObject

@@ -2351,7 +2351,7 @@ void USkeletalMesh::Serialize( FArchive& Ar )
 	{
 		if ( AssetImportData == NULL )
 		{
-			AssetImportData = ConstructObject<UAssetImportData>(UAssetImportData::StaticClass(), this);
+			AssetImportData = NewObject<UAssetImportData>(this);
 		}
 
 		AssetImportData->SourceFilePath = SourceFilePath_DEPRECATED;
@@ -3330,7 +3330,7 @@ void USkeletalMesh::CreateBodySetup()
 {
 	if (BodySetup == nullptr)
 	{
-		BodySetup = ConstructObject<UBodySetup>(UBodySetup::StaticClass(), this);
+		BodySetup = NewObject<UBodySetup>(this);
 		BodySetup->bSharedCookedData = true;
 	}
 }
@@ -3698,6 +3698,7 @@ void ASkeletalMeshActor::PreviewSetAnimPosition(FName SlotName, int32 ChannelInd
 	}
 
 	// Update space bases so new animation position has an effect.
+	SkeletalMeshComponent->UpdateMaterialParameters();
 	SkeletalMeshComponent->RefreshBoneTransforms();
 	SkeletalMeshComponent->RefreshSlaveComponents();
 	SkeletalMeshComponent->UpdateComponentToWorld();

@@ -3,6 +3,7 @@
 #pragma once
 #include "AI/Navigation/NavFilters/NavigationQueryFilter.h"
 #include "AI/Navigation/NavigationTypes.h"
+#include "AI/NavDataGenerator.h"
 #include "GameFramework/Actor.h"
 #include "UniquePtr.h"
 #include "NavigationData.generated.h"
@@ -99,7 +100,7 @@ struct ENGINE_API FNavigationPath : public TSharedFromThis<FNavigationPath, ESPM
 	{
 		return ObserverDelegate;
 	}
-	FORCEINLINE FDelegateHandle AddObserver(FPathObserverDelegate::FDelegate& NewObserver)
+	FORCEINLINE FDelegateHandle AddObserver(FPathObserverDelegate::FDelegate NewObserver)
 	{
 		return ObserverDelegate.Add(NewObserver);
 	}
@@ -447,8 +448,6 @@ public:
 	//----------------------------------------------------------------------//
 	// Life cycle                                                                
 	//----------------------------------------------------------------------//
-	/** Dtor */
-	virtual ~ANavigationData();
 
 	// Begin UObject/AActor Interface
 	virtual void PostInitProperties() override;
@@ -457,7 +456,7 @@ public:
 #if WITH_EDITOR
 	virtual void PostEditUndo() override;
 #endif // WITH_EDITOR
-	virtual void Destroyed() override;
+	virtual void BeginDestroy() override;
 	// End UObject Interface
 		
 	virtual void CleanUp();

@@ -295,7 +295,7 @@ void USceneComponent::DestroyComponent(bool bPromoteChildren/*= false*/)
 				if (ChildToPromote == nullptr || ChildToPromote->IsEditorOnly())
 				{
 					// Construct a new default root component
-					USceneComponent* NewRootComponent = ConstructObject<USceneComponent>(USceneComponent::StaticClass(), Owner, USceneComponent::GetDefaultSceneRootVariableName(), RF_Transactional);
+					auto NewRootComponent = NewObject<USceneComponent>(Owner, USceneComponent::GetDefaultSceneRootVariableName(), RF_Transactional);
 					NewRootComponent->Mobility = Mobility;
 					NewRootComponent->SetWorldLocationAndRotation(GetComponentLocation(), GetComponentRotation());
 
@@ -815,6 +815,12 @@ void USceneComponent::AttachTo(class USceneComponent* Parent, FName InSocketName
 {
 	if(Parent != NULL)
 	{
+		if (Parent == AttachParent && InSocketName == AttachSocketName && Parent->AttachChildren.Contains(this))
+		{
+			// already attached!
+			return;
+		}
+
 		if(Parent == this)
 		{
 			FMessageLog("PIE").Warning(FText::Format(LOCTEXT("AttachToSelfWarning", "AttachTo: '{0}' cannot be attached to itself. Aborting."), 

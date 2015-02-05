@@ -1210,7 +1210,7 @@ UNavigationPath* UNavigationSystem::FindPathToLocationSynchronously(UObject* Wor
 
 	UNavigationPath* ResultPath = NULL;
 
-	if (World != NULL && World->GetNavigationSystem() != NULL)
+	if (World != NULL && World->GetNavigationSystem() != NULL && World->GetNavigationSystem()->GetMainNavData() != nullptr)
 	{
 		UNavigationSystem* NavSys = World->GetNavigationSystem();
 
@@ -3257,14 +3257,6 @@ void UNavigationSystem::CleanUp(ECleanupMode Mode)
 
 	DestroyNavOctree();
 	
-	for (int32 NavDataIndex = 0; NavDataIndex < NavDataSet.Num(); ++NavDataIndex)
-	{
-		if (NavDataSet[NavDataIndex] != NULL)
-		{
-			NavDataSet[NavDataIndex]->CleanUp();
-		}
-	}	
-
 	SetCrowdManager(NULL);
 
 	NavDataSet.Reset();

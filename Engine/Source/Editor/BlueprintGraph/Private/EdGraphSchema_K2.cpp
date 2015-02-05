@@ -4126,7 +4126,7 @@ void UEdGraphSchema_K2::GetGraphDisplayInformation(const UEdGraph& Graph, /*out*
 			// If we found a function from this graph..
 			if (Function)
 			{
-				DisplayInfo.PlainName = FText::FromString(UK2Node_CallFunction::GetUserFacingFunctionName(Function)); // grab friendly function name
+				DisplayInfo.PlainName = FText::FromString(Function->GetName());
 				DisplayInfo.Tooltip = UK2Node_CallFunction::GetDefaultTooltipForFunction(Function); // grab its tooltip
 			}
 			else
@@ -4923,7 +4923,7 @@ UEdGraphNode* UEdGraphSchema_K2::CreateSubstituteNode(UEdGraphNode* Node, const 
 			}
 
 			// Create a custom event node to replace the original event node imported from text
-			UK2Node_CustomEvent* CustomEventNode = ConstructObject<UK2Node_CustomEvent>(UK2Node_CustomEvent::StaticClass(), EventNode->GetOuter(), ObjName, EventNode->GetFlags(), NULL, true, InstanceGraph);
+			UK2Node_CustomEvent* CustomEventNode = NewObject<UK2Node_CustomEvent>(EventNode->GetOuter(), ObjName, EventNode->GetFlags(), nullptr, true, InstanceGraph);
 
 			// Ensure that it is editable
 			CustomEventNode->bIsEditable = true;
