@@ -1178,10 +1178,10 @@ class USkeletalMeshSocket const* USkinnedMeshComponent::GetSocketByName(FName In
 
 bool USkinnedMeshComponent::DoesSocketExist(FName InSocketName) const
 {
-	return (GetSocketByName(InSocketName) != NULL);
+	return (GetSocketBoneName(InSocketName) != NAME_None);
 }
 
-FName USkinnedMeshComponent::GetSocketBoneName(FName InSocketName)
+FName USkinnedMeshComponent::GetSocketBoneName(FName InSocketName) const
 {
 	if(!SkeletalMesh)
 	{
