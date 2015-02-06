@@ -78,6 +78,27 @@ void UBlueprintGeneratedClass::PostLoad()
 #endif // WITH_EDITORONLY_DATA
 }
 
+void UBlueprintGeneratedClass::GetRequiredPreloadDependencies(TArray<UObject*>& DependenciesOut)
+{
+	Super::GetRequiredPreloadDependencies(DependenciesOut);
+	for (UActorComponent* Component : ComponentTemplates)
+	{
+		// because of the linker's way of handling circular dependencies (with 
+		// placeholder blueprint classes), we need to ensure that class owned 
+		// blueprint components are created before the class's  is 
+		// ComponentTemplates member serialized in (otherwise, the component 
+		// would be created as a ULinkerPlaceholderClass instance)
+		//
+		// by returning these in the DependenciesOut array, we're making it 
+		// known that they should be prioritized in the package's ExportMap 
+		// before this class
+		if (Component->GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint))
+		{
+			DependenciesOut.Add(Component);
+		}
+	}
+}
+
 #if WITH_EDITOR
 
 UClass* UBlueprintGeneratedClass::GetAuthoritativeClass()
