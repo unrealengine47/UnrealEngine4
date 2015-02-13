@@ -294,27 +294,20 @@ FReimportFeedbackContext::FReimportFeedbackContext()
 
 void FReimportFeedbackContext::Initialize(TSharedRef<SReimportFeedback> Widget)
 {
-	ShowNotificationDelay = FTimeLimit(.5f);
 	NotificationContent = Widget;
+
+	FNotificationInfo Info(SharedThis(this));
+	Info.ExpireDuration = 3.f;
+	Info.bFireAndForget = false;
+
+	Notification = FSlateNotificationManager::Get().AddNotification(Info);
 
 	MessageLog.NewPage(FText::Format(NSLOCTEXT("ReimportContext", "MessageLogPageLabel", "Outstanding source content changes {0}"), FText::AsTime(FDateTime::Now())));
 }
 
-void FReimportFeedbackContext::Tick()
-{
-	if (!Notification.IsValid() && ShowNotificationDelay.Exceeded())
-	{
-		FNotificationInfo Info(SharedThis(this));
-		Info.ExpireDuration = 3.f;
-		Info.bFireAndForget = false;
-
-		Notification = FSlateNotificationManager::Get().AddNotification(Info);
-	}
-}
-
 void FReimportFeedbackContext::Destroy()
 {
-	MessageLog.Notify(FText(), EMessageSeverity::Warning);
+	MessageLog.Notify(FText(), EMessageSeverity::Error);
 
 	if (Notification.IsValid())
 	{

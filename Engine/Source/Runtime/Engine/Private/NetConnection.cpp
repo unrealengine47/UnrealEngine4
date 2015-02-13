@@ -13,6 +13,10 @@
 #include "Engine/PackageMapClient.h"
 #include "GameFramework/GameMode.h"
 
+#if WITH_EDITOR
+#include "UnrealEd.h"
+#endif
+
 /*-----------------------------------------------------------------------------
 	UNetConnection implementation.
 -----------------------------------------------------------------------------*/
@@ -1388,7 +1392,8 @@ void UNetConnection::Tick()
 	}
 	bool bUseTimeout = true;
 #if WITH_EDITOR
-	bUseTimeout = !(Driver->GetWorld() && Driver->GetWorld()->WorldType == EWorldType::PIE);
+	// Do not time out in PIE since the server is local.
+	bUseTimeout = !(GEditor && GEditor->PlayWorld);
 #endif
 	if ( bUseTimeout && Driver->Time - LastReceiveTime > Timeout )
 	{

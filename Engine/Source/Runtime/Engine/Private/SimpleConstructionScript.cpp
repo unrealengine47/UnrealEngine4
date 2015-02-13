@@ -135,6 +135,16 @@ void USimpleConstructionScript::Serialize(FArchive& Ar)
 	}
 }
 
+void USimpleConstructionScript::PreloadChain()
+{
+	GetLinker()->Preload(this);
+
+	for (USCS_Node* Node : RootNodes)
+	{
+		Node->PreloadChain();
+	}
+}
+
 void USimpleConstructionScript::PostLoad()
 {
 	Super::PostLoad();
@@ -171,22 +181,6 @@ void USimpleConstructionScript::PostLoad()
 		if(Node->CategoryName == NAME_None)
 		{
 			Node->CategoryName = TEXT("Default");
-		}
-	}
-
-	// Templates are used as archetypes, so they should be Public
-	auto OwnerClass = GetOwnerClass();
-	if (OwnerClass)
-	{
-		for (auto Node : Nodes)
-		{
-			auto ComponentTemplate = Node ? Node->ComponentTemplate : nullptr;
-			if (ComponentTemplate && !ComponentTemplate->HasAllFlags(RF_Public) && (ComponentTemplate->GetOuter() == OwnerClass))
-			{
-				ComponentTemplate->SetFlags(RF_Public);
-
-				// Package should be marked as dirty here, but it's not user friendly
-			}
 		}
 	}
 
@@ -407,7 +401,7 @@ void USimpleConstructionScript::ExecuteScriptOnActor(AActor* Actor, const FTrans
 	{
 		USceneComponent* SceneComp = NewObject<USceneComponent>(Actor);
 		SceneComp->SetFlags(RF_Transactional);
-		SceneComp->CreationMethod = EComponentCreationMethod::ConstructionScript;
+		SceneComp->CreationMethod = EComponentCreationMethod::SimpleConstructionScript;
 		SceneComp->SetWorldTransform(RootTransform);
 		Actor->SetRootComponent(SceneComp);
 		SceneComp->RegisterComponent();
@@ -606,7 +600,7 @@ USCS_Node* USimpleConstructionScript::FindParentNode(USCS_Node* InNode) const
 	return NULL;
 }
 
-USCS_Node* USimpleConstructionScript::FindSCSNode(FName InName)
+USCS_Node* USimpleConstructionScript::FindSCSNode(const FName InName) const
 {
 	TArray<USCS_Node*> AllNodes = GetAllNodes();
 	USCS_Node* ReturnSCSNode = nullptr;
@@ -622,7 +616,7 @@ USCS_Node* USimpleConstructionScript::FindSCSNode(FName InName)
 	return ReturnSCSNode;
 }
 
-USCS_Node* USimpleConstructionScript::FindSCSNodeByGuid(FGuid Guid)
+USCS_Node* USimpleConstructionScript::FindSCSNodeByGuid(const FGuid Guid) const
 {
 	TArray<USCS_Node*> AllNodes = GetAllNodes();
 	USCS_Node* ReturnSCSNode = nullptr;
@@ -761,11 +755,10 @@ USCS_Node* USimpleConstructionScript::CreateNode(UClass* NewComponentClass, FNam
 	ensure(NULL != Cast<UBlueprintGeneratedClass>(Blueprint->GeneratedClass));
 
 	FName NewComponentName(NAME_None);
-	if (NewComponentClass->ClassGeneratedBy && NewComponentClass->GetName().EndsWith(TEXT("_C")))
+	if (NewComponentClass->ClassGeneratedBy != nullptr)
 	{
-		const FString NewClassName = NewComponentClass->GetName();
-		const int32 NewStrLen = NewClassName.Len() - 2;
-		NewComponentName = MakeUniqueObjectName(Blueprint->GeneratedClass, NewComponentClass, FName(*NewClassName.Left(NewStrLen)));
+		const FString NewClassName = FBlueprintEditorUtils::GetClassNameWithoutSuffix(NewComponentClass);
+		NewComponentName = MakeUniqueObjectName(Blueprint->GeneratedClass, NewComponentClass, FName(*NewClassName));
 	}
 
 	auto NewComponentTemplate = NewObject<UActorComponent>(Blueprint->GeneratedClass, NewComponentClass, NewComponentName);

@@ -464,7 +464,10 @@ void SLevelViewport::OnDragLeave( const FDragDropEvent& DragDropEvent )
 		LevelViewportClient->DestroyDropPreviewActors();
 	}
 
-	DragDropEvent.GetOperation()->SetDecoratorVisibility(true);
+	if (DragDropEvent.GetOperation().IsValid())
+	{
+		DragDropEvent.GetOperation()->SetDecoratorVisibility(true);
+	}
 }
 
 bool SLevelViewport::HandleDragObjects(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
@@ -828,7 +831,7 @@ void SLevelViewport::Tick( const FGeometry& AllottedGeometry, const double InCur
 
 	// When we have focus we update the 'Allow Throttling' option in slate to be disabled so that interactions in the
 	// viewport with Slate widgets that are part of the game, don't throttle.
-	if ( bPIEContainsFocus != bContainsFocus )
+	if ( GEditor->PlayWorld != nullptr && bPIEContainsFocus != bContainsFocus )
 	{
 		// We can arrive at this point before creating throttling manager (which registers the cvar), so create it explicitly.
 		static const FSlateThrottleManager & ThrottleManager = FSlateThrottleManager::Get();

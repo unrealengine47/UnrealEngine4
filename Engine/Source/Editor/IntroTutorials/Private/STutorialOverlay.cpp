@@ -247,7 +247,9 @@ void STutorialOverlay::FocusOnAnyBlueprintNodes(const FTutorialWidgetContent &Wi
 	{
 		return;
 	}
-	FString Name = WidgetContent.WidgetAnchor.OuterName;
+	
+	const FString Name = WidgetContent.WidgetAnchor.OuterName;
+	const FName ObjectPath = WidgetContent.WidgetAnchor.WrapperIdentifier;
 	int32 NameIndex;
 	Name.FindLastChar(TEXT('.'), NameIndex);
 	FString BlueprintName = Name.RightChop(NameIndex + 1);
@@ -264,11 +266,34 @@ void STutorialOverlay::FocusOnAnyBlueprintNodes(const FTutorialWidgetContent &Wi
 			FKismetEditorUtilities::BringKismetToFocusAttentionOnObject(GraphNode, false);
 		}
 	}
-	else /*if ( WidgetContent.WidgetAnchor.WrapperIdentifier.IsValid() == true )*/
+	else if ( !ObjectPath.IsNone() )
 	{
 		// if we didn't have a blueprint object to focus on, try it with a regular one
-		UObject* FocusObject = FindObject<UObject>(ANY_PACKAGE, *WidgetContent.WidgetAnchor.WrapperIdentifier.ToString());
-		if (FocusObject != nullptr)
+		UObject* FocusObject = FindObject<UObject>(ANY_PACKAGE, *ObjectPath.ToString());
+		// If we didn't find it, maybe it just hasn't been loaded yet
+		if( FocusObject == nullptr )
+		{
+			FocusObject = LoadObject<UObject>(nullptr, *ObjectPath.ToString(),nullptr, LOAD_FindIfFail);
+		}
+		// If we found an asset redirector, we need to follow it
+		UObjectRedirector* Redir = dynamic_cast<UObjectRedirector*>(FocusObject);
+		if (Redir)
+		{
+			FocusObject = Redir->DestinationObject;
+		}
+
+		// If we failed to find the object, it may be a class that has been redirected
+		if (!FocusObject)
+		{
+			const FString ObjectName = FPackageName::ObjectPathToObjectName(ObjectPath.ToString());
+			const FName RedirectedObjectName = ULinkerLoad::FindNewNameForClass(*ObjectName, false);
+			if (!RedirectedObjectName.IsNone())
+			{
+				FocusObject = FindObject<UClass>(ANY_PACKAGE, *RedirectedObjectName.ToString());
+			}
+		}
+
+		if (FocusObject)
 		{
 			TArray< UObject* > Objects;
 			Objects.Add(FocusObject);

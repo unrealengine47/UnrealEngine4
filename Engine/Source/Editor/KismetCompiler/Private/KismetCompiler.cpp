@@ -152,7 +152,7 @@ void FKismetCompilerContext::CleanAndSanitizeClass(UBlueprintGeneratedClass* Cla
 	
 	UClass* ParentClass = Blueprint->ParentClass;
 
-	if(FKismetEditorUtilities::IsClassABlueprintSkeleton(ClassToClean))
+	if(CompileOptions.CompileType == EKismetCompileType::SkeletonOnly)
 	{
 		if(UBlueprint* BlueprintParent = Cast<UBlueprint>(Blueprint->ParentClass->ClassGeneratedBy))
 		{
@@ -299,6 +299,17 @@ void FKismetCompilerContext::ValidateLink(const UEdGraphPin* PinA, const UEdGrap
 	if (ConnectResponse.Response == CONNECT_RESPONSE_DISALLOW)
 	{
 		MessageLog.Warning(*FString::Printf(*LOCTEXT("PinTypeMismatch_Error", "Can't connect pins @@ and @@: %s").ToString(), *ConnectResponse.Message.ToString()), PinA, PinB);
+	}
+
+	if (PinA && PinB && PinA->Direction != PinB->Direction)
+	{
+		const UEdGraphPin* InputPin = (EEdGraphPinDirection::EGPD_Input == PinA->Direction) ? PinA : PinB;
+		const UEdGraphPin* OutputPin = (EEdGraphPinDirection::EGPD_Output == PinA->Direction) ? PinA : PinB;
+		const bool bForbiddenConnection = InputPin && OutputPin && (OutputPin->PinType.PinCategory == Schema->PC_Interface) && (InputPin->PinType.PinCategory == Schema->PC_Object);
+		if (bForbiddenConnection)
+		{
+			MessageLog.Error(*LOCTEXT("PinTypeMismatch_Error", "Can't connect pins @@ (Interface) and @@ (Object). Use an explicit cast node.").ToString(), OutputPin, InputPin);
+		}
 	}
 }
 
@@ -1845,8 +1856,7 @@ void FKismetCompilerContext::BuildDynamicBindingObjects(UBlueprintGeneratedClass
 void FKismetCompilerContext::CreatePinEventNodeForTimelineFunction(UK2Node_Timeline* TimelineNode, UEdGraph* SourceGraph, FName FunctionName, const FString& PinName, FName ExecFuncName)
 {
 	UK2Node_Event* TimelineEventNode = SpawnIntermediateNode<UK2Node_Event>(TimelineNode, SourceGraph);
-	TimelineEventNode->EventSignatureName = ExecFuncName;
-	TimelineEventNode->EventSignatureClass = UTimelineComponent::StaticClass();
+	TimelineEventNode->EventReference.SetExternalMember(FunctionName, UTimelineComponent::StaticClass());
 	TimelineEventNode->CustomFunctionName = FunctionName; // Make sure we name this function the thing we are expecting
 	TimelineEventNode->bInternalEvent = true;
 	TimelineEventNode->AllocateDefaultPins();
@@ -2304,7 +2314,7 @@ FName FKismetCompilerContext::GetEventStubFunctionName(UK2Node_Event* SrcEventNo
 	// If we are overriding a function, we use the exact name for the event node
 	if (SrcEventNode->bOverrideFunction)
 	{
-		EventNodeName = SrcEventNode->EventSignatureName;
+		EventNodeName = SrcEventNode->EventReference.GetMemberName();
 	}
 	else
 	{
@@ -2366,8 +2376,8 @@ void FKismetCompilerContext::CreateFunctionStubForEvent(UK2Node_Event* SrcEventN
 	// Create an entry point
 	UK2Node_FunctionEntry* EntryNode = SpawnIntermediateNode<UK2Node_FunctionEntry>(SrcEventNode, ChildStubGraph);
 	EntryNode->NodePosX = -200;
-	EntryNode->SignatureClass = SrcEventNode->EventSignatureClass;
-	EntryNode->SignatureName = SrcEventNode->EventSignatureName;
+	EntryNode->SignatureClass = SrcEventNode->EventReference.GetMemberParentClass(SrcEventNode);
+	EntryNode->SignatureName = SrcEventNode->EventReference.GetMemberName();
 	EntryNode->CustomGeneratedFunctionName = EventNodeName;
 
 	if(!SrcEventNode->bOverrideFunction && SrcEventNode->IsUsedByAuthorityOnlyDelegate())
@@ -2563,8 +2573,8 @@ void FKismetCompilerContext::VerifyValidOverrideEvent(const UEdGraph* Graph)
 			{
 				const UK2Node_Event* EventNode = EntryPoints[EntryPointsIdx];
 				if( EventNode && EventNode->bOverrideFunction &&
-					(EventNode->EventSignatureClass == FuncClass) &&
-					(EventNode->EventSignatureName == FuncName))
+					(EventNode->EventReference.GetMemberParentClass(EventNode) == FuncClass) &&
+					(EventNode->EventReference.GetMemberName() == FuncName))
 				{
 					if (EventNode->IsDeprecated())
 					{
@@ -2654,7 +2664,7 @@ void FKismetCompilerContext::CreateAndProcessUbergraph()
 				for (int32 EntryIndex = 0; EntryIndex < EntryPoints.Num(); ++EntryIndex)
 				{
 					const UK2Node_Event* EventNode = EntryPoints[EntryIndex];
-					if( EventNode && (EventNode->EventSignatureName == FunctionName) )
+					if( EventNode && (EventNode->EventReference.GetMemberName() == FunctionName) )
 					{
 						bFoundEntry = true;
 						break;
@@ -2665,8 +2675,7 @@ void FKismetCompilerContext::CreateAndProcessUbergraph()
 				{
 					// Create an entry node stub, so that we have a entry point for interfaces to call to
 					UK2Node_Event* EventNode = SpawnIntermediateNode<UK2Node_Event>(NULL, ConsolidatedEventGraph);
-					EventNode->EventSignatureName = FunctionName;
-					EventNode->EventSignatureClass = InterfaceDesc.Interface;
+					EventNode->EventReference.SetExternalMember(FunctionName, InterfaceDesc.Interface);
 					EventNode->bOverrideFunction = true;
 					EventNode->AllocateDefaultPins();
 				}

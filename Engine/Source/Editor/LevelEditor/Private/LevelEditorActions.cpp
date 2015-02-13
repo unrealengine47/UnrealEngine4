@@ -43,6 +43,7 @@
 #include "ReferenceViewer.h"
 #include "Developer/MeshUtilities/Public/MeshUtilities.h"
 #include "EditorClassUtils.h"
+#include "ComponentEditorUtils.h"
 
 #include "EditorActorFolders.h"
 #include "ActorPickerMode.h"
@@ -923,7 +924,9 @@ void FLevelEditorActionCallbacks::RecompileGameCode_Clicked()
 	IHotReloadInterface& HotReloadSupport = FModuleManager::LoadModuleChecked<IHotReloadInterface>(HotReloadModule);
 	if( !HotReloadSupport.IsCurrentlyCompiling() )
 	{
-		HotReloadSupport.DoHotReloadFromEditor();
+		// Don't wait -- we want compiling to happen asynchronously
+		const bool bWaitForCompletion = false;
+		HotReloadSupport.DoHotReloadFromEditor(bWaitForCompletion);
 	}
 }
 
@@ -1010,17 +1013,6 @@ void FLevelEditorActionCallbacks::GoToDocsForActor_Clicked()
 	}
 }
 
-void FLevelEditorActionCallbacks::AddScriptBehavior_Clicked()
-{
-	AActor* SelectedActor = GEditor->GetSelectedActors()->GetTop<AActor>();
-
-	if (SelectedActor)
-	{
-		const FName Name = *FString::Printf(TEXT("%s_BPClass"), *SelectedActor->GetName());
-		FKismetEditorUtilities::CreateBlueprintFromActor(Name, SelectedActor->GetLevel(), SelectedActor, true);
-	}
-}
-
 void FLevelEditorActionCallbacks::FindInContentBrowser_Clicked()
 {
 	GEditor->SyncToContentBrowser();
@@ -1063,7 +1055,8 @@ void FLevelEditorActionCallbacks::EditAsset_Clicked( const EToolkitMode::Type To
 	if( GEditor->GetSelectedActorCount() > 0 )
 	{
 		TArray< UObject* > ReferencedAssets;
-		GEditor->GetReferencedAssetsForEditorSelection( ReferencedAssets );
+		const bool bIgnoreOtherAssetsIfBPReferenced = true;
+		GEditor->GetReferencedAssetsForEditorSelection( ReferencedAssets, bIgnoreOtherAssetsIfBPReferenced );
 
 		bool bShouldOpenEditors = (ReferencedAssets.Num() == 1);
 
@@ -1395,10 +1388,18 @@ bool FLevelEditorActionCallbacks::Delete_CanExecute()
 
 void FLevelEditorActionCallbacks::Rename_Execute()
 {
-	AActor* Actor = Cast<AActor>( *GEditor->GetSelectedActorIterator() );
-	if(Actor)
+	UActorComponent* Component = Cast<UActorComponent>(*GEditor->GetSelectedComponentIterator());
+	if (Component)
 	{
-		GEditor->BroadcastLevelActorRequestRename(Actor);
+		GEditor->BroadcastLevelComponentRequestRename(Component);
+	}
+	else
+	{
+		AActor* Actor = Cast<AActor>(*GEditor->GetSelectedActorIterator());
+		if (Actor)
+		{
+			GEditor->BroadcastLevelActorRequestRename(Actor);
+		}
 	}
 }
 
@@ -1461,7 +1462,20 @@ bool FLevelEditorActionCallbacks::Paste_CanExecute()
 			return false;
 		}
 	}
-	return GUnrealEd->CanPasteSelectedActorsFromClipboard( GetWorld() );
+
+	bool bCanPaste = false;
+	if (GEditor->GetSelectedComponentCount() > 0)
+	{
+		check(GEditor->GetSelectedActorCount() == 1);
+		auto SelectedActor = CastChecked<AActor>(*GEditor->GetSelectedActorIterator());
+		bCanPaste = FComponentEditorUtils::CanPasteComponents(SelectedActor->GetRootComponent());
+	}
+	else
+	{
+		bCanPaste = GUnrealEd->CanPasteSelectedActorsFromClipboard(GetWorld());
+	}
+
+	return bCanPaste;
 }
 
 bool FLevelEditorActionCallbacks::PasteHere_CanExecute()
@@ -1769,7 +1783,8 @@ void FLevelEditorActionCallbacks::OnKeepSimulationChanges()
 					const auto CopyOptions = ( EditorUtilities::ECopyOptions::Type )(
 						EditorUtilities::ECopyOptions::CallPostEditChangeProperty |
 						EditorUtilities::ECopyOptions::CallPostEditMove |
-						EditorUtilities::ECopyOptions::OnlyCopyEditOrInterpProperties );
+						EditorUtilities::ECopyOptions::OnlyCopyEditOrInterpProperties |
+						EditorUtilities::ECopyOptions::FilterBlueprintReadOnly);
 					const int32 CopiedPropertyCount = EditorUtilities::CopyActorProperties( SimWorldActor, EditorWorldActor, CopyOptions );
 
 					if( CopiedPropertyCount > 0 )
@@ -2464,7 +2479,7 @@ void FLevelEditorActionCallbacks::SnapTo_Clicked( const bool InAlign, const bool
 	bool bSnappedComponents = false;
 	if( GEditor->GetSelectedComponentCount() > 0 )
 	{
-		for(FSelectionIterator It(GEditor->GetSelectedComponentIterator()); It; ++It)
+		for(FSelectedEditableComponentIterator It(GEditor->GetSelectedEditableComponentIterator()); It; ++It)
 		{
 			USceneComponent* SceneComponent = Cast<USceneComponent>(*It);
 			if(SceneComponent)
@@ -2739,8 +2754,6 @@ void FLevelEditorCommands::RegisterCommands()
 
 	UI_COMMAND( GoToCodeForActor, "Go to C++ Code for Actor", "Opens a code editing IDE and navigates to the source file associated with the seleced actor", EUserInterfaceActionType::Button, FInputGesture() );
 	UI_COMMAND( GoToDocsForActor, "Go to Documentation for Actor", "Opens documentation for the Actor in the default web browser", EUserInterfaceActionType::Button, FInputGesture() );
-
-	UI_COMMAND( AddScriptBehavior, "Customize Scripting Behavior", "Click to customize scripting behavior of this Actor", EUserInterfaceActionType::Button, FInputGesture() );
 
 	UI_COMMAND( PasteHere, "Paste Here", "Pastes the actor at the click location", EUserInterfaceActionType::Button, FInputGesture() );
 

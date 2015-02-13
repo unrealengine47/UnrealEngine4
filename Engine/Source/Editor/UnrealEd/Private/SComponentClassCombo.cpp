@@ -1,35 +1,42 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "UnrealEd.h"
-#include "SlateBasics.h"
-#include "SComponentClassCombo.h"
-#include "ComponentAssetBroker.h"
-#include "ClassIconFinder.h"
+
 #include "BlueprintGraphDefinitions.h"
-#include "IDocumentation.h"
-#include "SListViewSelectorDropdownMenu.h"
+#include "ClassIconFinder.h"
+#include "ComponentAssetBroker.h"
+#include "ComponentTypeRegistry.h"
 #include "EditorClassUtils.h"
-#include "SSearchBox.h"
 #include "Engine/Selection.h"
 #include "HotReloadInterface.h"
+#include "IDocumentation.h"
 #include "KismetEditorUtilities.h"
+#include "SComponentClassCombo.h"
+#include "SlateBasics.h"
+#include "SListViewSelectorDropdownMenu.h"
+#include "SSearchBox.h"
 
 #define LOCTEXT_NAMESPACE "ComponentClassCombo"
 
+FString FComponentClassComboEntry::GetClassName() const
+{
+	return ComponentClass != nullptr ? ComponentClass->GetDisplayNameText().ToString() : ComponentName;
+}
 
 void SComponentClassCombo::Construct(const FArguments& InArgs)
 {
 	PrevSelectedIndex = INDEX_NONE;
 	OnComponentClassSelected = InArgs._OnComponentClassSelected;
 
+	FComponentTypeRegistry::Get().SubscribeToComponentList(ComponentClassList).AddRaw(this, &SComponentClassCombo::UpdateComponentClassList);
+
 	UpdateComponentClassList();
-	GenerateFilteredComponentList(FString());
 
 	IHotReloadInterface& HotReloadSupport = FModuleManager::LoadModuleChecked<IHotReloadInterface>("HotReload");
 	HotReloadSupport.OnHotReload().AddSP( this, &SComponentClassCombo::OnProjectHotReloaded );
-	
+
 	SAssignNew(ComponentClassListView, SListView<FComponentClassComboEntryPtr>)
-		.ListItemsSource( &FilteredComponentClassList )
+		.ListItemsSource(&FilteredComponentClassList)
 		.OnSelectionChanged( this, &SComponentClassCombo::OnAddComponentSelectionChanged )
 		.OnGenerateRow( this, &SComponentClassCombo::GenerateAddComponentRow )
 		.SelectionMode(ESelectionMode::Single);
@@ -103,6 +110,11 @@ void SComponentClassCombo::Construct(const FArguments& InArgs)
 	SetMenuContentWidgetToFocus( SearchBox );
 }
 
+SComponentClassCombo::~SComponentClassCombo()
+{
+	FComponentTypeRegistry::Get().GetOnComponentTypeListChanged().RemoveAll(this);
+}
+
 void SComponentClassCombo::ClearSelection()
 {
 	SearchBox->SetText(FText::GetEmpty());
@@ -117,24 +129,29 @@ void SComponentClassCombo::GenerateFilteredComponentList(const FString& InSearch
 {
 	if ( InSearchText.IsEmpty() )
 	{
-		FilteredComponentClassList = ComponentClassList;
+		FilteredComponentClassList = *ComponentClassList;
 	}
 	else
 	{
 		FilteredComponentClassList.Empty();
-		for ( int32 ComponentIndex = 0; ComponentIndex < ComponentClassList.Num(); ComponentIndex++ )
+		for (int32 ComponentIndex = 0; ComponentIndex < ComponentClassList->Num(); ComponentIndex++)
 		{
-			FComponentClassComboEntryPtr& CurrentEntry = ComponentClassList[ComponentIndex];
+			FComponentClassComboEntryPtr& CurrentEntry = (*ComponentClassList)[ComponentIndex];
 
 			if (CurrentEntry->IsClass() && CurrentEntry->IsIncludedInFilter())
 			{
-				FString FriendlyComponentName = GetSanitizedComponentName( CurrentEntry->GetComponentClass(), CurrentEntry->GetComponentNameOverride() );
+				FString FriendlyComponentName = GetSanitizedComponentName( CurrentEntry );
 
 				if ( FriendlyComponentName.Contains( InSearchText, ESearchCase::IgnoreCase ) )
 				{
 					FilteredComponentClassList.Add( CurrentEntry );
 				}
 			}
+		}
+		if (FilteredComponentClassList.Num() > 0)
+		{
+			FComponentClassComboEntryPtr& FirstEntry = FilteredComponentClassList[0];
+			ComponentClassListView->SetSelection(FirstEntry, ESelectInfo::OnNavigation);
 		}
 	}
 }
@@ -167,6 +184,25 @@ void SComponentClassCombo::OnSearchBoxTextCommitted(const FText& NewText, ETextC
 	}
 }
 
+// @todo: move this to FKismetEditorUtilities
+static UClass* GetAuthoritativeBlueprintClass(UBlueprint const* const Blueprint)
+{
+	UClass* BpClass = (Blueprint->SkeletonGeneratedClass != nullptr) ? Blueprint->SkeletonGeneratedClass :
+		Blueprint->GeneratedClass;
+
+	if (BpClass == nullptr)
+	{
+		BpClass = Blueprint->ParentClass;
+	}
+
+	UClass* AuthoritativeClass = BpClass;
+	if (BpClass != nullptr)
+	{
+		AuthoritativeClass = BpClass->GetAuthoritativeClass();
+	}
+	return AuthoritativeClass;
+}
+
 void SComponentClassCombo::OnAddComponentSelectionChanged( FComponentClassComboEntryPtr InItem, ESelectInfo::Type SelectInfo )
 {
 	if ( InItem.IsValid() && InItem->IsClass() && SelectInfo != ESelectInfo::OnNavigation)
@@ -181,7 +217,16 @@ void SComponentClassCombo::OnAddComponentSelectionChanged( FComponentClassComboE
 
 			if( OnComponentClassSelected.IsBound() )
 			{
-				UActorComponent* NewActorComponent = OnComponentClassSelected.Execute(InItem->GetComponentClass(), InItem->GetComponentCreateAction(), InItem->GetAssetOverride());
+				UClass* ComponentClass = InItem->GetComponentClass();
+				if (ComponentClass == nullptr)
+				{
+					// The class is not loaded yet, so load it:
+					const ELoadFlags LoadFlags = LOAD_None;
+					UBlueprint* LoadedObject = LoadObject<UBlueprint>(NULL, *InItem->GetComponentPath(), NULL, LoadFlags, NULL);
+					ComponentClass = GetAuthoritativeBlueprintClass(LoadedObject);
+				}
+
+				UActorComponent* NewActorComponent = OnComponentClassSelected.Execute(ComponentClass, InItem->GetComponentCreateAction(), InItem->GetAssetOverride());
 				if(NewActorComponent)
 				{
 					InItem->GetOnComponentCreated().ExecuteIfBound(NewActorComponent);
@@ -225,6 +270,7 @@ TSharedRef<ITableRow> SComponentClassCombo::GenerateAddComponentRow( FComponentC
 	{
 		return 
 			SNew( STableRow< TSharedPtr<FString> >, OwnerTable )
+				.Style(&FEditorStyle::Get().GetWidgetStyle<FTableRowStyle>("TableView.NoHoverTableRow"))
 				.ShowSelection(false)
 			[
 				SNew(SBox)
@@ -240,6 +286,7 @@ TSharedRef<ITableRow> SComponentClassCombo::GenerateAddComponentRow( FComponentC
 	{
 		return 
 			SNew( STableRow< TSharedPtr<FString> >, OwnerTable )
+				.Style(&FEditorStyle::Get().GetWidgetStyle<FTableRowStyle>("TableView.NoHoverTableRow"))
 				.ShowSelection(false)
 			[
 				SNew(SBox)
@@ -271,7 +318,7 @@ TSharedRef<ITableRow> SComponentClassCombo::GenerateAddComponentRow( FComponentC
 				.AutoWidth()
 				[
 					SNew(SImage)
-					.Image( FClassIconFinder::FindIconForClass( Entry->GetComponentClass() ) )
+					.Image( FClassIconFinder::FindIconForClass( Entry->GetIconOverrideBrushName() == NAME_None ? Entry->GetComponentClass() : nullptr, Entry->GetIconOverrideBrushName() ) )
 				]
 				+SHorizontalBox::Slot()
 				.AutoWidth()
@@ -292,176 +339,10 @@ TSharedRef<ITableRow> SComponentClassCombo::GenerateAddComponentRow( FComponentC
 	}
 }
 
-struct SortComboEntry
-{
-	static const FString CommonClassGroup;
-
-	bool operator () (const FComponentClassComboEntryPtr& A, const FComponentClassComboEntryPtr& B) const
-	{
-		bool bResult = false;
-
-		// check headings first, if they are the same compare the individual entries
-		int32 HeadingCompareResult = FCString::Stricmp( *A->GetHeadingText(), *B->GetHeadingText() );
-		if ( HeadingCompareResult == 0 )
-		{
-			check(A->GetComponentClass()); check(B->GetComponentClass()); 
-			bResult = FCString::Stricmp(*A->GetComponentClass()->GetName(), *B->GetComponentClass()->GetName()) < 0;
-		}
-		else if (CommonClassGroup == A->GetHeadingText())
-		{
-			bResult = true;
-		}
-		else if (CommonClassGroup == B->GetHeadingText())
-		{
-			bResult = false;
-		}
-		else
-		{
-			bResult = HeadingCompareResult < 0;
-		}
-
-		return bResult;
-	}
-};
-const FString SortComboEntry::CommonClassGroup(TEXT("Common"));
-
-void SComponentClassCombo::OnBasicShapeCreated(UActorComponent* Component)
-{
-	UStaticMeshComponent* SMC = Cast<UStaticMeshComponent>(Component);
-	if(SMC)
-	{
-		SMC->SetMaterial(0, LoadObject<UMaterial>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")));
-	}
-};
-
-void SComponentClassCombo::AddBasicShapeComponents( TArray<FComponentClassComboEntryPtr>& SortedClassList )
-{
-	FString BasicShapesHeading = LOCTEXT("BasicShapesHeading", "Basic Shapes").ToString();
-
-	{
-		FComponentEntryCustomizationArgs Args;
-		Args.AssetOverride = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));;
-		Args.OnComponentCreated = FOnComponentCreated::CreateSP(this, &SComponentClassCombo::OnBasicShapeCreated);
-		Args.ComponentNameOverride = LOCTEXT("BasicCubeShapeDisplayName", "Cube").ToString();
-
-		FComponentClassComboEntryPtr NewShape = MakeShareable(new FComponentClassComboEntry(BasicShapesHeading, UStaticMeshComponent::StaticClass(), true, EComponentCreateAction::SpawnExistingClass, Args));
-		SortedClassList.Add(NewShape);
-	}
-
-	{
-		FComponentEntryCustomizationArgs Args;
-		Args.AssetOverride = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));;
-		Args.OnComponentCreated = FOnComponentCreated::CreateSP(this, &SComponentClassCombo::OnBasicShapeCreated);
-		Args.ComponentNameOverride = LOCTEXT("BasicSphereShapeDisplayName", "Sphere").ToString();
-
-		FComponentClassComboEntryPtr NewShape = MakeShareable(new FComponentClassComboEntry(BasicShapesHeading, UStaticMeshComponent::StaticClass(), true, EComponentCreateAction::SpawnExistingClass, Args));
-		SortedClassList.Add(NewShape);
-	}
-
-	{
-		FComponentEntryCustomizationArgs Args;
-		Args.AssetOverride = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));;
-		Args.OnComponentCreated = FOnComponentCreated::CreateSP(this, &SComponentClassCombo::OnBasicShapeCreated);
-		Args.ComponentNameOverride = LOCTEXT("BasicCylinderShapeDisplayName", "Cylinder").ToString();
-
-		FComponentClassComboEntryPtr NewShape = MakeShareable(new FComponentClassComboEntry(BasicShapesHeading, UStaticMeshComponent::StaticClass(), true, EComponentCreateAction::SpawnExistingClass, Args));
-		SortedClassList.Add(NewShape);
-	}
-
-	{
-		FComponentEntryCustomizationArgs Args;
-		Args.AssetOverride = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cone.Cone"));;
-		Args.OnComponentCreated = FOnComponentCreated::CreateSP(this, &SComponentClassCombo::OnBasicShapeCreated);
-		Args.ComponentNameOverride = LOCTEXT("BasicConeShapeDisplayName", "Cone").ToString();
-
-		FComponentClassComboEntryPtr NewShape = MakeShareable(new FComponentClassComboEntry(BasicShapesHeading, UStaticMeshComponent::StaticClass(), true, EComponentCreateAction::SpawnExistingClass, Args));
-		SortedClassList.Add(NewShape);
-	}
-
-}
-
 void SComponentClassCombo::UpdateComponentClassList()
 {
-	ComponentClassList.Empty();
-
-	const UEdGraphSchema_K2* K2Schema = GetDefault<UEdGraphSchema_K2>();
-
-	if( GetDefault<UEditorExperimentalSettings>()->bScriptableComponentsOnActors )
-	{
-		FString NewComponentsHeading = LOCTEXT("NewComponentsHeading", "New").ToString();
-		// Add new C++ component class
-		FComponentClassComboEntryPtr NewClassHeader = MakeShareable(new FComponentClassComboEntry(NewComponentsHeading));
-		ComponentClassList.Add(NewClassHeader);
-
-		FComponentClassComboEntryPtr NewCPPClass = MakeShareable(new FComponentClassComboEntry(NewComponentsHeading, UActorComponent::StaticClass(), true, EComponentCreateAction::CreateNewCPPClass));
-		ComponentClassList.Add(NewCPPClass);
-
-		FComponentClassComboEntryPtr NewBPClass = MakeShareable(new FComponentClassComboEntry(NewComponentsHeading, UActorComponent::StaticClass(), true, EComponentCreateAction::CreateNewBlueprintClass));
-		ComponentClassList.Add(NewBPClass);
-
-		FComponentClassComboEntryPtr NewSeparator(new FComponentClassComboEntry());
-		ComponentClassList.Add( NewSeparator );
-	}
-	
-	TArray<FComponentClassComboEntryPtr> SortedClassList;
-	for (TObjectIterator<UClass> It; It; ++It)
-	{
-		UClass* Class = *It;
-		// If this is a subclass of Actor Component, not abstract, and tagged as spawnable from Kismet
-		if (Class->IsChildOf(UActorComponent::StaticClass()) && !Class->HasAnyClassFlags(CLASS_Abstract) && Class->HasMetaData(FBlueprintMetadata::MD_BlueprintSpawnableComponent) && !FKismetEditorUtilities::IsClassABlueprintSkeleton(Class)) //@TODO: Fold this logic together with the one in UEdGraphSchema_K2::GetAddComponentClasses
-		{
-			TArray<FString> ClassGroupNames;
-			Class->GetClassGroupNames( ClassGroupNames );
-
-			if (ClassGroupNames.Contains(SortComboEntry::CommonClassGroup))
-			{
-				FString ClassGroup = SortComboEntry::CommonClassGroup;
-				FComponentClassComboEntryPtr NewEntry(new FComponentClassComboEntry(ClassGroup, Class, ClassGroupNames.Num() <= 1, EComponentCreateAction::SpawnExistingClass));
-				SortedClassList.Add(NewEntry);
-			}
-			if (ClassGroupNames.Num() && !ClassGroupNames[0].Equals(SortComboEntry::CommonClassGroup))
-			{
-				const bool bIncludeInFilter = true;
-
-				FString ClassGroup = ClassGroupNames[0];
-				FComponentClassComboEntryPtr NewEntry(new FComponentClassComboEntry(ClassGroup, Class, bIncludeInFilter, EComponentCreateAction::SpawnExistingClass));
-				SortedClassList.Add(NewEntry);
-			}
-		}
-	}
-
-	AddBasicShapeComponents(SortedClassList);
-
-	if (SortedClassList.Num() > 0)
-	{
-		Sort(SortedClassList.GetData(), SortedClassList.Num(), SortComboEntry());
-
-		FString PreviousHeading;
-		for ( int32 ClassIndex = 0; ClassIndex < SortedClassList.Num(); ClassIndex++ )
-		{
-			FComponentClassComboEntryPtr& CurrentEntry = SortedClassList[ClassIndex];
-
-			const FString& CurrentHeadingText = CurrentEntry->GetHeadingText();
-
-			if ( CurrentHeadingText != PreviousHeading )
-			{
-				// This avoids a redundant separator being added to the very top of the list
-				if ( ClassIndex > 0 )
-				{
-					FComponentClassComboEntryPtr NewSeparator(new FComponentClassComboEntry());
-					ComponentClassList.Add( NewSeparator );
-				}
-				FComponentClassComboEntryPtr NewHeading(new FComponentClassComboEntry( CurrentHeadingText ));
-				ComponentClassList.Add( NewHeading );
-
-				PreviousHeading = CurrentHeadingText;
-			}
-
-			ComponentClassList.Add( CurrentEntry );
-		}
-	}
+	GenerateFilteredComponentList(CurrentSearchString.ToString());
 }
-
 
 void SComponentClassCombo::OnProjectHotReloaded( bool bWasTriggeredAutomatically )
 {
@@ -482,13 +363,14 @@ FText SComponentClassCombo::GetFriendlyComponentName(FComponentClassComboEntryPt
 	}
 	else if (Entry->GetComponentCreateAction() == EComponentCreateAction::CreateNewBlueprintClass )
 	{
-		FriendlyComponentName = LOCTEXT("NewBlueprintComponentFriendlyName", "New Blueprint Component...").ToString();
+		FriendlyComponentName = LOCTEXT("NewBlueprintComponentFriendlyName", "New Blueprint Script Component...").ToString();
 	}
 	else
 	{
-		FriendlyComponentName = GetSanitizedComponentName(Entry->GetComponentClass(), Entry->GetComponentNameOverride() );
+		FriendlyComponentName = GetSanitizedComponentName(Entry);
 
-		if( Entry->GetComponentNameOverride().IsEmpty() )
+		// Don't try to match up assets for USceneComponent it will match lots of things and doesn't have any nice behavior for asset adds 
+		if (Entry->GetComponentClass() != USceneComponent::StaticClass() && Entry->GetComponentNameOverride().IsEmpty())
 		{
 			// Search the selected assets and look for any that can be used as a source asset for this type of component
 			// If there is one we append the asset name to the component name, if there are many we append "Multiple Assets"
@@ -536,12 +418,16 @@ FText SComponentClassCombo::GetFriendlyComponentName(FComponentClassComboEntryPt
 	return FText::FromString(FriendlyComponentName);
 }
 
-FString SComponentClassCombo::GetSanitizedComponentName( UClass* ComponentClass, const FString& InComponentNameOverride )
+FString SComponentClassCombo::GetSanitizedComponentName(FComponentClassComboEntryPtr Entry)
 {
-	if( InComponentNameOverride.IsEmpty() )
+	FString DisplayName;
+	if (Entry->GetComponentNameOverride() != FString())
 	{
-		FString DisplayName;
-		if(ComponentClass->HasMetaData(TEXT("DisplayName")))
+		DisplayName = Entry->GetComponentNameOverride();
+	}
+	else if (UClass* ComponentClass = Entry->GetComponentClass())
+	{
+		if (ComponentClass->HasMetaData(TEXT("DisplayName")))
 		{
 			DisplayName = ComponentClass->GetMetaData(TEXT("DisplayName"));
 		}
@@ -553,13 +439,12 @@ FString SComponentClassCombo::GetSanitizedComponentName( UClass* ComponentClass,
 				DisplayName.RemoveFromEnd(TEXT("Component"), ESearchCase::IgnoreCase);
 			}
 		}
-
-		return FName::NameToDisplayString(DisplayName, false);
 	}
 	else
 	{
-		return InComponentNameOverride;
+		DisplayName = Entry->GetClassName();
 	}
+	return FName::NameToDisplayString(DisplayName, false);
 }
 
 #undef LOCTEXT_NAMESPACE

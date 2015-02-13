@@ -9,7 +9,7 @@
 APaperFlipbookActor::APaperFlipbookActor(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	RenderComponent = ObjectInitializer.CreateDefaultSubobject<UPaperFlipbookComponent>(this, TEXT("RenderComponent"));
+	RenderComponent = CreateDefaultSubobject<UPaperFlipbookComponent>(TEXT("RenderComponent"));
 
 	RootComponent = RenderComponent;
 }
@@ -17,6 +17,8 @@ APaperFlipbookActor::APaperFlipbookActor(const FObjectInitializer& ObjectInitial
 #if WITH_EDITOR
 bool APaperFlipbookActor::GetReferencedContentObjects(TArray<UObject*>& Objects) const
 {
+	Super::GetReferencedContentObjects(Objects);
+
 	if (UPaperFlipbook* FlipbookAsset = RenderComponent->GetFlipbook())
 	{
 		Objects.Add(FlipbookAsset);

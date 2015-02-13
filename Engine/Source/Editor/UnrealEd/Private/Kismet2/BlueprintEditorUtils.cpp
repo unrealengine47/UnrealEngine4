@@ -1211,6 +1211,23 @@ UClass* FBlueprintEditorUtils::RegenerateBlueprintClass(UBlueprint* Blueprint, U
 		{
 			// Just refresh all nodes in macro blueprints, but don't recompil
 			FBlueprintEditorUtils::RefreshAllNodes(Blueprint);
+
+			if (ClassToRegenerate != nullptr)
+			{
+				UClass* OldSuperClass = ClassToRegenerate->GetSuperClass();
+				if ((OldSuperClass != nullptr) && OldSuperClass->HasAnyClassFlags(CLASS_NewerVersionExists))
+				{
+					UClass* NewSuperClass = OldSuperClass->GetAuthoritativeClass();
+					ensure(NewSuperClass == Blueprint->ParentClass);
+
+					// in case the macro's super class was re-instanced (it 
+					// would have re-parented this to a REINST_ class), for non-
+					// macro blueprints this would normally be reset in 
+					// CompileBlueprint (but since we don't compile macros, we 
+					// need to fix this up here)
+					ClassToRegenerate->SetSuperStruct(NewSuperClass);
+				}
+			}
 		}
 		else
 		{
@@ -1771,7 +1788,7 @@ bool FBlueprintEditorUtils::IsGraphNameUnique(UBlueprint* Blueprint, const FName
 				check(EventNode);
 
 				if( EventNode->CustomFunctionName == InName
-					|| EventNode->EventSignatureName == InName )
+					|| EventNode->EventReference.GetMemberName() == InName )
 				{
 					return false;
 				}
@@ -2234,8 +2251,8 @@ UK2Node_Event* FBlueprintEditorUtils::FindOverrideForFunction(const UBlueprint* 
 		UK2Node_Event* EventNode = AllEvents[i];
 		check(EventNode);
 		if(	EventNode->bOverrideFunction == true &&
-			EventNode->EventSignatureClass == SignatureClass &&
-			EventNode->EventSignatureName == SignatureName )
+			EventNode->EventReference.GetMemberParentClass(EventNode) == SignatureClass &&
+			EventNode->EventReference.GetMemberName() == SignatureName )
 		{
 			return EventNode;
 		}
@@ -4017,7 +4034,7 @@ UFunction* FFunctionFromNodeHelper::FunctionFromNode(UK2Node* Node)
 	{
 		if (UK2Node_Event* EventNode = Cast<UK2Node_Event>(Node))
 		{
-			Function = SearchScope->FindFunctionByName(EventNode->EventSignatureName);
+			Function = EventNode->EventReference.ResolveMember<UFunction>((UClass*)(SearchScope));
 		}
 		else if (UK2Node_FunctionEntry* FunctionNode = Cast<UK2Node_FunctionEntry>(Node))
 		{
@@ -4708,14 +4725,14 @@ void FBlueprintEditorUtils::RemoveInterface(UBlueprint* Blueprint, const FName& 
 		for(TArray<UK2Node_Event*>::TIterator NodeIt(AllEvents); NodeIt; ++NodeIt)
 		{
 			UK2Node_Event* EventNode = *NodeIt;
-			if( EventNode->EventSignatureClass == InterfaceClass )
+			if( EventNode->EventReference.GetMemberParentClass(EventNode) == InterfaceClass )
 			{
 				if(bPreserveFunctions)
 				{
 					// Create a custom event with the same name and signature
 					const FVector2D PreviousNodePos = FVector2D(EventNode->NodePosX, EventNode->NodePosY);
-					const FString PreviousNodeName = EventNode->EventSignatureName.ToString();
-					const UFunction* PreviousSignatureFunction = EventNode->EventSignatureClass->FindFunctionByName(EventNode->EventSignatureName);
+					const FString PreviousNodeName = EventNode->EventReference.GetMemberName().ToString();
+					const UFunction* PreviousSignatureFunction = EventNode->FindEventSignatureFunction();
 					check(PreviousSignatureFunction);
 					
 					UK2Node_CustomEvent* NewEvent = UK2Node_CustomEvent::CreateFromFunction(PreviousNodePos, EventNode->GetGraph(), PreviousNodeName, PreviousSignatureFunction, false);
@@ -4929,15 +4946,15 @@ void FBlueprintEditorUtils::ConformImplementedEvents(UBlueprint* Blueprint)
 				// If the event is loaded and is not a custom event
 				if(!EventNode->HasAnyFlags(RF_NeedLoad|RF_NeedPostLoad) && EventNode->bOverrideFunction)
 				{
-					const bool bEventNodeUsedByInterface = ImplementedInterfaceClasses.Contains(EventNode->EventSignatureClass);
+					const bool bEventNodeUsedByInterface = ImplementedInterfaceClasses.Contains(EventNode->EventReference.GetMemberParentClass(EventNode));
 					if (Blueprint->GeneratedClass && !bEventNodeUsedByInterface)
 					{
 						// See if the generated class implements an event with the given function signature
-						const UFunction* TargetFunction = Blueprint->GeneratedClass->FindFunctionByName(EventNode->EventSignatureName);
-						if (TargetFunction || EventGraphNames.Contains(EventNode->EventSignatureName))
+						const UFunction* TargetFunction = EventNode->EventReference.ResolveMember<UFunction>(Blueprint->GeneratedClass);
+						if (TargetFunction || EventGraphNames.Contains(EventNode->EventReference.GetMemberName()))
 						{
 							// The generated class implements the event but the function signature is not up-to-date
-							if (!Blueprint->GeneratedClass->IsChildOf(EventNode->EventSignatureClass))
+							if (!Blueprint->GeneratedClass->IsChildOf(EventNode->EventReference.GetMemberParentClass(EventNode)))
 							{
 								FFormatNamedArguments Args;
 								Args.Add(TEXT("NodeTitle"), EventNode->GetNodeTitle(ENodeTitleType::ListView));
@@ -4947,7 +4964,7 @@ void FBlueprintEditorUtils::ConformImplementedEvents(UBlueprint* Blueprint)
 								Blueprint->Message_Note( FText::Format(LOCTEXT("EventSignatureFixed_Note", "{NodeTitle} ({EventNodeName}) had an invalid function signature - it has now been fixed."), Args).ToString() );
 
 								// Fix up the event signature
-								EventNode->EventSignatureClass = Blueprint->GeneratedClass;
+								EventNode->EventReference.SetFromField<UFunction>(TargetFunction, false);
 							}
 						}
 						else
@@ -5035,12 +5052,12 @@ static void ConformInterfaceByName(UBlueprint* Blueprint, FBPInterfaceDescriptio
 		for (UK2Node_Event* EventNode : ImplementedEvents)
 		{
 			// if this event belongs to something other than this interface
-			if (EventNode->EventSignatureClass != CurrentInterfaceDesc.Interface)
+			if (EventNode->EventReference.GetMemberParentClass(EventNode) != CurrentInterfaceDesc.Interface)
 			{
 				continue;
 			}
 
-			UFunction* InterfaceFunction = CurrentInterfaceDesc.Interface->FindFunctionByName(EventNode->EventSignatureName);
+			UFunction* InterfaceFunction = EventNode->EventReference.ResolveMember<UFunction>(CurrentInterfaceDesc.Interface);
 			// if the function is still ok as an event, no need to try and fix it up
 			if (UEdGraphSchema_K2::FunctionCanBePlacedAsEvent(InterfaceFunction))
 			{
@@ -5056,7 +5073,7 @@ static void ConformInterfaceByName(UBlueprint* Blueprint, FBPInterfaceDescriptio
 			}
 
 			// grab the function's name before we delete the node
-			FName const FunctionName = EventNode->EventSignatureName;
+			FName const FunctionName = EventNode->EventReference.GetMemberName();
 			// destroy the old event node (this will also break all pin links and remove it from the graph)
 			EventNode->DestroyNode();
 
@@ -7166,6 +7183,36 @@ void FBlueprintEditorUtils::PostSetupObjectPinType(UBlueprint* InBlueprint, FBPV
 			// bridge multiple levels and different levels might not have the actor that the default is referencing).
 			InOutVarDesc.PropertyFlags |= CPF_DisableEditOnTemplate;
 		}
+	}
+}
+
+FText FBlueprintEditorUtils::GetFriendlyClassDisplayName(const UClass* Class)
+{
+	if (Class != nullptr)
+	{
+		return Class->GetDisplayNameText();
+	}
+	else
+	{
+		return LOCTEXT("ClassIsNull", "None");
+	}
+}
+
+FString FBlueprintEditorUtils::GetClassNameWithoutSuffix(const UClass* Class)
+{
+	if (Class != nullptr)
+	{
+		FString Result = Class->GetName();
+		if (Class->ClassGeneratedBy != nullptr)
+		{
+			Result.RemoveFromEnd(TEXT("_C"), ESearchCase::CaseSensitive);
+		}
+
+		return Result;
+	}
+	else
+	{
+		return LOCTEXT("ClassIsNull", "None").ToString();
 	}
 }
 

@@ -80,7 +80,7 @@
 			</select>
 			<input type="submit" name="SetStatusSubmit" value="Set" class="SetButtonGreen" />
 
-			<span id="set-ttp" style="">TTP</span>
+			<span id="set-ttp" style="">JIRA</span>
 			<input name="SetTTP" type="text" id="ttp-text-box" />
 			<input type="submit" name="SetTTPSubmit" value="Set" class="SetButtonGreen" />
 	
@@ -93,12 +93,15 @@
 
 <div id='CrashesShowContainer'>
 	<div id='CrashDataContainer' >
-		<dl style='list-style-type: none; font-weight: bold' >
+		<dl style='list-style-type: none; font-weight: bold;' >
 		<dt>ID</dt>
 			<dd ><%=Html.DisplayFor( m => Model.Bugg.Id )%></dd>
 
-		<dt>Build Version of Latest Crash</dt>
-			<dd><%=Html.DisplayFor( m => Model.Bugg.BuildVersion )%></dd>
+		<%--<dt>Build Version of Latest Crash</dt>
+			<dd><%=Html.DisplayFor( m => Model.Bugg.BuildVersion )%></dd>--%>
+
+		<dt>Affected Build Versions</dt>
+			<dd><%=Model.Bugg.GetAffectedBuilds()%></dd>
 			
 		<dt>Time of Latest Crash</dt> 
 			<dd class='even' style='width:8em'><%=Model.Bugg.TimeOfLastCrash%></dd>
@@ -106,17 +109,24 @@
 		<dt>Time of First Crash</dt>
 			<dd style='width:8em'><%=Model.Bugg.TimeOfFirstCrash%></dd>
 
+		<dt>Bugg life span</dt>
+			<dd style='width:8em'><%=Model.Bugg.GetLifeSpan()%></dd>
+
 		<dt>Crash type</dt> 
 			<dd class='even' style='width:8em'><%=Model.Bugg.GetCrashTypeAsString()%></dd>
 
 		<dt>Number of Users</dt>
 			<dd class='even'><%=Html.DisplayFor( m => Model.Bugg.NumberOfUsers )%></dd>
 
+		<dt>Number of Unique Machines</dt>
+			<dd class='even'><%=Html.DisplayFor( m => Model.Bugg.NumberOfUniqueMachines )%></dd>
+
 		<dt>Number of Crashes</dt>
 			<dd ><%=Html.DisplayFor( m => Model.Bugg.NumberOfCrashes )%></dd>
 
-		<dt>TTP</dt>
-			<dd class='even'><%=Html.DisplayFor( m => Model.Bugg.TTPID )%></dd>
+		<dt>JIRA</dt>
+			<%--<dd class='even'><%=Html.DisplayFor( m => Model.Bugg.TTPID )%></dd>--%>
+			<dd class='even'><a href="https://jira.ol.epicgames.net/browse/<%=Model.Bugg.TTPID%>" target="_blank"><%=Model.Bugg.TTPID%></a></dd>
 
 		<dt>Status</dt>
 			<dd ><%=Html.DisplayFor( m => Model.Bugg.Status )%></dd>
@@ -143,7 +153,7 @@
 
 
 		<h3>Call Stack of Most Recent Crash</h3>
-		<div id='RawCallStackContainer' style='display:none' >
+		<div id='RawCallStackContainer' style='display:none;'>
 			<div>
 				<% foreach( CallStackEntry CallStackLine in Model.CallStack.CallStackEntries )
 					{%>
@@ -186,7 +196,7 @@
 		<div id='SourceContextContainer'>
 			<h3>Source Context</h3>
 			<div id='SourceContextDisplay'>
-				<pre><%=Html.DisplayFor( x => Model.Bugg.SourceContext )%></pre>
+				<pre><%=Html.DisplayFor( x => Model.SourceContext )%></pre>
 			</div>
 		</div>
 		<%using( Html.BeginForm( "Show", "Buggs", FormMethod.Post, new { id = "EditCrashDescriptionForm"} ) )
@@ -219,11 +229,11 @@
 					{
 						IterationCount++;%>
 			
-						<tr class='CrashRow <%=CrashInstance.User.UserGroup %>'>
+						<tr class='CrashRow'>
 							<td class="Id"><%=Html.ActionLink( CrashInstance.Id.ToString(), "Show", new { controller = "crashes", id = CrashInstance.Id }, null )%></td>
 							<td class="BuildVersion"><%=CrashInstance.BuildVersion%></td>
 							<td class="TimeOfCrash">
-								<%=CrashInstance.GetTimeOfCrash()[0]%><br />
+								<%=CrashInstance.GetTimeOfCrash()[0]%> &nbsp;
 								<%=CrashInstance.GetTimeOfCrash()[1]%><br />
 								Change: <%= CrashInstance.ChangeListVersion %><br />
 							</td>
@@ -233,12 +243,15 @@
 								<%=CrashInstance.EngineMode %><br />
 								<%=CrashInstance.PlatformName %><br />
 							</td><td class="CallStack" >
+								<%--Display callstack only for the first crash--%>
+								<% if(IterationCount==1)
+								{ %>
 								<div style="clip : auto; ">
 									<div id='<%=CrashInstance.Id %>-TrimmedCallStackBox' class='TrimmedCallStackBox'>
-										<% foreach( CallStackEntry Entry in CrashInstance.GetCallStackEntries( 0, 4 ) )
+										<% foreach( CallStackEntry Entry in Model.CallStack.CallStackEntries.Take(4) )
 										{%>
 											<span class="function-name">
-												<%=Url.CallStackSearchLink( Html.Encode( Entry.GetTrimmedFunctionName( 40 ) ), Model )%>
+												<%=Url.CallStackSearchLink( Html.Encode( Entry.GetTrimmedFunctionName( 60 ) ), Model )%>
 											</span>
 											<br />
 										<%} %>
@@ -246,16 +259,17 @@
 						
 									<a class='FullCallStackTrigger' ><span class='FullCallStackTriggerText'>Full Callstack</span>
 										<div id='<%=CrashInstance.Id %>-FullCallStackBox' class='FullCallStackBox'>
-											<%foreach( CallStackEntry Entry in CrashInstance.GetCallStackEntries( 0, 40 ) )
+											<%foreach( CallStackEntry Entry in Model.CallStack.CallStackEntries.Take( 40 ) )
 												{%>
 												<span class="FunctionName">
-													<%=Html.Encode( Entry.GetTrimmedFunctionName( 60 ) )%>
+													<%=Html.Encode( Entry.GetTrimmedFunctionName( 80 ) )%>
 												</span>
 												<br />
 											<%} %>
 										</div>
 									</a>
 								</div>
+								<%} %>
 							</td>
 							<td class="Description"><span><%=CrashInstance.Description%>&nbsp;</span></td> 
 						</tr>

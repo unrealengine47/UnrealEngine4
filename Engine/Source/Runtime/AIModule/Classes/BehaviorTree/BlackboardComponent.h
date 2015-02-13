@@ -278,6 +278,7 @@ protected:
 	TArray<uint16> ValueOffsets;
 
 	/** instanced keys with custom data allocations */
+	UPROPERTY(transient)
 	TArray<UBlackboardKeyType*> KeyInstances;
 
 	/** observers registered for blackboard keys */
@@ -345,7 +346,7 @@ bool UBlackboardComponent::SetValue(FBlackboard::FKey KeyID, typename TDataClass
 		if (bChanged)
 		{
 			NotifyObservers(KeyID);
-			if (BlackboardAsset->HasSyncronizedKeys() && IsKeyInstanceSynced(KeyID))
+			if (BlackboardAsset->HasSynchronizedKeys() && IsKeyInstanceSynced(KeyID))
 			{
 				UAISystem* AISystem = UAISystem::GetCurrentSafe(GetWorld());
 				for (auto Iter = AISystem->CreateBlackboardDataToComponentsIterator(*BlackboardAsset); Iter; ++Iter)

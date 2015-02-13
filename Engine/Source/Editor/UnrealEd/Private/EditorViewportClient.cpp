@@ -708,6 +708,8 @@ FSceneView* FEditorViewportClient::CalcSceneView(FSceneViewFamily* ViewFamily)
 
 	FSceneView* View = new FSceneView(ViewInitOptions);
 
+	View->SubduedSelectionOutlineColor = GetDefault<UEditorStyleSettings>()->GetSubduedSelectionColor();
+
 	ViewFamily->Views.Add(View);
 
 	View->StartFinalPostprocessSettings(ViewLocation);
@@ -4443,6 +4445,13 @@ void FEditorViewportClient::SetGameView(bool bGameViewEnable)
 	EngineShowFlags.CompositeEditorPrimitives = bCompositeEditorPrimitives;
 	LastEngineShowFlags.CompositeEditorPrimitives = bCompositeEditorPrimitives;
 
+	//reset game engine show flags that may have been turned on by making a selection in game view
+	if(bGameViewEnable)
+	{
+		EngineShowFlags.ModeWidgets = 0;
+		EngineShowFlags.Selection = 0;
+	}
+
 	EngineShowFlags.SelectionOutline = bGameViewEnable ? false : GetDefault<ULevelEditorViewportSettings>()->bUseSelectionOutline;
 
 	ApplyViewMode(GetViewMode(), IsPerspective(), EngineShowFlags);
@@ -4472,7 +4481,7 @@ void FEditorViewportClient::SetEnabledStats(const TArray<FString>& InEnabledStat
 	EnabledStats = InEnabledStats;
 }
 
-bool FEditorViewportClient::IsStatEnabled(const TCHAR* InName) const
+bool FEditorViewportClient::IsStatEnabled(const FString& InName) const
 {
 	return EnabledStats.Contains(InName);
 }

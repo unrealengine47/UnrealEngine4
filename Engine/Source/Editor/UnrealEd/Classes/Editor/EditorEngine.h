@@ -337,6 +337,9 @@ class UNREALED_API UEditorEngine : public UEngine
 	class UPackage* ParentContext;
 
 	UPROPERTY()
+	FVector UnsnappedClickLocation;
+
+	UPROPERTY()
 	FVector ClickLocation;
 
 	UPROPERTY()
@@ -705,7 +708,6 @@ public:
 	bool	HandleMapCommand( const TCHAR* Str, FOutputDevice& Ar, UWorld* InWorld );
 	bool	HandleSelectCommand( const TCHAR* Str, FOutputDevice& Ar, UWorld* InWorld );
 	bool	HandleDeleteCommand( const TCHAR* Str, FOutputDevice& Ar, UWorld* InWorld );
-	bool	HandlePrefabCommand( const TCHAR* Str, FOutputDevice& Ar );
 	bool	HandleLightmassDebugCommand( const TCHAR* Str, FOutputDevice& Ar );
 	bool	HandleLightmassStatsCommand( const TCHAR* Str, FOutputDevice& Ar );
 	bool	HandleSwarmDistributionCommand( const TCHAR* Str, FOutputDevice& Ar );
@@ -1265,15 +1267,6 @@ public:
 	 */
 	virtual bool ShouldAbortActorDeletion() const { return false; }
 
-	/** Create a prefab from the selected actors, and replace those actors with an instance of that prefab. */
-	virtual void edactPrefabSelected() {};
-
-	/** Add the selected prefab at the clicked location. */
-	virtual void edactAddPrefab() {};
-
-	/** Select all Actors that make up the selected PrefabInstance. */
-	virtual void edactSelectPrefabActors() {};
-
 	/**
 	*
 	* Rebuild the level's Bsp from the level's CSG brushes.
@@ -1761,6 +1754,8 @@ public:
 	*/
 	class FSelectionIterator GetSelectedComponentIterator() const;
 
+	class FSelectedEditableComponentIterator GetSelectedEditableComponentIterator() const;
+
 	/**
 	* Returns the number of currently selected components.
 	*/
@@ -2242,11 +2237,12 @@ public:
 	void GetObjectsToSyncToContentBrowser( TArray<UObject*>& Objects );
 
 	/**
-	 * Queries for a list of assets that are referenced by the current editor selection (actors, surfaces, etc.)
-	 *
-	 * @param	Objects	Array to be filled with asset objects referenced by the current editor selection
-	 */
-	void GetReferencedAssetsForEditorSelection( TArray<UObject*>& Objects );
+	* Queries for a list of assets that are referenced by the current editor selection (actors, surfaces, etc.)
+	*
+	* @param	Objects								Array to be filled with asset objects referenced by the current editor selection
+	* @param	bIgnoreOtherAssetsIfBPReferenced	If true, and a selected actor has a Blueprint asset, only that will be returned.
+	*/
+	void GetReferencedAssetsForEditorSelection(TArray<UObject*>& Objects, const bool bIgnoreOtherAssetsIfBPReferenced = false);
 
 	/** Returns the WorldContext for the editor world. For now, there will always be exactly 1 of these in the editor. 
 	 *

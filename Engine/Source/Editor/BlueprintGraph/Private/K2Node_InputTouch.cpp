@@ -70,6 +70,11 @@ FText UK2Node_InputTouch::GetNodeTitle(ENodeTitleType::Type TitleType) const
 	return Title;
 }
 
+FText UK2Node_InputTouch::GetTooltipText() const
+{
+	return NSLOCTEXT("K2Node", "InputTouch_Tooltip", "Event for when a finger presses, releases or is moved on a touch device.");
+}
+
 void UK2Node_InputTouch::GetMenuActions(FBlueprintActionDatabaseRegistrar& ActionRegistrar) const
 {
 	// actions get registered under specific object-keys; the idea is that 
@@ -187,8 +192,7 @@ void UK2Node_InputTouch::ExpandNode(FKismetCompilerContext& CompilerContext, UEd
 			InputTouchEvent->bExecuteWhenPaused = bExecuteWhenPaused;
 			InputTouchEvent->bOverrideParentBinding = bOverrideParentBinding;
 			InputTouchEvent->InputKeyEvent = (*PinIt).EventType;
-			InputTouchEvent->EventSignatureName = TEXT("InputTouchHandlerDynamicSignature__DelegateSignature");
-			InputTouchEvent->EventSignatureClass = UInputComponent::StaticClass();
+			InputTouchEvent->EventReference.SetExternalDelegateMember(FName(TEXT("InputTouchHandlerDynamicSignature__DelegateSignature")));
 			InputTouchEvent->bInternalEvent = true;
 			InputTouchEvent->AllocateDefaultPins();
 
@@ -229,8 +233,7 @@ void UK2Node_InputTouch::ExpandNode(FKismetCompilerContext& CompilerContext, UEd
 			InputTouchEvent->bConsumeInput = bConsumeInput;
 			InputTouchEvent->bExecuteWhenPaused = bExecuteWhenPaused;
 			InputTouchEvent->bOverrideParentBinding = bOverrideParentBinding;
-			InputTouchEvent->EventSignatureName = TEXT("InputTouchHandlerDynamicSignature__DelegateSignature");
-			InputTouchEvent->EventSignatureClass = UInputComponent::StaticClass();
+			InputTouchEvent->EventReference.SetExternalDelegateMember(FName(TEXT("InputTouchHandlerDynamicSignature__DelegateSignature")));
 			InputTouchEvent->bInternalEvent = true;
 			InputTouchEvent->AllocateDefaultPins();
 

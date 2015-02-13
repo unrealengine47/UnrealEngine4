@@ -37,6 +37,7 @@
 #include "HotReloadInterface.h"
 #include "PerformanceMonitor.h"
 #include "Engine/WorldComposition.h"
+#include "FeaturePack.h"
 
 #define LOCTEXT_NAMESPACE "UnrealEd"
 
@@ -255,6 +256,10 @@ void FUnrealEdMisc::OnInit()
 	SlowTask.EnterProgressFrame(60);
 	{
 		bool bMapLoaded = false;
+
+		// Insert any feature packs if required. We need to do this before we try and load a map since any pack may contain a map
+		FFeaturePack FeaturePackHandler;
+		FeaturePackHandler.ImportPendingPacks();
 
 		FString ParsedMapName;
 		if ( FParse::Token(ParsedCmdLine, ParsedMapName, false) && 

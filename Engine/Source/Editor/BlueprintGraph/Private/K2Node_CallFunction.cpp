@@ -443,15 +443,10 @@ FString UK2Node_CallFunction::GetFunctionContextString() const
 		{
 			TrueSelfClass = CurrentSelfClass->GetAuthoritativeClass();
 		}
-		FString TargetString = (TrueSelfClass != NULL) ? TrueSelfClass->GetName() : TEXT("None");
 
-		// This action won't be necessary once the new name convention is used.
-		if(TargetString.EndsWith(TEXT("_C")))
-		{
-			TargetString = TargetString.LeftChop(2);
-		}
+		const FText TargetText = FBlueprintEditorUtils::GetFriendlyClassDisplayName(TrueSelfClass);
 
-		ContextString = FString(TEXT("\n")) + FString::Printf(*LOCTEXT("CallFunctionOnDifferentContext", "Target is %s").ToString(), *TargetString);
+		ContextString = FText::Format(LOCTEXT("CallFunctionOnDifferentContext", "\nTarget is {0}"), TargetText).ToString();
 	}
 
 	return ContextString;
@@ -2039,7 +2034,7 @@ FName UK2Node_CallFunction::GetPaletteIcon(FLinearColor& OutColor) const
 
 bool UK2Node_CallFunction::ReconnectPureExecPins(TArray<UEdGraphPin*>& OldPins)
 {
-	if (bIsPureFunc)
+	if (IsNodePure())
 	{
 		// look for an old exec pin
 		const UEdGraphSchema_K2* K2Schema = GetDefault<UEdGraphSchema_K2>();

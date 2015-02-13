@@ -44,11 +44,6 @@ bool SPhATPreviewViewport::IsVisible() const
 	return ViewportWidget.IsValid() && (!ParentTab.IsValid() || ParentTab.Pin()->IsForeground());
 }
 
-EVisibility SPhATPreviewViewport::GetWidgetVisibility() const
-{
-	return IsVisible()? EVisibility::Visible: EVisibility::Collapsed;
-}
-
 TSharedPtr<FSceneViewport> SPhATPreviewViewport::GetViewport() const
 {
 	return SceneViewport;
@@ -80,6 +75,5 @@ TSharedPtr<SWidget> SPhATPreviewViewport::MakeViewportToolbar()
 {
 	return SNew(SPhATPreviewViewportToolBar)
 			.PhATPtr(PhATPtr)
-			.Visibility(this, &SPhATPreviewViewport::GetWidgetVisibility)
 			.IsEnabled(FSlateApplication::Get().GetNormalExecutionAttribute());
 }

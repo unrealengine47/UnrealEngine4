@@ -619,7 +619,7 @@ struct FHeightmapAccessor
 			}
 
 			// Flush dynamic foliage (grass)
-			LandscapeInfo->GetLandscapeProxy()->FlushGrassComponents(&Components);
+			ALandscapeProxy::InvalidateGeneratedComponentData(Components);
 
 			// Notify foliage to move any attached instances
 			bool bUpdateFoliage = false;
@@ -792,7 +792,7 @@ struct FXYOffsetmapAccessor
 			}
 
 			// Flush dynamic foliage (grass)
-			LandscapeInfo->GetLandscapeProxy()->FlushGrassComponents(&Components);
+			ALandscapeProxy::InvalidateGeneratedComponentData(Components);
 
 			// Notify foliage to move any attached instances
 			bool bUpdateFoliage = false;
@@ -829,7 +829,10 @@ struct FXYOffsetmapAccessor
 				{
 					ULandscapeHeightfieldCollisionComponent* CollisionComponent = CollisionComponents[Index];
 					AInstancedFoliageActor* IFA = AInstancedFoliageActor::GetInstancedFoliageActorForLevel(CollisionComponent->GetComponentLevel());
-					CollisionComponent->SnapFoliageInstances(*IFA, PreUpdateLocalBoxes[Index].TransformBy(LandscapeInfo->GetLandscapeProxy()->LandscapeActorToWorld().ToMatrixWithScale()).ExpandBy(1.0f));
+					if (IFA)
+					{
+						CollisionComponent->SnapFoliageInstances(*IFA, PreUpdateLocalBoxes[Index].TransformBy(LandscapeInfo->GetLandscapeProxy()->LandscapeActorToWorld().ToMatrixWithScale()).ExpandBy(1.0f));
+					}
 				}
 			}
 			else
@@ -946,7 +949,7 @@ struct FAlphamapAccessor
 		if (LandscapeEdit.GetComponentsInRegion(X1, Y1, X2, Y2, &Components))
 		{
 			// Flush dynamic foliage (grass)
-			LandscapeInfo->GetLandscapeProxy()->FlushGrassComponents(&Components);
+			ALandscapeProxy::InvalidateGeneratedComponentData(Components);
 
 			LandscapeEdit.SetAlphaData(LayerInfo, X1, Y1, X2, Y2, Data, 0, PaintingRestriction, bBlendWeight, bUseTotalNormalize);
 			ModifiedComponents.Append(Components);
@@ -1053,7 +1056,7 @@ struct FFullWeightmapAccessor
 		if (LandscapeEdit.GetComponentsInRegion(X1, Y1, X2, Y2, &Components))
 		{
 			// Flush dynamic foliage (grass)
-			LandscapeInfo->GetLandscapeProxy()->FlushGrassComponents(&Components);
+			ALandscapeProxy::InvalidateGeneratedComponentData(Components);
 
 			LandscapeEdit.SetAlphaData(DirtyLayerInfos, X1, Y1, X2, Y2, Data, 0, PaintingRestriction);
 			ModifiedComponents.Append(Components);

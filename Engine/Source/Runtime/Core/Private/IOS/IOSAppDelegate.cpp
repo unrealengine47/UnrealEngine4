@@ -540,8 +540,8 @@ void InstallSignalHandlers()
 	 */
 
 	FCoreDelegates::ApplicationWillDeactivateDelegate.Broadcast();
+	[self ToggleSuspend:true];
 	[self ToggleAudioSession:false];
-    [self ToggleSuspend:true];
 }
 
 - (void)applicationDidEnterBackground:(UIApplication *)application

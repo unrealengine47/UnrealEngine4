@@ -98,6 +98,7 @@ class FAutoReimportManager : public FTickableEditorObject, public FGCObject, pub
 public:
 
 	FAutoReimportManager();
+	TArray<FPathAndMountPoint> GetMonitoredDirectories() const;
 	void Destroy();
 
 private:
@@ -220,6 +221,16 @@ FAutoReimportManager::FAutoReimportManager()
 	StateMachine.Add(ECurrentState::ProcessDeletions,		EStateMachineNode::CallMany,	[this](const FTimeLimit& T){ return this->ProcessDeletions();		});
 }
 
+TArray<FPathAndMountPoint> FAutoReimportManager::GetMonitoredDirectories() const
+{
+	TArray<FPathAndMountPoint> Dirs;
+	for (const auto& Monitor : DirectoryMonitors)
+	{
+		Dirs.Emplace(Monitor.GetDirectory(), Monitor.GetMountPoint());
+	}
+	return Dirs;
+}
+
 void FAutoReimportManager::Destroy()
 {
 	if (auto* Settings = GetMutableDefault<UEditorLoadingSavingSettings>())
@@ -272,7 +283,7 @@ TOptional<ECurrentState> FAutoReimportManager::ProcessAdditions(const FTimeLimit
 {
 	// Override the global feedback context while we do this to avoid popping up dialogs
 	TGuardValue<FFeedbackContext*> ScopedContextOverride(GWarn, FeedbackContextOverride.Get());
-	
+
 	FeedbackContextOverride->GetContent()->SetMainText(GetProgressText());
 
 	TMap<FString, TArray<UFactory*>> Factories;
@@ -443,11 +454,6 @@ void FAutoReimportManager::Cleanup()
 
 void FAutoReimportManager::Tick(float DeltaTime)
 {
-	if (FeedbackContextOverride.IsValid())
-	{
-		FeedbackContextOverride->Tick();
-	}
-	
 	// Never spend more than a 60fps frame doing this work (meaning we shouldn't drop below 30fps), we can do more if we're throttling CPU usage (ie editor running in background)
 	const FTimeLimit TimeLimit(GEditor->ShouldThrottleCPUUsage() ? 1 / 6.f : 1.f / 60.f);
 	StateMachine.Tick(TimeLimit);
@@ -501,7 +507,6 @@ void FAutoReimportManager::OnContentPathChanged(const FString& InAssetPath, cons
 
 void FAutoReimportManager::SetUpDirectoryMonitors()
 {
-	struct FPathAndMountPoint { FString Path; FString MountPoint; };
 	TArray<FPathAndMountPoint> CollapsedDirectories;
 
 	// Build an array of directory / mounted path so we can match up absolute paths that the user has typed in
@@ -609,6 +614,11 @@ UAutoReimportManager::~UAutoReimportManager()
 void UAutoReimportManager::Initialize()
 {
 	Implementation = MakeShareable(new FAutoReimportManager);
+}
+
+TArray<FPathAndMountPoint> UAutoReimportManager::GetMonitoredDirectories() const
+{
+	return Implementation->GetMonitoredDirectories();
 }
 
 void UAutoReimportManager::BeginDestroy()

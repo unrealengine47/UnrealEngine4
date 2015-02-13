@@ -708,6 +708,9 @@ th a:visited
 	font-weight: bold;
 	text-align: right;
 	color: #718698;
+
+	/*border:dotted;*/
+	/*border-width:1px;*/
 }
 
 #CrashDataContainer dd
@@ -718,6 +721,9 @@ th a:visited
 	margin: 0.5em 0.5em 0.5em 0.5em;
 	font-weight: normal;
 	color: #C3CAD0;
+
+	/*border:dotted;*/
+	/*border-width:1px;*/
 }
 
 #CallStackContainer
@@ -812,35 +818,6 @@ th a:visited
 	border: 1px solid #ccc;
 }
 
-/* Custom styles for the dashboard
-----------------------------------------------------------*/
-
-#DashBoard
-{
-	min-width: 1600px;
-	min-height: 1200px;
-}
-
-#DashBoard h2
-{
-	margin: 0;
-	padding: 1em;
-	color: white;
-}
-
-#weekly_chart
-{
-	width: 100%; 
-	height: 40em;
-	padding: 0.75em;
-}
-
-#daily_chart
-{
-	width: 100%; 
-	height: 40em;
-	padding: 0.75em;
-}
 
 /* User admin screen
 ----------------------------------------------------------*/

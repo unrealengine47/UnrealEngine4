@@ -457,7 +457,7 @@ void UDestructibleMesh::LoadDefaultDestructibleParametersFromApexAsset()
 		DefaultDestructibleParameters.DebrisParameters.LoadDefaultDestructibleParametersFromApexAsset(Params);
 		DefaultDestructibleParameters.SpecialHierarchyDepths.LoadDefaultDestructibleParametersFromApexAsset(Params);
 		DefaultDestructibleParameters.AdvancedParameters.LoadDefaultDestructibleParametersFromApexAsset(Params);
-		DefaultDestructibleParameters.DebrisParameters.LoadDefaultDestructibleParametersFromApexAsset(Params);
+		DefaultDestructibleParameters.DamageParameters.LoadDefaultDestructibleParametersFromApexAsset(Params);
 		DefaultDestructibleParameters.Flags.LoadDefaultDestructibleParametersFromApexAsset(Params);
 
 		// Depth parameters
@@ -479,7 +479,7 @@ void UDestructibleMesh::CreateFractureSettings()
 #if WITH_EDITORONLY_DATA
 	if (FractureSettings == NULL)
 	{
-		FractureSettings = CastChecked<UDestructibleFractureSettings>(StaticConstructObject(UDestructibleFractureSettings::StaticClass(), this));
+		FractureSettings = NewObject<UDestructibleFractureSettings>(this);
 		check(FractureSettings);
 	}
 #endif	// WITH_EDITORONLY_DATA

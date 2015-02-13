@@ -4951,7 +4951,7 @@ bool FixUpBadAnimNotifiers()
 				{
 					// fix animnotifiers
 					UE_LOG(LogEditorServer, Log, TEXT("Animation[%s] Notifier[%s:%d] is being fixed (Current Outer:%s)"), *AnimSeq->GetName(), *AnimSeq->Notifies[I].Notify->GetName(), I, *AnimSeq->Notifies[I].Notify->GetOuter()->GetName());
-					AnimSeq->Notifies[I].Notify = CastChecked<UAnimNotify>( StaticConstructObject(AnimSeq->Notifies[I].Notify->GetClass(), AnimSeq,NAME_None,RF_NoFlags,AnimSeq->Notifies[I].Notify) );
+					AnimSeq->Notifies[I].Notify = NewObject<UAnimNotify>(AnimSeq, AnimSeq->Notifies[I].Notify->GetClass(), NAME_None, RF_NoFlags, AnimSeq->Notifies[I].Notify);
 					UE_LOG(LogEditorServer, Log, TEXT("After fixed (Current Outer:%s)"), *AnimSeq->Notifies[I].Notify->GetOuter()->GetName());
 					AnimSeq->MarkPackageDirty();
 				}
@@ -5252,13 +5252,6 @@ bool UEditorEngine::Exec( UWorld* InWorld, const TCHAR* Stream, FOutputDevice& A
 	if( FParse::Command(&Str,TEXT("LEVEL")) )
 	{
 		return CommandIsDeprecated( CommandTemp, Ar );
-	}
-	//------------------------------------------------------------------------------------
-	// LEVEL
-	//
-	if( FParse::Command(&Str,TEXT("PREFAB")) )
-	{
-		return HandlePrefabCommand( Str, Ar );
 	}
 	//------------------------------------------------------------------------------------
 	// PARTICLE: Particle system-related commands
@@ -5703,16 +5696,6 @@ bool UEditorEngine::HandleDeleteCommand( const TCHAR* Str, FOutputDevice& Ar, UW
 		return Exec( InWorld, TEXT("ACTOR DELETE") );
 	}
 	return true;
-}
-
-bool UEditorEngine::HandlePrefabCommand( const TCHAR* Str, FOutputDevice& Ar )
-{
-	if( FParse::Command(&Str,TEXT("SELECTACTORSINPREFABS")) )
-	{
-		edactSelectPrefabActors();
-		return true;
-	}
-	return false;	
 }
 
 bool UEditorEngine::HandleLightmassDebugCommand( const TCHAR* Str, FOutputDevice& Ar )

@@ -219,6 +219,8 @@ private:
 
 	void SetChunksWorldTM(const TArray<FUpdateChunksInfo>& UpdateInfos);
 
+	bool IsFracturedOrInitiallyStatic() const;
+
 	/** Collision response used for chunks */
 	FCollisionResponse LargeChunkCollisionResponse;
 	FCollisionResponse SmallChunkCollisionResponse;

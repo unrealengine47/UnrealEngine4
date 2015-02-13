@@ -9,7 +9,7 @@
 APaperSpriteActor::APaperSpriteActor(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	RenderComponent = ObjectInitializer.CreateDefaultSubobject<UPaperSpriteComponent>(this, TEXT("RenderComponent"));
+	RenderComponent = CreateDefaultSubobject<UPaperSpriteComponent>(TEXT("RenderComponent"));
 	RenderComponent->SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
 	RenderComponent->Mobility = EComponentMobility::Static;
 
@@ -19,6 +19,8 @@ APaperSpriteActor::APaperSpriteActor(const FObjectInitializer& ObjectInitializer
 #if WITH_EDITOR
 bool APaperSpriteActor::GetReferencedContentObjects(TArray<UObject*>& Objects) const
 {
+	Super::GetReferencedContentObjects(Objects);
+
 	if (UPaperSprite* SourceSprite = RenderComponent->GetSprite())
 	{
 		Objects.Add(SourceSprite);

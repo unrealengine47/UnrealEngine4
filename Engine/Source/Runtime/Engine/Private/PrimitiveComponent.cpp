@@ -114,6 +114,8 @@ UPrimitiveComponent::UPrimitiveComponent(const FObjectInitializer& ObjectInitial
 
 	bCachedAllCollideableDescendantsRelative = false;
 	LastCheckedAllCollideableDescendantsTime = 0.f;
+
+	PhysicsMobility = Mobility;
 }
 
 bool UPrimitiveComponent::UsesOnlyUnlitMaterials() const
@@ -831,25 +833,28 @@ bool UPrimitiveComponent::HasValidPhysicsState() const
 	return BodyInstance.IsValidBodyInstance();
 }
 
+bool UPrimitiveComponent::IsComponentIndividuallySelected() const
+{
+	bool bIndividuallySelected = false;
+#if WITH_EDITOR
+	if(SelectionOverrideDelegate.IsBound())
+	{
+		bIndividuallySelected = SelectionOverrideDelegate.Execute(this);
+	}
+#endif
+	return bIndividuallySelected;
+}
+
 bool UPrimitiveComponent::ShouldRenderSelected() const
 {
+	const AActor* Owner = GetOwner();
+	return(	bSelectable && 
+			Owner != NULL && 
 #if WITH_EDITOR
-	if (SelectionOverrideDelegate.IsBound())
-	{
-		return SelectionOverrideDelegate.Execute(this);
-	}
-	else
-#endif
-	{
-		const AActor* Owner = GetOwner();
-		return(	bSelectable && 
-				Owner != NULL && 
-#if WITH_EDITOR
-				(Owner->IsSelected() || (Owner->ParentComponentActor != NULL && Owner->ParentComponentActor->IsSelected())) );
+			(Owner->IsSelected() || (Owner->ParentComponentActor != NULL && Owner->ParentComponentActor->IsSelected())) );
 #else
-				Owner->IsSelected() );
+			Owner->IsSelected() );
 #endif
-	}
 }
 
 void UPrimitiveComponent::SetCastShadow(bool NewCastShadow)
@@ -875,7 +880,7 @@ void UPrimitiveComponent::PushSelectionToProxy()
 	//although this should only be called for attached components, some billboard components can get in without valid proxies
 	if (SceneProxy)
 	{
-		SceneProxy->SetSelection_GameThread(ShouldRenderSelected());
+		SceneProxy->SetSelection_GameThread(ShouldRenderSelected(),IsComponentIndividuallySelected());
 	}
 }
 
@@ -1285,10 +1290,12 @@ bool UPrimitiveComponent::MoveComponent( const FVector& Delta, const FRotator& N
 	AActor* const Actor = GetOwner();
 
 	// static things can move before they are registered (e.g. immediately after streaming), but not after.
+	// TODO: Static components without an owner can move, should they be able to?
 	if (Mobility == EComponentMobility::Static && Actor && Actor->bActorInitialized)
-	{
-		// TODO: Static components without an owner can move, should they be able to?
-		UE_LOG(LogPrimitiveComponent, Warning, TEXT("Trying to move static component '%s' after initialization"), *GetFullName());
+	{		
+		FMessageLog("PIE").Warning( FText::Format(LOCTEXT("InvalidMove", "Mobility of {0} : {1} has to be 'Movable' if you'd like to move. "),
+				FText::FromString(GetNameSafe(GetOwner())), FText::FromString(GetName()) ));
+
 		if (OutHit)
 		{
 			*OutHit = FHitResult();

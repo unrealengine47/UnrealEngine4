@@ -49,15 +49,38 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		}
 	}
 
+	/// <summary></summary>
+	public partial class Buggs_Crash
+	{
+		/// <summary></summary>
+		public override string ToString()
+		{
+			return string.Format( "{0} <-> {1}", BuggId, CrashId );
+		}
+	}
+
 	/// <summary>
 	/// Derived information to the default Bugg information from the database.
 	/// </summary>
 	public partial class Bugg
 	{
 		/// <summary></summary>
-		public int CrashesInTimeFrame { get; set; }
+		public int CrashesInTimeFrameGroup { get; set; }
+
 		/// <summary></summary>
-		public string SourceContext { get; set; }
+		public int CrashesInTimeFrameAll { get; set; }
+
+		/// <summary></summary>
+		public int NumberOfUniqueMachines { get; set; }
+
+		/// <summary></summary>
+		public int LatestCLAffected { get; set; }
+
+		/// <summary></summary>
+		public string LatestOSAffected { get; set; }
+
+		/// <summary></summary>
+		public SortedSet<string> AffectedBuilds { get; set; }
 
 		/// <summary> Helper method, display this Bugg as a human readable string. Debugging purpose. </summary>
 		public override string ToString()
@@ -69,38 +92,24 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		/// 
 		/// </summary>
 		/// <returns></returns>
-		public EntitySet<Crash> GetCrashes()
+		public List<Crash> GetCrashes()
 		{
-			using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( this.GetType().ToString() ) )
-			{
-				int CrashCount = Crashes.Count;
-				if( NumberOfCrashes != CrashCount )
-				{
-					NumberOfCrashes = CrashCount;
-
-					if( NumberOfCrashes > 0 )
-					{
-						BuggRepository LocalBuggRepository = new BuggRepository();
-						LocalBuggRepository.UpdateBuggData( this, Crashes );
-					}
-				}
-
-				// Just fill the CallStackContainers
-				foreach( Crash CurrentCrash in Crashes )
-				{
-					if( CurrentCrash.CallStackContainer == null )
-					{
-						CurrentCrash.CallStackContainer = CurrentCrash.GetCallStack();
-					}
-
-					if( SourceContext == null )
-					{
-						SourceContext = CurrentCrash.SourceContext;
-					}
-				}
-
-				return Crashes;
-			}
+			CrashRepository CrashRepo = new CrashRepository();
+			var CrashList =
+							(
+								from BuggCrash in CrashRepo.Context.Buggs_Crashes
+								where BuggCrash.BuggId == Id
+								select BuggCrash.Crash/*new
+								{
+									Id = BuggCrash.Crash.Id,
+									BuildVersion = BuggCrash.Crash.BuildVersion,
+									TimeofCrash = BuggCrash.Crash.TimeOfCrash.Value,
+									CL = BuggCrash.Crash.ChangeListVersion,
+									UserName = BuggCrash.Crash.UserName,
+									Desc = BuggCrash.Crash.Description
+								}*/
+							).AsEnumerable().ToList();
+			return CrashList;
 		}
 
 		/// <summary></summary>
@@ -122,6 +131,46 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		}
 
 		/// <summary>
+		/// 
+		/// </summary>
+		/// <returns></returns>
+		public string GetLifeSpan()
+		{
+			TimeSpan LifeSpan = TimeOfLastCrash.Value - TimeOfFirstCrash.Value;
+			// Only to visualize the life span, accuracy not so important here.
+			int NumMonths = LifeSpan.Days / 30;
+			int NumDays = LifeSpan.Days % 30;
+			if( NumMonths > 0 )
+			{
+				return string.Format( "{0} month(s) {1} day(s)", NumMonths, NumDays );
+			}
+			else if( NumDays > 0 )
+			{
+				return string.Format( "{0} day(s)", NumDays );
+
+			}
+			else
+			{
+				return "Less than one day";
+			}
+		}
+
+		/// <summary>
+		/// 
+		/// </summary>
+		public string GetAffectedBuilds()
+		{
+			if( AffectedBuilds.Count == 1 )
+			{
+				return AffectedBuilds.Max;
+			}
+			else
+			{
+				return AffectedBuilds.Min + " - " + AffectedBuilds.Max;
+			}
+		}
+
+		/// <summary>
 		/// Return the top lines of a callstack.
 		/// </summary>
 		/// <returns>A list of callstack entries.</returns>
@@ -133,44 +182,6 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 				List<string> Results = LocalBuggRepository.GetFunctionCalls( Pattern );
 				return Results;
 			}
-		}
-
-		/// <summary>
-		/// http://www.codeproject.com/KB/linq/linq-to-sql-many-to-many.aspx
-		/// </summary>
-		private EntitySet<Crash> CrashesCache;
-
-		/// <summary>
-		/// 
-		/// </summary>
-		public EntitySet<Crash> Crashes
-		{
-			get
-			{
-				if (CrashesCache == null)
-				{
-					CrashesCache = new EntitySet<Crash>(OnCrashesAdd, OnCrashesRemove);
-					CrashesCache.SetSource(Buggs_Crashes.Select(CrashInstance => CrashInstance.Crash));
-				}
-				return CrashesCache;
-			}
-			set
-			{
-				CrashesCache.Assign( value );
-			}
-		}
-
-		private void OnCrashesAdd( Crash CrashInstance )
-		{
-			Buggs_Crashes.Add( new Buggs_Crash { Bugg = this, Crash = CrashInstance } );
-			SendPropertyChanged( null );
-		}
-
-		private void OnCrashesRemove( Crash CrashInstance )
-		{
-			Buggs_Crash BuggCrash = Buggs_Crashes.FirstOrDefault( BuggCrashInstance => BuggCrashInstance.BuggId == Id && BuggCrashInstance.CrashId == CrashInstance.Id );
-			Buggs_Crashes.Remove( BuggCrash );
-			SendPropertyChanged( null );
 		}
 	}
 
@@ -187,7 +198,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		{
 			get
 			{
-				return UserById ?? UserByName;
+				return UserById;
 			}
 		}
 
@@ -247,7 +258,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 				return bAllowToBeContacted.GetValueOrDefault( false );
 			}
 		}
-			
+
 		/// <summary>
 		/// Return lines of processed callstack entries.
 		/// </summary>

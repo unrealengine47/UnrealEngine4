@@ -329,5 +329,5 @@ private:
 	/** Handle to the registered OnMapChanged delegate. */
 	FDelegateHandle OnMapChangedDelegateHandle;
 
-	FTimerHandle EditorAnalyticsHeartbeatTimerHandle;
+	FTimerHandle EditorAnalyticsHeartbeatTimerHandle;	
 };

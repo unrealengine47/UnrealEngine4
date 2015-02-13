@@ -336,6 +336,11 @@ FSelectionIterator UEditorEngine::GetSelectedComponentIterator() const
 	return FSelectionIterator(*GetSelectedComponents());
 };
 
+FSelectedEditableComponentIterator UEditorEngine::GetSelectedEditableComponentIterator() const
+{
+	return FSelectedEditableComponentIterator(*GetSelectedComponents());
+}
+
 USelection* UEditorEngine::GetSelectedComponents() const
 {
 	return PrivateGetSelectedComponents();
@@ -2044,8 +2049,7 @@ void UEditorEngine::CloseEditedWorldAssets(UWorld* InWorld)
 
 UTextureRenderTarget2D* UEditorEngine::GetScratchRenderTarget( uint32 MinSize )
 {
-	UTextureRenderTargetFactoryNew* NewFactory = CastChecked<UTextureRenderTargetFactoryNew>( StaticConstructObject(UTextureRenderTargetFactoryNew::StaticClass()) );
-
+	auto NewFactory = NewObject<UTextureRenderTargetFactoryNew>();
 	UTextureRenderTarget2D* ScratchRenderTarget = NULL;
 
 	// We never allow render targets greater than 2048
@@ -2890,6 +2894,11 @@ FReimportManager::~FReimportManager()
 	Handlers.Empty();
 }
 
+int32 FReimportHandler::GetPriority() const
+{
+	return UFactory::DefaultImportPriority;
+}
+
 /*-----------------------------------------------------------------------------
 	PIE helpers.
 -----------------------------------------------------------------------------*/
@@ -3150,7 +3159,7 @@ void UEditorEngine::SyncToContentBrowser()
 }
 
 
-void UEditorEngine::GetReferencedAssetsForEditorSelection( TArray<UObject*>& Objects )
+void UEditorEngine::GetReferencedAssetsForEditorSelection(TArray<UObject*>& Objects, const bool bIgnoreOtherAssetsIfBPReferenced)
 {
 	for ( TSelectedSurfaceIterator<> It(GWorld) ; It ; ++It )
 	{
@@ -3167,7 +3176,25 @@ void UEditorEngine::GetReferencedAssetsForEditorSelection( TArray<UObject*>& Obj
 		AActor* Actor = static_cast<AActor*>( *It );
 		checkSlow( Actor->IsA(AActor::StaticClass()) );
 
-		Actor->GetReferencedContentObjects(Objects);
+		TArray<UObject*> ActorObjects;
+		Actor->GetReferencedContentObjects(ActorObjects);
+
+		// If Blueprint assets should take precedence over any other referenced asset, check if there are any blueprints in this actor's list
+		// and if so, add only those.
+		if (bIgnoreOtherAssetsIfBPReferenced && ActorObjects.ContainsByPredicate([](UObject* Obj) { return Obj->IsA(UBlueprint::StaticClass()); }))
+		{
+			for (UObject* Object : ActorObjects)
+			{
+				if (Object->IsA(UBlueprint::StaticClass()))
+				{
+					Objects.Add(Object);
+				}
+			}
+		}
+		else
+		{
+			Objects.Append(ActorObjects);
+		}
 	}
 }
 
@@ -6075,7 +6102,7 @@ bool UEditorEngine::ShouldThrottleCPUUsage() const
 		return false;
 	}
 
-	return bShouldThrottle;
+    return bShouldThrottle && !IsRunningCommandlet();
 }
 
 bool UEditorEngine::AreAllWindowsHidden() const
@@ -7226,7 +7253,7 @@ namespace EditorUtilities
 
 		// Get archetype instances for propagation (if requested)
 		TArray<UObject*> ArchetypeInstances;
-		if( Options & ECopyOptions::PropagateChangesToArcheypeInstances )
+		if( Options & ECopyOptions::PropagateChangesToArchetypeInstances )
 		{
 			TargetActor->GetArchetypeInstances(ArchetypeInstances);
 		}
@@ -7242,10 +7269,10 @@ namespace EditorUtilities
 				const bool bIsTransient = !!( Property->PropertyFlags & CPF_Transient );
 				const bool bIsComponentContainer = !!( Property->PropertyFlags & CPF_ContainsInstancedReference );
 				const bool bIsComponentProp = !!( Property->PropertyFlags & ( CPF_InstancedReference | CPF_ContainsInstancedReference ) );
-				const bool bIsReadonly = !!( Property->PropertyFlags & CPF_BlueprintReadOnly );
+				const bool bIsBlueprintReadonly = !!(Options & ECopyOptions::FilterBlueprintReadOnly) && !!( Property->PropertyFlags & CPF_BlueprintReadOnly );
 				const bool bIsIdentical = Property->Identical_InContainer( SourceActor, TargetActor );
 
-				if( !bIsTransient && !bIsIdentical && !bIsComponentContainer && !bIsComponentProp && !bIsReadonly && Property->GetName() != TEXT( "Tag" ) )
+				if( !bIsTransient && !bIsIdentical && !bIsComponentContainer && !bIsComponentProp && !bIsBlueprintReadonly && Property->GetName() != TEXT( "Tag" ) )
 				{
 					const bool bIsSafeToCopy = !( Options & ECopyOptions::OnlyCopyEditOrInterpProperties ) || ( Property->HasAnyPropertyFlags( CPF_Edit | CPF_Interp ) );
 					if( bIsSafeToCopy )
@@ -7265,7 +7292,7 @@ namespace EditorUtilities
 
 							// Determine which archetype instances match the current property value of the target actor (before it gets changed). We only want to propagate the change to those instances.
 							TArray<UObject*> ArchetypeInstancesToChange;
-							if( Options & ECopyOptions::PropagateChangesToArcheypeInstances )
+							if( Options & ECopyOptions::PropagateChangesToArchetypeInstances )
 							{
 								for( int32 InstanceIndex = 0; InstanceIndex < ArchetypeInstances.Num(); ++InstanceIndex )
 								{
@@ -7285,7 +7312,7 @@ namespace EditorUtilities
 								TargetActor->PostEditChangeProperty( PropertyChangedEvent );
 							}
 
-							if( Options & ECopyOptions::PropagateChangesToArcheypeInstances )
+							if( Options & ECopyOptions::PropagateChangesToArchetypeInstances )
 							{
 								for( int32 InstanceIndex = 0; InstanceIndex < ArchetypeInstancesToChange.Num(); ++InstanceIndex )
 								{
@@ -7339,7 +7366,7 @@ namespace EditorUtilities
 
 				// Build a list of matching component archetype instances for propagation (if requested)
 				TArray<UActorComponent*> ComponentArchetypeInstances;
-				if( Options & ECopyOptions::PropagateChangesToArcheypeInstances )
+				if( Options & ECopyOptions::PropagateChangesToArchetypeInstances )
 				{
 					for( int32 InstanceIndex = 0; InstanceIndex < ArchetypeInstances.Num(); ++InstanceIndex )
 					{
@@ -7389,7 +7416,7 @@ namespace EditorUtilities
 
 								// Determine which component archetype instances match the current property value of the target component (before it gets changed). We only want to propagate the change to those instances.
 								TArray<UActorComponent*> ComponentArchetypeInstancesToChange;
-								if( Options & ECopyOptions::PropagateChangesToArcheypeInstances )
+								if( Options & ECopyOptions::PropagateChangesToArchetypeInstances )
 								{
 									for( int32 InstanceIndex = 0; InstanceIndex < ComponentArchetypeInstances.Num(); ++InstanceIndex )
 									{
@@ -7409,7 +7436,7 @@ namespace EditorUtilities
 									TargetActor->PostEditChangeProperty( PropertyChangedEvent );
 								}
 
-								if( Options & ECopyOptions::PropagateChangesToArcheypeInstances )
+								if( Options & ECopyOptions::PropagateChangesToArchetypeInstances )
 								{
 									for( int32 InstanceIndex = 0; InstanceIndex < ComponentArchetypeInstancesToChange.Num(); ++InstanceIndex )
 									{
@@ -7420,7 +7447,7 @@ namespace EditorUtilities
 											{
 												// Ensure that this instance will be included in any undo/redo operations, and record it into the transaction buffer.
 												// Note: We don't do this for components that originate from script, because they will be re-instanced from the template after an undo, so there is no need to record them.
-												if(ComponentArchetypeInstance->CreationMethod != EComponentCreationMethod::ConstructionScript)
+												if (!ComponentArchetypeInstance->IsCreatedByConstructionScript())
 												{
 													ComponentArchetypeInstance->SetFlags(RF_Transactional);
 													ComponentArchetypeInstance->Modify();

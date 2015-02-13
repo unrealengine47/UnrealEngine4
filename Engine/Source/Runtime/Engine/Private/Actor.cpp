@@ -513,19 +513,25 @@ void AActor::ProcessEvent(UFunction* Function, void* Parameters)
 	}
 }
 
-
 void AActor::ApplyWorldOffset(const FVector& InOffset, bool bWorldShift)
 {
-	// Do not shift child components
-	if (RootComponent != NULL && RootComponent->AttachParent == NULL)
+	// Attached components will be shifted by parents
+	if (RootComponent != nullptr && RootComponent->AttachParent == nullptr)
 	{
 		RootComponent->ApplyWorldOffset(InOffset, bWorldShift);
+	}
 
-		UNavigationSystem::UpdateNavOctreeBounds(this);
-		UNavigationSystem::UpdateNavOctreeAll(this);
+	// Navigation receives update during component registration. World shift needs a separate path to shift all navigation data
+	// So this normally should happen only in the editor when user moves visible sub-levels
+	if (!bWorldShift && !InOffset.IsZero())
+	{
+		if (RootComponent != nullptr && RootComponent->IsRegistered())
+		{
+			UNavigationSystem::UpdateNavOctreeBounds(this);
+			UNavigationSystem::UpdateNavOctreeAll(this);
+		}
 	}
 }
-
 
 static AActor* GTestRegisterTickFunctions = NULL;
 
@@ -808,7 +814,7 @@ bool AActor::Modify( bool bAlwaysMarkDirty/*=true*/ )
 			if (!ObjProp->HasAllPropertyFlags(CPF_NonTransactional))
 			{
 				UActorComponent* ActorComponent = Cast<UActorComponent>(ObjProp->GetObjectPropertyValue(ObjProp->ContainerPtrToValuePtr<void>(this)));
-				if (ActorComponent && ActorComponent->CreationMethod == EComponentCreationMethod::ConstructionScript)
+				if (ActorComponent && ActorComponent->IsCreatedByConstructionScript())
 				{
 					ObjProp->SetPropertyFlags(CPF_NonTransactional);
 					TemporarilyNonTransactionalProperties.Add(ObjProp);
@@ -825,7 +831,7 @@ bool AActor::Modify( bool bAlwaysMarkDirty/*=true*/ )
 	}
 
 	// If the root component is blueprint constructed we don't save it to the transaction buffer
-	if( RootComponent && RootComponent->CreationMethod != EComponentCreationMethod::ConstructionScript)
+	if( RootComponent && !RootComponent->IsCreatedByConstructionScript())
 	{
 		bSavedToTransactionBuffer = RootComponent->Modify( bAlwaysMarkDirty ) || bSavedToTransactionBuffer;
 	}
@@ -2147,6 +2153,23 @@ TArray<UActorComponent*> AActor::GetComponentsByClass(TSubclassOf<UActorComponen
 	}
 	
 	return ValidComponents;
+}
+
+TArray<UActorComponent*> AActor::GetComponentsByTag(TSubclassOf<UActorComponent> ComponentClass, FName Tag) const
+{
+	TArray<UActorComponent*> ComponentsByClass = GetComponentsByClass(ComponentClass);
+
+	TArray<UActorComponent*> ComponentsByTag;
+	ComponentsByTag.Reserve(ComponentsByClass.Num());
+	for (int i = 0; i < ComponentsByClass.Num(); ++i)
+	{
+		if (ComponentsByClass[i]->ComponentHasTag(Tag))
+		{
+			ComponentsByTag.Push(ComponentsByClass[i]);
+		}
+	}
+
+	return ComponentsByTag;
 }
 
 void AActor::DisableComponentsSimulatePhysics()

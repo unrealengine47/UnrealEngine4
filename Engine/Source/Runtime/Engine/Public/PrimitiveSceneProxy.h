@@ -86,6 +86,24 @@ public:
 	}
 };
 
+/** Information about a heightfield gathered by the renderer for heightfield lighting. */
+class FHeightfieldComponentDescription
+{
+public:
+	FVector4 HeightfieldScaleBias;
+	FVector4 MinMaxUV;
+	FMatrix LocalToWorld;
+	FVector2D LightingAtlasLocation;
+	FIntRect HeightfieldRect;
+
+	int32 NumSubsections;
+	FVector4 SubsectionScaleAndBias;
+
+	FHeightfieldComponentDescription(const FMatrix& InLocalToWorld) :
+		LocalToWorld(InLocalToWorld)
+	{}
+};
+
 namespace EDrawDynamicFlags
 {
 	enum Type
@@ -111,9 +129,10 @@ public:
 	/**
 	 * Updates selection for the primitive proxy. This simply sends a message to the rendering thread to call SetSelection_RenderThread.
 	 * This is called in the game thread as selection is toggled.
-	 * @param bInSelected - true if the parent actor is selected in the editor
+	 * @param bInParentSelected - true if the parent actor is selected in the editor
+ 	 * @param bInIndividuallySelected - true if the component is selected in the editor directly
 	 */
-	void SetSelection_GameThread(const bool bInSelected);
+	void SetSelection_GameThread(const bool bInParentSelected, const bool bInIndividuallySelected=false);
 
 	/**
 	 * Updates hover state for the primitive proxy. This simply sends a message to the rendering thread to call SetHovered_RenderThread.
@@ -210,11 +229,9 @@ public:
 		BoundsSurfaceArea = 0;
 	}
 
-	virtual void GetHeightfieldRepresentation(UTexture2D*& OutHeightmapTexture, FVector4& OutHeightfieldScaleBias, FVector4& OutMinMaxUV)
+	virtual void GetHeightfieldRepresentation(UTexture2D*& OutHeightmapTexture, UTexture2D*& OutDiffuseColorTexture, FHeightfieldComponentDescription& OutDescription)
 	{
 		OutHeightmapTexture = NULL;
-		OutHeightfieldScaleBias = FVector4(0, 0, 0, 0);
-		OutMinMaxUV = FVector4(0, 0, 0, 0);
 	}
 
 	/**
@@ -332,7 +349,9 @@ public:
 	inline bool IsOftenMoving() const { return bOftenMoving; }
 	inline bool IsStatic() const { return bStatic; }
 	inline bool IsSelectable() const { return bSelectable; }
-	inline bool IsSelected() const { return bSelected; }
+	inline bool IsParentSelected() const { return bParentSelected; }
+	inline bool IsIndividuallySelected() const { return bIndividuallySelected; }
+	inline bool IsSelected() const { return IsParentSelected() || IsIndividuallySelected(); }
 	inline bool ShouldRenderCustomDepth() const { return bRenderCustomDepth; }
 	inline bool ShouldRenderInMainPass() const { return bRenderInMainPass; }
 	inline bool IsCollisionEnabled() const { return bCollisionEnabled; }
@@ -459,7 +478,10 @@ private:
 	uint32 bOwnerNoSee : 1;
 	uint32 bStatic : 1;
 	uint32 bOftenMoving : 1;
-	uint32 bSelected : 1;
+	/** Parent Actor is selected */
+	uint32 bParentSelected : 1;
+	/** Component is selected directly */
+	uint32 bIndividuallySelected : 1;
 	
 	/** true if the mouse is currently hovered over this primitive in a level viewport */
 	uint32 bHovered : 1;
@@ -688,7 +710,7 @@ private:
 
 protected:
 	/** Updates selection for the primitive proxy. This is called in the rendering thread by SetSelection_GameThread. */
-	void SetSelection_RenderThread(const bool bInSelected);
+	void SetSelection_RenderThread(const bool bInParentSelected, const bool bInIndividuallySelected);
 
 	/** Updates hover state for the primitive proxy. This is called in the rendering thread by SetHovered_GameThread. */
 	void SetHovered_RenderThread(const bool bInHovered);

@@ -4,6 +4,9 @@
 #include "BlueprintUtilities.h"
 #include "Engine/InputDelegateBinding.h"
 #include "Engine/TimelineTemplate.h"
+#include "Engine/SimpleConstructionScript.h"
+#include "Engine/SCS_Node.h"
+#include "Engine/LevelScriptActor.h"
 
 #if WITH_EDITOR
 #include "BlueprintEditorUtils.h"
@@ -81,22 +84,29 @@ void UBlueprintGeneratedClass::PostLoad()
 void UBlueprintGeneratedClass::GetRequiredPreloadDependencies(TArray<UObject*>& DependenciesOut)
 {
 	Super::GetRequiredPreloadDependencies(DependenciesOut);
-	for (UActorComponent* Component : ComponentTemplates)
-	{
-		// because of the linker's way of handling circular dependencies (with 
-		// placeholder blueprint classes), we need to ensure that class owned 
-		// blueprint components are created before the class's  is 
-		// ComponentTemplates member serialized in (otherwise, the component 
-		// would be created as a ULinkerPlaceholderClass instance)
-		//
-		// by returning these in the DependenciesOut array, we're making it 
-		// known that they should be prioritized in the package's ExportMap 
-		// before this class
-		if (Component->GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint))
-		{
-			DependenciesOut.Add(Component);
-		}
-	}
+
+	// the component templates are no longer needed as Preload() dependencies 
+	// (ULinkerLoad now handles these with placeholder export objects instead)...
+	// this change was prompted by a cyclic case, where creating the first
+	// component-template tripped the serialization of its class outer, before 
+	// another second component-template could be created (even though the 
+	// second component was listed in the ExportMap before the class)
+// 	for (UActorComponent* Component : ComponentTemplates)
+// 	{
+// 		// because of the linker's way of handling circular dependencies (with 
+// 		// placeholder blueprint classes), we need to ensure that class owned 
+// 		// blueprint components are created before the class's  is 
+// 		// ComponentTemplates member serialized in (otherwise, the component 
+// 		// would be created as a ULinkerPlaceholderClass instance)
+// 		//
+// 		// by returning these in the DependenciesOut array, we're making it 
+// 		// known that they should be prioritized in the package's ExportMap 
+// 		// before this class
+// 		if (Component->GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint))
+// 		{
+// 			DependenciesOut.Add(Component);
+// 		}
+// 	}
 }
 
 #if WITH_EDITOR
@@ -253,6 +263,41 @@ bool UBlueprintGeneratedClass::IsFunctionImplementedInBlueprint(FName InFunction
 	return Function && Function->GetOuter() && Function->GetOuter()->IsA(UBlueprintGeneratedClass::StaticClass());
 }
 
+UObject* UBlueprintGeneratedClass::FindArchetype(UClass* ArchetypeClass, const FName ArchetypeName) const
+{
+	UObject* Archetype = nullptr;
+
+	// There are some rogue LevelScriptActors that still have a SimpleConstructionScript
+	// and since preloading the SCS of a script in a world package is bad news, we need to filter them out
+	if (SimpleConstructionScript && !IsChildOf<ALevelScriptActor>())
+	{
+		if (SimpleConstructionScript->HasAllFlags(RF_NeedLoad))
+		{
+			SimpleConstructionScript->PreloadChain();
+		}
+
+		UBlueprintGeneratedClass* Class = const_cast<UBlueprintGeneratedClass*>(this);
+		while (Class)
+		{
+			USCS_Node* SCSNode = Class->SimpleConstructionScript->FindSCSNode(ArchetypeName);
+			if (SCSNode)
+			{
+				Archetype = SCSNode->ComponentTemplate;
+				Class = nullptr;
+			}
+
+			if (Archetype == nullptr)
+			{
+				Archetype = static_cast<UObject*>(FindObjectWithOuter(Class, ArchetypeClass, ArchetypeName));
+				Class = (Archetype ? nullptr : Cast<UBlueprintGeneratedClass>(Class->GetSuperClass()));
+			}
+		}
+	}
+
+
+	return Archetype;
+}
+
 UDynamicBlueprintBinding* UBlueprintGeneratedClass::GetDynamicBindingObject(UClass* Class) const
 {
 	UDynamicBlueprintBinding* DynamicBindingObject = NULL;
@@ -307,7 +352,7 @@ bool UBlueprintGeneratedClass::GetGeneratedClassesHierarchy(const UClass* InClas
 	return bNoErrors;
 }
 
-UActorComponent* UBlueprintGeneratedClass::FindComponentTemplateByName(const FName& TemplateName)
+UActorComponent* UBlueprintGeneratedClass::FindComponentTemplateByName(const FName& TemplateName) const
 {
 	for(int32 i = 0; i < ComponentTemplates.Num(); i++)
 	{
@@ -340,7 +385,7 @@ void UBlueprintGeneratedClass::CreateComponentsForActor(AActor* Actor) const
 
 		FName NewName = *(FString::Printf(TEXT("TimelineComp__%d"), Actor->BlueprintCreatedComponents.Num() ) );
 		UTimelineComponent* NewTimeline = NewObject<UTimelineComponent>(Actor, NewName);
-		NewTimeline->CreationMethod = EComponentCreationMethod::ConstructionScript; // Indicate it comes from a blueprint so it gets cleared when we rerun construction scripts
+		NewTimeline->CreationMethod = EComponentCreationMethod::UserConstructionScript; // Indicate it comes from a blueprint so it gets cleared when we rerun construction scripts
 		Actor->BlueprintCreatedComponents.Add(NewTimeline); // Add to array so it gets saved
 		NewTimeline->SetNetAddressable();	// This component has a stable name that can be referenced for replication
 
@@ -458,36 +503,40 @@ uint8* UBlueprintGeneratedClass::GetPersistentUberGraphFrame(UObject* Obj, UFunc
 	return ParentClass->GetPersistentUberGraphFrame(Obj, FuncToCheck);
 }
 
-void UBlueprintGeneratedClass::CreatePersistentUberGraphFrame(UObject* Obj) const
+void UBlueprintGeneratedClass::CreatePersistentUberGraphFrame(UObject* Obj, bool bCreateOnlyIfEmpty) const
 {
 	checkSlow(!UberGraphFramePointerProperty == !UberGraphFunction);
 	if (Obj && UsePersistentUberGraphFrame() && UberGraphFramePointerProperty && UberGraphFunction)
 	{
-		uint8* FrameMemory = NULL;
-		const bool bUberGraphFunctionIsReady = !WITH_EDITOR // no cyclic dependency problems
-			|| UberGraphFunction->HasAllFlags(RF_LoadCompleted); // is fully loaded
-		if (bUberGraphFunctionIsReady)
-		{
-			FrameMemory = (uint8*)FMemory::Malloc(UberGraphFunction->GetStructureSize());
-			FMemory::Memzero(FrameMemory, UberGraphFunction->GetStructureSize());
-			for (UProperty* Property = UberGraphFunction->PropertyLink; Property; Property = Property->PropertyLinkNext)
-			{
-				Property->InitializeValue_InContainer(FrameMemory);
-			}
-		}
-		else
-		{
-			UE_LOG(LogBlueprint, Log, TEXT("Function '%s' is not ready to create frame."), *GetPathNameSafe(UberGraphFunction));
-		}
-		
 		auto PointerToUberGraphFrame = UberGraphFramePointerProperty->ContainerPtrToValuePtr<FPointerToUberGraphFrame>(Obj);
-		checkSlow(PointerToUberGraphFrame && !PointerToUberGraphFrame->RawPointer);
-		PointerToUberGraphFrame->RawPointer = FrameMemory;
+		check(PointerToUberGraphFrame);
+		check(bCreateOnlyIfEmpty || !PointerToUberGraphFrame->RawPointer);
+		
+		if (!PointerToUberGraphFrame->RawPointer)
+		{
+			uint8* FrameMemory = NULL;
+			const bool bUberGraphFunctionIsReady = UberGraphFunction->HasAllFlags(RF_LoadCompleted); // is fully loaded
+			if (bUberGraphFunctionIsReady)
+			{
+				FrameMemory = (uint8*)FMemory::Malloc(UberGraphFunction->GetStructureSize());
+				FMemory::Memzero(FrameMemory, UberGraphFunction->GetStructureSize());
+				for (UProperty* Property = UberGraphFunction->PropertyLink; Property; Property = Property->PropertyLinkNext)
+				{
+					Property->InitializeValue_InContainer(FrameMemory);
+				}
+			}
+			else
+			{
+				UE_LOG(LogBlueprint, Warning, TEXT("Function '%s' is not ready to create frame for '%s'"),
+					*GetPathNameSafe(UberGraphFunction), *GetPathNameSafe(Obj));
+			}
+			PointerToUberGraphFrame->RawPointer = FrameMemory;
+		}
 	}
 
 	auto ParentClass = GetSuperClass();
 	checkSlow(ParentClass);
-	return ParentClass->CreatePersistentUberGraphFrame(Obj);
+	return ParentClass->CreatePersistentUberGraphFrame(Obj, bCreateOnlyIfEmpty);
 }
 
 void UBlueprintGeneratedClass::DestroyPersistentUberGraphFrame(UObject* Obj) const
@@ -621,4 +670,14 @@ bool UBlueprintGeneratedClass::UsePersistentUberGraphFrame()
 #else
 	return false;
 #endif
+}
+
+void UBlueprintGeneratedClass::Serialize(FArchive& Ar)
+{
+	Super::Serialize(Ar);
+
+	if (Ar.IsLoading() && 0 == (Ar.GetPortFlags() & PPF_Duplicate))
+	{
+		CreatePersistentUberGraphFrame(ClassDefaultObject, true);
+	}
 }

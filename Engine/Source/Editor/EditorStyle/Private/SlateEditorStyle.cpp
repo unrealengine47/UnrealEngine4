@@ -101,10 +101,8 @@ void FSlateEditorStyle::FStyle::SyncSettings()
 		SetColor( SelectionColor_Pressed_LinearRef, Settings->PressedSelectionColor );
 
 		// The subdued selection color is derived from the selection color
-		auto SubduedSelectionColor = Settings->SelectionColor.LinearRGBToHSV();
-		SubduedSelectionColor.G *= 0.55f;		// take the saturation 
-		SubduedSelectionColor.B *= 0.8f;		// and brightness down
-		SetColor( SelectionColor_Subdued_LinearRef, SubduedSelectionColor.HSVToLinearRGB() );
+		auto SubduedSelectionColor = Settings->GetSubduedSelectionColor();
+		SetColor( SelectionColor_Subdued_LinearRef, SubduedSelectionColor );
 
 		// Also sync the colors used by FCoreStyle, as FEditorStyle isn't yet being used as an override everywhere
 		FCoreStyle::SetSelectorColor( Settings->KeyboardFocusColor );
@@ -246,13 +244,8 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 		.SetNormal(FSlateNoResource())
 		.SetHovered(FSlateNoResource())
 		.SetPressed(FSlateNoResource())
-#if PLATFORM_MAC // Disable the shifting behaviour for borderless buttons on Mac OS X - which include the Window close, maximise & minimise.
-		.SetNormalPadding(FMargin(0,0,0,0))
-		.SetPressedPadding(FMargin(0,0,0,0));
-#else
 		.SetNormalPadding(FMargin(0,0,0,1))
 		.SetPressedPadding(FMargin(0,1,0,0));
-#endif
 	Set( "NoBorder", NoBorder );
 
 	// Buttons that only provide a hover hint.
@@ -633,6 +626,7 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 			.SetUnderlineStyle(EditBPHyperlinkButton)
 			.SetTextStyle(NormalText)
 			.SetPadding(FMargin(0.0f));
+
 		Set("EditBPHyperlink", EditBPHyperlink);
 
 		// Visible on hover hyper link
@@ -772,36 +766,7 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 			.SetInactiveHoveredBrush(FSlateNoResource())
 			);
 
-		//Set("DetailsView.TreeView.TableRow", FTableRowStyle()
-		//	.SetEvenRowBackgroundBrush(FSlateNoResource())
-		//	.SetEvenRowBackgroundHoveredBrush(FSlateNoResource())
-		//	.SetOddRowBackgroundBrush(FSlateNoResource())
-		//	.SetOddRowBackgroundHoveredBrush(FSlateNoResource())
-		//	.SetSelectorFocusedBrush(FSlateNoResource())
-		//	.SetActiveBrush(FSlateNoResource())
-		//	.SetActiveHoveredBrush(FSlateNoResource())
-		//	.SetInactiveBrush(FSlateNoResource())
-		//	.SetInactiveHoveredBrush(FSlateNoResource())
-		//	.SetTextColor(DefaultForeground)
-		//	.SetSelectedTextColor(InvertedForeground)
-		//	);
 
-		//Set("DetailsView.CategoryMiddle", new IMAGE_BRUSH("PropertyView/DetailCategoryMiddle", FVector2D(16, 16)));
-		//Set("DetailsView.CategoryMiddle_Hovered", new IMAGE_BRUSH("PropertyView/DetailCategoryMiddle_Hovered", FVector2D(16, 16)));
-		//Set("DetailsView.CategoryMiddle_Highlighted", new BOX_BRUSH("Common/TextBox_Special_Active", FMargin(8.0f / 32.0f)));
-
-		//if ( IsHighlighted() )
-		//{
-		//	return FEditorStyle::GetBrush("DetailsView.CategoryMiddle_Highlighted");
-		//}
-		//else if ( IsHovered() )
-		//{
-		//	return FEditorStyle::GetBrush("DetailsView.CategoryMiddle_Hovered");
-		//}
-		//else
-		//{
-		//	return FEditorStyle::GetBrush("DetailsView.CategoryMiddle");
-		//}
 
 		Set( "TreeArrow_Collapsed", new IMAGE_BRUSH( "Common/TreeArrow_Collapsed", Icon10x10, DefaultForeground ) );
 		Set( "TreeArrow_Collapsed_Hovered", new IMAGE_BRUSH( "Common/TreeArrow_Collapsed_Hovered", Icon10x10, DefaultForeground ) );
@@ -2320,94 +2285,7 @@ void FSlateEditorStyle::FStyle::SetupWindowStyles()
 		Set( "Window.Title.Inactive",             new IMAGE_BRUSH( "Old/Window/WindowTitle_Inactive", Icon32x32, FLinearColor(1,1,1,1), ESlateBrushTileType::Horizontal  ) );
 		Set( "Window.Title.Flash",				  new IMAGE_BRUSH( "Old/Window/WindowTitle_Flashing", Icon24x24, FLinearColor(1,1,1,1), ESlateBrushTileType::Horizontal  ) );
 
-#if PLATFORM_MAC
-		const bool RunningOnMavericks = FPlatformMisc::IsRunningOnMavericks();
-		FButtonStyle MinimizeButtonStyle, MaximizeButtonStyle, RestoreButtonStyle, CloseButtonStyle;
-		if (RunningOnMavericks)
-		{
-			MinimizeButtonStyle = FButtonStyle(Button)
-				.SetNormal ( IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Minimize_Normal", FVector2D(20, 20) ) )
-				.SetHovered( IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Minimize_Hovered", FVector2D(20, 20) ) )
-				.SetPressed( IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Minimize_Pressed", FVector2D(20, 20) ) )
-				.SetDisabled( IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Disabled", FVector2D(20, 20) ) );
-
-			Set( "Window.Buttons.Minimize.Normal",    new IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Minimize_Normal", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Minimize.Hovered",   new IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Minimize_Hovered", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Minimize.Pressed",   new IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Minimize_Pressed", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Minimize.Disabled",  new IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Disabled", FVector2D(20, 20) ) );
-
-			MaximizeButtonStyle = FButtonStyle(Button)
-				.SetNormal ( IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Maximize_Normal", FVector2D(20, 20) ) )
-				.SetHovered( IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Maximize_Hovered", FVector2D(20, 20) ) )
-				.SetPressed( IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Maximize_Pressed", FVector2D(20, 20) ) )
-				.SetDisabled( IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Disabled", FVector2D(20, 20) ) );
-
-			Set( "Window.Buttons.Maximize.Normal",    new IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Maximize_Normal", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Maximize.Hovered",   new IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Maximize_Hovered", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Maximize.Pressed",   new IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Maximize_Pressed", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Maximize.Disabled",  new IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Disabled", FVector2D(20, 20) ) );
-
-			RestoreButtonStyle = FButtonStyle(Button)
-				.SetNormal ( IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Maximize_Normal", FVector2D(20, 20) ) )
-				.SetHovered( IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Maximize_Hovered", FVector2D(20, 20) ) )
-				.SetPressed( IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Maximize_Pressed", FVector2D(20, 20) ) );
-
-			Set( "Window.Buttons.Restore.Normal",     new IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Maximize_Normal", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Restore.Hovered",    new IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Maximize_Hovered", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Restore.Pressed",    new IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Maximize_Pressed", FVector2D(20, 20) ) );
-
-			CloseButtonStyle = FButtonStyle(Button)
-				.SetNormal ( IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Close_Normal", FVector2D(20, 20) ) )
-				.SetHovered( IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Close_Hovered", FVector2D(20, 20) ) )
-				.SetPressed( IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Close_Pressed", FVector2D(20, 20) ) );
-
-			Set( "Window.Buttons.Close.Normal",       new IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Close_Normal", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Close.Hovered",      new IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Close_Hovered", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Close.Pressed",      new IMAGE_BRUSH( "Old/Window/WindowButton_Mac_Close_Pressed", FVector2D(20, 20) ) );
-		}
-		else
-		{
-			MinimizeButtonStyle = FButtonStyle(Button)
-				.SetNormal ( IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Minimize_Normal", FVector2D(20, 20) ) )
-				.SetHovered( IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Minimize_Hovered", FVector2D(20, 20) ) )
-				.SetPressed( IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Minimize_Pressed", FVector2D(20, 20) ) )
-				.SetDisabled( IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Disabled", FVector2D(20, 20) ) );
-
-			Set( "Window.Buttons.Minimize.Normal",    new IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Minimize_Normal", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Minimize.Hovered",   new IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Minimize_Hovered", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Minimize.Pressed",   new IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Minimize_Pressed", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Minimize.Disabled",  new IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Disabled", FVector2D(20, 20) ) );
-
-			MaximizeButtonStyle = FButtonStyle(Button)
-				.SetNormal ( IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Maximize_Normal", FVector2D(20, 20) ) )
-				.SetHovered( IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Maximize_Hovered", FVector2D(20, 20) ) )
-				.SetPressed( IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Maximize_Pressed", FVector2D(20, 20) ) )
-				.SetDisabled( IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Disabled", FVector2D(20, 20) ) );
-
-			Set( "Window.Buttons.Maximize.Normal",    new IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Maximize_Normal", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Maximize.Hovered",   new IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Maximize_Hovered", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Maximize.Pressed",   new IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Maximize_Pressed", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Maximize.Disabled",  new IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Disabled", FVector2D(20, 20) ) );
-
-			RestoreButtonStyle = FButtonStyle(Button)
-				.SetNormal ( IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Maximize_Normal", FVector2D(20, 20) ) )
-				.SetHovered( IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Maximize_Hovered", FVector2D(20, 20) ) )
-				.SetPressed( IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Maximize_Pressed", FVector2D(20, 20) ) );
-
-			Set( "Window.Buttons.Restore.Normal",     new IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Maximize_Normal", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Restore.Hovered",    new IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Maximize_Hovered", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Restore.Pressed",    new IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Maximize_Pressed", FVector2D(20, 20) ) );
-
-			CloseButtonStyle = FButtonStyle(Button)
-				.SetNormal ( IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Close_Normal", FVector2D(20, 20) ) )
-				.SetHovered( IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Close_Hovered", FVector2D(20, 20) ) )
-				.SetPressed( IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Close_Pressed", FVector2D(20, 20) ) );
-
-			Set( "Window.Buttons.Close.Normal",       new IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Close_Normal", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Close.Hovered",      new IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Close_Hovered", FVector2D(20, 20) ) );
-			Set( "Window.Buttons.Close.Pressed",      new IMAGE_BRUSH( "Old/Window/Mac_Yosemite_Close_Pressed", FVector2D(20, 20) ) );
-		}
-#else
+#if !PLATFORM_MAC
 		const FButtonStyle MinimizeButtonStyle = FButtonStyle(Button)
 			.SetNormal ( IMAGE_BRUSH( "Old/Window/WindowButton_Minimize_Normal", FVector2D(27, 18) ) )
 			.SetHovered( IMAGE_BRUSH( "Old/Window/WindowButton_Minimize_Hovered", FVector2D(27, 18) ) )
@@ -2447,12 +2325,12 @@ void FSlateEditorStyle::FStyle::SetupWindowStyles()
 		Set( "Window.Buttons.Close.Normal",       new IMAGE_BRUSH( "Old/Window/WindowButton_Close_Normal", FVector2D(44, 18) ) );
 		Set( "Window.Buttons.Close.Hovered",      new IMAGE_BRUSH( "Old/Window/WindowButton_Close_Hovered", FVector2D(44, 18) ) );
 		Set( "Window.Buttons.Close.Pressed",      new IMAGE_BRUSH( "Old/Window/WindowButton_Close_Pressed", FVector2D(44, 18) ) );
-#endif
 
 		Set( "Window.Buttons.Minimize", MinimizeButtonStyle );
 		Set( "Window.Buttons.Maximize", MaximizeButtonStyle );
 		Set( "Window.Buttons.Restore", RestoreButtonStyle );
 		Set( "Window.Buttons.Close", CloseButtonStyle );
+#endif
 
 		// Title Text
 		const FTextBlockStyle TitleTextStyle = FTextBlockStyle(NormalText)
@@ -2465,10 +2343,12 @@ void FSlateEditorStyle::FStyle::SetupWindowStyles()
 		Set( "ChildWindow.Background",            new IMAGE_BRUSH( "Common/NoiseBackground", FVector2D(64, 64), FLinearColor::White, ESlateBrushTileType::Both) );
 
 		Set( "Window", FWindowStyle()
+#if !PLATFORM_MAC
 			.SetMinimizeButtonStyle( MinimizeButtonStyle )
 			.SetMaximizeButtonStyle( MaximizeButtonStyle )
 			.SetRestoreButtonStyle( RestoreButtonStyle )
 			.SetCloseButtonStyle( CloseButtonStyle )
+#endif
 			.SetTitleTextStyle( TitleTextStyle )
 			.SetActiveTitleBrush( IMAGE_BRUSH( "Old/Window/WindowTitle", Icon32x32, FLinearColor(1,1,1,1), ESlateBrushTileType::Horizontal  ) )
 			.SetInactiveTitleBrush( IMAGE_BRUSH( "Old/Window/WindowTitle_Inactive", Icon32x32, FLinearColor(1,1,1,1), ESlateBrushTileType::Horizontal  ) )
@@ -2558,7 +2438,7 @@ void FSlateEditorStyle::FStyle::SetupTutorialStyles()
 
 		const FTextBlockStyle DocumentationTooltipTextSubdued = FTextBlockStyle( NormalText )
 			.SetFont( TTF_CORE_FONT( "Fonts/Roboto-Regular", 8 ) )
-			.SetColorAndOpacity( FLinearColor( 0.2f, 0.2f, 0.2f ) );
+			.SetColorAndOpacity( FLinearColor( 0.1f, 0.1f, 0.1f ) );
 		Set("Documentation.SDocumentationTooltipSubdued", FTextBlockStyle(DocumentationTooltipTextSubdued));
 
 		const FTextBlockStyle DocumentationTooltipHyperlinkText = FTextBlockStyle( NormalText )
@@ -3074,6 +2954,24 @@ void FSlateEditorStyle::FStyle::SetupPropertyEditorStyles()
 		Set( "PropertyWindow.WindowBorder", new BOX_BRUSH( "Common/GroupBorder", FMargin(4.0f/16.0f) ) );
 		Set( "DetailsView.NameChangeCommitted", new BOX_BRUSH( "Common/EditableTextSelectionBackground", FMargin(4.f/16.f) ) );
 		Set( "DetailsView.HyperlinkStyle", FTextBlockStyle(NormalText) .SetFont( TTF_CORE_FONT( "Fonts/Roboto-Regular", 8 ) ) );
+
+		FTextBlockStyle BPWarningMessageTextStyle = FTextBlockStyle(NormalText) .SetFont(TTF_CORE_FONT("Fonts/Roboto-Regular", 8));
+		FTextBlockStyle BPWarningMessageHyperlinkTextStyle = FTextBlockStyle(BPWarningMessageTextStyle).SetColorAndOpacity(FLinearColor(0.25f, 0.5f, 1.0f));
+
+		FButtonStyle EditBPHyperlinkButton = FButtonStyle()
+			.SetNormal(BORDER_BRUSH("Old/HyperlinkDotted", FMargin(0, 0, 0, 3 / 16.0f), FLinearColor(0.25f, 0.5f, 1.0f)))
+			.SetPressed(FSlateNoResource())
+			.SetHovered(BORDER_BRUSH("Old/HyperlinkUnderline", FMargin(0, 0, 0, 3 / 16.0f), FLinearColor(0.25f, 0.5f, 1.0f)));
+
+		FHyperlinkStyle BPWarningMessageHyperlinkStyle = FHyperlinkStyle()
+			.SetUnderlineStyle(EditBPHyperlinkButton)
+			.SetTextStyle(BPWarningMessageHyperlinkTextStyle)
+			.SetPadding(FMargin(0.0f));
+
+		Set("DetailsView.BPMessageHyperlinkStyle", BPWarningMessageHyperlinkStyle);
+		Set("DetailsView.BPMessageTextStyle", BPWarningMessageTextStyle);
+
+
 		Set( "DetailsView.GroupSection", new BOX_BRUSH( "Common/RoundedSelection_16x", FMargin(4.0f/16.0f) ) );
 
 		Set( "DetailsView.PulldownArrow.Down", new IMAGE_BRUSH( "PropertyView/AdvancedButton_Down", FVector2D(10,8) ) );
@@ -3926,24 +3824,6 @@ void FSlateEditorStyle::FStyle::SetupGraphEditorStyles()
 			}
 		}
 
-		// SCSEditor
-
-		Set("SCSEditor.ToggleComponentEditing" , new IMAGE_BRUSH( "Icons/icon_translate_40x", Icon40x40) );
-		Set("SCSEditor.ToggleComponentEditing.Small" , new IMAGE_BRUSH( "Icons/icon_translate_40x", Icon20x20) );
-		Set("SCSEditor.TileViewTooltip.NonContentBorder", new BOX_BRUSH("/Docking/TabContentArea", FMargin(4 / 16.0f)));
-
-		Set("SCSEditor.PromoteToBlueprintIcon", new IMAGE_BRUSH("Icons/AssetIcons/Blueprint_16x", Icon16x16) );
-
-		Set("SCSEditor.TopBar.Font", FTextBlockStyle(NormalText)
-			.SetFont(TTF_CORE_FONT("Fonts/Roboto-Bold", 10))
-			.SetColorAndOpacity(FLinearColor(1.0f, 1.0f, 1.0f))
-			.SetHighlightColor(FLinearColor(1.0f, 1.0f, 1.0f))
-			.SetShadowOffset(FVector2D(1, 1))
-			.SetShadowColorAndOpacity(FLinearColor(0, 0, 0, 0.9f)));
-
-		Set( "SCSEditor.TreePanel", new BOX_BRUSH( "Common/GroupBorder_FlatTop", FMargin(4.0f/16.0f) ) );
-
-
 		// Timeline Editor
 		{
 			Set( "TimelineEditor.AddFloatTrack", new IMAGE_BRUSH( "Icons/icon_TrackAddFloat_36x24px", Icon36x24, FLinearColor::Black ) );
@@ -3953,6 +3833,69 @@ void FSlateEditorStyle::FStyle::SetupGraphEditorStyles()
 			Set( "TimelineEditor.AddCurveAssetTrack", new IMAGE_BRUSH( "Icons/icon_TrackAddCurve_36x24px", Icon36x24, FLinearColor::Black ) );
 			Set( "TimelineEditor.DeleteTrack", new IMAGE_BRUSH( "Icons/icon_TrackDelete_36x24px", Icon36x24, FLinearColor::Black ) );
 		}
+	}
+
+	// SCSEditor
+	{
+		Set("SCSEditor.ToggleComponentEditing", new IMAGE_BRUSH("Icons/icon_translate_40x", Icon40x40));
+		Set("SCSEditor.ToggleComponentEditing.Small", new IMAGE_BRUSH("Icons/icon_translate_40x", Icon20x20));
+		Set("SCSEditor.TileViewTooltip.NonContentBorder", new BOX_BRUSH("/Docking/TabContentArea", FMargin(4 / 16.0f)));
+
+		Set("SCSEditor.PromoteToBlueprintIcon", new IMAGE_BRUSH("Icons/AssetIcons/Blueprint_16x", Icon16x16));
+
+		Set("SCSEditor.TopBar.Font", FTextBlockStyle(NormalText)
+			.SetFont(TTF_CORE_FONT("Fonts/Roboto-Bold", 10))
+			.SetColorAndOpacity(FLinearColor(1.0f, 1.0f, 1.0f))
+			.SetHighlightColor(FLinearColor(1.0f, 1.0f, 1.0f))
+			.SetShadowOffset(FVector2D(1, 1))
+			.SetShadowColorAndOpacity(FLinearColor(0, 0, 0, 0.9f)));
+
+		Set("SCSEditor.TreePanel", new BOX_BRUSH("Common/GroupBorder_FlatTop", FMargin(4.0f / 16.0f)));
+
+		//
+
+		Set("SCSEditor.ComponentTooltip.Title",
+			FTextBlockStyle(NormalText)
+			.SetFont(TTF_CORE_FONT("Fonts/Roboto-Regular", 12))
+			.SetColorAndOpacity(FLinearColor::Black)
+			);
+
+		Set("SCSEditor.ComponentTooltip.Label",
+			FTextBlockStyle(NormalText)
+			.SetColorAndOpacity(FLinearColor(0.075f, 0.075f, 0.075f))
+			.SetShadowOffset(FVector2D(1.0f, 1.0f))
+			.SetShadowColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f))
+		);
+		Set("SCSEditor.ComponentTooltip.ImportantLabel",
+			FTextBlockStyle(NormalText)
+			.SetColorAndOpacity(FLinearColor(0.05f, 0.05f, 0.05f))
+			.SetShadowOffset(FVector2D(1.0f, 1.0f))
+			.SetShadowColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f))
+		);
+
+
+		Set("SCSEditor.ComponentTooltip.Value", 
+			FTextBlockStyle(NormalText)
+ 			.SetFont(TTF_CORE_FONT("Fonts/Roboto-Bold", 10))
+			.SetColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f))
+ 			.SetShadowOffset(FVector2D(1.0f, 1.0f))
+ 			.SetShadowColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f))
+		);
+		Set("SCSEditor.ComponentTooltip.ImportantValue",
+			FTextBlockStyle(NormalText)
+			.SetFont(TTF_CORE_FONT("Fonts/Roboto-Bold", 10))
+			.SetColorAndOpacity(FLinearColor(0.3f, 0.0f, 0.0f))
+			.SetShadowOffset(FVector2D(1.0f, 1.0f))
+			.SetShadowColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f))
+		);
+
+		Set("SCSEditor.ComponentTooltip.ClassDescription",
+			FTextBlockStyle(NormalText)
+			.SetFont(TTF_CORE_FONT("Fonts/Roboto-Italic", 10))
+			.SetColorAndOpacity(FLinearColor(0.1f, 0.1f, 0.1f))
+			.SetShadowOffset(FVector2D(1.0f, 1.0f))
+			.SetShadowColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f))
+		);
 	}
 
 	// Notify editor
@@ -5019,6 +4962,7 @@ void FSlateEditorStyle::FStyle::SetupClassIconsAndThumbnails()
 			TEXT("GameMode"),
 			TEXT("GameState"),
 			TEXT("HUD"),
+			TEXT("Interface"),
 			TEXT("InterpData"),
 			TEXT("KillZVolume"),
 			TEXT("Landscape"),
@@ -5096,8 +5040,13 @@ void FSlateEditorStyle::FStyle::SetupClassIconsAndThumbnails()
 			TEXT("TouchInterface"),
 			TEXT("UserDefinedEnum"),
 			TEXT("UserDefinedStruct"),
+			TEXT("WidgetBlueprint"),
 			TEXT("WindDirectionalSource"),
-			TEXT("World")
+			TEXT("World"),
+			TEXT("Cube"),
+			TEXT("Sphere"),
+			TEXT("Cylinder"),
+			TEXT("Cone")
 		};
 
 		const TCHAR* Path = TEXT("Icons/AssetIcons/%s_%dx");
@@ -5803,6 +5752,9 @@ void FSlateEditorStyle::FStyle::SetupToolkitStyles()
 		Set( "PhAT.ConvertToSkeletal", new IMAGE_BRUSH( "Icons/icon_PhAT_Skeletal_40x", Icon40x40 ) );
 		Set( "PhAT.DeleteConstraint", new IMAGE_BRUSH( "Icons/icon_PhAT_DeleteConstraint_40x", Icon40x40 ) );
 
+		Set("PhAT.SimulationNormal.Small", new IMAGE_BRUSH("Icons/icon_PhAT_PlaySim_40x", Icon20x20));
+		Set("PhAT.SimulationNoGravity.Small", new IMAGE_BRUSH("Icons/icon_PhAT_PlaySimNoGravity_40x", Icon20x20));
+		Set("PhAT.ToggleSelectedSimulation.Small", new IMAGE_BRUSH("Icons/icon_PhAT_PlaySimSelected_40x", Icon20x20));
 		Set( "PhAT.ToggleSimulation.Small", new IMAGE_BRUSH( "Icons/icon_PhAT_PlaySim_40x", Icon20x20 ) );
 		Set( "PhAT.Undo.Small", new IMAGE_BRUSH( "Icons/icon_Generic_Undo_40x", Icon20x20 ) );
 		Set( "PhAT.Redo.Small", new IMAGE_BRUSH( "Icons/icon_Generic_Redo_40x", Icon20x20 ) );

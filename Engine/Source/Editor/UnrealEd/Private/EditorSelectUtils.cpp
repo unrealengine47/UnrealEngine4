@@ -277,7 +277,7 @@ void UUnrealEdEngine::UpdatePivotLocationForSelection( bool bOnChange )
 
 	if (GetSelectedComponentCount() > 0)
 	{
-		for (FSelectionIterator It(GetSelectedComponentIterator()); It; ++It)
+		for (FSelectedEditableComponentIterator It(*GetSelectedComponents()); It; ++It)
 		{
 			UActorComponent* Component = CastChecked<UActorComponent>(*It);
 			AActor* ComponentOwner = Component->GetOwner();
@@ -652,12 +652,13 @@ void UUnrealEdEngine::SelectComponent(UActorComponent* Component, bool bInSelect
 
 bool UUnrealEdEngine::IsComponentSelected(const UPrimitiveComponent* PrimComponent)
 {
+	bool bIsSelected = false;
 	if (GetSelectedComponentCount() > 0)
 	{
-		return GetSelectedComponents()->IsSelected(PrimComponent->IsEditorOnly() ? PrimComponent->AttachParent : PrimComponent);
+		bIsSelected = GetSelectedComponents()->IsSelected(PrimComponent->IsEditorOnly() ? PrimComponent->AttachParent : PrimComponent);
 	}
 
-	return GetSelectedActors()->IsSelected(PrimComponent->GetOwner());
+	return bIsSelected;
 }
 
 void UUnrealEdEngine::SelectBSPSurf(UModel* InModel, int32 iSurf, bool bSelected, bool bNoteSelectionChange)

@@ -36,6 +36,11 @@ public:
 	FSCSEditorTreeNode(FSCSEditorTreeNode::ENodeType InNodeType);
 
 	/**
+	* @return The name to identify this node.
+	*/
+	virtual FName GetNodeID() const;
+
+	/**
 	 * @return The name of the variable represented by this node.
 	 */
 	virtual FName GetVariableName() const;
@@ -432,10 +437,22 @@ private:
 class KISMET_API FSCSEditorTreeNodeRootActor : public FSCSEditorTreeNode
 {
 public:
-	FSCSEditorTreeNodeRootActor()
+	FSCSEditorTreeNodeRootActor(AActor* InActor, bool bInAllowRename)
 		: FSCSEditorTreeNode(FSCSEditorTreeNode::RootActorNode)
+		, Actor(InActor)
+		, bAllowRename(bInAllowRename)
 	{
 	}
+
+	// FSCSEditorTreeNode public interface
+	virtual FName GetNodeID() const override;
+	virtual bool CanRename() const override { return bAllowRename; }
+	virtual void OnCompleteRename(const FText& InNewName) override;
+	// End of FSCSEditorTreeNode public interface
+
+private:
+	AActor* Actor;
+	bool bAllowRename;
 };
 
 class KISMET_API FSCSEditorTreeNodeSeparator : public FSCSEditorTreeNode
@@ -476,7 +493,8 @@ public:
 
 	FText GetNameLabel() const;
 	FText GetTooltipText() const;
-	FSlateColor GetColorTint() const;
+	FSlateColor GetColorTintForIcon() const;
+	FSlateColor GetColorTintForText() const;
 	FString GetDocumentationLink() const;
 	FString GetDocumentationExcerptName() const;
 	
@@ -484,20 +502,20 @@ public:
 	FText GetAssetPath() const;
 	EVisibility GetAssetVisibility() const;
 
-	EVisibility GetRootLabelVisibility() const;
-
 	/* Get the node used by the row Widget */
 	virtual FSCSEditorTreeNodePtrType GetNode() const { return TreeNodePtr; };
 
 protected:
 	virtual ESelectionMode::Type GetSelectionMode() const override;
 
-private:
-	/** Verifies the name of the component when changing it */
-	bool OnNameTextVerifyChanged(const FText& InNewText, FText& OutErrorMessage);
+	static void AddToToolTipInfoBox(const TSharedRef<SVerticalBox>& InfoBox, const FText& Key, TSharedRef<SWidget> ValueIcon, const TAttribute<FText>& Value, bool bImportant);
 
 	/** Commits the new name of the component */
 	void OnNameTextCommit(const FText& InNewName, ETextCommit::Type InTextCommit);
+
+private:
+	/** Verifies the name of the component when changing it */
+	bool OnNameTextVerifyChanged(const FText& InNewText, FText& OutErrorMessage);
 
 	/** Builds a context menu popup for dropping a child node onto the scene root node */
 	TSharedPtr<SWidget> BuildSceneRootDropActionMenu(FSCSEditorTreeNodePtrType DroppedNodePtr);
@@ -545,6 +563,14 @@ private:
 	 * @returns An FText object containing a description of when the component was first introduced
 	 */
 	FText GetIntroducedInToolTipText() const;
+
+	/**
+	 * Retrieves tooltip text describing how the component was introduced
+	 * 
+	 * @returns An FText object containing a description of when the component was first introduced
+	 */
+	FText GetComponentAddSourceToolTipText() const;
+
 public:
 	/** Pointer back to owning SCSEditor 2 tool */
 	TWeakPtr<SSCSEditor> SCSEditor;
@@ -566,9 +592,13 @@ private:
 	/** Creates a tooltip for this row */
 	TSharedRef<SToolTip> CreateToolTipWidget() const;
 
+	/** Called to validate the actor name */
+	bool OnVerifyActorLabelChanged(const FText& InLabel, FText& OutErrorMessage);
+
 	/** Data accessors */
 	const FSlateBrush* GetActorIcon() const;
 	FText GetActorDisplayText() const;
+	FText GetActorContextText() const;
 	FText GetActorClassNameText() const;
 	FText GetActorSuperClassNameText() const;
 	FText GetActorMobilityText() const;
@@ -728,7 +758,7 @@ public:
 
 	/** Adds a new component instance node to the component Table
 		@param NewInstanceComponent	(In) The component being added to the actor instance
-		@param Asset	(In) Optional asset to assign to the component
+		@param Asset (In) Optional asset to assign to the component
 		@param bSetFocusToNewItem (In) Select the new item and activate the inline rename widget (default is true)
 		@return The reference of the newly created ActorComponent */
 	UActorComponent* AddNewNodeForInstancedComponent(UActorComponent* NewInstanceComponent, UObject* Asset, bool bSetFocusToNewItem = true);
@@ -750,6 +780,10 @@ public:
 	/** Pastes previously copied node(s) */
 	void PasteNodes();
 	bool CanPasteNodes() const;
+
+	/** Callbacks to duplicate the selected component */
+	bool CanDuplicateComponent() const;
+	void OnDuplicateComponent();
 
 	/** Removes existing selected component nodes from the SCS */
 	void OnDeleteNodes();
@@ -860,6 +894,9 @@ public:
 
 	/** @return The current editor mode (editing live actors or editing blueprints) */
 	EComponentEditorMode::Type GetEditorMode() const { return EditorMode; }
+
+	/** Try to handle a drag-drop operation */
+	FReply TryHandleAssetDragDropOperation(const FDragDropEvent& DragDropEvent);
 protected:
 	FString GetSelectedClassText() const;
 
@@ -869,14 +906,16 @@ protected:
 	/** Called to display context menu when right clicking on the widget */
 	TSharedPtr< SWidget > CreateContextMenu();
 
+	/** Called when the level editor requests a component to be renamed. */
+	void OnLevelComponentRequestRename(const UActorComponent* InComponent);
+
+	/** Checks to see if renaming is allowed on the selected component */
+	bool CanRenameComponent() const;
 	/**
 	 * Requests a rename on the selected component
 	 * @param bTransactional Whether or not the rename should be transactional (i.e. undoable)
 	 */
 	void OnRenameComponent(bool bTransactional);
-
-	/** Checks to see if renaming is allowed on the selected component */
-	bool CanRenameComponent() const;
 
 	/**
 	 * Function to create events for the current selection
@@ -902,10 +941,6 @@ protected:
 	 * @param EventData						the event data structure describing the node
 	 */
 	static void ViewEvent(UBlueprint* Blueprint, const FName EventName, const FComponentEventConstructionData EventData);
-
-	/** Callbacks to duplicate the selected component */
-	bool CanDuplicateComponent() const;
-	void OnDuplicateComponent();
 
 	/** Helper method to add a tree node for the given SCS node */
 	FSCSEditorTreeNodePtrType AddTreeNode(USCS_Node* InSCSNode, FSCSEditorTreeNodePtrType InParentNodePtr, const bool bIsInheritedSCS);

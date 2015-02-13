@@ -8,7 +8,7 @@
 APaperTileMapActor::APaperTileMapActor(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	RenderComponent = ObjectInitializer.CreateDefaultSubobject<UPaperTileMapComponent>(this, TEXT("RenderComponent"));
+	RenderComponent = CreateDefaultSubobject<UPaperTileMapComponent>(TEXT("RenderComponent"));
 
 	RootComponent = RenderComponent;
 }
@@ -16,6 +16,8 @@ APaperTileMapActor::APaperTileMapActor(const FObjectInitializer& ObjectInitializ
 #if WITH_EDITOR
 bool APaperTileMapActor::GetReferencedContentObjects(TArray<UObject*>& Objects) const
 {
+	Super::GetReferencedContentObjects(Objects);
+
 	if (const UObject* Asset = RenderComponent->AdditionalStatObject())
 	{
 		Objects.Add(const_cast<UObject*>(Asset));

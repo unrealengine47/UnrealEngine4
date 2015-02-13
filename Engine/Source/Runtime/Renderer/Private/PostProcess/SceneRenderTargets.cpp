@@ -274,7 +274,7 @@ void FSceneRenderTargets::Allocate(const FSceneViewFamily& ViewFamily)
 		CurrentMobileMSAA = MobileMSAA;
 		CurrentMinShadowResolution = MinShadowResolution;
 		bCurrentLightPropagationVolume = bLightPropagationVolume;
-		
+
 		// Reinitialize the render targets for the given size.
 		SetBufferSize(DesiredBufferSize.X, DesiredBufferSize.Y);
 
@@ -310,6 +310,7 @@ int32 FSceneRenderTargets::GetGBufferRenderTargets(ERenderTargetLoadAction Color
 
 	if (bAllowStaticLighting)
 	{
+		check(MRTCount == GetGBufferEIndex());
 		OutRenderTargets[MRTCount] = FRHIRenderTargetView(GSceneRenderTargets.GBufferE->GetRenderTargetItem().TargetableTexture, 0, -1, ColorLoadAction, ERenderTargetStoreAction::EStore);
 		++MRTCount;
 	}
@@ -318,6 +319,7 @@ int32 FSceneRenderTargets::GetGBufferRenderTargets(ERenderTargetLoadAction Color
 	{
 		OutVelocityRTIndex = MRTCount;
 		++MRTCount;
+		check(OutVelocityRTIndex == GetGBufferVelocityIndex());
 		OutRenderTargets[OutVelocityRTIndex] = FRHIRenderTargetView(GSceneRenderTargets.GBufferVelocity->GetRenderTargetItem().TargetableTexture, 0, -1, ColorLoadAction, ERenderTargetStoreAction::EStore);
 	}
 
@@ -412,6 +414,7 @@ int32 FSceneRenderTargets::GetNumGBufferTargets() const
 
 	if (CurrentFeatureLevel >= ERHIFeatureLevel::SM4 && !IsSimpleDynamicLightingEnabled())
 	{
+		// This needs to match TBasePassPixelShaderBaseType::ModifyCompilationEnvironment()
 		NumGBufferTargets = bAllowStaticLighting ? 6 : 5;
 
 		if (bAllocateVelocityGBuffer)
@@ -749,15 +752,19 @@ TRefCountPtr<IPooledRenderTarget>& FSceneRenderTargets::GetLightAttenuation()
 
 void FSceneRenderTargets::AdjustGBufferRefCount(int Delta)
 { 
-	GBufferRefCount += Delta; 
 	
-	if(Delta > 0 && GBufferRefCount == 1)
+	if(Delta > 0 && GBufferRefCount == 0)
 	{
 		AllocGBufferTargets();
 	}
-	else if(GBufferRefCount == 0)
+	else
 	{
-		ReleaseGBufferTargets();
+		GBufferRefCount += Delta;
+
+		if (GBufferRefCount == 0)
+		{
+			ReleaseGBufferTargets();
+		}
 	}
 }
 

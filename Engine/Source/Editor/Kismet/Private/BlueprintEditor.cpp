@@ -630,12 +630,13 @@ void FBlueprintEditor::RefreshEditors(ERefreshBlueprintEditorReason::Type Reason
 		UpdateSCSPreview();
 	}
 
+	// Only force a refresh of the defaults view if we have a standalone defaults viewer.
 	// Note: There is an optimization inside of ShowDetailsForSingleObject() that skips the refresh if the object being selected is the same as the previous object.
 	// The SKismetInspector class is shared between both Defaults mode and Components mode, but in Defaults mode the object selected is always going to be the CDO. Given
 	// that the selection does not really change, we force it to refresh and skip the optimization. Otherwise, some things may not work correctly in Defaults mode. For
 	// example, transform details are customized and the rotation value is cached at customization time; if we don't force refresh here, then after an undo of a previous
 	// rotation edit, transform details won't be re-customized and thus the cached rotation value will be stale, resulting in an invalid rotation value on the next edit.
-	StartEditingDefaults(/*bAutoFocus=*/false, /*bForceRefresh=*/true);
+	RefreshStandAloneDefaultsEditor();
 
 	// Update associated controls like the function editor
 	BroadcastRefresh();
@@ -700,8 +701,22 @@ void FBlueprintEditor::UpdateSCSPreview(bool bUpdateNow)
 	// refresh widget
 	if(SCSViewport.IsValid())
 	{
-		// Ignore 'bUpdateNow' if "Components" mode is not current. Otherwise the preview actor might be spawned in as a result, which can lead to a few odd behaviors if the mode is not current.
-		SCSViewport->RequestRefresh(false, bUpdateNow && IsModeCurrent(FBlueprintEditorApplicationModes::BlueprintComponentsMode));
+		if ( GetDefault<UEditorExperimentalSettings>()->bUnifiedBlueprintEditor )
+		{
+			TSharedPtr<SDockTab> OwnerTab = Inspector->GetOwnerTab();
+			if ( OwnerTab.IsValid() )
+			{
+				bUpdateNow &= OwnerTab->IsForeground();
+			}
+
+			// Only request a refresh immediately if the viewport tab is in the foreground.
+			SCSViewport->RequestRefresh(false, bUpdateNow);
+		}
+		else
+		{
+			// Ignore 'bUpdateNow' if "Components" mode is not current. Otherwise the preview actor might be spawned in as a result, which can lead to a few odd behaviors if the mode is not current.
+			SCSViewport->RequestRefresh(false, bUpdateNow && IsModeCurrent(FBlueprintEditorApplicationModes::BlueprintComponentsMode));
+		}
 	}
 }
 
@@ -1483,7 +1498,11 @@ void FBlueprintEditor::SetCurrentMode(FName NewMode)
 	FWorkflowCentricApplication::SetCurrentMode(NewMode);
 }
 
-void FBlueprintEditor::InitBlueprintEditor(const EToolkitMode::Type Mode, const TSharedPtr< IToolkitHost >& InitToolkitHost, const TArray<UBlueprint*>& InBlueprints, bool bShouldOpenInDefaultsMode)
+void FBlueprintEditor::InitBlueprintEditor(
+	const EToolkitMode::Type Mode,
+	const TSharedPtr< IToolkitHost >& InitToolkitHost,
+	const TArray<UBlueprint*>& InBlueprints,
+	bool bShouldOpenInDefaultsMode)
 {
 	check(InBlueprints.Num() == 1 || bShouldOpenInDefaultsMode);
 
@@ -1551,13 +1570,24 @@ void FBlueprintEditor::InitBlueprintEditor(const EToolkitMode::Type Mode, const 
 			{
 				NewDocument_OnClick(CGT_NewMacroGraph);
 			}
-			else if ( Blueprint->BlueprintType == BPTYPE_Interface)
+			else if ( Blueprint->BlueprintType == BPTYPE_Interface )
 			{
 				NewDocument_OnClick(CGT_NewFunctionGraph);
 			}
 			else if ( Blueprint->BlueprintType == BPTYPE_FunctionLibrary )
 			{
 				NewDocument_OnClick(CGT_NewFunctionGraph);
+			}
+		}
+	}
+
+	if ( UBlueprint* Blueprint = GetBlueprintObj() )
+	{
+		if ( Blueprint->GetClass() == UBlueprint::StaticClass() && Blueprint->BlueprintType == BPTYPE_Normal )
+		{
+			if ( !bShouldOpenInDefaultsMode )
+			{
+				GetToolkitCommands()->ExecuteAction(FFullBlueprintEditorCommands::Get().EditClassDefaults.ToSharedRef());
 			}
 		}
 	}
@@ -1740,7 +1770,7 @@ void FBlueprintEditor::PostRegenerateMenusAndToolbars()
 				.Visibility(this, &FBlueprintEditor::GetNativeParentClassButtonsVisibility)
 				.OnNavigate(this, &FBlueprintEditor::OnEditParentClassNativeCodeClicked)
 				.Text(this, &FBlueprintEditor::GetTextForNativeParentClassHeaderLink)
-				.ToolTipText(LOCTEXT("GoToCode_ToolTip", "Click to open this source file in a text editor"))
+				.ToolTipText(FText::Format(LOCTEXT("GoToCode_ToolTip", "Click to open this source file in {0}"), FSourceCodeNavigation::GetSuggestedSourceCodeIDE()))
 			]
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
@@ -2006,6 +2036,7 @@ FBlueprintEditor::~FBlueprintEditor()
 
 void FBlueprintEditor::FocusInspectorOnGraphSelection(const FGraphPanelSelectionSet& NewSelection, bool bForceRefresh)
 {
+	// If this graph has selected nodes update the details panel to match.
 	if ( NewSelection.Array().Num() > 0 )
 	{
 		SetUISelectionState(FBlueprintEditor::SelectionState_Graph);
@@ -2059,7 +2090,7 @@ void FBlueprintEditor::CreateDefaultTabContents(const TArray<UBlueprint*>& InBlu
 		. IsPropertyEditingEnabledDelegate( IsPropertyEditingEnabledDelegate )
 		. OnFinishedChangingProperties( FOnFinishedChangingProperties::FDelegate::CreateSP(this, &FBlueprintEditor::OnFinishedChangingProperties) );
 
-	if (InBlueprints.Num() > 0)
+	if ( InBlueprints.Num() > 0 )
 	{
 		const bool bShowPublicView = true;
 		const bool bHideNameArea = false;
@@ -2534,15 +2565,24 @@ void FBlueprintEditor::EditGlobalOptions_Clicked()
 
 bool FBlueprintEditor::IsDetailsPanelEditingClassDefaults() const
 {
-	return CurrentUISelection == FBlueprintEditor::SelectionState_ClassDefaults;
+	UBlueprint* Blueprint = GetBlueprintObj();
+	if ( Blueprint != nullptr )
+	{
+		if ( Blueprint->GeneratedClass != nullptr )
+		{
+			UObject* DefaultObject = GetBlueprintObj()->GeneratedClass->GetDefaultObject();
+			return Inspector->IsSelected(DefaultObject);
+		}
+	}
+
+	return false;
 }
 
 void FBlueprintEditor::EditClassDefaults_Clicked()
 {
-	UBlueprint* Blueprint = GetBlueprintObj();
-	if ( Blueprint != nullptr )
+	if ( IsEditingSingleBlueprint() )
 	{
-		SetUISelectionState(FBlueprintEditor::SelectionState_ClassDefaults);
+		UBlueprint* Blueprint = GetBlueprintObj();
 		StartEditingDefaults( true, true );
 	}
 }
@@ -2695,6 +2735,16 @@ void FBlueprintEditor::OnActiveTabChanged( TSharedPtr<SDockTab> PreviouslyActive
 	{
 		//UE_LOG(LogBlueprint, Log, TEXT("OnActiveTabChanged: %s"), *NewlyActivated->GetLayoutIdentifier().ToString());
 	}
+
+	if ( NewlyActivated->GetTabRole() == ETabRole::DocumentTab )
+	{
+		FocusedGraphEdPtr = nullptr;
+	}
+
+	if (MyBlueprintWidget.IsValid() == true)
+	{
+		MyBlueprintWidget->Refresh();
+	}
 }
 
 void FBlueprintEditor::OnGraphEditorFocused(const TSharedRef<SGraphEditor>& InGraphEditor)
@@ -2704,16 +2754,31 @@ void FBlueprintEditor::OnGraphEditorFocused(const TSharedRef<SGraphEditor>& InGr
 	InGraphEditor->SetPinVisibility(PinVisibility);
 
 	// Update the inspector as well, to show selection from the focused graph editor
-	FocusInspectorOnGraphSelection(GetSelectedNodes());
+	FGraphPanelSelectionSet SelectedNodes = GetSelectedNodes();
+	FocusInspectorOnGraphSelection(SelectedNodes);
 
 	// During undo, garbage graphs can be temporarily brought into focus, ensure that before a refresh of the MyBlueprint window that the graph is owned by a Blueprint
-	if(FocusedGraphEdPtr.IsValid() && MyBlueprintWidget.IsValid())
+	if ( FocusedGraphEdPtr.IsValid() && MyBlueprintWidget.IsValid() )
 	{
 		// The focused graph can be garbage as well
-		TWeakObjectPtr< UEdGraph > FocusedGraph = FocusedGraphEdPtr.Pin()->GetCurrentGraph();
-		if(FocusedGraph.IsValid() && FBlueprintEditorUtils::FindBlueprintForGraph(FocusedGraph.Get()))
+		TWeakObjectPtr< UEdGraph > FocusedGraphPtr = FocusedGraphEdPtr.Pin()->GetCurrentGraph();
+		UEdGraph* FocusedGraph = FocusedGraphPtr.Get();
+
+		if ( FocusedGraph != nullptr )
 		{
-			MyBlueprintWidget->Refresh();
+			if ( FBlueprintEditorUtils::FindBlueprintForGraph(FocusedGraph) )
+			{
+				MyBlueprintWidget->Refresh();
+			}
+
+			// If this graph doesn't have any selected nodes, but the current selection state is from another graph,
+			// lets just set the focused graph to be the selected one.  We don't want the wrong function context to 
+			// seem relevant when you're looking at a different function.
+			if ( SelectedNodes.Num() == 0 )
+			{
+				SetUISelectionState(FBlueprintEditor::SelectionState_Graph);
+				Inspector->ShowDetailsForSingleObject(FocusedGraph);
+			}
 		}
 	}
 }
@@ -2823,15 +2888,17 @@ void FBlueprintEditor::OnBlueprintChangedImpl(UBlueprint* InBlueprint, bool bIsJ
 {
 	if (InBlueprint)
 	{
-		// Refresh the graphs
-		ERefreshBlueprintEditorReason::Type Reason = bIsJustBeingCompiled ? ERefreshBlueprintEditorReason::BlueprintCompiled : ERefreshBlueprintEditorReason::UnknownReason;
-		RefreshEditors(Reason);
+		DestroyPreview();
 
 		// Notify that the blueprint has been changed (update Content browser, etc)
 		InBlueprint->PostEditChange();
 
 		// Call PostEditChange() on any Actors that are based on this Blueprint
 		FBlueprintEditorUtils::PostEditChangeBlueprintActors(InBlueprint);
+
+		// Refresh the graphs
+		ERefreshBlueprintEditorReason::Type Reason = bIsJustBeingCompiled ? ERefreshBlueprintEditorReason::BlueprintCompiled : ERefreshBlueprintEditorReason::UnknownReason;
+		RefreshEditors(Reason);
 
 		// In case objects were deleted, which should close the tab
 		if (GetCurrentMode() == FBlueprintEditorApplicationModes::StandardBlueprintEditorMode)
@@ -6198,52 +6265,64 @@ void FBlueprintEditor::OnRepairCorruptedBlueprint()
 
 void FBlueprintEditor::StartEditingDefaults(bool bAutoFocus, bool bForceRefresh)
 {
-	const bool bSingleLayoutBPEditor = GetDefault<UEditorExperimentalSettings>()->bUnifiedBlueprintEditor && IsDetailsPanelEditingClassDefaults();
+	SetUISelectionState(FBlueprintEditor::SelectionState_ClassDefaults);
+
+	const bool bSingleLayoutBPEditor = GetDefault<UEditorExperimentalSettings>()->bUnifiedBlueprintEditor;
 
 	if (IsEditingSingleBlueprint())
 	{
-		if (GetBlueprintObj()->GeneratedClass != NULL)
+		if (GetBlueprintObj()->GeneratedClass != nullptr)
 		{
 			if (bSingleLayoutBPEditor)
 			{
-				UObject* DefaultObject = GetBlueprintObj()->GeneratedClass->GetDefaultObject();
-
-				// Update the details panel
-				FString Title;
-				DefaultObject->GetName(Title);
-				SKismetInspector::FShowDetailsOptions Options(FText::FromString(Title), true);
-				Options.bShowComponents = false;
-
-				Inspector->ShowDetailsForSingleObject(DefaultObject, Options);
-
-				TSharedPtr<SDockTab> OwnerTab = Inspector->GetOwnerTab();
-				if (OwnerTab.IsValid())
+				if ( SCSEditor.IsValid() && GetBlueprintObj()->GeneratedClass->IsChildOf<AActor>() )
 				{
-					OwnerTab->ActivateInParent(ETabActivationCause::SetDirectly);
-					OwnerTab->FlashTab();
+					SCSEditor->SelectRoot();
 				}
-			}
-			else
-			{
-				DefaultEditor->ShowDetailsForSingleObject(GetBlueprintObj()->GeneratedClass->GetDefaultObject(), SKismetInspector::FShowDetailsOptions(FText::GetEmpty(), bForceRefresh));
+				else
+				{
+					UObject* DefaultObject = GetBlueprintObj()->GeneratedClass->GetDefaultObject();
+
+					// Update the details panel
+					FString Title;
+					DefaultObject->GetName(Title);
+					SKismetInspector::FShowDetailsOptions Options(FText::FromString(Title), bForceRefresh);
+					Options.bShowComponents = false;
+
+					Inspector->ShowDetailsForSingleObject(DefaultObject, Options);
+
+					TSharedPtr<SDockTab> OwnerTab = Inspector->GetOwnerTab();
+					if ( OwnerTab.IsValid() )
+					{
+						OwnerTab->ActivateInParent(ETabActivationCause::SetDirectly);
+						OwnerTab->FlashTab();
+					}
+				}
 			}
 		}
 	}
-	else if (GetEditingObjects().Num() > 0)
+	
+	RefreshStandAloneDefaultsEditor();
+}
+
+void FBlueprintEditor::RefreshStandAloneDefaultsEditor()
+{
+	// Update the details panel
+	SKismetInspector::FShowDetailsOptions Options(FText::GetEmpty(), true);
+
+	TArray<UObject*> DefaultObjects;
+	for ( int32 i = 0; i < GetEditingObjects().Num(); ++i )
 	{
-		TArray<UObject*> DefaultObjects;
-		for (int32 i = 0; i < GetEditingObjects().Num(); ++i)
+		UBlueprintCore* Blueprint = Cast<UBlueprintCore>(GetEditingObjects()[i]);
+		if ( Blueprint && Blueprint->GeneratedClass )
 		{
-			auto Blueprint = (UBlueprint*)(GetEditingObjects()[i]);
-			if (Blueprint->GeneratedClass)
-			{
-				DefaultObjects.Add(Blueprint->GeneratedClass->GetDefaultObject());
-			}
+			DefaultObjects.Add(Blueprint->GeneratedClass->GetDefaultObject());
 		}
-		if (DefaultObjects.Num())
-		{
-			DefaultEditor->ShowDetailsForObjects(DefaultObjects);
-		}
+	}
+
+	if ( DefaultObjects.Num() )
+	{
+		DefaultEditor->ShowDetailsForObjects(DefaultObjects);
 	}
 }
 
@@ -6266,7 +6345,10 @@ void FBlueprintEditor::OnAddNewVariable()
 	const FScopedTransaction Transaction( LOCTEXT("AddVariable", "Add Variable") );
 
 	// Reset MyBlueprint item filter so new variable is visible
-	MyBlueprintWidget->OnResetItemFilter();
+	if (MyBlueprintWidget.IsValid())
+	{
+		MyBlueprintWidget->OnResetItemFilter();
+	}
 
 	FName VarName = FBlueprintEditorUtils::FindUniqueKismetName(GetBlueprintObj(), TEXT("NewVar"));
 
@@ -6310,7 +6392,10 @@ void FBlueprintEditor::OnAddNewDelegate()
 	check(NULL != Blueprint);
 
 	// Reset MyBlueprint item filter so new variable is visible
-	MyBlueprintWidget->OnResetItemFilter();
+	if (MyBlueprintWidget.IsValid())
+	{
+		MyBlueprintWidget->OnResetItemFilter();
+	}
 
 	FName Name = FBlueprintEditorUtils::FindUniqueKismetName(GetBlueprintObj(), TEXT("NewEventDispatcher"));
 
@@ -7059,11 +7144,10 @@ void FBlueprintEditor::OnFindInstancesCustomEvent()
 
 AActor* FBlueprintEditor::GetPreviewActor() const
 {
-	//return SCSViewport.IsValid() ? SCSViewport->GetPreviewActor() : nullptr;
-
 	UBlueprint* PreviewBlueprint = GetBlueprintObj();
 
-	// Note: The weak ptr can become stale if the actor is reinstanced due to a Blueprint change, etc. In that case we look to see if we can find the new instance in the preview world and then update the weak ptr.
+	// Note: The weak ptr can become stale if the actor is reinstanced due to a Blueprint change, etc. In that 
+	// case we look to see if we can find the new instance in the preview world and then update the weak ptr.
 	if ( PreviewActorPtr.IsStale(true) && PreviewBlueprint )
 	{
 		UWorld* PreviewWorld = PreviewScene.GetWorld();
@@ -7202,6 +7286,8 @@ void FBlueprintEditor::DestroyPreview()
 
 		PreviewBlueprint = nullptr;
 	}
+
+	PreviewActorPtr = nullptr;
 }
 
 

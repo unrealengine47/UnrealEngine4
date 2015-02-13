@@ -46,6 +46,10 @@ public:
 	 */
 	void RequestRefresh(bool bResetCamera = false, bool bRefreshNow = false);
 
+	// SWidget interface
+	virtual FReply OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
+	// End of SWidget interface
+
 	/**
 	 * Called when the selected component changes in the SCS editor.
 	 */
@@ -61,6 +65,10 @@ public:
 	 */
 	bool GetIsSimulateEnabled();
 
+	void SetOwnerTab(TSharedRef<SDockTab> Tab);
+
+	TSharedPtr<SDockTab> GetOwnerTab() const;
+
 protected:
 	/**
 	 * Determines if the viewport widget is visible.
@@ -68,7 +76,6 @@ protected:
 	 * @return true if the viewport is visible; false otherwise.
 	 */
 	bool IsVisible() const;
-	EVisibility GetWidgetVisibility() const;
 
 	/** Called when the simulation toggle command is fired */
 	void ToggleIsSimulateEnabled();
@@ -91,4 +98,7 @@ private:
 
 	/** Whether the active timer (for updating the preview) is registered */
 	bool bIsActiveTimerRegistered;
+
+	/** The owner dock tab for this viewport. */
+	TWeakPtr<SDockTab> OwnerTab;
 };

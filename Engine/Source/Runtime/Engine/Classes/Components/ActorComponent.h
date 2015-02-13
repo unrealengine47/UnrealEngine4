@@ -12,7 +12,8 @@ UENUM()
 enum class EComponentCreationMethod : uint8
 {
 	Native,
-	ConstructionScript,
+	SimpleConstructionScript,
+	UserConstructionScript,
 	Instance,
 };
 
@@ -24,7 +25,7 @@ enum class EComponentCreationMethod : uint8
  * @see USceneComponent
  * @see UPrimitiveComponent
  */
-UCLASS(DefaultToInstanced, BlueprintType, abstract, hidecategories=(ComponentReplication))
+UCLASS(DefaultToInstanced, BlueprintType, abstract, hideCategories=(ComponentReplication), meta=(ShortTooltip="An ActorComponent is a reusable component that can be added to any actor."))
 class ENGINE_API UActorComponent : public UObject, public IInterface_AssetUserData
 {
 	GENERATED_BODY()
@@ -43,7 +44,7 @@ public:
 	struct FActorComponentTickFunction PrimaryComponentTick;
 
 	/** Array of tags that can be used for grouping and categorizing. Can also be accessed from scripting. */
-	UPROPERTY(EditDefaultsOnly, AdvancedDisplay, BlueprintReadWrite, Category=Component)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Tags)
 	TArray<FName> ComponentTags;
 
 protected:
@@ -124,11 +125,13 @@ public:
 	UPROPERTY()
 	EComponentCreationMethod CreationMethod;
 
+	bool IsCreatedByConstructionScript() const;
+
 	UFUNCTION()
 	void OnRep_IsActive();
 
 	/** Follow the Outer chain to get the  AActor  that 'Owns' this component */
-	UFUNCTION(BlueprintCallable, Category="Components")
+	UFUNCTION(BlueprintCallable, Category="Components", meta=(Keywords = "Actor Owning Parent"))
 	class AActor* GetOwner() const;
 
 	virtual class UWorld* GetWorld() const override;

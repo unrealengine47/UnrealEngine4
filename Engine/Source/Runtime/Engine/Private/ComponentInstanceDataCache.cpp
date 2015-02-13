@@ -35,6 +35,27 @@ FComponentInstanceDataBase::FComponentInstanceDataBase(const UActorComponent* So
 			SourceComponentTypeSerializedIndex = -1;
 		}
 	}
+
+	if (SourceComponent->CreationMethod == EComponentCreationMethod::SimpleConstructionScript)
+	{
+		class FComponentPropertyWriter : public FObjectWriter
+		{
+		public:
+			FComponentPropertyWriter(TArray<uint8>& InBytes)
+				: FObjectWriter(InBytes)
+			{
+			}
+
+			virtual bool ShouldSkipProperty(const UProperty* InProperty) const override
+			{
+				return (    InProperty->HasAnyPropertyFlags(CPF_Transient | CPF_ContainsInstancedReference | CPF_InstancedReference)
+						|| !InProperty->HasAnyPropertyFlags(CPF_Edit | CPF_Interp));
+			}
+
+		} ComponentPropertyWriter(SavedProperties);
+
+		SourceComponentClass->SerializeTaggedProperties(ComponentPropertyWriter, (uint8*)SourceComponent, SourceComponentClass, (uint8*)SourceComponent->GetArchetype());
+	}
 }
 
 bool FComponentInstanceDataBase::MatchesComponent(const UActorComponent* Component) const
@@ -68,6 +89,26 @@ bool FComponentInstanceDataBase::MatchesComponent(const UActorComponent* Compone
 	return bMatches;
 }
 
+void FComponentInstanceDataBase::ApplyToComponent(UActorComponent* Component)
+{
+	if (SavedProperties.Num() > 0)
+	{
+		class FComponentPropertyReader : public FObjectReader
+		{
+		public:
+			FComponentPropertyReader(TArray<uint8>& InBytes)
+				: FObjectReader(InBytes)
+			{
+			}
+		} ComponentPropertyReader(SavedProperties);
+
+		UObject* ArchetypeToSearch = Component->GetOuter()->GetArchetype();
+		UClass* Class = Component->GetClass();
+
+		Class->SerializeTaggedProperties(ComponentPropertyReader, (uint8*)Component, Class, nullptr);
+	}
+}
+
 FComponentInstanceDataCache::FComponentInstanceDataCache(const AActor* Actor)
 {
 	if(Actor != NULL)
@@ -78,7 +119,7 @@ FComponentInstanceDataCache::FComponentInstanceDataCache(const AActor* Actor)
 		// Grab per-instance data we want to persist
 		for (UActorComponent* Component : Components)
 		{
-			if (Component->CreationMethod == EComponentCreationMethod::ConstructionScript) // Only cache data from 'created by construction script' components
+			if (Component->IsCreatedByConstructionScript()) // Only cache data from 'created by construction script' components
 			{
 				FComponentInstanceDataBase* ComponentInstanceData = Component->GetComponentInstanceData();
 				if (ComponentInstanceData)
@@ -92,9 +133,13 @@ FComponentInstanceDataCache::FComponentInstanceDataCache(const AActor* Actor)
 				// If the instance component is attached to a BP component we have to be prepared for the possibility that it will be deleted
 				if (USceneComponent* SceneComponent = Cast<USceneComponent>(Component))
 				{
-					if (SceneComponent->AttachParent && SceneComponent->AttachParent->CreationMethod == EComponentCreationMethod::ConstructionScript)
+					if (SceneComponent->AttachParent && SceneComponent->AttachParent->IsCreatedByConstructionScript())
 					{
-						InstanceComponentTransformToRootMap.Add(SceneComponent, SceneComponent->GetComponentTransform().GetRelativeTransform(Actor->GetRootComponent()->GetComponentTransform()));
+						auto RootComponent = Actor->GetRootComponent();
+						if (RootComponent)
+						{
+							InstanceComponentTransformToRootMap.Add(SceneComponent, SceneComponent->GetComponentTransform().GetRelativeTransform(RootComponent->GetComponentTransform()));
+						}
 					}
 				}
 			}
@@ -120,7 +165,7 @@ void FComponentInstanceDataCache::ApplyToActor(AActor* Actor) const
 		// Apply per-instance data.
 		for (UActorComponent* Component : Components)
 		{
-			if(Component->CreationMethod == EComponentCreationMethod::ConstructionScript) // Only try and apply data to 'created by construction script' components
+			if(Component->IsCreatedByConstructionScript()) // Only try and apply data to 'created by construction script' components
 			{
 				const FName ComponentInstanceDataType = Component->GetComponentInstanceDataType();
 

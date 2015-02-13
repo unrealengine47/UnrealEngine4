@@ -249,9 +249,17 @@ void UDestructibleComponent::CreatePhysicsState()
 		SmallChunkCollisionResponse.SetAllChannels(ECR_Ignore);
 	}
 
+	bool bEnableImpactDamage = TheDestructibleMesh->DefaultDestructibleParameters.DamageParameters.bEnableImpactDamage;
+	for (const FDestructibleDepthParameters& DepthParams : TheDestructibleMesh->DefaultDestructibleParameters.DepthParameters)
+	{
+		bEnableImpactDamage |= DepthParams.ImpactDamageOverride == EImpactDamageOverride::IDO_On;
+	}
+
+	bool bEnableContactModification = TheDestructibleMesh->DefaultDestructibleParameters.DamageParameters.bCustomImpactResistance && TheDestructibleMesh->DefaultDestructibleParameters.DamageParameters.ImpactResistance > 0.f;
+
 	// Passing AssetInstanceID = 0 so we'll have self-collision
 	AActor* Owner = GetOwner();
-	CreateShapeFilterData(MoveChannel, GetUniqueID(), CollResponse, 0, 0, PQueryFilterData, PSimFilterData, BodyInstance.bUseCCD, TheDestructibleMesh->DefaultDestructibleParameters.DamageParameters.bEnableImpactDamage, false);
+	CreateShapeFilterData(MoveChannel, GetUniqueID(), CollResponse, 0, 0, PQueryFilterData, PSimFilterData, BodyInstance.bUseCCD, bEnableImpactDamage, false, bEnableContactModification);
 
 	// Build filterData variations for complex and simple
 	PSimFilterData.word3 |= EPDF_SimpleCollision | EPDF_ComplexCollision;
@@ -681,6 +689,36 @@ void UDestructibleComponent::OnVisibilityEvent(const NxApexChunkStateEventData &
 }
 #endif // WITH_APEX
 
+bool UDestructibleComponent::IsFracturedOrInitiallyStatic() const
+{
+	bool bInitiallyStatic = false;
+	bool bFractured = false;
+#if WITH_APEX
+	if (ApexDestructibleActor == nullptr)
+	{
+		return false;
+	}
+
+	bInitiallyStatic = !ApexDestructibleActor->isInitiallyDynamic();
+
+	if (bInitiallyStatic == false)
+	{
+		//If we have only one chunk and its index is 0 we are NOT fractured. Otherwise we must have fractured
+		const physx::PxU32 VisibleChunkCount = ApexDestructibleActor->getNumVisibleChunks();
+		if (VisibleChunkCount == 1)
+		{
+			const physx::PxU16* VisibleChunks = ApexDestructibleActor->getVisibleChunks();
+			bFractured = *VisibleChunks != 0;
+		}
+		else
+		{
+			bFractured = true;
+		}
+	}
+#endif
+	return bFractured || bInitiallyStatic;
+}
+
 void UDestructibleComponent::RefreshBoneTransforms(FActorComponentTickFunction* TickFunction)
 {
 }
@@ -904,7 +942,15 @@ void UDestructibleComponent::UpdateDestructibleChunkTM(const TArray<const PxRigi
 	{
 		UDestructibleComponent* DestructibleComponent = It.Key();
 		TArray<FUpdateChunksInfo>& UpdateInfos = It.Value();
-		DestructibleComponent->SetChunksWorldTM(UpdateInfos);	
+		if (DestructibleComponent->IsFracturedOrInitiallyStatic())
+		{
+			DestructibleComponent->SetChunksWorldTM(UpdateInfos);
+		}
+		else
+		{
+			//if we haven't fractured it must mean that we're simulating a destructible and so we should update our ComponentToWorld based on the single rigid body
+			DestructibleComponent->SyncComponentToRBPhysics();
+		}
 	}
 
 }

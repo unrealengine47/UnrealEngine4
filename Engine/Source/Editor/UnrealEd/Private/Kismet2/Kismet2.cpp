@@ -470,8 +470,7 @@ UBlueprint* FKismetEditorUtilities::CreateBlueprint(UClass* ParentClass, UObject
 		{
 			// add update event graph
 			UK2Node_Event* EventNode = NewObject<UK2Node_Event>(Graph);
-			EventNode->EventSignatureClass = UAnimInstance::StaticClass();
-			EventNode->EventSignatureName = FName(TEXT("BlueprintUpdateAnimation"));
+			EventNode->EventReference.SetExternalMember(FName(TEXT("BlueprintUpdateAnimation")), UAnimInstance::StaticClass());
 			EventNode->bOverrideFunction=true;
 			EventNode->CreateNewGuid();
 			EventNode->PostPlacedNewNode();
@@ -877,8 +876,7 @@ bool FKismetEditorUtilities::CanCreateBlueprintOfClass(const UClass* Class)
 	const UEdGraphSchema_K2* K2Schema = GetDefault<UEdGraphSchema_K2>();
 	const bool bIsValidClass = Class->GetBoolMetaDataHierarchical(FBlueprintMetadata::MD_IsBlueprintBase)
 		|| (Class == UObject::StaticClass())
-		|| (Class == UActorComponent::StaticClass() && bAllowBlueprintableComponents)
-		|| (bAllowBlueprintableComponents && Class->IsChildOf<UActorComponent>() && Class->HasAnyClassFlags(CLASS_CompiledFromBlueprint))
+		|| (bAllowBlueprintableComponents && (Class->HasAnyClassFlags(CLASS_CompiledFromBlueprint) || Class == USceneComponent::StaticClass() || Class == UActorComponent::StaticClass()))
 		|| bIsBPGC;  // BPs are always considered inheritable
 
 	return bCanCreateBlueprint && bIsValidClass;
@@ -959,7 +957,7 @@ void FKismetEditorUtilities::AddComponentsToBlueprint(UBlueprint* Blueprint, con
 					SCS->AddNode(SCSNode);
 				}
 				// If we're attached to a blueprint component look it up as the variable name is the component name
-				else if (SceneComponent->AttachParent->CreationMethod == EComponentCreationMethod::ConstructionScript)
+				else if (SceneComponent->AttachParent->IsCreatedByConstructionScript())
 				{
 					USCS_Node* ParentSCSNode = nullptr;
 					for (UBlueprint* Blueprint : ParentBPStack)
@@ -1016,15 +1014,15 @@ UBlueprint* FKismetEditorUtilities::CreateBlueprintFromActor(const FName Bluepri
 {
 	UBlueprint* NewBlueprint = nullptr;
 
-	if (Actor)
+	if (Actor != nullptr)
 	{
-		if (Outer)
+		if (Outer != nullptr)
 		{
 			// We don't have a factory, but we can still try to create a blueprint for this actor class
 			NewBlueprint = FKismetEditorUtilities::CreateBlueprint( Actor->GetClass(), Outer, BlueprintName, EBlueprintType::BPTYPE_Normal, UBlueprint::StaticClass(), UBlueprintGeneratedClass::StaticClass(), FName("CreateFromActor") );
 		}
 
-		if(NewBlueprint)
+		if (NewBlueprint != nullptr)
 		{
 			// Notify the asset registry
 			FAssetRegistryModule::AssetCreated(NewBlueprint);
@@ -1038,7 +1036,7 @@ UBlueprint* FKismetEditorUtilities::CreateBlueprintFromActor(const FName Bluepri
 				AddComponentsToBlueprint(NewBlueprint, Actor->GetInstanceComponents());
 			}
 
-			if(NewBlueprint->GeneratedClass)
+			if (NewBlueprint->GeneratedClass != nullptr)
 			{
 				// Since we already created SCS Nodes for the instance components, temporarily cache and clear the
 				// array to avoid creating duplicates in the new CDO
@@ -1053,11 +1051,12 @@ UBlueprint* FKismetEditorUtilities::CreateBlueprintFromActor(const FName Bluepri
 					Actor->AddInstanceComponent(Component);
 				}
 
-				if(AActor* CDOAsActor = Cast<AActor>(CDO))
+				if (AActor* CDOAsActor = Cast<AActor>(CDO))
 				{
-					if(USceneComponent* Scene = CDOAsActor->GetRootComponent())
+					if (USceneComponent* Scene = CDOAsActor->GetRootComponent())
 					{
-						Scene->SetRelativeLocation(FVector::ZeroVector);
+						Scene->RelativeLocation = FVector::ZeroVector;
+						Scene->RelativeRotation = FRotator::ZeroRotator;
 
 						// Clear out the attachment info after having copied the properties from the source actor
 						Scene->AttachParent = NULL;
@@ -1071,7 +1070,7 @@ UBlueprint* FKismetEditorUtilities::CreateBlueprintFromActor(const FName Bluepri
 
 			FKismetEditorUtilities::CompileBlueprint(NewBlueprint);
 
-			if(bReplaceActor)
+			if (bReplaceActor)
 			{
 				TArray<AActor*> Actors;
 				Actors.Add(Actor);
@@ -1084,7 +1083,7 @@ UBlueprint* FKismetEditorUtilities::CreateBlueprintFromActor(const FName Bluepri
 		}
 	}
 
-	if (NewBlueprint)
+	if (NewBlueprint != nullptr)
 	{
 		// Open the editor for the new blueprint
 		FAssetEditorManager::Get().OpenEditorForAsset(NewBlueprint);

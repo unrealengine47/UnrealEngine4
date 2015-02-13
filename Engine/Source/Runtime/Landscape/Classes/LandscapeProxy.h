@@ -299,6 +299,8 @@ public:
 	{
 		return TEXT("FAsyncGrassTask");
 	}
+
+	~FAsyncGrassTask();
 };
 
 UCLASS(NotPlaceable, NotBlueprintable, hidecategories=(Display, Attachment, Physics, Debug, Lighting, LOD), showcategories=(Lighting, Rendering, "Utilities|Transformation"), MinimalAPI)
@@ -516,22 +518,34 @@ public:
 	void SetLandscapeGuid(const FGuid& Guid) { LandscapeGuid = Guid; }
 	virtual ALandscape* GetLandscapeActor();
 
+	/* Per-frame call to update dynamic grass placement and render grassmaps */
+	void TickGrass();
+
 	/** Flush the grass cache */
-	LANDSCAPE_API void FlushGrassComponents(const TSet<ULandscapeComponent*>* OnlyForComponents = nullptr);
+	LANDSCAPE_API void FlushGrassComponents(const TSet<ULandscapeComponent*>* OnlyForComponents = nullptr, bool bFlushGrassMaps = true);
 
 	/** 
 		Update Grass 
 		* @param Cameras to use for culling, if empty, then NO culling
 		* @param bForceSync if true, block and finish all work
 	*/
-	LANDSCAPE_API void UpdateFoliage(const TArray<FVector>& Cameras, bool bForceSync = false);
+	LANDSCAPE_API void UpdateGrass(const TArray<FVector>& Cameras, bool bForceSync = false);
 
 	/* Get the list of grass types on this landscape */
 	TArray<ULandscapeGrassType*> GetGrassTypes() const;
 
+	/* Invalidate the precomputed grass and baked texture data for the specified components */
+	LANDSCAPE_API static void InvalidateGeneratedComponentData(const TSet<ULandscapeComponent*>& Components);
+
 #if WITH_EDITOR
 	/** Render grass maps for the specified components */
 	void RenderGrassMaps(const TArray<ULandscapeComponent*>& LandscapeComponents, const TArray<ULandscapeGrassType*>& GrassTypes);
+
+	/** Update any textures baked from the landscape as necessary */
+	void UpdateBakedTextures();
+
+	/** Frame counter to count down to the next time we check to update baked textures, so we don't check every frame */
+	int32 UpdateBakedTexturesCountdown;
 #endif
 
 	// Begin FTickableGameObject interface.
@@ -641,6 +655,9 @@ public:
 	int32 NumTexturesToStreamForVisibleGrassMapRender;
 	LANDSCAPE_API static int32 TotalTexturesToStreamForVisibleGrassMapRender;
 
+	/* For the texture baking notification */
+	int32 NumComponentsNeedingTextureBaking;
+	LANDSCAPE_API static int32 TotalComponentsNeedingTextureBaking;
 #endif
 };
 

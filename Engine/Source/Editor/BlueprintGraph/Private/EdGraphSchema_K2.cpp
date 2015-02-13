@@ -407,14 +407,17 @@ FText UEdGraphSchema_K2::FPinTypeTreeInfo::GetDescription() const
 	}
 	else if (PinType.PinSubCategoryObject.IsValid())
 	{
-		FString DisplayName = PinType.PinSubCategoryObject->GetName();
-		const auto SubCategoryClass = Cast<UClass>(PinType.PinSubCategoryObject.Get());
-		if (SubCategoryClass && !SubCategoryClass->HasAnyClassFlags(CLASS_Native))
+		FText DisplayName;
+		if (UClass* SubCategoryClass = Cast<UClass>(PinType.PinSubCategoryObject.Get()))
 		{
-			DisplayName.RemoveFromEnd(TEXT("_C"));
+			DisplayName = FBlueprintEditorUtils::GetFriendlyClassDisplayName(SubCategoryClass);
+		}
+		else
+		{
+			DisplayName = FText::FromString(PinType.PinSubCategoryObject->GetName());
 		}
 
-		return FText::FromString(DisplayName);
+		return DisplayName;
 	}
 	else
 	{
@@ -711,7 +714,7 @@ bool UEdGraphSchema_K2::CanFunctionBeUsedInGraph(const UClass* InClass, const UF
 
 UFunction* UEdGraphSchema_K2::GetCallableParentFunction(UFunction* Function) const
 {
-	if( Function )
+	if( Function && Cast<UClass>(Function->GetOuter()) )
 	{
 		const FName FunctionName = Function->GetFName();
 
@@ -4956,7 +4959,7 @@ UEdGraphNode* UEdGraphSchema_K2::CreateSubstituteNode(UEdGraphNode* Node, const 
 			}
 			else if(EventNode->bOverrideFunction)
 			{
-				FunctionName = EventNode->EventSignatureName.ToString();
+				FunctionName = EventNode->EventReference.GetMemberName().ToString();
 			}
 			else
 			{

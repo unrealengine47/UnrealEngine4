@@ -381,7 +381,7 @@ void SEditorViewport::ToggleStatCommand(FString CommandName)
 bool SEditorViewport::IsStatCommandVisible(FString CommandName) const
 {
 	// Only if realtime and stats are also enabled should we show the stat as visible
-	return Client->IsRealtime() && Client->ShouldShowStats() && Client->IsStatEnabled(*CommandName);
+	return Client->IsRealtime() && Client->ShouldShowStats() && Client->IsStatEnabled(CommandName);
 }
 
 void SEditorViewport::ToggleShowFlag(uint32 EngineShowFlagIndex)
@@ -434,7 +434,9 @@ bool SEditorViewport::IsVisible() const
 {
 	const float VisibilityTimeThreshold = .25f;
 	// The viewport is visible if we don't have a parent layout (likely a floating window) or this viewport is visible in the parent layout
-	return FPlatformTime::Seconds() - LastTickTime <= VisibilityTimeThreshold;
+	return 
+		LastTickTime == 0.0	||	// Never been ticked
+		FPlatformTime::Seconds() - LastTickTime <= VisibilityTimeThreshold;	// Ticked recently
 }
 
 void SEditorViewport::OnScreenCapture()

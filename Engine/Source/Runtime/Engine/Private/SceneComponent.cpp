@@ -42,6 +42,15 @@ USceneComponent::USceneComponent(const FObjectInitializer& ObjectInitializer /*=
 	NetUpdateTransform = false;
 }
 
+void USceneComponent::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
+{
+#if WITH_EDITORONLY_DATA
+	USceneComponent* This = CastChecked<USceneComponent>(InThis);
+	Collector.AddReferencedObject(This->SpriteComponent);
+#endif
+	Super::AddReferencedObjects(InThis, Collector);
+}
+
 FTransform USceneComponent::CalcNewComponentToWorld(const FTransform& NewRelativeTransform, const USceneComponent* Parent) const
 {
 	Parent = Parent ? Parent : AttachParent;
@@ -124,7 +133,7 @@ void USceneComponent::OnRegister()
 	if (bVisualizeComponent && SpriteComponent == nullptr && GetOwner() && !GetWorld()->IsGameWorld() )
 	{
 		// Create a new billboard component to serve as a visualization of the actor until there is another primitive component
-		SpriteComponent = ConstructObject<UBillboardComponent>(UBillboardComponent::StaticClass(), GetOwner(), NAME_None, RF_Transactional | RF_TextExportTransient);
+		SpriteComponent = NewObject<UBillboardComponent>(GetOwner(), NAME_None, RF_Transactional | RF_TextExportTransient);
 
 		SpriteComponent->Sprite = LoadObject<UTexture2D>(nullptr, TEXT("/Engine/EditorResources/EmptyActor.EmptyActor"));
 		SpriteComponent->RelativeScale3D = FVector(0.5f, 0.5f, 0.5f);
@@ -1156,7 +1165,7 @@ FSceneComponentInstanceData::FSceneComponentInstanceData(const USceneComponent* 
 	for (int32 i = SourceComponent->AttachChildren.Num()-1; i >= 0; --i)
 	{
 		USceneComponent* SceneComponent = SourceComponent->AttachChildren[i];
-		if (SceneComponent && SceneComponent->CreationMethod != EComponentCreationMethod::ConstructionScript)
+		if (SceneComponent && !SceneComponent->IsCreatedByConstructionScript())
 		{
 			AttachedInstanceComponents.Add(SceneComponent);
 		}
@@ -1165,6 +1174,8 @@ FSceneComponentInstanceData::FSceneComponentInstanceData(const USceneComponent* 
 
 void FSceneComponentInstanceData::ApplyToComponent(UActorComponent* Component)
 {
+	FComponentInstanceDataBase::ApplyToComponent(Component);
+
 	USceneComponent* SceneComponent = CastChecked<USceneComponent>(Component);
 	for (USceneComponent* ChildComponent : AttachedInstanceComponents)
 	{
@@ -1192,7 +1203,7 @@ FComponentInstanceDataBase* USceneComponent::GetComponentInstanceData() const
 
 	for (USceneComponent* Child : AttachChildren)
 	{
-		if (Child && Child->CreationMethod != EComponentCreationMethod::ConstructionScript)
+		if (Child && !Child->IsCreatedByConstructionScript())
 		{
 			InstanceData = new FSceneComponentInstanceData(this);
 			break;
@@ -1599,7 +1610,7 @@ bool USceneComponent::MoveComponent( const FVector& Delta, const FRotator& NewRo
 			// It's only a problem if we're in gameplay, and the owning level is visible
 			if (World->HasBegunPlay() && IsRegistered() && Level && Level->bIsVisible)
 			{
-				FMessageLog("Performance").Warning(FText::Format(LOCTEXT("InvalidMove", "Mobility of {0} : {1} has to be 'Movable' if you'd like to move. "),
+				FMessageLog("PIE").Warning(FText::Format(LOCTEXT("InvalidMove", "Mobility of {0} : {1} has to be 'Movable' if you'd like to move. "),
 					FText::FromString(GetNameSafe(GetOwner())), FText::FromString(GetName())));
 				return false;
 			}
@@ -1653,12 +1664,12 @@ bool USceneComponent::ShouldRender() const
 	AActor* Owner = GetOwner();
 	const bool bShowInEditor = 
 #if WITH_EDITOR
-		(!Owner || !Owner->IsHiddenEd());
+		GIsEditor ? (!Owner || !Owner->IsHiddenEd()) : false;
 #else
 		false;
 #endif
-
-	const bool bInGameWorld = GetWorld() && GetWorld()->IsGameWorld();
+	UWorld *World = GetWorld();
+	const bool bInGameWorld = GetWorld() && GetWorld()->UsesGameHiddenFlags();
 
 	const bool bShowInGame = IsVisible() && (!Owner || !Owner->bHidden);
 	return ((bInGameWorld && bShowInGame) || (!bInGameWorld && bShowInEditor)) && bVisible == true;
@@ -1669,12 +1680,12 @@ bool USceneComponent::CanEverRender() const
 	AActor* Owner = GetOwner();
 	const bool bShowInEditor =
 #if WITH_EDITOR
-		(!Owner || !Owner->IsHiddenEd());
+		GIsEditor ? (!Owner || !Owner->IsHiddenEd()) : false;
 #else
 		false;
 #endif
-
-	const bool bInGameWorld = GetWorld() && GetWorld()->IsGameWorld();
+	UWorld *World = GetWorld();
+	const bool bInGameWorld = World && World->UsesGameHiddenFlags();
 
 	const bool bShowInGame = (!Owner || !Owner->bHidden);
 	return ((bInGameWorld && bShowInGame) || (!bInGameWorld && bShowInEditor));

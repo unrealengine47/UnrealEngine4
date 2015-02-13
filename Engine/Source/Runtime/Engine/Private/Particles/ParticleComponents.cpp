@@ -466,6 +466,8 @@ void AEmitter::SetMaterialParameter(FName ParameterName, UMaterialInterface* Par
 
 bool AEmitter::GetReferencedContentObjects( TArray<UObject*>& Objects ) const
 {
+	Super::GetReferencedContentObjects(Objects);
+
 	if (ParticleSystemComponent->Template)
 	{
 		Objects.Add(ParticleSystemComponent->Template);
@@ -1938,7 +1940,7 @@ void UParticleSpriteEmitter::SetToSensibleDefaults()
 		}
 		ColorCurveDist->bIsDirty = true;
 	}
-	ColorModule->AlphaOverLife.Distribution = Cast<UDistributionFloatConstantCurve>(StaticConstructObject(UDistributionFloatConstantCurve::StaticClass(), ColorModule));
+	ColorModule->AlphaOverLife.Distribution = NewObject<UDistributionFloatConstantCurve>(ColorModule);
 	UDistributionFloatConstantCurve* AlphaCurveDist = Cast<UDistributionFloatConstantCurve>(ColorModule->AlphaOverLife.Distribution);
 	if (AlphaCurveDist)
 	{

@@ -876,6 +876,16 @@ namespace US
 // Metadata specifiers
 namespace UM
 {
+	// Metadata usable in any UField (UCLASS(), USTRUCT(), UPROPERTY(), UFUNCTION(), etc...)
+	enum
+	{
+		/// Overrides the automatically generated tooltip from the class comment
+		ToolTip,
+
+		/// A short tooltip that is used in some contexts where the full tooltip might be overwhelming (such as the parent class picker dialog)
+		ShortTooltip,
+	};
+
 	// Metadata usable in UCLASS
 	enum
 	{
@@ -909,7 +919,6 @@ namespace UM
 		/// [ClassMetadata] Indicates that when placing blueprint nodes in graphs owned by this class that the hidden world context pin should be visible because the self context of the class cannot
 		///                 provide the world context and it must be wired in manually
 		ShowWorldContextPin,
-
 	};
 
 	// Metadata usable in USTRUCT
@@ -985,6 +994,9 @@ namespace UM
 		/// [PropertyMetadata] Used for numeric properties. Stipulates that the value must be a multiple of the metadata value.
 		Multiple,
 
+		/// [PropertyMetadata] Used for FString and FText properties.  Indicates that the edit field should be multi-line, allowing entry of newlines.
+		MultiLine,
+
 		/// [PropertyMetadata] Used for array properties. Indicates that the duplicate icon should not be shown for entries of this array in the property panel.
 		NoElementDuplicate,
 
@@ -1005,9 +1017,6 @@ namespace UM
 
 		// [PropertyMetadata] Used by numeric properties. Indicates how rapidly the value will grow when moving an unbounded slider.
 		SliderExponent,
-
-		// [PropertyMetadata] Overrides the automatically generated tooltip from the property comment.
-		ToolTip,
 
 		/// [PropertyMetadata] Used for float and integer properties.  Specifies the lowest that the value slider should represent.
 		UIMin,

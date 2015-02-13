@@ -143,7 +143,7 @@ protected:
  * @see https://docs.unrealengine.com/latest/INT/Gameplay/Framework/Controller/PlayerController/
  */
 
-UCLASS(config=Game, BlueprintType, Blueprintable)
+UCLASS(config=Game, BlueprintType, Blueprintable, meta=(ShortTooltip="A Player Controller is an actor responsible for controlling a Pawn used by the player."))
 class ENGINE_API APlayerController : public AController
 {
 	GENERATED_UCLASS_BODY()
@@ -1306,7 +1306,7 @@ public:
 	virtual void PawnLeavingGame();
 
 	/** Takes ping updates from the net driver (both clientside and serverside), and passes them on to PlayerState::UpdatePing */
-	void UpdatePing(float InPing);
+	virtual void UpdatePing(float InPing);
 
 	/**
 	 * Get next active viewable player in PlayerArray.

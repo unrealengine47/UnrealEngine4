@@ -76,7 +76,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FPhysicsVolumeChanged, class APhysic
  * Useful as a 'dummy' component in the hierarchy to offset others.
  * @see [Scene Components](https://docs.unrealengine.com/latest/INT/Programming/UnrealArchitecture/Actors/Components/index.html#scenecomponents)
  */
-UCLASS(ClassGroup=Utility, BlueprintType, HideCategories=(Trigger, PhysicsVolume), meta=(BlueprintSpawnableComponent))
+UCLASS(ClassGroup=Utility, BlueprintType, hideCategories=(Trigger, PhysicsVolume), meta=(BlueprintSpawnableComponent, ShortTooltip="A Scene Component is a component that has a scene transform and can be attached to other scene components."))
 class ENGINE_API USceneComponent : public UActorComponent
 {
 	GENERATED_BODY()
@@ -158,7 +158,6 @@ protected:
 #if WITH_EDITORONLY_DATA
 protected:
 	/** Editor only component used to display the sprite so as to be able to see the location of the Audio Component  */
-	UPROPERTY(transient)
 	class UBillboardComponent* SpriteComponent;
 
 public:
@@ -383,11 +382,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Components")
 	int32 GetNumChildrenComponents() const;
 
-	/** Gets the number of attached children components */
+	/** Gets the attached child component at the specified location */
 	UFUNCTION(BlueprintCallable, Category="Components")
 	class USceneComponent* GetChildComponent(int32 ChildIndex) const;
 
-	/** Gets the number of attached children components */
+	/** 
+	 * Gets all the attached child components
+	 * @param bIncludeAllDescendants Whether to include all descendants in the list of children (i.e. grandchildren, great grandchildren, etc.)
+	 * @param Children The list of attached child components
+	 */
 	UFUNCTION(BlueprintCallable, Category="Components")
 	void GetChildrenComponents(bool bIncludeAllDescendants, TArray<USceneComponent*>& Children) const;
 
@@ -525,6 +528,7 @@ public:
 	virtual void Serialize(FArchive& Ar) override;
 	virtual void PostInterpChange(UProperty* PropertyThatChanged) override;
 	virtual void BeginDestroy() override;
+	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 	// End UObject Interface
 
 protected:

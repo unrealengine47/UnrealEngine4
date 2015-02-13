@@ -303,8 +303,7 @@ UEdGraphNode* FEdGraphSchemaAction_K2AddComponent::PerformAction(class UEdGraph*
 
 		ensure(NULL != Cast<UBlueprintGeneratedClass>(Blueprint->GeneratedClass));
 		// Then create a new template object, and add to array in
-		UActorComponent* NewTemplate = NewObject<UActorComponent>(Blueprint->GeneratedClass, ComponentClass);
-		NewTemplate->SetFlags(RF_ArchetypeObject);
+		UActorComponent* NewTemplate = NewObject<UActorComponent>(Blueprint->GeneratedClass, ComponentClass, NAME_None, RF_ArchetypeObject | RF_Public);
 		Blueprint->ComponentTemplates.Add(NewTemplate);
 
 		// Set the name of the template as the default for the TemplateName param
@@ -400,7 +399,7 @@ bool FEdGraphSchemaAction_K2AddEvent::EventHasAlreadyBeenPlaced(UBlueprint const
 	if (Blueprint != NULL)
 	{
 		UK2Node_Event const* EventTemplate = Cast<UK2Node_Event const>(NodeTemplate);
-		ExistingEvent = FBlueprintEditorUtils::FindOverrideForFunction(Blueprint, EventTemplate->EventSignatureClass, EventTemplate->EventSignatureName);
+		ExistingEvent = FBlueprintEditorUtils::FindOverrideForFunction(Blueprint, EventTemplate->EventReference.GetMemberParentClass(EventTemplate), EventTemplate->EventReference.GetMemberName());
 	}
 
 	if (FoundEventOut != NULL)
