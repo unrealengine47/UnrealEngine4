@@ -1224,11 +1224,7 @@ void AActor::DetachRootComponentFromParent(bool bMaintainWorldPosition)
 {
 	if(RootComponent)
 	{
-		USceneComponent * RootComponent = GetRootComponent();
-
-
-		GetRootComponent()->DetachFromParent(bMaintainWorldPosition);
-
+		RootComponent->DetachFromParent(bMaintainWorldPosition);
 		AttachmentReplication.AttachParent = NULL;
 	}
 }
@@ -3080,6 +3076,15 @@ bool AActor::CallRemoteFunction( UFunction* Function, void* Parameters, FOutParm
 	if (NetDriver)
 	{
 		NetDriver->ProcessRemoteFunction(this, Function, Parameters, OutParms, Stack, NULL);
+		if (NetDriver->NetDriverName == NAME_GameNetDriver)
+		{
+			// Replicate any RPCs to the replay net driver so that they can get saved in network replays
+			NetDriver = GEngine->FindNamedNetDriver(GetWorld(), NAME_DemoNetDriver);
+			if (NetDriver)
+			{
+				NetDriver->ProcessRemoteFunction(this, Function, Parameters, OutParms, Stack, NULL);
+			}
+		}
 		return true;
 	}
 
