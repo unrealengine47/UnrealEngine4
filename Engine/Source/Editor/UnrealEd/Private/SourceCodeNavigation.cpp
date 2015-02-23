@@ -151,12 +151,10 @@ public:
 		return AskedToAbortCount.GetValue() > 0;
 	}
 
-	/** @return Queries the name of this task for for external event viewers */
-	static const TCHAR* Name()
+	FORCEINLINE TStatId GetStatId() const
 	{
-		return TEXT("FAsyncSymbolGatherer");
+		RETURN_QUICK_DECLARE_CYCLE_STAT(FAsyncSymbolGatherer, STATGROUP_ThreadPoolAsyncTasks);
 	}
-
 
 private:
 
@@ -666,10 +664,9 @@ void FSourceCodeNavigation::Initialize()
 			return false;
 		}
 
-		/** @return Queries the name of this task for for external event viewers */
-		static const TCHAR* Name()
+		FORCEINLINE TStatId GetStatId() const
 		{
-			return TEXT("FAsyncInitializeSourceFileDatabase");
+			RETURN_QUICK_DECLARE_CYCLE_STAT(FAsyncInitializeSourceFileDatabase, STATGROUP_ThreadPoolAsyncTasks);
 		}
 	};
 
@@ -1728,7 +1725,7 @@ FString FSourceCodeNavigationImpl::GetSuggestedIDEInstallerFileName()
 void FSourceCodeNavigationImpl::LaunchIDEInstaller(const FString& Filepath)
 {
 #if PLATFORM_WINDOWS
-	auto Params = TEXT("/PromptRestart");
+	auto Params = TEXT("/PromptRestart /ChainingPackage EpicGames_UE4");
 	FPlatformProcess::CreateProc(*Filepath, Params, true, false, false, nullptr, 0, nullptr, nullptr);
 #endif
 }

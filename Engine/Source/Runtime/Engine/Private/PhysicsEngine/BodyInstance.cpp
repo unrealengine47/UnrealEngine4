@@ -209,17 +209,28 @@ FBodyInstance::FBodyInstance()
 , bUseCCD(false)
 , bNotifyRigidBodyCollision(false)
 , bSimulatePhysics(false)
+, bOverrideMass(false)
+, MassInKg(100.f)
+, LinearDamping(0.01)
+, AngularDamping(0.0)
+, bEnableGravity(true)
 , bAutoWeld(false)
 , bWelded(false)
 , bStartAwake(true)
-, bEnableGravity(true)
 , bUpdateMassWhenScaleChanges(false)
-, bOverrideMass(false)
-, MassInKg(100.f)
-, LockedAxisMode(0)
-, CustomLockedAxis(FVector::ZeroVector)
 , bLockTranslation(true)
 , bLockRotation(true)
+, bLockXTranslation(false)
+, bLockYTranslation(false)
+, bLockZTranslation(false)
+, bLockXRotation(false)
+, bLockYRotation(false)
+, bLockZRotation(false)
+, DOFMode(0)
+, CustomDOFPlaneNormal(FVector::ZeroVector)
+, COMNudge(ForceInit)
+, MassScale(1.f)
+, MaxAngularVelocity(400.f)
 , DOFConstraint(NULL)
 , WeldParent(NULL)
 , bUseAsyncScene(false)
@@ -227,12 +238,7 @@ FBodyInstance::FBodyInstance()
 , bOverrideMaxDepenetrationVelocity(false)
 , MaxDepenetrationVelocity(0.f)
 , PhysMaterialOverride(NULL)
-, COMNudge(ForceInit)
 , SleepFamily(SF_Normal)
-, MassScale(1.f)
-, AngularDamping(0.0)
-, LinearDamping(0.01)
-, MaxAngularVelocity(400.f)
 , PhysicsBlendWeight(0.f)
 , PositionSolverIterationCount(8)
 , VelocitySolverIterationCount(1)
@@ -508,34 +514,44 @@ void FBodyInstance::SetCollisionEnabled(ECollisionEnabled::Type NewType, bool bU
 	}
 }
 
-FVector FBodyInstance::GetLockedAxis() const
+
+
+EDOFMode::Type FBodyInstance::ResolveDOFMode(EDOFMode::Type DOFMode)
 {
-	ELockedAxis::Type MyLockedAxis = LockedAxisMode;
-	if (MyLockedAxis == ELockedAxis::Default)
+	EDOFMode::Type ResultDOF = DOFMode;
+	if (DOFMode == EDOFMode::Default)
 	{
-		ESettingsLockedAxis::Type SettingLockedAxis = UPhysicsSettings::Get()->LockedAxis;
-		if (SettingLockedAxis == ESettingsLockedAxis::X) MyLockedAxis = ELockedAxis::X;
-		if (SettingLockedAxis == ESettingsLockedAxis::Y) MyLockedAxis = ELockedAxis::Y;
-		if (SettingLockedAxis == ESettingsLockedAxis::Z) MyLockedAxis = ELockedAxis::Z;
-		if (SettingLockedAxis == ESettingsLockedAxis::None) MyLockedAxis = ELockedAxis::None;
+		ESettingsDOF::Type SettingDefaultPlane = UPhysicsSettings::Get()->DefaultDegreesOfFreedom;
+		if (SettingDefaultPlane == ESettingsDOF::XYPlane) ResultDOF = EDOFMode::XYPlane;
+		if (SettingDefaultPlane == ESettingsDOF::XZPlane) ResultDOF = EDOFMode::XZPlane;
+		if (SettingDefaultPlane == ESettingsDOF::YZPlane) ResultDOF = EDOFMode::YZPlane;
+		if (SettingDefaultPlane == ESettingsDOF::Full3D) ResultDOF  = EDOFMode::SixDOF;
 	}
 
-	switch (MyLockedAxis)
+	return ResultDOF;
+}
+
+FVector FBodyInstance::GetLockedAxis() const
+{
+	EDOFMode::Type MyDOFMode = ResolveDOFMode(DOFMode);
+
+	switch (MyDOFMode)
 	{
-	case ELockedAxis::None: return FVector::ZeroVector;
-	case ELockedAxis::X: return FVector(1, 0, 0);
-	case ELockedAxis::Y: return FVector(0, 1, 0);
-	case ELockedAxis::Z: return FVector(0, 0, 1);
-	case ELockedAxis::Custom: return CustomLockedAxis;
+	case EDOFMode::None: return FVector::ZeroVector;
+	case EDOFMode::YZPlane: return FVector(1, 0, 0);
+	case EDOFMode::XZPlane: return FVector(0, 1, 0);
+	case EDOFMode::XYPlane: return FVector(0, 0, 1);
+	case EDOFMode::CustomPlane: return CustomDOFPlaneNormal;
+	case EDOFMode::SixDOF: return FVector::ZeroVector;
 	default:	check(0);	//unsupported locked axis type
 	}
 
 	return FVector::ZeroVector;
 }
 
-void FBodyInstance::SetDOFLock(ELockedAxis::Type NewAxisMode)
+void FBodyInstance::SetDOFLock(EDOFMode::Type NewAxisMode)
 {
-	LockedAxisMode = NewAxisMode;
+	DOFMode = NewAxisMode;
 
 	CreateDOFLock();
 }
@@ -549,10 +565,16 @@ void FBodyInstance::CreateDOFLock()
 		DOFConstraint = NULL;
 	}
 
-	//setup constraint based on DOF
-	FVector LockedAxis = GetLockedAxis();
+	const FVector LockedAxis = GetLockedAxis();
+	const EDOFMode::Type DOF = ResolveDOFMode(DOFMode);
 
-	if (IsDynamic() == false || LockedAxis.IsNearlyZero())
+	if (IsDynamic() == false || (LockedAxis.IsNearlyZero() && DOF != EDOFMode::SixDOF))
+	{
+		return;
+	}
+
+	//if we're using SixDOF make sure we have at least one constraint
+	if (DOF == EDOFMode::SixDOF && !bLockXTranslation && !bLockYTranslation && !bLockZTranslation && !bLockXRotation && !bLockYRotation && !bLockZRotation)
 	{
 		return;
 	}
@@ -562,22 +584,35 @@ void FBodyInstance::CreateDOFLock()
 		DOFConstraint->bSwingLimitSoft = false;
 		DOFConstraint->bTwistLimitSoft = false;
 		DOFConstraint->bLinearLimitSoft = false;
-		//set all rotation to free
-		DOFConstraint->AngularSwing1Motion = bLockRotation ? EAngularConstraintMotion::ACM_Locked : EAngularConstraintMotion::ACM_Free;
-		DOFConstraint->AngularSwing2Motion = bLockRotation ? EAngularConstraintMotion::ACM_Locked : EAngularConstraintMotion::ACM_Free;
-		DOFConstraint->AngularTwistMotion = EAngularConstraintMotion::ACM_Free;
 
-		DOFConstraint->LinearXMotion = bLockTranslation ? ELinearConstraintMotion::LCM_Locked : ELinearConstraintMotion::LCM_Free;
-		DOFConstraint->LinearYMotion = ELinearConstraintMotion::LCM_Free;
-		DOFConstraint->LinearZMotion = ELinearConstraintMotion::LCM_Free;
-
-		FVector Normal = LockedAxis.GetSafeNormal();
-		FVector Sec;
-		FVector Garbage;
-		Normal.FindBestAxisVectors(Garbage, Sec);
+		const FTransform TM = GetUnrealWorldTransform();
+		FVector Normal = FVector(1, 0, 0);
+		FVector Sec = FVector(0, 1, 0);
 
 
-		FTransform TM = GetUnrealWorldTransform();
+		if(DOF != EDOFMode::SixDOF)
+		{
+			DOFConstraint->AngularSwing1Motion = (bLockRotation || DOFMode != EDOFMode::CustomPlane) ? EAngularConstraintMotion::ACM_Locked : EAngularConstraintMotion::ACM_Free;
+			DOFConstraint->AngularSwing2Motion = (bLockRotation || DOFMode != EDOFMode::CustomPlane) ? EAngularConstraintMotion::ACM_Locked : EAngularConstraintMotion::ACM_Free;
+			DOFConstraint->AngularTwistMotion = EAngularConstraintMotion::ACM_Free;
+
+			DOFConstraint->LinearXMotion = (bLockTranslation || DOFMode != EDOFMode::CustomPlane) ? ELinearConstraintMotion::LCM_Locked : ELinearConstraintMotion::LCM_Free;
+			DOFConstraint->LinearYMotion = ELinearConstraintMotion::LCM_Free;
+			DOFConstraint->LinearZMotion = ELinearConstraintMotion::LCM_Free;
+
+			Normal = LockedAxis.GetSafeNormal();
+			FVector Garbage;
+			Normal.FindBestAxisVectors(Garbage, Sec);
+		}else
+		{
+			DOFConstraint->AngularTwistMotion = bLockXRotation ? EAngularConstraintMotion::ACM_Locked : EAngularConstraintMotion::ACM_Free;
+			DOFConstraint->AngularSwing2Motion = bLockYRotation ? EAngularConstraintMotion::ACM_Locked : EAngularConstraintMotion::ACM_Free;
+			DOFConstraint->AngularSwing1Motion = bLockZRotation ? EAngularConstraintMotion::ACM_Locked : EAngularConstraintMotion::ACM_Free;
+
+			DOFConstraint->LinearXMotion = bLockXTranslation ? ELinearConstraintMotion::LCM_Locked : ELinearConstraintMotion::LCM_Free;
+			DOFConstraint->LinearYMotion = bLockYTranslation ? ELinearConstraintMotion::LCM_Locked : ELinearConstraintMotion::LCM_Free;
+			DOFConstraint->LinearZMotion = bLockZTranslation ? ELinearConstraintMotion::LCM_Locked : ELinearConstraintMotion::LCM_Free;
+		}
 
 		DOFConstraint->PriAxis1 = TM.InverseTransformVectorNoScale(Normal);
 		DOFConstraint->SecAxis1 = TM.InverseTransformVectorNoScale(Sec);
@@ -1003,8 +1038,8 @@ void FBodyInstance::InitBody_Legacy(UBodySetup* Setup, const FTransform& Transfo
 		}
 	}
 
-	// See if we are 'static' - note that we use the PhysicsMobility setting here which "shadows" the actual Mobility setting in most cases but also will remain constant e.g. during UCS execution
-	const bool bPhysicsStatic = (OwnerComponent == NULL) || (OwnerComponent->PhysicsMobility != EComponentMobility::Movable);
+	// See if we are 'static'
+	const bool bPhysicsStatic = (OwnerComponent == NULL) || (OwnerComponent->Mobility != EComponentMobility::Movable);
 
 	// In skeletal case, we need both our bone and skelcomponent flag to be true.
 	// This might be 'and'ing us with ourself, but thats fine.
@@ -3023,6 +3058,29 @@ float FBodyInstance::GetBodyMass() const
 	return Retval;
 }
 
+
+FVector FBodyInstance::GetBodyInertiaTensor() const
+{
+	FVector Retval = FVector::ZeroVector;
+
+#if WITH_PHYSX
+	if (PxRigidBody* PRigidBody = GetPxRigidBody())
+	{
+		SCOPED_SCENE_READ_LOCK(PRigidBody->getScene());
+		Retval = P2UVector(PRigidBody->getMassSpaceInertiaTensor());
+	}
+#endif // WITH_PHYSX
+
+#if WITH_BOX2D
+	if (BodyInstancePtr != nullptr)
+	{
+		Retval = FVector(BodyInstancePtr->GetInertia(), 0.f, 0.f);
+	}
+#endif
+
+	return Retval;
+}
+
 FBox FBodyInstance::GetBodyBounds() const
 {
 	FBox Bounds;
@@ -3325,6 +3383,8 @@ void FBodyInstance::UpdateMassProperties()
 			
 			// Apply user-defined mass scaling.
 			NewMass *= FMath::Clamp<float>(MassScale, 0.01f, 100.0f);
+
+			MassInKg = NewMass;	//update the override mass to be the default mass
 		}
 		else
 		{
@@ -3597,7 +3657,7 @@ void FBodyInstance::AddCustomPhysics(FCalculateCustomPhysics& CalculateCustomPhy
 #endif
 }
 
-void FBodyInstance::AddForce(const FVector& Force, bool bAllowSubstepping)
+void FBodyInstance::AddForce(const FVector& Force, bool bAllowSubstepping, bool bAccelChange)
 {
 #if WITH_PHYSX
 	PxRigidBody* PRigidBody = GetPxRigidBody();
@@ -3605,7 +3665,7 @@ void FBodyInstance::AddForce(const FVector& Force, bool bAllowSubstepping)
 	{
 		const PxScene* PScene = PRigidBody->getScene();
 		FPhysScene* PhysScene = FPhysxUserData::Get<FPhysScene>(PScene->userData);
-		PhysScene->AddForce(this, Force, bAllowSubstepping);
+		PhysScene->AddForce(this, Force, bAllowSubstepping, bAccelChange);
 		
 	}
 #endif // WITH_PHYSX
@@ -3616,7 +3676,7 @@ void FBodyInstance::AddForce(const FVector& Force, bool bAllowSubstepping)
 		if (!Force.IsNearlyZero())
 		{
 			const b2Vec2 Force2D = FPhysicsIntegration2D::ConvertUnrealVectorToBox(Force);
-			BodyInstancePtr->ApplyForceToCenter(Force2D, /*wake=*/ true);
+			BodyInstancePtr->ApplyForceToCenter(bAccelChange ? (BodyInstancePtr->GetMass() * Force2D) : Force2D, /*wake=*/ true);
 		}
 	}
 #endif
@@ -3647,7 +3707,7 @@ void FBodyInstance::AddForceAtPosition(const FVector& Force, const FVector& Posi
 #endif
 }
 
-void FBodyInstance::AddTorque(const FVector& Torque, bool bAllowSubstepping)
+void FBodyInstance::AddTorque(const FVector& Torque, bool bAllowSubstepping, bool bAccelChange)
 {
 #if WITH_PHYSX
 	PxRigidBody* PRigidBody = GetPxRigidBody();
@@ -3655,14 +3715,14 @@ void FBodyInstance::AddTorque(const FVector& Torque, bool bAllowSubstepping)
 	{
 		const PxScene* PScene = PRigidBody->getScene();
 		FPhysScene* PhysScene = FPhysxUserData::Get<FPhysScene>(PScene->userData);
-		PhysScene->AddTorque(this, Torque, bAllowSubstepping);
+		PhysScene->AddTorque(this, Torque, bAllowSubstepping, bAccelChange);
 	}
 #endif // WITH_PHYSX
 
 #if WITH_BOX2D
 	if (BodyInstancePtr)
 	{
-		const float Torque1D = FPhysicsIntegration2D::ConvertUnrealTorqueToBox(Torque);
+		const float Torque1D = FPhysicsIntegration2D::ConvertUnrealTorqueToBox(Torque) * (bAccelChange ? BodyInstancePtr->GetInertia() : 1.f);
 		if (!FMath::IsNearlyZero(Torque1D))
 		{
 			BodyInstancePtr->ApplyTorque(Torque1D, /*wake=*/ true);
@@ -3835,20 +3895,23 @@ void FBodyInstance::AddRadialImpulseToBody(const FVector& Origin, float Radius, 
 #endif
 }
 
-void FBodyInstance::AddRadialForceToBody(const FVector& Origin, float Radius, float Strength, uint8 Falloff)
+void FBodyInstance::AddRadialForceToBody(const FVector& Origin, float Radius, float Strength, uint8 Falloff, bool bAccelChange, bool bAllowSubstepping)
 {
 #if WITH_PHYSX
 	PxRigidBody* PRigidBody = GetPxRigidBody();
 	if (IsRigidBodyNonKinematic(PRigidBody))
 	{
-		AddRadialForceToPxRigidBody(*PRigidBody, Origin, Radius, Strength, Falloff);
+		const PxScene* PScene = PRigidBody->getScene();
+		FPhysScene* PhysScene = FPhysxUserData::Get<FPhysScene>(PScene->userData);
+		PhysScene->AddRadialForceToBody(this, Origin, Radius, Strength, Falloff, bAccelChange, bAllowSubstepping);
+
 	}
 #endif // WITH_PHYSX
 
 #if WITH_BOX2D
 	if (BodyInstancePtr)
 	{
-		AddRadialImpulseToBox2DBodyInstance(BodyInstancePtr, Origin, Radius, Strength, static_cast<ERadialImpulseFalloff>(Falloff), /*bImpulse=*/ false, /*bMassIndependent=*/ false);
+		AddRadialImpulseToBox2DBodyInstance(BodyInstancePtr, Origin, Radius, Strength, static_cast<ERadialImpulseFalloff>(Falloff), /*bImpulse=*/ false, /*bMassIndependent=*/ bAccelChange);
 	}
 #endif
 }
@@ -4133,13 +4196,13 @@ float FBodyInstance::GetDistanceToBody(const FVector& Point, FVector& OutPointOn
 	//@TODO: BOX2D: Implement DistanceToBody
 }
 
-bool FBodyInstance::OverlapTest(const FVector& Position, const FQuat& Rotation, const struct FCollisionShape& CollisionShape) const
+bool FBodyInstance::OverlapTest(const FVector& Position, const FQuat& Rotation, const struct FCollisionShape& CollisionShape, FMTDResult* OutMTD) const
 {
 	bool bHasOverlap = false;
 
 #if WITH_PHYSX
 	FPhysXShapeAdaptor ShapeAdaptor(Rotation, CollisionShape);
-	bHasOverlap = OverlapPhysX(ShapeAdaptor.GetGeometry(), ShapeAdaptor.GetGeomPose(Position));
+	bHasOverlap = OverlapPhysX(ShapeAdaptor.GetGeometry(), ShapeAdaptor.GetGeomPose(Position), OutMTD);
 #endif
 
 #if WITH_BOX2D
@@ -4256,7 +4319,7 @@ bool FBodyInstance::OverlapMulti(TArray<struct FOverlapResult>& InOutOverlaps, c
 
 
 #if WITH_PHYSX
-bool FBodyInstance::OverlapPhysX(const PxGeometry& PGeom, const PxTransform& ShapePose) const
+bool FBodyInstance::OverlapPhysX(const PxGeometry& PGeom, const PxTransform& ShapePose, FMTDResult* OutMTD) const
 {
 	const PxRigidActor* RigidBody = WeldParent ? WeldParent->GetPxRigidActor() : GetPxRigidActor();
 
@@ -4278,10 +4341,18 @@ bool FBodyInstance::OverlapPhysX(const PxGeometry& PGeom, const PxTransform& Sha
 
 		if (ShapeBoundToBody(PShape, this) == true)
 		{
-			if (PxGeometryQuery::overlap(PShape->getGeometry().any(), PxShapeExt::getGlobalPose(*PShape, *RigidBody), PGeom, ShapePose))
+			PxVec3 POutDirection;
+			float OutDistance;
+			if (PxGeometryQuery::computePenetration(POutDirection, OutDistance, PGeom, ShapePose, PShape->getGeometry().any(), PxShapeExt::getGlobalPose(*PShape, *RigidBody)))
 			{
+				if(OutMTD)
+				{
+					OutMTD->Direction = P2UVector(POutDirection);
+					OutMTD->Distance = OutDistance;
+				}
+					
 				return true;
-			}
+			}			
 		}
 	}
 	return false;

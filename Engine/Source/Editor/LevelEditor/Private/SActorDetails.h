@@ -9,7 +9,6 @@ class SActorDetails : public SCompoundWidget, public FEditorUndoClient
 {
 public:
 	SLATE_BEGIN_ARGS(SActorDetails) {}
-		SLATE_ARGUMENT( TSharedPtr<FExtender>, ActorMenuExtender )
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs, const FName TabIdentifier);
@@ -20,7 +19,7 @@ public:
 	 *
 	 * @param InObjects	The objects to set
 	 */
-	void SetObjects(const TArray<UObject*>& InObjects);
+	void SetObjects(const TArray<UObject*>& InObjects, bool bForceRefresh = false);
 
 	/** FEditorUndoClient Interface */
 	virtual void PostUndo(bool bSuccess) override;
@@ -29,6 +28,7 @@ public:
 private:
 	AActor* GetSelectedActorInEditor() const;
 	AActor* GetActorContext() const;
+	bool GetAllowComponentTreeEditing() const;
 
 	void OnComponentsEditedInWorld();
 	void OnEditorSelectionChanged(UObject* Object);

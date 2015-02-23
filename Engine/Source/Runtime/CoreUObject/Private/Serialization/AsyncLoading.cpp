@@ -900,14 +900,33 @@ EAsyncPackageState::Type FAsyncPackage::FinishObjects()
 		Object->ClearFlags( RF_AsyncLoading );
 	}
 	GObjConstructedDuringAsyncLoading.Empty();
-			
-	// Simulate what EndLoad does.
-	GObjLoaded.Empty();
+		
+	EAsyncLoadingResult::Type LoadingResult;
+	if (!bLoadHasFailed)
+	{
+		GObjLoaded.Empty();
+		LoadingResult = EAsyncLoadingResult::Succeeded;		
+	}
+	else
+	{
+		// Cleanup objects from this package only
+		for (int ObjectIndex = GObjLoaded.Num() - 1; ObjectIndex >= 0; --ObjectIndex)
+		{
+			UObject* Object = GObjLoaded[ObjectIndex];
+			if (Object->GetOutermost()->GetFName() == PackageName)
+			{
+				Object->ClearFlags(RF_NeedPostLoad | RF_NeedLoad | RF_NeedPostLoadSubobjects);
+				Object->MarkPendingKill();
+				GObjLoaded.RemoveAt(ObjectIndex);
+			}			
+		}
+		LoadingResult = EAsyncLoadingResult::Failed;
+	}
+
+	// Simulate what EndLoad does.	
 	DissociateImportsAndForcedExports(); //@todo: this should be avoidable
 	PreLoadIndex = 0;
 	PostLoadIndex = 0;
-
-	EAsyncLoadingResult::Type LoadingResult = bLoadHasFailed ? EAsyncLoadingResult::Failed : EAsyncLoadingResult::Succeeded;
 
 	// If we successfully loaded
 	if (!bLoadHasFailed)
@@ -1294,11 +1313,12 @@ FArchiveAsync::FArchiveAsync( const TCHAR* InFileName )
 void FArchiveAsync::FlushCache()
 {
 	// Wait on all outstanding requests.
-	while( PrecacheReadStatus[CURRENT].GetValue() || PrecacheReadStatus[NEXT].GetValue() )
+	FPlatformProcess::ConditionalSleep( [&]()
 	{
 		SHUTDOWN_IF_EXIT_REQUESTED;
-		FPlatformProcess::Sleep(0.0001);
-	}
+		return PrecacheReadStatus[CURRENT].GetValue()==0 && PrecacheReadStatus[NEXT].GetValue()==0;
+	} );
+
 	uint32 Delta = 0;
 
 	// Invalidate any precached data and free memory for current buffer.
@@ -1613,23 +1633,22 @@ void FArchiveAsync::Serialize( void* Data, int64 Count )
 	// Make sure serialization request fits entirely in already precached region.
 	if( !PrecacheBufferContainsRequest( CurrentPos, Count ) )
 	{
+		DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "FArchiveAsync::Serialize.PrecacheBufferContainsRequest" ), STAT_ArchiveAsync_Serialize_PrecacheBufferContainsRequest, STATGROUP_AsyncLoad );
+
 		// Keep track of time we started to block.
 		StartTime	= FPlatformTime::Seconds();
 		bIOBlocked	= true;
 
 		// Busy wait for region to be precached.
-		while( !Precache( CurrentPos, Count ) )
+		FPlatformProcess::ConditionalSleep( [&]()
 		{
 			SHUTDOWN_IF_EXIT_REQUESTED;
-			if (FPlatformProcess::SupportsMultithreading())
-			{
-				FPlatformProcess::Sleep(0);
-			}
-			else
+			if( !FPlatformProcess::SupportsMultithreading() )
 			{
 				FIOSystem::Get().TickSingleThreaded();
-			}	
-		}
+			}
+			return Precache( CurrentPos, Count );
+		} );
 
 		// There shouldn't be any outstanding read requests for the main buffer at this point.
 		check( PrecacheReadStatus[CURRENT].GetValue() == 0 );
@@ -1637,25 +1656,22 @@ void FArchiveAsync::Serialize( void* Data, int64 Count )
 	
 	// Make sure to wait till read request has finished before progressing. This can happen if PreCache interface
 	// is not being used for serialization.
-	while( PrecacheReadStatus[CURRENT].GetValue() != 0 )
+	FPlatformProcess::ConditionalSleep( [&]()
 	{
 		SHUTDOWN_IF_EXIT_REQUESTED;
 		// Only update StartTime if we haven't already started blocking I/O above.
 		if( !bIOBlocked )
 		{
 			// Keep track of time we started to block.
-			StartTime	= FPlatformTime::Seconds();
-			bIOBlocked	= true;
+			StartTime = FPlatformTime::Seconds();
+			bIOBlocked = true;
 		}
-		if (FPlatformProcess::SupportsMultithreading())
-		{
-			FPlatformProcess::Sleep(0);
-		}
-		else
+		if( !FPlatformProcess::SupportsMultithreading() )
 		{
 			FIOSystem::Get().TickSingleThreaded();
-		}		
-	}
+		}
+		return PrecacheReadStatus[CURRENT].GetValue() == 0;
+	} );
 
 	// Update stats if we were blocked.
 #if STATS

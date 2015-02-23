@@ -48,7 +48,7 @@ void FSequencerNodeTree::Update()
 	// Make nodes for all object bindings
 	for( int32 BindingIndex = 0; BindingIndex < ObjectBindings.Num(); ++BindingIndex )
 	{
-		TSharedRef<FObjectBindingNode> ObjectBindingNode = AddObjectBinding( ObjectBindings[BindingIndex].GetDisplayName(), ObjectBindings[BindingIndex].GetObjectGuid() );
+		TSharedRef<FObjectBindingNode> ObjectBindingNode = AddObjectBinding( ObjectBindings[BindingIndex].GetName(), ObjectBindings[BindingIndex].GetObjectGuid() );
 
 		const TArray<UMovieSceneTrack*>& Tracks = ObjectBindings[BindingIndex].GetTracks();
 
@@ -133,7 +133,7 @@ const TArray< TSharedRef<FSequencerDisplayNode> >& FSequencerNodeTree::GetRootNo
 }
 
 
-TSharedRef<FObjectBindingNode> FSequencerNodeTree::AddObjectBinding( const FText& ObjectName, const FGuid& ObjectBinding )
+TSharedRef<FObjectBindingNode> FSequencerNodeTree::AddObjectBinding( const FString& ObjectName, const FGuid& ObjectBinding )
 {
 	// The node name is the object guid
 	FName ObjectNodeName = *ObjectBinding.ToString();
@@ -197,6 +197,7 @@ void FSequencerNodeTree::SetSelectionState( TSharedRef<const FSequencerDisplayNo
 		// Not selecting so remove the node from the selection set
 		SelectedNodes.Remove( AffectedNode );
 	}
+	OnSelectionChanged.Broadcast();
 }
 
 bool FSequencerNodeTree::IsNodeSelected( TSharedRef<const FSequencerDisplayNode> Node ) const
@@ -294,4 +295,9 @@ void FSequencerNodeTree::UpdateCachedVisibilityBasedOnShotFiltersChanged()
 	{
 		RootNodes[i]->UpdateCachedShotFilteredVisibility();
 	}
+}
+
+FSequencerNodeTree::FOnSelectionChanged* FSequencerNodeTree::GetOnSelectionChanged()
+{
+	return &OnSelectionChanged;
 }

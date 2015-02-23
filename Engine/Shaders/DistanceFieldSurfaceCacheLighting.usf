@@ -109,10 +109,7 @@ void ComputeDistanceFieldNormalPS(
 	float SceneDepth = CalcSceneDepth(ScreenUV);
 	FGBufferData GBufferData = GetGBufferData(ScreenUV);
 
-	float3 WorldNormal = GBufferData.WorldNormal;
-	float DepthSign = GBufferData.HasDistanceFieldRepresentation > 0 ? 1 : -1;
-	// Note: Encoding whether the pixel has a distance field representation in the sign bit of the alpha
-	OutColor = float4(WorldNormal, DepthSign * SceneDepth);
+	OutColor = EncodeDownsampledGBuffer(GBufferData, SceneDepth);
 }
 
 RWTexture2D<float4> RWDistanceFieldNormal;
@@ -127,9 +124,7 @@ void ComputeDistanceFieldNormalCS(
 	float SceneDepth = CalcSceneDepth(ScreenUV);
 	FGBufferData GBufferData = GetGBufferData(ScreenUV);
 
-	float3 WorldNormal = GBufferData.WorldNormal;
-	float DepthSign = GBufferData.HasDistanceFieldRepresentation > 0 ? 1 : -1;
-	float4 OutValue = float4(WorldNormal, DepthSign * SceneDepth);
+	float4 OutValue = EncodeDownsampledGBuffer(GBufferData, SceneDepth);
 	RWDistanceFieldNormal[DispatchThreadId.xy] = OutValue;
 }
 
@@ -139,10 +134,15 @@ void WriteDownsampledDepthPS(
 	out float OutDepth : SV_Depth)
 {
 	float2 DistanceFieldUVs = UVAndScreenPos.xy;
-	float Depth = abs(Texture2DSampleLevel(DistanceFieldNormalTexture, DistanceFieldNormalSampler, DistanceFieldUVs, 0).w);
+
+	float3 WorldNormal;
+	float SceneDepth;
+	bool bHasDistanceFieldRepresentation;
+	bool bHasHeightfieldRepresentation;
+	GetDownsampledGBuffer(DistanceFieldUVs, WorldNormal, SceneDepth, bHasDistanceFieldRepresentation, bHasHeightfieldRepresentation);
 
 	OutColor = 0;
-	OutDepth = ConvertToDeviceZ(Depth);
+	OutDepth = ConvertToDeviceZ(SceneDepth);
 }
 
 // For some reason gives innaccurate results at lower resolutions
@@ -216,7 +216,7 @@ void IrradianceCacheSplatVS(
 	VirtualRadius += HackExpand * ViewToCenterLength * 4;
 #endif
 
-	float4 RecordNormalAndTime = IrradianceCacheNormal.Load(JobIndex);
+	float3 RecordNormal = IrradianceCacheNormal.Load(JobIndex).xyz;
 
 	float2 CornerUVs = InUV;
 	float3 CornerPosition = VirtualPosition + (View.ViewRight * CornerUVs.x + View.ViewUp * CornerUVs.y) * VirtualRadius;
@@ -233,7 +233,7 @@ void IrradianceCacheSplatVS(
 	Output.PositionRadius = PositionAndRadius; 
 
 	float Fade = 1;
-	Output.NormalAndFade = float4(RecordNormalAndTime.xyz, Fade);
+	Output.NormalAndFade = float4(RecordNormal, Fade);
 
 #if FINAL_INTERPOLATION_PASS
 	Output.BentNormal = IrradianceCacheBentNormal.Load(JobIndex).xyz;
@@ -264,19 +264,23 @@ void IrradianceCacheSplatPS(
 #endif
 
 	float2 BaseLevelScreenUV = float2((((uint2)SVPos.xy) * DownsampleFactorToBaseLevel + .5f) * BaseLevelTexelSize);
-	float4 DistanceFieldNormalValue = Texture2DSampleLevel(DistanceFieldNormalTexture, DistanceFieldNormalSampler, BaseLevelScreenUV, 0);
+
+	float3 WorldNormal;
+	float SceneDepth;
+	bool bHasDistanceFieldRepresentation;
+	bool bHasHeightfieldRepresentation;
+	GetDownsampledGBuffer(BaseLevelScreenUV, WorldNormal, SceneDepth, bHasDistanceFieldRepresentation, bHasHeightfieldRepresentation);
 
 #if USE_SCREENVECTOR_WORLD_POSITION
 
-	float SceneW = abs(DistanceFieldNormalValue.w);
-	float3 OpaqueWorldPosition = View.ViewOrigin.xyz + Input.ScreenVector * SceneW;
+	float3 OpaqueWorldPosition = View.ViewOrigin.xyz + Input.ScreenVector * SceneDepth;
 
 #else
 
 	float2 ScreenUV = float2((((uint2)SVPos.xy) * CurrentLevelDownsampleFactor + View.ViewRectMin.xy + float2(.5f, .5f)) * View.ViewSizeAndSceneTexelSize.zw);
-	float SceneW = CalcSceneDepth(ScreenUV); 
+	SceneDepth = CalcSceneDepth(ScreenUV); 
 	float2 ScreenPosition = (ScreenUV.xy - View.ScreenPositionScaleBias.wz) / View.ScreenPositionScaleBias.xy;
-	float4 HomogeneousWorldPosition = mul(float4(ScreenPosition.xy * SceneW, SceneW, 1), View.ScreenToWorld);
+	float4 HomogeneousWorldPosition = mul(float4(ScreenPosition.xy * SceneDepth, SceneDepth, 1), View.ScreenToWorld);
 	float3 OpaqueWorldPosition = HomogeneousWorldPosition.xyz / HomogeneousWorldPosition.w;
 
 #endif
@@ -286,9 +290,8 @@ void IrradianceCacheSplatPS(
 	float Weight = 0;
 
 	BRANCH
-	if (DistanceError < 1 && SceneW < AOMaxViewDistance)
+	if (DistanceError < 1 && SceneDepth < AOMaxViewDistance)
 	{ 
-		float3 WorldNormal = DistanceFieldNormalValue.xyz;
 		float3 RecordNormal = Input.NormalAndFade.xyz;
 		float NormalError = InterpolationAngleNormalization * sqrt(saturate(1 - dot(WorldNormal, RecordNormal)));
 
@@ -311,7 +314,7 @@ void IrradianceCacheSplatPS(
 
 #if FINAL_INTERPOLATION_PASS
 		// Pixels without a distance field representation interpolate AO instead of a bent normal
-		float3 InterpolatedValue = DistanceFieldNormalValue.w < 0 ? length(Input.BentNormal).xxx : Input.BentNormal;
+		float3 InterpolatedValue = bHasDistanceFieldRepresentation ? Input.BentNormal : length(Input.BentNormal).xxx;
 		OutBentNormal.rgb = InterpolatedValue * Weight;
 		#if SUPPORT_IRRADIANCE
 			OutIrradiance.rgb = Input.Irradiance * Weight;
@@ -323,7 +326,7 @@ void IrradianceCacheSplatPS(
 	#define VISUALIZE_SPLAT_OVERDRAW 0
 	#if VISUALIZE_SPLAT_OVERDRAW && FINAL_INTERPOLATION_PASS
 		OutBentNormal.rgb = 0;
-		//OutBentNormal.a = Input.Position.w <= SceneW ? .01f : 0.0f;
+		//OutBentNormal.a = Input.Position.w <= SceneDepth ? .01f : 0.0f;
 		OutBentNormal.a = .005f;// + (Weight > .001f ? .01f : 0);
 	#endif
 
@@ -344,6 +347,7 @@ Buffer<float4> DebugBuffer;
 
 // 1 / ((1 - FadeDistanceFraction) * AOMaxViewDistance)
 float DistanceFadeScale;
+float SelfOcclusionReplacement;
 
 /** Normalizes the splatted surface cache values, packs depth in alpha. */
 void AOCombinePS(
@@ -358,8 +362,11 @@ void AOCombinePS(
 	OutIrradiance = 0;
 #endif
 
-	float4 DistanceFieldNormalValue = Texture2DSampleLevel(DistanceFieldNormalTexture, DistanceFieldNormalSampler, UVAndScreenPos.xy, 0);
-	float SceneDepth = abs(DistanceFieldNormalValue.w);
+	float3 WorldNormal;
+	float SceneDepth;
+	bool bHasDistanceFieldRepresentation;
+	bool bHasHeightfieldRepresentation;
+	GetDownsampledGBuffer(UVAndScreenPos.xy, WorldNormal, SceneDepth, bHasDistanceFieldRepresentation, bHasHeightfieldRepresentation);
 
 #define VISUALIZE_ACCUMULATED_WEIGHTS 0
 #if VISUALIZE_ACCUMULATED_WEIGHTS
@@ -376,15 +383,20 @@ void AOCombinePS(
 		OutBentNormal.rgb = BentNormalAccumulation.xyz / BentNormalAccumulation.w;
 		OutBentNormal.a = SceneDepth;
 
-		if (DistanceFieldNormalValue.w < 0)
+		if (!bHasDistanceFieldRepresentation)
 		{
 			// Pixels without a distance field representation interpolate AO instead of a bent normal
 			// Construct a bent normal from the interpolated AO
-			OutBentNormal.rgb = OutBentNormal.r * DistanceFieldNormalValue.xyz;
+			OutBentNormal.rgb = OutBentNormal.r * WorldNormal;
 		}
 
 		#if SUPPORT_IRRADIANCE
 			OutIrradiance.rgb = Texture2DSampleLevel(IrradianceTexture, IrradianceSampler, UVAndScreenPos.xy, 0).xyz / BentNormalAccumulation.w;
+
+			if (!bHasDistanceFieldRepresentation && !bHasHeightfieldRepresentation)
+			{
+				OutIrradiance.rgb *= SelfOcclusionReplacement;
+			}
 		#endif
 	}
 	else
@@ -410,79 +422,6 @@ void AOCombinePS(
 		OutBentNormal.a = abs(OutBentNormal.a);
 	}
 
-#endif
-
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#define VISUALIZE_SCENE_COLOR_GATHER 0
-#define VISUALIZE_DEBUG 0
-#if VISUALIZE_DEBUG && SUPPORT_IRRADIANCE
-
-	float2 ScreenPosition = (UVAndScreenPos.xy - View.ScreenPositionScaleBias.wz) / View.ScreenPositionScaleBias.xy;
-
-	float4 HomogeneousWorldPosition = mul(float4(ScreenPosition * SceneDepth, SceneDepth, 1), View.ScreenToWorld);
-	float3 OpaqueWorldPosition = HomogeneousWorldPosition.xyz / HomogeneousWorldPosition.w;
-	float3 ShadingPosition = DebugBuffer[0].xyz;
-
-	float Distance = length(OpaqueWorldPosition - ShadingPosition);
-	float ScaledDistance = pow(Distance / 20, .01f);
-	OutIrradiance.rgb = 2 * (1 - saturate(ScaledDistance)) * float3(.1f, 1, .1f);
-
-	for (int i = 0; i < 9; i++)
-	{
-		float4 GatheredSceneColorAndVisibility = DebugBuffer[1 + i * 3 + 2];
-
-		for (int j = 0; j < 1; j++)
-		{
-			float4 ClosestPositionAndRadius = DebugBuffer[1 + i * 3 + j];
-			float Distance2 = length(OpaqueWorldPosition - ClosestPositionAndRadius.xyz) / ClosestPositionAndRadius.w;
-			Distance2 = pow(Distance2, .5f);
-
-			if (Distance2 < 1)
-			{
-				//OutIrradiance.rgb += (1 - saturate(Distance2)) * 2 * float3(1, .1f, .1f) * (1 - GatheredSceneColorAndVisibility.w);
-				#if !VISUALIZE_SCENE_COLOR_GATHER
-					//OutIrradiance.rgb += GatheredSceneColorAndVisibility.xyz * (1 - GatheredSceneColorAndVisibility.w);
-				#endif
-			}
-
-			//if (GatheredSceneColorAndVisibility.w < .9f)
-			{
-				OutIrradiance.rgb += (1 - saturate(abs(Distance2 - 1) * 100)) * .4f * float3(1, .1f, .1f);
-			}
-		}
-	}
-
-	#if VISUALIZE_SCENE_COLOR_GATHER
-		
-		float SphereRadius = 50;
-
-		if (Distance < SphereRadius)
-		{
-			float3 ConePositionAtClosestToOccluder = ShadingPosition;
-			float4 ClipPosition = mul(float4(ConePositionAtClosestToOccluder, 1), View.WorldToClip);
-			float2 ScreenUV = ScreenAlignedPosition(ClipPosition).xy;
-			float UVDiskRadius = SphereRadius / ClipPosition.w * View.ViewToClip[0][0] * .5f;
-
-			uint NumSamplesPerCone = 81;
-
-			float3 GatheredColor = 0;
-			float GatheredWeight = .0001f;
-
-			for (uint SampleIndex = 0; SampleIndex < NumSamplesPerCone; SampleIndex++)
-			{
-				float2 Random = Hammersley(SampleIndex, NumSamplesPerCone, uint2(0, 0));
-				float2 UVOffset = UniformSampleDisk(Random);
-				float2 SampleUV = ScreenUV + UVOffset * UVDiskRadius;
-				float3 SampleSceneColor = CalcSceneColor(SampleUV);
-				float SampleSceneDepth = CalcSceneDepth(SampleUV);
-				float Weight = 1 - saturate(abs(SampleSceneDepth - ClipPosition.w) / SphereRadius);
-				GatheredColor += SampleSceneColor * Weight;
-				GatheredWeight += Weight;
-			} 
-		
-			OutIrradiance.rgb = GatheredColor / GatheredWeight;
-		}
-	#endif
 #endif
 }
 
@@ -517,9 +456,9 @@ void FillGapsPS(
 			float ValidMask = TextureValue.w > 0;
 
 			// Don't let depth weight go to 0 with huge depth differences
-			float DepthWeight = max(1 / exp2(abs(SceneDepth - SampleSceneDepth) * .01f), .001f);
+			float DepthWeight = max(exp2(-abs(SceneDepth - SampleSceneDepth) * .01f), .001f);
 
-			float2 Weight2D = 1 / exp2(abs(float2(x, y) * 10.0f / HALF_FILL_KERNEL_SIZE));
+			float2 Weight2D = exp2(-abs(float2(x, y) * 10.0f / HALF_FILL_KERNEL_SIZE));
 			float ScreenSpaceSpatialWeight = max(Weight2D.x, Weight2D.y);
 
 			float Weight = ValidMask * ScreenSpaceSpatialWeight * DepthWeight;
@@ -561,7 +500,10 @@ Texture2D IrradianceHistoryTexture;
 SamplerState IrradianceHistorySampler;
 float HistoryWeight;
 
-/** Reprojection the occlusion history, only correct for pixels belonging to static objects (camera motion only). */
+Texture2D VelocityTexture;
+SamplerState VelocityTextureSampler;
+
+/** Reproject the occlusion history. */
 void UpdateHistoryPS(
 	in float4 UVAndScreenPos : TEXCOORD0
 	,out float4 OutBentNormal : SV_Target0
@@ -570,38 +512,72 @@ void UpdateHistoryPS(
 #endif
 	)
 {
-	float3 xyd;
-    xyd.xy = UVAndScreenPos.zw * float2(0.5, -0.5) + 0.5;
-    xyd.z = Texture2DSampleLevel(SceneDepthTexture, SceneDepthTextureSampler, UVAndScreenPos.xy, 0).r;
-
-    float scaleM = 1.0 / (dot(xyd, CameraMotion[0].xyz) + CameraMotion[0].w);
-    float2 mv;
-    mv.x = ((xyd.x * ((CameraMotion[1].x * xyd.y) + (CameraMotion[1].y * xyd.z) + CameraMotion[1].z)) + (CameraMotion[1].w * xyd.y) + (CameraMotion[2].x * xyd.x * xyd.x) + (CameraMotion[2].y * xyd.z) + CameraMotion[2].z) * scaleM;
-    mv.y = ((xyd.y * ((CameraMotion[3].x * xyd.x) + (CameraMotion[3].y * xyd.z) + CameraMotion[3].z)) + (CameraMotion[3].w * xyd.x) + (CameraMotion[4].x * xyd.y * xyd.y) + (CameraMotion[4].y * xyd.z) + CameraMotion[4].z) * scaleM;
-
-    float2 OldUV = UVAndScreenPos.xy + mv / float2(0.5, -0.5) * View.ScreenPositionScaleBias.xy;
-	float2 OldScreenPosition = (OldUV.xy - View.ScreenPositionScaleBias.wz) / View.ScreenPositionScaleBias.xy;
-
 	// Distance field AO was computed at 0,0 regardless of viewrect min
 	float2 DistanceFieldUVs = UVAndScreenPos.xy - View.ViewRectMin.xy * View.ViewSizeAndSceneTexelSize.zw;
 	float4 NewValue = Texture2DSampleLevel(BentNormalAOTexture, BentNormalAOSampler, DistanceFieldUVs, 0);
+	float SceneDepth = abs(NewValue.w);
+
+	float2 OldUV;
+
+	{
+		float3 xyd;
+		xyd.xy = UVAndScreenPos.zw * float2(0.5, -0.5) + 0.5;
+		xyd.z = ConvertToDeviceZ(SceneDepth);
+
+		float scaleM = 1.0 / (dot(xyd, CameraMotion[0].xyz) + CameraMotion[0].w);
+		float2 MotionVector;
+		// Unwound vector-matrix transform with special care for precision taken from Temporal AA
+		MotionVector.x = ((xyd.x * ((CameraMotion[1].x * xyd.y) + (CameraMotion[1].y * xyd.z) + CameraMotion[1].z)) + (CameraMotion[1].w * xyd.y) + (CameraMotion[2].x * xyd.x * xyd.x) + (CameraMotion[2].y * xyd.z) + CameraMotion[2].z) * scaleM;
+		MotionVector.y = ((xyd.y * ((CameraMotion[3].x * xyd.x) + (CameraMotion[3].y * xyd.z) + CameraMotion[3].z)) + (CameraMotion[3].w * xyd.x) + (CameraMotion[4].x * xyd.y * xyd.y) + (CameraMotion[4].y * xyd.z) + CameraMotion[4].z) * scaleM;
+
+		// Note: have to sample from one of the high res texels exactly to avoid filtering of the velocity buffer
+		// 0 is stored where camera velocity should be used, which must not be filtered with valid object velocities
+		float2 FullResTexel = UVAndScreenPos.xy - .5f * View.ViewSizeAndSceneTexelSize.zw;
+		float2 VelocityN = Texture2DSampleLevel(VelocityTexture, VelocityTextureSampler, FullResTexel, 0).xy;
+
+		if (VelocityN.x > 0)
+		{
+			// Use the per-pixel velocity vector where valid, this handles object, bone and WPO movement
+			MotionVector = float2(-.5f, .5f) * DecodeVelocityFromTexture(VelocityN);
+		}
+
+		OldUV = UVAndScreenPos.xy + MotionVector / float2(0.5, -0.5) * View.ScreenPositionScaleBias.xy;
+	}
+	
+	float2 OldScreenPosition = (OldUV.xy - View.ScreenPositionScaleBias.wz) / View.ScreenPositionScaleBias.xy;
+
 	float2 OldDistanceFieldUVs = OldUV.xy - View.ViewRectMin.xy * View.ViewSizeAndSceneTexelSize.zw;
 	float4 HistoryValue = Texture2DSampleLevel(BentNormalHistoryTexture, BentNormalHistorySampler, OldDistanceFieldUVs, 0);
 	
-	//@todo - this doesn't take camera movement into account
-	float DepthDeltaFraction = abs(abs(NewValue.a) - abs(HistoryValue.a)) / abs(NewValue.a);
+	float2 MinUV = View.ViewRectMin.xy * View.ViewSizeAndSceneTexelSize.zw;
+	// Pull in the max UV to exclude the region which will read outside the viewport due to bilinear filtering
+	float2 MaxUV = MinUV + (View.ViewSizeAndSceneTexelSize.xy - 1 * DOWNSAMPLE_FACTOR) * View.ViewSizeAndSceneTexelSize.zw;
+
+	float3 WorldPosition;
+	float3 PrevWorldPosition;
+
+	{
+		float4 HomogeneousWorldPosition = mul(float4(UVAndScreenPos.zw * SceneDepth, SceneDepth, 1), View.ScreenToWorld);
+		WorldPosition = HomogeneousWorldPosition.xyz / HomogeneousWorldPosition.w;
+
+		float HistoryDepth = abs(HistoryValue.w);
+		float4 PrevPositionTranslatedWorld = mul(float4(OldScreenPosition * HistoryDepth, HistoryDepth, 1), View.PrevScreenToTranslatedWorld);
+		PrevPositionTranslatedWorld.xyz /= PrevPositionTranslatedWorld.w;	
+		PrevWorldPosition = PrevPositionTranslatedWorld.xyz - View.PrevPreViewTranslation;
+	}
+
 	float EffectiveHistoryWeight = HistoryWeight;
-	
+
 	FLATTEN
-	if (any(OldScreenPosition > 1) 
-		|| any(OldScreenPosition < -1)
-		|| DepthDeltaFraction > .03f)
+	if (any(OldUV > MaxUV) 
+		|| any(OldUV < MinUV)
+		// Discard history if we are shading a new position (newly revealed)
+		|| length(PrevWorldPosition - WorldPosition) > 100)
 	{
 		EffectiveHistoryWeight = 0;
 	}
 
 	OutBentNormal.rgb = lerp(NewValue.rgb, HistoryValue.rgb, EffectiveHistoryWeight);
-	//OutBentNormal.rgb = HistoryValue.rgb + (NewValue.rgb - HistoryValue.rgb) * (1 - exp(-DeltaTime * EffectiveHistoryWeight));
 
 #if SUPPORT_IRRADIANCE
 	float3 NewIrradiance = Texture2DSampleLevel(IrradianceTexture, IrradianceSampler, DistanceFieldUVs, 0).xyz;
@@ -611,7 +587,86 @@ void UpdateHistoryPS(
 #endif
 
 	OutBentNormal.rgb = isnan(OutBentNormal.rgb) ? 0 : OutBentNormal.rgb;
-	OutBentNormal.a = NewValue.a;
+
+	// Sign bit of alpha stores whether the history was rejected or not
+	OutBentNormal.a = abs(NewValue.a) * (EffectiveHistoryWeight > 0 ? 1 : -1);
+}
+
+#define HALF_HISTORY_FILL_KERNEL_SIZE 2
+
+/** Seeds newly rejected history values (which are sources of temporal instability) with the results of a spatial search from stable history values */
+void FilterHistoryPS(
+	in float4 UVAndScreenPos : TEXCOORD0
+	,out float4 OutBentNormal : SV_Target0
+#if SUPPORT_IRRADIANCE
+	,out float4 OutIrradiance : SV_Target1
+#endif
+	)
+{
+	float4 HistoryValue = Texture2DSampleLevel(BentNormalAOTexture, BentNormalAOSampler, UVAndScreenPos.xy, 0);
+
+#if SUPPORT_IRRADIANCE
+	float3 IrradianceValue = Texture2DSampleLevel(IrradianceTexture, IrradianceSampler, UVAndScreenPos.xy, 0).xyz;
+#endif
+
+	// Only do the spatial search for pixels who discarded their history value
+	if (HistoryValue.w < 0)
+	{
+		float SceneDepth = abs(HistoryValue.w);
+
+		float4 Accumulation = 0;
+		float3 IrradianceAccumulation = 0;
+
+		for (float y = -HALF_HISTORY_FILL_KERNEL_SIZE; y <= HALF_HISTORY_FILL_KERNEL_SIZE; y++)
+		{
+			for (float x = -HALF_HISTORY_FILL_KERNEL_SIZE; x <= HALF_HISTORY_FILL_KERNEL_SIZE; x++)
+			{
+				float2 UVOffset = BentNormalAOTexelSize * float2(x, y);
+				float4 TextureValue = Texture2DSampleLevel(BentNormalAOTexture, BentNormalAOSampler, UVAndScreenPos.xy + UVOffset, 0);
+
+				float SampleSceneDepth = abs(TextureValue.w);
+				float ValidMask = TextureValue.w > 0;
+
+				// Weight by depth to avoid pulling in values of a foreground object
+				// This is a careful tradeoff between ghosting behind panning foreground objects and successful spatial searches to reduce flickering
+				float DepthWeight = exp2(-1000 * abs(SceneDepth - SampleSceneDepth) / SceneDepth);
+
+				float2 Weight2D = exp2(-abs(float2(x, y) * 10.0f / HALF_HISTORY_FILL_KERNEL_SIZE));
+				float ScreenSpaceSpatialWeight = max(Weight2D.x, Weight2D.y);
+
+				float Weight = ValidMask * ScreenSpaceSpatialWeight * DepthWeight;
+
+				Accumulation.rgb += TextureValue.rgb * Weight;
+				Accumulation.a += Weight;
+
+				#if SUPPORT_IRRADIANCE
+					float3 Irradiance = Texture2DSampleLevel(IrradianceTexture, IrradianceSampler, UVAndScreenPos.xy + UVOffset, 0).xyz;
+					IrradianceAccumulation += Irradiance * Weight;
+				#endif
+			}
+		}
+
+		// Only change the history value if the spatial search turned up something applicable
+		if (Accumulation.a > 0)
+		{
+			float InvWeight = 1.0f / Accumulation.a;
+			// Construct the history value as if the spatial search result was the previous history, 
+			// And the AO we just computed this frame was the new value
+			HistoryValue.xyz = lerp(HistoryValue.xyz, Accumulation.xyz * InvWeight, HistoryWeight);
+
+			#if SUPPORT_IRRADIANCE
+				IrradianceValue = lerp(IrradianceValue, IrradianceAccumulation * InvWeight, HistoryWeight);
+			#endif
+		}
+	}
+
+	OutBentNormal = HistoryValue;
+	// Remove sign bit so future reprojection interpolation isn't affected
+	OutBentNormal.w = abs(OutBentNormal.w);
+
+#if SUPPORT_IRRADIANCE
+	OutIrradiance = float4(IrradianceValue, 0);
+#endif
 }
 
 /** Upsamples the AO results to full resolution using a bilateral filter. */

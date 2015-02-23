@@ -114,8 +114,6 @@ UPrimitiveComponent::UPrimitiveComponent(const FObjectInitializer& ObjectInitial
 
 	bCachedAllCollideableDescendantsRelative = false;
 	LastCheckedAllCollideableDescendantsTime = 0.f;
-
-	PhysicsMobility = Mobility;
 }
 
 bool UPrimitiveComponent::UsesOnlyUnlitMaterials() const
@@ -137,14 +135,6 @@ void UPrimitiveComponent::GetLightAndShadowMapMemoryUsage( int32& LightMapMemory
 	LightMapMemoryUsage		= 0;
 	ShadowMapMemoryUsage	= 0;
 	return;
-}
-
-void UPrimitiveComponent::OnComponentCreated()
-{
-	Super::OnComponentCreated();
-
-	// Shadow the current mobility setting for physics scene initialization (since e.g. during UCS execution we temporarily override the base mobility setting)
-	PhysicsMobility = Mobility;
 }
 
 void UPrimitiveComponent::InvalidateLightingCacheDetailed(bool bInvalidateBuildEnqueuedLighting, bool bTranslationOnly) 
@@ -335,6 +325,45 @@ void UPrimitiveComponent::OnUnregister()
 	{
 		UNavigationSystem::OnComponentUnregistered(this);
 	}
+}
+
+FPrimitiveComponentInstanceData::FPrimitiveComponentInstanceData(const UPrimitiveComponent* SourceComponent)
+	: FSceneComponentInstanceData(SourceComponent)
+{
+}
+
+void FPrimitiveComponentInstanceData::ApplyToComponent(UActorComponent* Component, const ECacheApplyPhase CacheApplyPhase)
+{
+	FSceneComponentInstanceData::ApplyToComponent(Component, CacheApplyPhase);
+
+	if (ContainsSavedProperties() && Component->IsRegistered())
+	{
+		Component->MarkRenderStateDirty();
+	}
+}
+
+bool FPrimitiveComponentInstanceData::ContainsData() const
+{
+	return (ContainsSavedProperties() || AttachedInstanceComponents.Num() > 0);
+}
+
+FActorComponentInstanceData* UPrimitiveComponent::GetComponentInstanceData() const
+{
+	FPrimitiveComponentInstanceData* InstanceData = new FPrimitiveComponentInstanceData(this);
+
+	if (!InstanceData->ContainsData())
+	{
+		delete InstanceData;
+		InstanceData = nullptr;
+	}
+
+	return InstanceData;
+}
+
+FName UPrimitiveComponent::GetComponentInstanceDataType() const
+{
+	static const FName PrimitiveComponentInstanceDataTypeName(TEXT("PrimitiveComponentInstanceData"));
+	return PrimitiveComponentInstanceDataTypeName;
 }
 
 void UPrimitiveComponent::OnAttachmentChanged()
@@ -649,8 +678,11 @@ void UPrimitiveComponent::ReceiveComponentDamage(float DamageAmount, FDamageEven
 		FPointDamageEvent* const PointDamageEvent = (FPointDamageEvent*) &DamageEvent;
 		if((DamageTypeCDO->DamageImpulse > 0.f) && !PointDamageEvent->ShotDirection.IsNearlyZero())
 		{
-			FVector const ImpulseToApply = PointDamageEvent->ShotDirection.GetSafeNormal() * DamageTypeCDO->DamageImpulse;
-			AddImpulseAtLocation( ImpulseToApply, PointDamageEvent->HitInfo.ImpactPoint, PointDamageEvent->HitInfo.BoneName );
+			if (IsSimulatingPhysics(PointDamageEvent->HitInfo.BoneName))
+			{
+				FVector const ImpulseToApply = PointDamageEvent->ShotDirection.GetSafeNormal() * DamageTypeCDO->DamageImpulse;
+				AddImpulseAtLocation(ImpulseToApply, PointDamageEvent->HitInfo.ImpactPoint, PointDamageEvent->HitInfo.BoneName);
+			}
 		}
 	}
 	else if (DamageEvent.IsOfType(FRadialDamageEvent::ClassID))
@@ -945,14 +977,6 @@ bool UPrimitiveComponent::IsWorldGeometry() const
 	return Mobility != EComponentMobility::Movable && GetCollisionObjectType()==ECC_WorldStatic;
 }
 
-void UPrimitiveComponent::SetMobility(EComponentMobility::Type NewMobility)
-{
-	Super::SetMobility(NewMobility);
-
-	// Update the shadowed mobility setting for physics
-	PhysicsMobility = Mobility;
-}
-
 ECollisionChannel UPrimitiveComponent::GetCollisionObjectType() const
 {
 	return ECollisionChannel(BodyInstance.GetObjectType());
@@ -1232,7 +1256,7 @@ static bool ShouldIgnoreOverlapResult(const UWorld* World, const AActor* ThisAct
 		return true;
 	}
 
-	if (!World || OtherActor == World->GetWorldSettings() || !OtherActor->bActorInitialized)
+	if (!World || OtherActor == World->GetWorldSettings() || !OtherActor->IsActorInitialized())
 	{
 		return true;
 	}
@@ -1264,6 +1288,21 @@ FCollisionShape UPrimitiveComponent::GetCollisionShape(float Inflation) const
 	return FCollisionShape::MakeBox(Bounds.BoxExtent + Inflation);
 }
 
+bool UPrimitiveComponent::CheckStaticMobilityAndWarn(const FText& ActionText) const
+{
+	AActor* Actor = GetOwner();
+	// static things can move before they are registered (e.g. immediately after streaming), but not after.
+	if (Mobility == EComponentMobility::Static && Actor && Actor->IsActorInitialized())
+	{
+		FMessageLog("PIE").Warning(FText::Format(LOCTEXT("InvalidStaticMove", "Mobility of {0} : {1} has to be 'Movable' if you'd like to {2}. "),
+			FText::FromString(GetNameSafe(GetOwner())), FText::FromString(GetName()), ActionText));
+
+		return true;
+	}
+
+	return false;
+}
+
 bool UPrimitiveComponent::MoveComponent( const FVector& Delta, const FRotator& NewRotation, bool bSweep, FHitResult* OutHit, EMoveComponentFlags MoveFlags)
 {
 	SCOPE_CYCLE_COUNTER(STAT_MoveComponentTime);
@@ -1291,11 +1330,8 @@ bool UPrimitiveComponent::MoveComponent( const FVector& Delta, const FRotator& N
 
 	// static things can move before they are registered (e.g. immediately after streaming), but not after.
 	// TODO: Static components without an owner can move, should they be able to?
-	if (Mobility == EComponentMobility::Static && Actor && Actor->bActorInitialized)
-	{		
-		FMessageLog("PIE").Warning( FText::Format(LOCTEXT("InvalidMove", "Mobility of {0} : {1} has to be 'Movable' if you'd like to move. "),
-				FText::FromString(GetNameSafe(GetOwner())), FText::FromString(GetName()) ));
-
+	if (CheckStaticMobilityAndWarn(LOCTEXT("InvalidMove", "move")))
+	{
 		if (OutHit)
 		{
 			*OutHit = FHitResult();
@@ -1661,7 +1697,7 @@ void UPrimitiveComponent::SetCanEverAffectNavigation(bool bRelevant)
 //////////////////////////////////////////////////////////////////////////
 // COLLISION
 
-float DebugLineLifetime = 2.f;
+extern float DebugLineLifetime;
 
 
 bool UPrimitiveComponent::LineTraceComponent(struct FHitResult& OutHit, const FVector Start, const FVector End, const struct FCollisionQueryParams& Params)
@@ -1766,59 +1802,12 @@ bool UPrimitiveComponent::OverlapComponent(const FVector& Pos, const FQuat& Rot,
 	return BodyInstance.OverlapTest(Pos, Rot, CollisionShape);
 }
 
-bool UPrimitiveComponent::ComputePenetration(FMTDResult & OutMTD, const FCollisionShape & CollisionShape, const FVector & Pos, const FQuat & Rot)
+bool UPrimitiveComponent::ComputePenetration(FMTDResult& OutMTD, const FCollisionShape & CollisionShape, const FVector& Pos, const FQuat& Rot)
 {
-#if WITH_PHYSX
-	UCollision2PGeom GeomStorage0(CollisionShape);
-	PxTransform PGeomPose0 = ConvertToPhysXCapsulePose(FTransform(Rot, Pos));
-	const PxGeometry * PGeom0 = GeomStorage0.GetGeometry();
-
-	check(PGeom0);	//couldn't convert FCollisionShape to PxGeometry - something is wrong
-
-	const PxRigidActor* PRigidBody = BodyInstance.GetPxRigidActor();
-	if (PRigidBody == NULL || PRigidBody->getNbShapes() == 0)
+	if(FBodyInstance* BodyInstance = GetBodyInstance())
 	{
-		return false;
+		return BodyInstance->OverlapTest(Pos, Rot, CollisionShape, &OutMTD);
 	}
-
-	const PxTransform PGlobalPose1 = PRigidBody->getGlobalPose();
-
-	// Get all the shapes from the actor
-	// TODO: we should really pass the shape from the overlap info since doing it this way we do an overlap test twice
-	TArray<PxShape*> PShapes;
-	PShapes.AddZeroed(PRigidBody->getNbShapes());
-	int32 NumTargetShapes = PRigidBody->getShapes(PShapes.GetData(), PShapes.Num());
-
-	for (int32 PShapeIdx = 0; PShapeIdx < PShapes.Num(); ++PShapeIdx)
-	{
-		const PxShape * PShape = PShapes[PShapeIdx];
-		check(PShape);
-
-		// Calc shape global pose
-		PxTransform PGeomPose1 = PGlobalPose1.transform(PShape->getLocalPose());
-		GeometryFromShapeStorage GeomStorage1;
-		PxGeometry * PGeom1 = GetGeometryFromShape(GeomStorage1, PShape, true);
-
-		if (PGeom1)
-		{
-			PxVec3 POutDirection;
-			bool bSuccess = PxGeometryQuery::computePenetration(POutDirection, OutMTD.Distance, *PGeom0, PGeomPose0, *PGeom1, PGeomPose1);
-			if (bSuccess)
-			{
-				if (POutDirection.isFinite())
-				{
-					OutMTD.Direction = P2UVector(POutDirection);
-					return true;
-				}
-				else
-				{
-					UE_LOG(LogPhysics, Warning, TEXT("UPrimitiveComponent::ComputePenetration: MTD returned NaN"));
-					return false;
-				}
-			}
-		}
-	}
-#endif
 
 	return false;
 }
@@ -1910,12 +1899,10 @@ bool UPrimitiveComponent::ComponentIsTouchingSelectionFrustum(const FConvexVolum
 
 
 /** Used to determine if it is ok to call a notification on this object */
-static bool IsActorValidToNotify(AActor* Actor)
-{
-	return (Actor != NULL) && !Actor->IsPendingKill() && !Actor->GetClass()->HasAnyClassFlags(CLASS_NewerVersionExists);
-}
+extern bool IsActorValidToNotify(AActor* Actor);
+
 // @fixme, duplicated, make an inline member?
-static bool IsPrimCompValidAndAlive(UPrimitiveComponent* PrimComp)
+bool IsPrimCompValidAndAlive(UPrimitiveComponent* PrimComp)
 {
 	return (PrimComp != NULL) && !PrimComp->IsPendingKill();
 }
@@ -2192,7 +2179,7 @@ void UPrimitiveComponent::UpdateOverlaps(TArray<FOverlapInfo> const* PendingOver
 		// if we haven't begun play, we're still setting things up (e.g. we might be inside one of the construction scripts)
 		// so we don't want to generate overlaps yet.
 		AActor* const MyActor = GetOwner();
-		if ( MyActor && MyActor->bActorInitialized )
+		if ( MyActor && MyActor->IsActorInitialized() )
 		{
 			if (PendingOverlaps)
 			{

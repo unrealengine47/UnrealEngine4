@@ -331,6 +331,10 @@ public:
 	/** If true, this actor should search for an owned camera component to view through when used as a view target. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Actor, AdvancedDisplay)
 	uint32 bFindCameraComponentWhenViewTarget:1;
+	
+	/** If true, this actor will be replicated to network replys (default is true) */
+	UPROPERTY()
+	uint32 bRelevantForNetworkReplays:1;
 
 	/** Pawn responsible for damage caused by this actor. */
 	UPROPERTY(BlueprintReadWrite, replicatedUsing=OnRep_Instigator, meta=(ExposeOnSpawn=true), Category=Actor)
@@ -362,7 +366,7 @@ protected:
 
 	/** How long this Actor lives before dying, 0=forever. Note this is the INITIAL value and should not be modified once play has begun. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Actor)
-	float InitialLifeSpan; 
+	float InitialLifeSpan;
 
 	/** Handle for efficient management of LifeSpanExpired timer */
 	FTimerHandle TimerHandle_LifeSpanExpired;
@@ -453,14 +457,21 @@ public:
 	UPROPERTY()
 	TWeakObjectPtr<AActor> ParentComponentActor;	
 
-public:
+private:
 
 	/** 
 	 *	Indicates that PreInitializeComponents/PostInitializeComponents have been called on this Actor 
 	 *	Prevents re-initializing of actors spawned during level startup
 	 */
 	uint32 bActorInitialized:1;
+	
+	/** 
+	 *	Indicates that BeginPlay has been called for this Actor.
+	 *  Set back to false once EndPlay has been called.
+	 */
+	uint32 bActorHasBegunPlay:1;
 
+public:
 	/** Indicates the actor was pulled through a seamless travel.  */
 	UPROPERTY()
 	uint32 bActorSeamlessTraveled:1;
@@ -493,7 +504,8 @@ public:
 	FTakePointDamageSignature OnTakePointDamage;
 	
 	/** 
-	 *	Called when another actor begins to overlap this actor. 
+	 *	Called when another actor begins to overlap this actor, for example a player walking into a trigger.
+	 *	For events when objects have a blocking collision, for example a player hitting a wall, see 'Hit' events.
 	 *	@note Components on both this and the other Actor must have bGenerateOverlapEvents set to true to generate overlap events.
 	 */
 	UPROPERTY(BlueprintAssignable, Category="Collision")
@@ -539,7 +551,8 @@ public:
 	FActorEndTouchOverSignature OnInputTouchLeave;
 
 	/** 
-	 *	Called when this Actor hits (or is hit by) something solid. 
+	 *	Called when this Actor hits (or is hit by) something solid. This could happen due to things like Character movement, using Set Location with 'sweep' enabled, or physics simulation.
+	 *	For events when objects overlap (e.g. walking into a trigger) see the 'Overlap' event.
 	 *	@note For collisions during physics simulation to generate hit events, 'Simulation Generates Hit Events' must be enabled.
 	 */
 	UPROPERTY(BlueprintAssignable, Category="Collision")
@@ -985,6 +998,12 @@ public:
 	/** Event when play begins for this actor. */
 	virtual void BeginPlay();
 
+	/** Returns whether an actor has been initialized */
+	bool IsActorInitialized() const { return bActorInitialized; }
+
+	/** Returns whether an actor has had BeginPlay called on it (and not subsequently had EndPlay called) */
+	bool HasActorBegunPlay() const { return bActorHasBegunPlay; }
+
 	/** Event when this actor takes ANY damage */
 	UFUNCTION(BlueprintImplementableEvent, BlueprintAuthorityOnly, meta=(FriendlyName = "AnyDamage"), Category="Game|Damage")
 	virtual void ReceiveAnyDamage(float Damage, const class UDamageType* DamageType, class AController* InstigatedBy, AActor* DamageCauser);
@@ -1005,7 +1024,8 @@ public:
 	virtual void ReceiveTick(float DeltaSeconds);
 
 	/** 
-	 *	Event when this actor overlaps another actor. 
+	 *	Event when this actor overlaps another actor, for example a player walking into a trigger.
+	 *	For events when objects have a blocking collision, for example a player hitting a wall, see 'Hit' events.
 	 *	@note Components on both this and the other Actor must have bGenerateOverlapEvents set to true to generate overlap events.
 	 */
 	UFUNCTION(BlueprintImplementableEvent, meta=(FriendlyName = "ActorBeginOverlap"), Category="Collision")
@@ -1067,7 +1087,8 @@ public:
 	void GetOverlappingComponents(TArray<UPrimitiveComponent*>& OverlappingComponents) const;
 
 	/** 
-	 *	Event when this actor bumps into a blocking object, or blocks another actor that bumps into it. 
+	 *	Event when this actor bumps into a blocking object, or blocks another actor that bumps into it. This could happen due to things like Character movement, using Set Location with 'sweep' enabled, or physics simulation.
+	 *	For events when objects overlap (e.g. walking into a trigger) see the 'Overlap' event.
 	 *	@note For collisions during physics simulation to generate hit events, 'Simulation Generates Hit Events' must be enabled.
 	 */
 	UFUNCTION(BlueprintImplementableEvent, meta=(FriendlyName = "Hit"), Category="Collision")
@@ -1133,6 +1154,7 @@ public:
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 	virtual void PreEditUndo() override;
 	virtual void PostEditUndo() override;
+	virtual void PostEditImport() override;
 
 	struct FActorRootComponentReconstructionData
 	{
@@ -1140,6 +1162,8 @@ public:
 		struct FAttachedActorInfo
 		{
 			TWeakObjectPtr<AActor> Actor;
+			TWeakObjectPtr<USceneComponent> AttachParent;
+			FName AttachParentName;
 			FName SocketName;
 			FTransform RelativeTransform;
 		};

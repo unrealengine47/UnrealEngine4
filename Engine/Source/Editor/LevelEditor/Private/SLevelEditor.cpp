@@ -36,7 +36,7 @@
 #include "TutorialMetaData.h"
 #include "SDockTab.h"
 #include "SActorDetails.h"
-
+#include "ScopedTransaction.h"
 
 
 static const FName LevelEditorBuildAndSubmitTab("LevelEditorBuildAndSubmit");
@@ -94,8 +94,18 @@ void SLevelEditor::BindCommands()
 		FExecuteAction::CreateStatic< TWeakPtr< SLevelEditor > >( &FLevelEditorActionCallbacks::OpenLevelBlueprint, SharedThis( this ) ) );
 	
 	LevelEditorCommands->MapAction(
-		Actions.CreateBlueprintClass,
-		FExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::CreateBlueprintClass ) );
+		Actions.CreateBlankBlueprintClass,
+		FExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::CreateBlankBlueprintClass ) );
+
+	LevelEditorCommands->MapAction(
+		Actions.ConvertSelectionToBlueprintViaHarvest,
+		FExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::HarvestSelectedActorsIntoBlueprintClass ),
+		FCanExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::CanHarvestSelectedActorsIntoBlueprintClass ) );
+
+	LevelEditorCommands->MapAction(
+		Actions.ConvertSelectionToBlueprintViaSubclass,
+		FExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::SubclassSelectedActorIntoBlueprintClass ),
+		FCanExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::CanSubclassSelectedActorIntoBlueprintClass ) );
 
 	LevelEditorCommands->MapAction(
 		Actions.OpenContentBrowser,
@@ -501,7 +511,7 @@ TSharedRef<FTabManager> SLevelEditor::GetTabManager() const
 
 
 
-TSharedRef<SDockTab> SLevelEditor::SummonDetailsPanel( FName TabIdentifier, TSharedPtr<FExtender> ActorMenuExtender )
+TSharedRef<SDockTab> SLevelEditor::SummonDetailsPanel( FName TabIdentifier )
 {
 	TSharedPtr<SActorDetails> ActorDetails;
 
@@ -516,7 +526,6 @@ TSharedRef<SDockTab> SLevelEditor::SummonDetailsPanel( FName TabIdentifier, TSha
 			.AddMetaData<FTutorialMetaData>(FTutorialMetaData(TEXT("ActorDetails"), TEXT("LevelEditorSelectionDetails")))
 			[
 				SAssignNew( ActorDetails, SActorDetails, TabIdentifier )
-					.ActorMenuExtender(ActorMenuExtender)
 			]
 		];
 
@@ -564,20 +573,7 @@ TSharedRef<SDockTab> SLevelEditor::SpawnLevelEditorTab( const FSpawnTabArgs& Arg
 	}
 	else if( TabIdentifier == TEXT("LevelEditorSelectionDetails") || TabIdentifier == TEXT("LevelEditorSelectionDetails2") || TabIdentifier == TEXT("LevelEditorSelectionDetails3") || TabIdentifier == TEXT("LevelEditorSelectionDetails4") )
 	{
-		TWeakPtr<SLevelEditor> WeakLevelEditor = SharedThis(this);
-		TSharedPtr<FExtender> MenuExtender = MakeShareable(new FExtender);
-		MenuExtender->AddMenuExtension(
-			"MainSection", EExtensionHook::Before, GetLevelEditorActions(),
-			FMenuExtensionDelegate::CreateStatic([](FMenuBuilder& MenuBuilder, TWeakPtr<SLevelEditor> InWeakLevelEditor){
-				// Only extend the menu if we have actors selected
-				if (GEditor->GetSelectedActors()->Num())
-				{
-					FLevelEditorContextMenu::FillMenu(MenuBuilder, InWeakLevelEditor, LevelEditorMenuContext::NonViewport, TSharedPtr<FExtender>());
-				}
-			}, WeakLevelEditor)
-		);
-
-		TSharedRef<SDockTab> DetailsPanel = SummonDetailsPanel( TabIdentifier, MenuExtender );
+		TSharedRef<SDockTab> DetailsPanel = SummonDetailsPanel( TabIdentifier );
 		GUnrealEd->UpdateFloatingPropertyWindows();
 		return DetailsPanel;
 	}
@@ -626,7 +622,7 @@ TSharedRef<SDockTab> SLevelEditor::SpawnLevelEditorTab( const FSpawnTabArgs& Arg
 				"MainSection", EExtensionHook::Before, GetLevelEditorActions(),
 				FMenuExtensionDelegate::CreateStatic([](FMenuBuilder& MenuBuilder, TWeakPtr<SLevelEditor> InWeakLevelEditor){
 					// Only extend the menu if we have actors selected
-					if (GEditor->GetSelectedActors()->Num())
+					if (GEditor->GetSelectedActorCount() > 0)
 					{
 						FLevelEditorContextMenu::FillMenu(MenuBuilder, InWeakLevelEditor, LevelEditorMenuContext::NonViewport, TSharedPtr<FExtender>());
 					}
@@ -1427,14 +1423,14 @@ void SLevelEditor::HandleEditorMapChange( uint32 MapChangeFlags )
 	}
 }
 
-void SLevelEditor::OnActorSelectionChanged( const TArray<UObject*>& NewSelection )
+void SLevelEditor::OnActorSelectionChanged(const TArray<UObject*>& NewSelection, bool bForceRefresh)
 {
 	for( auto It = AllActorDetailPanels.CreateIterator(); It; ++It )
 	{
 		TSharedPtr<SActorDetails> ActorDetails = It->Pin();
 		if( ActorDetails.IsValid() )
 		{
-			ActorDetails->SetObjects( NewSelection );
+			ActorDetails->SetObjects(NewSelection, bForceRefresh);
 		}
 		else
 		{

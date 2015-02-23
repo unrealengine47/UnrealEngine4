@@ -1609,71 +1609,79 @@ void UEditorEngine::RebuildModelFromBrushes(UModel* Model, bool bSelectedBrushes
 
 void UEditorEngine::RebuildAlteredBSP()
 {
-	// Early out if BSP auto-updating is disabled
-	if (!GetDefault<ULevelEditorMiscSettings>()->bBSPAutoUpdate)
+	if( GUndo && !GIsTransacting )
 	{
-		return;
-	}
-
-	FlushRenderingCommands();
-
-	// A list of all the levels that need to be rebuilt
-	TArray< TWeakObjectPtr< ULevel > > LevelsToRebuild;
-	ABrush::NeedsRebuild( &LevelsToRebuild );
-
-	// Determine which levels need to be rebuilt
-	for (FSelectionIterator It(GetSelectedActorIterator()); It; ++It)
-	{
-		AActor* Actor = static_cast<AActor*>(*It);
-		checkSlow( Actor->IsA(AActor::StaticClass()) );
-
-		ABrush* SelectedBrush = Cast< ABrush >( Actor );
-		if (SelectedBrush && !FActorEditorUtils::IsABuilderBrush(Actor))
+		// Early out if BSP auto-updating is disabled
+		if (!GetDefault<ULevelEditorMiscSettings>()->bBSPAutoUpdate)
 		{
-			ULevel* Level = SelectedBrush->GetLevel();
-			if (Level)
-			{
-				LevelsToRebuild.AddUnique(Level);
-			}
+			return;
 		}
-		else
-		{
-			// In addition to any selected brushes, any brushes attached to a selected actor should be rebuilt
-			TArray<AActor*> AttachedActors;
-			Actor->GetAttachedActors( AttachedActors );
 
-			const bool bExactClass = true;
-			TArray<AActor*> AttachedBrushes;
-			// Get any brush actors attached to the selected actor
-			if( ContainsObjectOfClass( AttachedActors, ABrush::StaticClass(), bExactClass, &AttachedBrushes ) )
+		FlushRenderingCommands();
+
+		// A list of all the levels that need to be rebuilt
+		TArray< TWeakObjectPtr< ULevel > > LevelsToRebuild;
+		ABrush::NeedsRebuild(&LevelsToRebuild);
+
+		// Determine which levels need to be rebuilt
+		for (FSelectionIterator It(GetSelectedActorIterator()); It; ++It)
+		{
+			AActor* Actor = static_cast<AActor*>(*It);
+			checkSlow(Actor->IsA(AActor::StaticClass()));
+
+			ABrush* SelectedBrush = Cast< ABrush >(Actor);
+			if (SelectedBrush && !FActorEditorUtils::IsABuilderBrush(Actor))
 			{
-				for( int32 BrushIndex = 0; BrushIndex < AttachedBrushes.Num(); ++BrushIndex )
+				ULevel* Level = SelectedBrush->GetLevel();
+				if (Level)
 				{
-					ULevel* Level = CastChecked<ABrush>( AttachedBrushes[BrushIndex] )->GetLevel();
-					if (Level)
-					{
-						LevelsToRebuild.AddUnique(Level);
-					}
+					LevelsToRebuild.AddUnique(Level);
 				}
 			}
+			else
+			{
+				// In addition to any selected brushes, any brushes attached to a selected actor should be rebuilt
+				TArray<AActor*> AttachedActors;
+				Actor->GetAttachedActors(AttachedActors);
+
+				const bool bExactClass = true;
+				TArray<AActor*> AttachedBrushes;
+				// Get any brush actors attached to the selected actor
+				if (ContainsObjectOfClass(AttachedActors, ABrush::StaticClass(), bExactClass, &AttachedBrushes))
+				{
+					for (int32 BrushIndex = 0; BrushIndex < AttachedBrushes.Num(); ++BrushIndex)
+					{
+						ULevel* Level = CastChecked<ABrush>(AttachedBrushes[BrushIndex])->GetLevel();
+						if (Level)
+						{
+							LevelsToRebuild.AddUnique(Level);
+						}
+					}
+				}
+
+			}
 
 		}
 
-	}
-
-	// Rebuild the levels
-	for (int32 LevelIdx = 0; LevelIdx < LevelsToRebuild.Num(); ++LevelIdx)
-	{
-		TWeakObjectPtr< ULevel > LevelToRebuild = LevelsToRebuild[LevelIdx];
-		if ( LevelToRebuild.IsValid() )
+		// Rebuild the levels
+		for (int32 LevelIdx = 0; LevelIdx < LevelsToRebuild.Num(); ++LevelIdx)
 		{
-			RebuildLevel(*LevelToRebuild.Get());
+			TWeakObjectPtr< ULevel > LevelToRebuild = LevelsToRebuild[LevelIdx];
+			if (LevelToRebuild.IsValid())
+			{
+				RebuildLevel(*LevelToRebuild.Get());
+			}
 		}
+
+		RedrawLevelEditingViewports();
+
+		ABrush::OnRebuildDone();
 	}
-
-	RedrawLevelEditingViewports();
-
-	ABrush::OnRebuildDone();
+	else
+	{
+ 		ensureMsgf(0, TEXT("Rebuild BSP ignored. Not in a transaction") );
+		ABrush::OnRebuildDone();
+	}
 }
 
 void UEditorEngine::BSPIntersectionHelper(UWorld* InWorld, ECsgOper Operation)
@@ -4641,7 +4649,7 @@ void UEditorEngine::MoveActorInFrontOfCamera( AActor& InActor, const FVector& In
 }
 
 
-void UEditorEngine::SnapViewToActor(const AActor &Actor)
+void UEditorEngine::SnapViewTo(const FActorOrComponent& Object)
 {
 	for(int32 ViewportIndex = 0; ViewportIndex < LevelViewportClients.Num(); ++ViewportIndex)
 	{
@@ -4649,8 +4657,8 @@ void UEditorEngine::SnapViewToActor(const AActor &Actor)
 
 		if ( ViewportClient->IsPerspective()  )
 		{
-			ViewportClient->SetViewLocation( Actor.GetActorLocation() );
-			ViewportClient->SetViewRotation( Actor.GetActorRotation() );
+			ViewportClient->SetViewLocation( Object.GetWorldLocation() );
+			ViewportClient->SetViewRotation( Object.GetWorldRotation() );
 			ViewportClient->Invalidate();
 		}
 	}
@@ -4754,13 +4762,17 @@ bool UEditorEngine::Exec_Camera( const TCHAR* Str, FOutputDevice& Ar )
 	}
 	else if ( bSnap )
 	{
-		TargetSelectedActor = GEditor->GetSelectedActors()->GetTop<AActor>();
-
-		if (TargetSelectedActor)
+		FActorOrComponent SelectedObject(GEditor->GetSelectedComponents()->GetTop<USceneComponent>());
+		if (!SelectedObject.IsValid())
+		{
+			SelectedObject.Actor = GEditor->GetSelectedActors()->GetTop<AActor>();
+		}
+		
+		if (SelectedObject.IsValid())
 		{
 			// Set perspective viewport camera parameters to that of the selected camera.
-			SnapViewToActor(*TargetSelectedActor);
-			Ar.Log( TEXT("Snapped camera to the first selected actor.") );
+			SnapViewTo(SelectedObject);
+			Ar.Log( TEXT("Snapped camera to the first selected object.") );
 		}
 	}
 

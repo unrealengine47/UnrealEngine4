@@ -48,6 +48,7 @@ FAssetContextMenu::FAssetContextMenu(const TWeakPtr<SAssetView>& InAssetView)
 	, bCanExecuteSCCHistory(false)
 	, bCanExecuteSCCRevert(false)
 	, bCanExecuteSCCSync(false)
+	, bCurrentWorldSelected(false)
 {
 	
 }
@@ -1508,9 +1509,6 @@ void FAssetContextMenu::ExecuteSCCOpenForAdd()
 
 void FAssetContextMenu::ExecuteSCCCheckIn()
 {
-	TArray<FString> PackageNames;
-	GetSelectedPackageNames(PackageNames);
-
 	TArray<UPackage*> Packages;
 	GetSelectedPackages(Packages);
 
@@ -1522,7 +1520,11 @@ void FAssetContextMenu::ExecuteSCCCheckIn()
 	const bool bShouldProceed = ( UserResponse == FEditorFileUtils::EPromptReturnCode::PR_Success || UserResponse == FEditorFileUtils::EPromptReturnCode::PR_Declined );
 	if ( bShouldProceed )
 	{
-		FSourceControlWindows::PromptForCheckin(PackageNames);
+		TArray<FString> PackageNames;
+		GetSelectedPackageNames(PackageNames);
+
+		const bool bUseSourceControlStateCache = true;
+		FSourceControlWindows::PromptForCheckin(bUseSourceControlStateCache, PackageNames);
 	}
 	else
 	{
@@ -1642,7 +1644,7 @@ bool FAssetContextMenu::CanExecutePropertyMatrix() const
 
 bool FAssetContextMenu::CanExecuteDuplicate() const
 {
-	return bAtLeastOneNonRedirectorSelected && !bAtLeastOneClassSelected;
+	return bAtLeastOneNonRedirectorSelected && !bAtLeastOneClassSelected && !bCurrentWorldSelected;
 }
 
 bool FAssetContextMenu::CanExecuteRename() const
@@ -1845,13 +1847,21 @@ void FAssetContextMenu::CacheCanExecuteVars()
 	bCanExecuteSCCHistory = false;
 	bCanExecuteSCCRevert = false;
 	bCanExecuteSCCSync = false;
+	bCurrentWorldSelected = false;
 
+	static const FName WorldClass("World");
 	for (auto AssetIt = SelectedAssets.CreateConstIterator(); AssetIt; ++AssetIt)
 	{
 		const FAssetData& AssetData = *AssetIt;
 		if ( !AssetData.IsValid() )
 		{
 			continue;
+		}
+
+		// Hack: 4.7 current world is selected and cannot be duplicated due to blueprint trashed components issues.  
+		if( AssetData.AssetClass == WorldClass && AssetData.IsAssetLoaded() )
+		{
+			bCurrentWorldSelected = (GWorld == AssetData.GetAsset());
 		}
 
 		if ( !bAtLeastOneNonRedirectorSelected && AssetData.AssetClass != UObjectRedirector::StaticClass()->GetFName() )

@@ -38,8 +38,6 @@
 #include "GameFramework/GameUserSettings.h"
 #include "GameFramework/GameMode.h"
 
-DEFINE_LOG_CATEGORY_STATIC(LogEngine, Log, All);
-
 ENGINE_API bool GDisallowNetworkTravel = false;
 
 /** Benchmark results to the log */
@@ -90,12 +88,15 @@ UGameEngine::UGameEngine(const FObjectInitializer& ObjectInitializer)
 
 void UGameEngine::CreateGameViewportWidget( UGameViewportClient* GameViewportClient )
 {
+	bool bRenderDirectlyToWindow = !GEngine->MatineeScreenshotOptions.bStartWithMatineeCapture && GIsDumpingMovie == 0; 
 	TSharedRef<SOverlay> ViewportOverlayWidgetRef = SNew( SOverlay );
 	TSharedRef<SViewport> GameViewportWidgetRef = 
 		SNew( SViewport )
 			// Render directly to the window backbuffer unless capturing a movie or getting screenshots
 			// @todo TEMP
-			.RenderDirectlyToWindow( !GEngine->bStartWithMatineeCapture && GIsDumpingMovie == 0 )
+			.RenderDirectlyToWindow(bRenderDirectlyToWindow)
+			//gamma handled by the scene renderer
+			.EnableGammaCorrection(false)
 			.EnableStereoRendering(true)
 			[
 				SNew(SDPIScaler)
@@ -387,6 +388,8 @@ UEngine::UEngine(const FObjectInitializer& ObjectInitializer)
 
 	BeginStreamingPauseDelegate = NULL;
 	EndStreamingPauseDelegate = NULL;
+
+	bCanBlueprintsTickByDefault = true;
 }
 
 void UGameEngine::Init(IEngineLoop* InEngineLoop)
@@ -792,8 +795,6 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 		}
 	}
 
-	bool WorldWasPaused = false;
-
 	for (int32 WorldIdx = 0; WorldIdx < WorldList.Num(); ++WorldIdx)
 	{
 		FWorldContext &Context = WorldList[WorldIdx];
@@ -801,8 +802,6 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 		{
 			continue;
 		}
-
-		WorldWasPaused |= Context.World()->IsPaused();
 
 		GWorld = Context.World();
 
@@ -872,6 +871,16 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 			}
 		}
 
+		// tell renderer about GWorld->IsPaused(), before rendering
+		{
+			ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
+				SetPaused,
+				bool, bGamePaused, Context.World()->IsPaused(),
+			{
+				GRenderingRealtimeClock.SetGamePaused(bGamePaused);
+			});
+		}
+
 		if (!bIdleMode && !IsRunningDedicatedServer() && !IsRunningCommandlet())
 		{
 			// Render everything.
@@ -934,17 +943,6 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 		GWorld = GetWorldContextFromHandleChecked(OriginalGWorldContext).World();
 	}
 
-	// tell renderer about GWorld->IsPaused(), before rendering
-	{
-		ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
-			SetPaused,
-			bool, bGamePaused, WorldWasPaused,
-		{
-			GRenderingRealtimeClock.SetGamePaused(bGamePaused);
-		});
-	}
-
-
 	// rendering thread commands
 	{
 		ENQUEUE_UNIQUE_RENDER_COMMAND_TWOPARAMETER(
@@ -972,7 +970,7 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 		}
 
 		// Start the movie capture if needed
-		if (bCheckForMovieCapture && GEngine->bStartWithMatineeCapture && GEngine->MatineeCaptureType == EMatineeCaptureType::AVI && GameViewport->Viewport->GetSizeXY() != FIntPoint::ZeroValue )
+		if (bCheckForMovieCapture && GEngine->MatineeScreenshotOptions.bStartWithMatineeCapture && GEngine->MatineeScreenshotOptions.MatineeCaptureType == EMatineeCaptureType::AVI && GameViewport->Viewport->GetSizeXY() != FIntPoint::ZeroValue )
 		{
 			if (AVIWriter)
 			{

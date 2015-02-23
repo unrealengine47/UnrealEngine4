@@ -101,9 +101,12 @@ public:
 				FMemory::Memcpy(CopyOut, UncompressedBuffer+CopyOffset, CopyLength);
 			}
 		}
-		static const TCHAR *Name()
+
+		FORCEINLINE TStatId GetStatId() const
 		{
-			return TEXT("FPakUncompressTask");
+			// TODO: This is called too early in engine startup.
+			return TStatId();
+			//RETURN_QUICK_DECLARE_CYCLE_STAT(FPakUncompressTask, STATGROUP_ThreadPoolAsyncTasks);
 		}
 	};
 

@@ -8,7 +8,6 @@
 #include "ComponentTypeRegistry.h"
 #include "EditorClassUtils.h"
 #include "Engine/Selection.h"
-#include "HotReloadInterface.h"
 #include "IDocumentation.h"
 #include "KismetEditorUtilities.h"
 #include "SComponentClassCombo.h"
@@ -32,9 +31,6 @@ void SComponentClassCombo::Construct(const FArguments& InArgs)
 
 	UpdateComponentClassList();
 
-	IHotReloadInterface& HotReloadSupport = FModuleManager::LoadModuleChecked<IHotReloadInterface>("HotReload");
-	HotReloadSupport.OnHotReload().AddSP( this, &SComponentClassCombo::OnProjectHotReloaded );
-
 	SAssignNew(ComponentClassListView, SListView<FComponentClassComboEntryPtr>)
 		.ListItemsSource(&FilteredComponentClassList)
 		.OnSelectionChanged( this, &SComponentClassCombo::OnAddComponentSelectionChanged )
@@ -54,10 +50,12 @@ void SComponentClassCombo::Construct(const FArguments& InArgs)
 		+SHorizontalBox::Slot()
 		.VAlign(VAlign_Center)
 		.AutoWidth()
-		.Padding(2.f,1.f)
+		.Padding(1.f,1.f)
 		[
-			SNew(SImage)
-			.Image(FEditorStyle::GetBrush(TEXT("Plus")))
+			SNew(STextBlock)
+			.TextStyle(FEditorStyle::Get(), "ContentBrowser.TopBar.Font")
+			.Font(FEditorStyle::Get().GetFontStyle("FontAwesome.10"))
+			.Text(FString(TEXT("\xf067")) /*fa-plus*/)
 		]
 		+ SHorizontalBox::Slot()
 		.VAlign(VAlign_Center)
@@ -98,8 +96,9 @@ void SComponentClassCombo::Construct(const FArguments& InArgs)
 		]
 	]
 	.IsFocusable(true)
-	.ContentPadding(FMargin(0))
-	.ComboButtonStyle(FEditorStyle::Get(), "ContentBrowser.NewAsset.Style")
+	.ContentPadding(FMargin(5, 0))
+	.ComboButtonStyle(FEditorStyle::Get(), "ToolbarComboButton")
+	.ButtonStyle(FEditorStyle::Get(), "FlatButton.Success")
 	.ForegroundColor(FLinearColor::White)
 	.OnComboBoxOpened(this, &SComponentClassCombo::ClearSelection);
 
@@ -120,9 +119,15 @@ void SComponentClassCombo::ClearSelection()
 	SearchBox->SetText(FText::GetEmpty());
 
 	PrevSelectedIndex = INDEX_NONE;
-
+	
 	// Clear the selection in such a way as to also clear the keyboard selector
 	ComponentClassListView->SetSelection(NULL, ESelectInfo::OnNavigation);
+
+	// Make sure we scroll to the top
+	if (ComponentClassList->Num() > 0)
+	{
+		ComponentClassListView->RequestScrollIntoView((*ComponentClassList)[0]);
+	}
 }
 
 void SComponentClassCombo::GenerateFilteredComponentList(const FString& InSearchText)
@@ -134,24 +139,47 @@ void SComponentClassCombo::GenerateFilteredComponentList(const FString& InSearch
 	else
 	{
 		FilteredComponentClassList.Empty();
+
+		int32 LastHeadingIndex = INDEX_NONE;
+		FComponentClassComboEntryPtr* LastHeadingPtr = nullptr;
+
 		for (int32 ComponentIndex = 0; ComponentIndex < ComponentClassList->Num(); ComponentIndex++)
 		{
 			FComponentClassComboEntryPtr& CurrentEntry = (*ComponentClassList)[ComponentIndex];
 
-			if (CurrentEntry->IsClass() && CurrentEntry->IsIncludedInFilter())
+			if (CurrentEntry->IsHeading())
+			{
+				LastHeadingIndex = FilteredComponentClassList.Num();
+				LastHeadingPtr = &CurrentEntry;
+			}
+			else if (CurrentEntry->IsClass() && CurrentEntry->IsIncludedInFilter())
 			{
 				FString FriendlyComponentName = GetSanitizedComponentName( CurrentEntry );
 
 				if ( FriendlyComponentName.Contains( InSearchText, ESearchCase::IgnoreCase ) )
 				{
+					// Add the heading first if it hasn't already been added
+					if (LastHeadingIndex != INDEX_NONE)
+					{
+						FilteredComponentClassList.Insert(*LastHeadingPtr, LastHeadingIndex);
+						LastHeadingIndex = INDEX_NONE;
+						LastHeadingPtr = nullptr;
+					}
+
+					// Add the class
 					FilteredComponentClassList.Add( CurrentEntry );
 				}
 			}
 		}
-		if (FilteredComponentClassList.Num() > 0)
+
+		// Select the first non-category item that passed the filter
+		for (FComponentClassComboEntryPtr& TestEntry : FilteredComponentClassList)
 		{
-			FComponentClassComboEntryPtr& FirstEntry = FilteredComponentClassList[0];
-			ComponentClassListView->SetSelection(FirstEntry, ESelectInfo::OnNavigation);
+			if (TestEntry->IsClass())
+			{
+				ComponentClassListView->SetSelection(TestEntry, ESelectInfo::OnNavigation);
+				break;
+			}
 		}
 	}
 }
@@ -237,16 +265,20 @@ void SComponentClassCombo::OnAddComponentSelectionChanged( FComponentClassComboE
 	else if ( InItem.IsValid() && SelectInfo != ESelectInfo::OnMouseClick )
 	{
 		int32 SelectedIdx = INDEX_NONE;
-		FilteredComponentClassList.Find(InItem, SelectedIdx);
-		
-		if(SelectedIdx != INDEX_NONE)
+		if (FilteredComponentClassList.Find(InItem, /*out*/ SelectedIdx))
 		{
-			if(!InItem->IsClass())
+			if (!InItem->IsClass())
 			{
 				int32 SelectionDirection = SelectedIdx - PrevSelectedIndex;
 
 				// Update the previous selected index
 				PrevSelectedIndex = SelectedIdx;
+
+				// Make sure we select past the category header if we started filtering with it selected somehow (avoiding the infinite loop selecting the same item forever)
+				if (SelectionDirection == 0)
+				{
+					SelectionDirection = 1;
+				}
 
 				if(SelectedIdx + SelectionDirection >= 0 && SelectedIdx + SelectionDirection < FilteredComponentClassList.Num())
 				{
@@ -303,7 +335,7 @@ TSharedRef<ITableRow> SComponentClassCombo::GenerateAddComponentRow( FComponentC
 		
 		return
 			SNew( SComboRow< TSharedPtr<FString> >, OwnerTable )
-			.ToolTip( FEditorClassUtils::GetTooltip(Entry->GetComponentClass()) )
+			.ToolTip( GetComponentToolTip(Entry) )
 			[
 				SNew(SHorizontalBox)
 				+SHorizontalBox::Slot()
@@ -318,7 +350,7 @@ TSharedRef<ITableRow> SComponentClassCombo::GenerateAddComponentRow( FComponentC
 				.AutoWidth()
 				[
 					SNew(SImage)
-					.Image( FClassIconFinder::FindIconForClass( Entry->GetIconOverrideBrushName() == NAME_None ? Entry->GetComponentClass() : nullptr, Entry->GetIconOverrideBrushName() ) )
+					.Image( FClassIconFinder::FindIconForClass( Entry->GetIconOverrideBrushName() == NAME_None ? Entry->GetIconClass() : nullptr, Entry->GetIconOverrideBrushName() ) )
 				]
 				+SHorizontalBox::Slot()
 				.AutoWidth()
@@ -343,14 +375,6 @@ void SComponentClassCombo::UpdateComponentClassList()
 {
 	GenerateFilteredComponentList(CurrentSearchString.ToString());
 }
-
-void SComponentClassCombo::OnProjectHotReloaded( bool bWasTriggeredAutomatically )
-{
-	UpdateComponentClassList();
-
-	ComponentClassListView->RequestListRefresh();
-}
-
 
 FText SComponentClassCombo::GetFriendlyComponentName(FComponentClassComboEntryPtr Entry) const
 {
@@ -445,6 +469,31 @@ FString SComponentClassCombo::GetSanitizedComponentName(FComponentClassComboEntr
 		DisplayName = Entry->GetClassName();
 	}
 	return FName::NameToDisplayString(DisplayName, false);
+}
+
+TSharedRef<SToolTip> SComponentClassCombo::GetComponentToolTip(FComponentClassComboEntryPtr Entry) const
+{
+	// Special handling for the "New..." options
+	if (Entry->GetComponentCreateAction() == EComponentCreateAction::CreateNewCPPClass)
+	{
+		return SNew(SToolTip)
+			.Text(LOCTEXT("NewCPPComponentToolTip", "Create a custom actor component using C++"));
+	}
+	else if (Entry->GetComponentCreateAction() == EComponentCreateAction::CreateNewBlueprintClass)
+	{
+		return SNew(SToolTip)
+			.Text(LOCTEXT("NewBlueprintComponentToolTip", "Create a custom actor component using Blueprints"));
+	}
+	
+	// Handle components which have a currently loaded class
+	if (const UClass* ComponentClass = Entry->GetComponentClass())
+	{
+		return FEditorClassUtils::GetTooltip(ComponentClass);
+	}
+
+	// Fallback for components that don't currently have a loaded class
+	return SNew(SToolTip)
+		.Text(FText::FromString(Entry->GetClassName()));
 }
 
 #undef LOCTEXT_NAMESPACE

@@ -174,7 +174,7 @@ public:
 	bool HandleShowMouseCursorCommand( const TCHAR* Cmd, FOutputDevice& Ar );
 #endif // WITH_EDITOR
 	bool HandlePreCacheCommand( const TCHAR* Cmd, FOutputDevice& Ar );
-	bool HandleToggleFullscreenCommand( const TCHAR* Cmd, FOutputDevice& Ar );
+	bool HandleToggleFullscreenCommand();
 	bool HandleSetResCommand( const TCHAR* Cmd, FOutputDevice& Ar );
 	bool HandleHighresScreenshotCommand( const TCHAR* Cmd, FOutputDevice& Ar );
 	bool HandleHighresScreenshotUICommand( const TCHAR* Cmd, FOutputDevice& Ar );
@@ -631,6 +631,9 @@ private:
 
 	/** Delegate handler for when an actor is spawned */
 	void ShowCollisionOnSpawnedActors(AActor* Actor);
+
+	/** Adds a cursor to the set based on the enum and the class reference to it. */
+	void AddCursor(EMouseCursor::Type Cursor, const FStringClassReference& CursorClass);
 
 private:
 	/** Slate window associated with this viewport client.  The same window may host more than one viewport client. */

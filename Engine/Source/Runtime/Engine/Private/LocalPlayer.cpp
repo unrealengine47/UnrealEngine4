@@ -24,7 +24,6 @@
 #include "GameFramework/PlayerState.h"
 
 DEFINE_LOG_CATEGORY(LogPlayerManagement);
-DEFINE_LOG_CATEGORY_STATIC(LogEngine, Log, All);
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 
@@ -1133,7 +1132,7 @@ bool ULocalPlayer::HandlePauseCommand( const TCHAR* Cmd, FOutputDevice& Ar, UWor
 	}
 	
 
-	return true;
+	return !ViewportClient->bIsPlayInEditorViewport;
 }
 
 bool ULocalPlayer::HandleListMoveBodyCommand( const TCHAR* Cmd, FOutputDevice& Ar )

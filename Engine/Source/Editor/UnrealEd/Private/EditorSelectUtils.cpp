@@ -281,23 +281,25 @@ void UUnrealEdEngine::UpdatePivotLocationForSelection( bool bOnChange )
 		{
 			UActorComponent* Component = CastChecked<UActorComponent>(*It);
 			AActor* ComponentOwner = Component->GetOwner();
-			check(ComponentOwner);
 
-			auto SelectedActors = GetSelectedActors();
-			const bool bIsOwnerSelected = SelectedActors->IsSelected(ComponentOwner);
-			check(bIsOwnerSelected);
-
-			if (ComponentOwner->GetWorld() == GWorld)
+			if (ComponentOwner != nullptr)
 			{
-				SingleActor = ComponentOwner;
-				if (Component->IsA<USceneComponent>())
-				{
-					SingleComponent = CastChecked<USceneComponent>(Component);
-				}
+				auto SelectedActors = GetSelectedActors();
+				const bool bIsOwnerSelected = SelectedActors->IsSelected(ComponentOwner);
+				check(bIsOwnerSelected);
 
-				const bool IsTemplate = ComponentOwner->IsTemplate();
-				const bool LevelLocked = !FLevelUtils::IsLevelLocked(ComponentOwner->GetLevel());
-				check(IsTemplate || LevelLocked);
+				if (ComponentOwner->GetWorld() == GWorld)
+				{
+					SingleActor = ComponentOwner;
+					if (Component->IsA<USceneComponent>())
+					{
+						SingleComponent = CastChecked<USceneComponent>(Component);
+					}
+
+					const bool IsTemplate = ComponentOwner->IsTemplate();
+					const bool LevelLocked = !FLevelUtils::IsLevelLocked(ComponentOwner->GetLevel());
+					check(IsTemplate || LevelLocked);
+				}
 			}
 		}
 	}
@@ -367,7 +369,7 @@ void UUnrealEdEngine::NoteSelectionChange()
 		ActiveModes[ModeIndex]->ActorSelectionChangeNotify();
 	}
 
-	bool bComponentSelectionChanged = GetSelectedComponentCount() > 0;
+	const bool bComponentSelectionChanged = GetSelectedComponentCount() > 0;
 	USelection* Selection = bComponentSelectionChanged ? GetSelectedComponents() : GetSelectedActors();
 	USelection::SelectionChangedEvent.Broadcast(Selection);
 	
@@ -492,7 +494,7 @@ bool UUnrealEdEngine::CanSelectActor(AActor* Actor, bool bInSelected, bool bSele
 	return bSelectionAllowed;
 }
 
-void UUnrealEdEngine::SelectActor(AActor* Actor, bool bInSelected, bool bNotify, bool bSelectEvenIfHidden)
+void UUnrealEdEngine::SelectActor(AActor* Actor, bool bInSelected, bool bNotify, bool bSelectEvenIfHidden, bool bForceRefresh)
 {
 	const bool bWarnIfLevelLocked = true;
 	if( !CanSelectActor( Actor, bInSelected, bSelectEvenIfHidden, bWarnIfLevelLocked ) )
@@ -597,10 +599,10 @@ void UUnrealEdEngine::SelectActor(AActor* Actor, bool bInSelected, bool bNotify,
 		}
 		else
 		{
-			if( bNotify )
+			if (bNotify || bForceRefresh)
 			{
 				//reset the property windows.  In case something has changed since previous selection
-				UpdateFloatingPropertyWindows();
+				UpdateFloatingPropertyWindows(bForceRefresh);
 			}
 		}
 	}

@@ -102,7 +102,11 @@ namespace GraphActionMenuHelpers
 			((FEdGraphSchemaAction_K2Struct*)InGraphAction)->GetPathName() == ItemName);
 		bCheck |= (InGraphAction->GetTypeId() == FEdGraphSchemaAction_K2Delegate::StaticGetTypeId() &&
 			((FEdGraphSchemaAction_K2Delegate*)InGraphAction)->GetDelegateName() == ItemName);
-		bCheck |= (InGraphAction->GetTypeId() == FEdGraphSchemaAction_K2TargetNode::StaticGetTypeId() &&
+
+		const bool bIsTargetNodeSubclass = (InGraphAction->GetTypeId() == FEdGraphSchemaAction_K2TargetNode::StaticGetTypeId()) ||
+			(InGraphAction->GetTypeId() == FEdGraphSchemaAction_K2Event::StaticGetTypeId()) ||
+			(InGraphAction->GetTypeId() == FEdGraphSchemaAction_K2InputAction::StaticGetTypeId());
+		bCheck |= (bIsTargetNodeSubclass &&
 			((FEdGraphSchemaAction_K2TargetNode*)InGraphAction)->NodeTemplate->GetNodeTitle(ENodeTitleType::EditableTitle).ToString() == ItemName.ToString());
 
 		return bCheck;
@@ -519,6 +523,13 @@ bool SGraphActionMenu::SelectItemByName(const FName& ItemName, ESelectInfo::Type
 
 		if(SelectionNode.IsValid())
 		{
+			// Expand the parent nodes
+			for (TSharedPtr<FGraphActionNode> ParentAction = SelectionNode->GetParentNode().Pin(); ParentAction.IsValid(); ParentAction = ParentAction->GetParentNode().Pin())
+			{
+				TreeView->SetItemExpansion(ParentAction, true);
+			}
+
+			// Select the node
 			TreeView->SetSelection(SelectionNode,SelectInfo);
 			TreeView->RequestScrollIntoView(SelectionNode);
 			return true;
@@ -1049,10 +1060,10 @@ TSharedRef<ITableRow> SGraphActionMenu::MakeWidget( TSharedPtr<FGraphActionNode>
 			+ SHorizontalBox::Slot()
 			.VAlign(VAlign_Center)
 			[
-				SNew(STextBlock)
+				SNew(SRichTextBlock)
 				.Text(SectionTitle)
-				.Font(FEditorStyle::GetFontStyle("DetailsView.CategoryFontStyle"))
-				.ShadowOffset(FVector2D(1.0f, 1.0f))
+				.DecoratorStyleSet(&FEditorStyle::Get())
+				.TextStyle(FEditorStyle::Get(), "DetailsView.CategoryTextStyle")
 			]
 
 			+ SHorizontalBox::Slot()

@@ -13,12 +13,21 @@ class UChildActorComponent : public USceneComponent
 {
 	GENERATED_UCLASS_BODY()
 
+	UFUNCTION(BlueprintCallable, Category=ChildActorComponent)
+	ENGINE_API void SetChildActorClass(TSubclassOf<AActor> Class);
+
+	TSubclassOf<AActor> GetChildActorClass() const { return ChildActorClass; }
+
+	friend class FChildActorComponentDetails;
+
+private:
 	/** The class of Actor to spawn */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=ChildActorComponent, meta=(OnlyPlaceable))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=ChildActorComponent, meta=(OnlyPlaceable, AllowPrivateAccess="true"))
 	TSubclassOf<AActor>	ChildActorClass;
 
+public:
 	/** The actor that we spawned and own */
-	UPROPERTY(BlueprintReadOnly, Category=ChildActorComponent, TextExportTransient)
+	UPROPERTY(BlueprintReadOnly, Category=ChildActorComponent, TextExportTransient, NonPIEDuplicateTransient)
 	AActor*	ChildActor;
 
 	/** We try to keep the child actor's name as best we can, so we store it off here when destroying */
@@ -27,11 +36,18 @@ class UChildActorComponent : public USceneComponent
 	/** Cached copy of the instance data when the ChildActor is destroyed to be available when needed */
 	mutable FChildActorComponentInstanceData* CachedInstanceData;
 
+	// Begin Object interface.
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+	virtual void PostEditUndo() override;
+#endif
+	// End Object interface.
+
 	// Begin ActorComponent interface.
 	virtual void OnComponentCreated() override;
 	virtual void OnComponentDestroyed() override;
 	virtual void OnRegister() override;
-	virtual FComponentInstanceDataBase* GetComponentInstanceData() const override;
+	virtual FActorComponentInstanceData* GetComponentInstanceData() const override;
 	virtual FName GetComponentInstanceDataType() const override;
 	// End ActorComponent interface.
 
@@ -39,7 +55,7 @@ class UChildActorComponent : public USceneComponent
 	void ApplyComponentInstanceData(class FChildActorComponentInstanceData* ComponentInstanceData);
 
 	/** Create the child actor */
-	void CreateChildActor();
+	ENGINE_API void CreateChildActor();
 
 	/** Kill any currently present child actor */
 	void DestroyChildActor();

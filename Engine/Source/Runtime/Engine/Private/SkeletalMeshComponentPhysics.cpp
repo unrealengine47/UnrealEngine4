@@ -474,24 +474,28 @@ void USkeletalMeshComponent::AddRadialImpulse(FVector Origin, float Radius, floa
 		return;
 	}
 
+	const float StrengthPerMass = Strength / FMath::Max(GetMass(), KINDA_SMALL_NUMBER);
 	for(int32 i=0; i<Bodies.Num(); i++)
 	{
-		Bodies[i]->AddRadialImpulseToBody(Origin, Radius, Strength, Falloff, bVelChange);
+		const float StrengthPerBody = bVelChange ? Strength : (StrengthPerMass * Bodies[i]->GetBodyMass());
+		Bodies[i]->AddRadialImpulseToBody(Origin, Radius, StrengthPerBody, Falloff, bVelChange);
 	}
 }
 
 
 
-void USkeletalMeshComponent::AddRadialForce(FVector Origin, float Radius, float Strength, ERadialImpulseFalloff Falloff)
+void USkeletalMeshComponent::AddRadialForce(FVector Origin, float Radius, float Strength, ERadialImpulseFalloff Falloff, bool bAccelChange)
 {
 	if(bIgnoreRadialForce)
 	{
 		return;
 	}
 
+	const float StrengthPerMass = Strength / FMath::Max(GetMass(), KINDA_SMALL_NUMBER);
 	for(int32 i=0; i<Bodies.Num(); i++)
 	{
-		Bodies[i]->AddRadialForceToBody(Origin, Radius, Strength, Falloff);
+		const float StrengthPerBody = bAccelChange ? Strength : (StrengthPerMass * Bodies[i]->GetBodyMass());
+		Bodies[i]->AddRadialForceToBody(Origin, Radius, StrengthPerBody, Falloff, bAccelChange);
 	}
 
 }
@@ -779,14 +783,22 @@ void USkeletalMeshComponent::InitArticulated(FPhysScene* PhysScene)
 
 			if (i == RootBodyIndex)
 			{
-				BodyInst->LockedAxisMode = BodyInstance.LockedAxisMode;
-				BodyInst->CustomLockedAxis = BodyInstance.CustomLockedAxis;
+				BodyInst->DOFMode = BodyInstance.DOFMode;
+				BodyInst->CustomDOFPlaneNormal = BodyInstance.CustomDOFPlaneNormal;
+				BodyInst->bLockXTranslation = BodyInstance.bLockXTranslation;
+				BodyInst->bLockYTranslation = BodyInstance.bLockYTranslation;
+				BodyInst->bLockZTranslation = BodyInstance.bLockZTranslation;
+				BodyInst->bLockXRotation = BodyInstance.bLockXRotation;
+				BodyInst->bLockYRotation = BodyInstance.bLockYRotation;
+				BodyInst->bLockZRotation = BodyInstance.bLockZRotation;
+				BodyInst->bLockTranslation = BodyInstance.bLockTranslation;
+				BodyInst->bLockRotation = BodyInstance.bLockRotation;
 
 				BodyInst->COMNudge = BodyInstance.COMNudge;
 			}
 			else
 			{
-				BodyInst->LockedAxisMode = ELockedAxis::None;
+				BodyInst->DOFMode = EDOFMode::None;
 			}
 
 #if WITH_PHYSX

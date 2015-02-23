@@ -21,10 +21,12 @@ public:
 	virtual FArchive* GetHeaderArchive() override;
 	virtual FArchive* GetStreamingArchive() override;
 	virtual FArchive* GetMetadataArchive() override;
+	virtual void UpdateTotalDemoTime( uint32 TimeInMS ) override { }
+	virtual uint32 GetTotalDemoTime() const override { return 0; }
 	virtual bool IsDataAvailable() const override { return true; }
 	virtual bool IsLive( const FString& StreamName ) const override;
 	virtual void DeleteFinishedStream( const FString& StreamName, const FOnDeleteFinishedStreamComplete& Delegate) const override;
-	virtual void EnumerateStreams( const FOnEnumerateStreamsComplete& Delegate ) const override;
+	virtual void EnumerateStreams( const FString& VersionString, const FOnEnumerateStreamsComplete& Delegate ) override;
 
 private:
 	/** Handle to the archive that will read/write network packets */

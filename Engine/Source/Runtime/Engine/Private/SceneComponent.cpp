@@ -365,6 +365,8 @@ void USceneComponent::DestroyComponent(bool bPromoteChildren/*= false*/)
 					// Attach the child node that we're promoting to the parent and move it to the same position as the old node was in the array
 					ChildToPromote->AttachTo(CachedAttachParent, NAME_None, EAttachLocation::KeepWorldPosition);
 					CachedAttachParent->AttachChildren.Remove(ChildToPromote);
+
+					Index = FMath::Clamp<int32>(Index, 0, CachedAttachParent->AttachChildren.Num());
 					CachedAttachParent->AttachChildren.Insert(ChildToPromote, Index);
 				}
 			}
@@ -887,7 +889,8 @@ void USceneComponent::AttachTo(class USceneComponent* Parent, FName InSocketName
 			return;
 		}
 
-		if(Mobility == EComponentMobility::Static && Parent->Mobility != EComponentMobility::Static )
+		// Don't allow components with static mobility to be attached to non-static parents (except during UCS)
+		if(!IsOwnerRunningUserConstructionScript() && Mobility == EComponentMobility::Static && Parent->Mobility != EComponentMobility::Static)
 		{
 			FString ExtraBlueprintInfo;
 #if WITH_EDITORONLY_DATA
@@ -1160,7 +1163,7 @@ bool USceneComponent::IsAttachedTo(class USceneComponent* TestComp) const
 }
 
 FSceneComponentInstanceData::FSceneComponentInstanceData(const USceneComponent* SourceComponent)
-	: FComponentInstanceDataBase(SourceComponent)
+	: FActorComponentInstanceData(SourceComponent)
 {
 	for (int32 i = SourceComponent->AttachChildren.Num()-1; i >= 0; --i)
 	{
@@ -1172,11 +1175,17 @@ FSceneComponentInstanceData::FSceneComponentInstanceData(const USceneComponent* 
 	}
 }
 
-void FSceneComponentInstanceData::ApplyToComponent(UActorComponent* Component)
+void FSceneComponentInstanceData::ApplyToComponent(UActorComponent* Component, const ECacheApplyPhase CacheApplyPhase)
 {
-	FComponentInstanceDataBase::ApplyToComponent(Component);
+	FActorComponentInstanceData::ApplyToComponent(Component, CacheApplyPhase);
 
 	USceneComponent* SceneComponent = CastChecked<USceneComponent>(Component);
+
+	if (ContainsSavedProperties())
+	{
+		SceneComponent->UpdateComponentToWorld();
+	}
+
 	for (USceneComponent* ChildComponent : AttachedInstanceComponents)
 	{
 		if (ChildComponent)
@@ -1197,9 +1206,9 @@ void FSceneComponentInstanceData::FindAndReplaceInstances(const TMap<UObject*, U
 	}
 }
 
-FComponentInstanceDataBase* USceneComponent::GetComponentInstanceData() const
+FActorComponentInstanceData* USceneComponent::GetComponentInstanceData() const
 {
-	FComponentInstanceDataBase* InstanceData = nullptr;
+	FActorComponentInstanceData* InstanceData = nullptr;
 
 	for (USceneComponent* Child : AttachChildren)
 	{
@@ -1208,6 +1217,11 @@ FComponentInstanceDataBase* USceneComponent::GetComponentInstanceData() const
 			InstanceData = new FSceneComponentInstanceData(this);
 			break;
 		}
+	}
+
+	if (InstanceData == nullptr)
+	{
+		InstanceData = Super::GetComponentInstanceData();
 	}
 
 	return InstanceData;

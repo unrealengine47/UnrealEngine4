@@ -36,21 +36,23 @@ namespace physx
 #endif // WITH_PHYSX
 
 UENUM(BlueprintType)
-namespace ELockedAxis
+namespace EDOFMode
 {
 	enum Type
 	{
-		/*Uses the default locked axis as specified in the project settings.*/
+		/*Inherits the degrees of freedom from the project settings.*/
 		Default,
-		/*Lock movement along the x-axis*/
-		X,
-		/*Lock movement along the y-axis*/
-		Y,
-		/*Lock movement along the z-axis*/
-		Z,
-		/*Lock movement along custom axis*/
-		Custom,
-		/*No axis is locked.*/
+		/*Specifies which axis to freeze rotation and movement along.*/
+		SixDOF,
+		/*Allows 2D movement along the Y-Z plane.*/
+		YZPlane,
+		/*Allows 2D movement along the X-Z plane.*/
+		XZPlane,
+		/*Allows 2D movement along the X-Y plane.*/
+		XYPlane,
+		/*Allows 2D movement along the plane of a given normal*/
+		CustomPlane,
+		/*No constraints.*/
 		None
 	};
 }
@@ -191,41 +193,41 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Physics)
 	uint32 bSimulatePhysics:1;
 
-	/** If true and is attached to a parent, the two bodies will be joined into a single rigid body. Physical settings like collision profile and body settings are determined by the root */
+	/** If true, mass will not be automatically computed and you must set it directly */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Physics, meta=(DisplayName="Override"))
+	uint32 bOverrideMass : 1;
+
+	/**Mass of the body in KG. By default we compute this based on physical material and mass scale.
+	*@see bOverrideMass to set this directly */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Physics, meta = (editcondition = "bOverrideMass", ClampMin = "0.001", UIMin = "0.001"))
+	float MassInKg;
+
+	/** 'Drag' force added to reduce linear movement */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Physics)
+	float LinearDamping;
+
+	/** 'Drag' force added to reduce angular movement */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Physics)
+	float AngularDamping;
+
+	/** If object should have the force of gravity applied */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Physics)
+	uint32 bEnableGravity : 1;
+
+	/** If true and is attached to a parent, the two bodies will be joined into a single rigid body. Physical settings like collision profile and body settings are determined by the root */
+	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category = Physics)
 	uint32 bAutoWeld : 1;
 
 	/** determines if the body is currently welded */
 	uint32 bWelded : 1;
 
 	/** If object should start awake, or if it should initially be sleeping */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Physics, meta=(editcondition = "bSimulatePhysics"))
+	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category = Physics, meta = (editcondition = "bSimulatePhysics"))
 	uint32 bStartAwake:1;
-
-	/** If object should have the force of gravity applied */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category=Physics)
-	uint32 bEnableGravity:1;
 
 	/** If true, it will update mass when scale changes **/
 	UPROPERTY()
 	uint32 bUpdateMassWhenScaleChanges:1;
-
-	/** If true, mass will not be automatically computed and you must set it directly */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Physics)
-	uint32 bOverrideMass : 1;
-
-	/**Mass of the body in KG. By default we compute this based on physical material and mass scale.
-	   *@see bOverrideMass to set this directly */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Physics, meta = (editcondition = "bOverrideMass", ClampMin = "0.001", UIMin = "0.001"))
-	float MassInKg;
-
-	/** Locks physical movement along specified axis.*/
-	UPROPERTY(EditAnywhere, Category = Physics, meta=(DisplayName="Locked Axis"))
-	TEnumAsByte<ELockedAxis::Type> LockedAxisMode;
-	
-	/** Locks physical movement along custom axis. (0,0,0) indicates no lock*/
-	UPROPERTY(EditAnywhere, Category = Physics)
-	FVector CustomLockedAxis;
 
 	/** When a Locked Axis Mode is selected, will lock translation on the specified axis*/
 	UPROPERTY(EditAnywhere, Category = Physics, meta=(DisplayName = "Lock Axis Translation"))
@@ -235,11 +237,58 @@ public:
 	UPROPERTY(EditAnywhere, Category = Physics, meta=(DisplayName = "Lock Axis Rotation"))
 	uint32 bLockRotation : 1;
 
+	/** Lock translation along the X-axis*/
+	UPROPERTY(EditAnywhere, Category = Physics, meta = (DisplayName = "X"))
+	uint32 bLockXTranslation : 1;
+
+	/** Lock translation along the Y-axis*/
+	UPROPERTY(EditAnywhere, Category = Physics, meta = (DisplayName = "Y"))
+	uint32 bLockYTranslation : 1;
+
+	/** Lock translation along the Z-axis*/
+	UPROPERTY(EditAnywhere, Category = Physics, meta = (DisplayName = "Z"))
+	uint32 bLockZTranslation : 1;
+
+	/** Lock rotation about the X-axis*/
+	UPROPERTY(EditAnywhere, Category = Physics, meta = (DisplayName = "X"))
+	uint32 bLockXRotation : 1;
+
+	/** Lock rotation about the Y-axis*/
+	UPROPERTY(EditAnywhere, Category = Physics, meta = (DisplayName = "Y"))
+	uint32 bLockYRotation : 1;
+
+	/** Lock rotation about the Z-axis*/
+	UPROPERTY(EditAnywhere, Category = Physics, meta = (DisplayName = "Z"))
+	uint32 bLockZRotation : 1;
+
+	/** Locks physical movement along specified axis.*/
+	UPROPERTY(EditAnywhere, Category = Physics, meta = (DisplayName = "Mode"))
+	TEnumAsByte<EDOFMode::Type> DOFMode;
+
+	/** Locks physical movement along a custom plane for a given normal.*/
+	UPROPERTY(EditAnywhere, Category = Physics, meta = (DisplayName = "Plane Normal"))
+	FVector CustomDOFPlaneNormal;
+
+	/** User specified offset for the center of mass of this object, from the calculated location */
+	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category = Physics, meta = (DisplayName = "Center Of Mass Offset"))
+	FVector COMNudge;
+
+	/** Per-instance scaling of mass */
+	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category = Physics)
+	float MassScale;
+
+	/** The maximum angular velocity for this instance */
+	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category = Physics, meta = (editcondition = "bSimulatePhysics"))
+	float MaxAngularVelocity;
+
+
 	/** Locks physical movement along axis. */
-	void SetDOFLock(ELockedAxis::Type NewAxisMode);
+	void SetDOFLock(EDOFMode::Type NewDOFMode);
 
 	FVector GetLockedAxis() const;
 	void CreateDOFLock();
+
+	static EDOFMode::Type ResolveDOFMode(EDOFMode::Type DOFMode);
 
 	/** Constraint used to allow for easy DOF setup per bodyinstance */
 	FConstraintInstance * DOFConstraint;
@@ -266,13 +315,6 @@ protected:
 	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category=Physics)
 	uint32 bOverrideWalkableSlopeOnInstance:1;
 
-	/**
-	 * Custom walkable slope override setting for this instance.
-	 * @see GetWalkableSlopeOverride(), SetWalkableSlopeOverride()
-	 */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category=Physics, meta=(editcondition="bOverrideWalkableSlopeOnInstance"))
-	struct FWalkableSlopeOverride WalkableSlopeOverride;
-
 	/** Whether this body instance has its own custom MaxDepenetrationVelocity*/
 	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category = Physics)
 	uint32 bOverrideMaxDepenetrationVelocity : 1;
@@ -281,34 +323,21 @@ protected:
 	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category = Physics, meta = (editcondition = "bOverrideMaxDepenetrationVelocity", ClampMin = "0.0", UIMin = "0.0"))
 	float MaxDepenetrationVelocity;
 
+	/**
+	* Custom walkable slope override setting for this instance.
+	* @see GetWalkableSlopeOverride(), SetWalkableSlopeOverride()
+	*/
+	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category = Physics, meta = (editcondition = "bOverrideWalkableSlopeOnInstance"))
+	struct FWalkableSlopeOverride WalkableSlopeOverride;
+
 	/**	Allows you to override the PhysicalMaterial to use for simple collision on this body. */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category=Collision)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Collision)
 	class UPhysicalMaterial* PhysMaterialOverride;
 
 public:
-	/** User specified offset for the center of mass of this object, from the calculated location */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category=Physics, meta=(DisplayName="Center Of Mass Offset"))
-	FVector COMNudge;
-
 	/** The set of values used in considering when put this body to sleep. */
 	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category=Physics)
 	TEnumAsByte<enum ESleepFamily> SleepFamily;
-
-	/** Per-instance scaling of mass */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category=Physics)
-	float MassScale;
-
-	/** 'Drag' force added to reduce angular movement */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category=Physics)
-	float AngularDamping;
-
-	/** 'Drag' force added to reduce linear movement */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category=Physics)
-	float LinearDamping;
-
-	/** The maximum angular velocity for this instance */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category = Physics, meta = (editcondition = "bSimulatePhysics"))
-	float MaxAngularVelocity;
 
 	/**	Influence of rigid body physics (blending) on the mesh's pose (0.0 == use only animation, 1.0 == use only physics) */
 	/** Provide appropriate interface for doing this instead of allowing BlueprintReadWrite **/
@@ -483,6 +512,8 @@ public:
 	float GetBodyMass() const;
 	/** Return bounds of physics representation */
 	FBox GetBodyBounds() const;
+	/** Return the body's inertia tensor. This is returned in local mass space */
+	FVector GetBodyInertiaTensor() const;
 
 
 	/** Set this body to be fixed (kinematic) or not. */
@@ -502,11 +533,11 @@ public:
 	/** Add custom forces and torques on the body. The callback will be called more than once, if substepping enabled, for every substep.  */
 	void AddCustomPhysics(FCalculateCustomPhysics& CalculateCustomPhysics);
 	/** Add a force to this body */
-	void AddForce(const FVector& Force, bool bAllowSubstepping = true);
+	void AddForce(const FVector& Force, bool bAllowSubstepping = true, bool bAccelChange = false);
 	/** Add a force at a particular world position to this body */
 	void AddForceAtPosition(const FVector& Force, const FVector& Position, bool bAllowSubstepping = true);
 	/** Add a torque to this body */
-	void AddTorque(const FVector& Torque, bool bAllowSubstepping = true);
+	void AddTorque(const FVector& Torque, bool bAllowSubstepping = true, bool bAccelChange = false);
 	/** Add a rotational impulse to this body */
 	void AddAngularImpulse(const FVector& Impulse, bool bVelChange);
 	/** Add an impulse to this body */
@@ -652,9 +683,10 @@ public:
 	 *
 	 *	@param	PGeom			Geometry it would like to test
 	 *  @param  ShapePose       Transform information in world. Use U2PTransform to convert from FTransform
+	 *  @param  OutMTD			The minimum translation direction needed to push the shape out of this BodyInstance. (Optional)
 	 *  @return true if PrimComp overlaps this component at the specified location/rotation
 	 */
-	bool OverlapPhysX(const physx::PxGeometry& Geom, const physx::PxTransform&  ShapePose) const;
+	bool OverlapPhysX(const physx::PxGeometry& Geom, const physx::PxTransform&  ShapePose, FMTDResult* OutMTD = nullptr) const;
 #endif	//WITH_PHYSX
 
 	/**
@@ -663,9 +695,10 @@ public:
 	 *  @param  Position		Position to place the shape at before testing
 	 *  @param  Rotation		Rotation to apply to the shape before testing
 	 *	@param	CollisionShape	Shape to test against
+	 *  @param  OutMTD			The minimum translation direction needed to push the shape out of this BodyInstance. (Optional)
 	 *  @return true if the geometry associated with this body instance overlaps the query shape at the specified location/rotation
 	 */
-	bool OverlapTest(const FVector& Position, const FQuat& Rotation, const struct FCollisionShape& CollisionShape) const;
+	bool OverlapTest(const FVector& Position, const FQuat& Rotation, const struct FCollisionShape& CollisionShape, FMTDResult* OutMTD = nullptr) const;
 
 	/**
 	 *  Determines the set of components that this body instance would overlap with at the supplied location/rotation
@@ -691,7 +724,7 @@ public:
 	 * @param Falloff		Allows you to control the strength of the impulse as a function of distance from Origin.
 	 * @param bVelChange	If true, the Strength is taken as a change in velocity instead of an impulse (ie. mass will have no affect).
 	 */
-	void AddRadialImpulseToBody(const FVector& Origin, float Radius, float Strength, uint8 Falloff, bool bVelChange);
+	void AddRadialImpulseToBody(const FVector& Origin, float Radius, float Strength, uint8 Falloff, bool bVelChange = false);
 
 	/**
 	 *	Add a force to this bodyinstance, originating from the supplied world-space location.
@@ -700,8 +733,10 @@ public:
 	 *	@param Radius		Radius within which to apply the force.
 	 *	@param Strength		Strength of force to apply.
 	 *  @param Falloff		Allows you to control the strength of the force as a function of distance from Origin.
+	 *  @param bAccelChange If true, Strength is taken as a change in acceleration instead of a physical force (i.e. mass will have no affect).
+	 *  @param bAllowSubstepping Whether we should sub-step this radial force. You should only turn this off if you're calling it from a sub-step callback, otherwise there will be energy loss
 	 */
-	void AddRadialForceToBody(const FVector& Origin, float Radius, float Strength, uint8 Falloff);
+	void AddRadialForceToBody(const FVector& Origin, float Radius, float Strength, uint8 Falloff, bool bAccelChange = false, bool bAllowSubstepping = true);
 
 	/**
 	 * Get distance to the body surface if available

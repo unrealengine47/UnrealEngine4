@@ -30,8 +30,10 @@ uint64 FAsyncIOSystemBase::QueueIORequest(
 	FThreadSafeCounter* Counter,
 	EAsyncIOPriority Priority )
 {
-	FScopeLock ScopeLock( CriticalSection );
-	check( Offset != INDEX_NONE );
+	check(Offset != INDEX_NONE);
+	check(Dest != nullptr || Size == 0);
+
+	FScopeLock ScopeLock(CriticalSection);
 
 	// Create an IO request containing passed in information.
 	FAsyncIORequest IORequest;
@@ -718,6 +720,8 @@ void FAsyncIOSystemBase::TickSingleThreaded()
 
 void FAsyncIOSystemBase::BlockTillAllRequestsFinished()
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "FAsyncIOSystemBase::BlockTillAllRequestsFinished" ), STAT_FAsyncIOSystemBase_BlockTillAllRequestsFinished, STATGROUP_AsyncIOSystem );
+
 	// Block till all requests are fulfilled.
 	while( true ) 
 	{
@@ -735,7 +739,7 @@ void FAsyncIOSystemBase::BlockTillAllRequestsFinished()
 			SHUTDOWN_IF_EXIT_REQUESTED;
 
 			//@todo streaming: this should be replaced by waiting for an event.
-			FPlatformProcess::Sleep( 0.001f );
+			FPlatformProcess::SleepNoStats( 0.001f );
 		}
 	}
 }

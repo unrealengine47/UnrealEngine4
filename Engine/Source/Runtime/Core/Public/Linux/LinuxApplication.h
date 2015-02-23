@@ -17,6 +17,11 @@ class FLinuxApplication : public GenericApplication
 public:
 	static FLinuxApplication* CreateLinuxApplication();
 
+	enum UserDefinedEvents
+	{
+		CheckForDeactivation
+	};
+
 public:	
 	virtual ~FLinuxApplication();
 	
@@ -60,11 +65,15 @@ public:
 
 	void RemoveEventWindow(SDL_HWindow Window);
 
+	void RemoveRevertFocusWindow(SDL_HWindow HWnd);
+
 	EWindowZone::Type WindowHitTest( const TSharedPtr< FLinuxWindow > &window, int x, int y );
 
 	TSharedPtr< FLinuxWindow > FindWindowBySDLWindow( SDL_Window *win );
 
 	virtual bool IsCursorDirectlyOverSlateWindow() const override;
+
+	void SendDestroyEvent(SDL_Window * HWnd);
 
 private:
 
@@ -87,14 +96,6 @@ private:
 	 */
 	static bool GeneratesKeyCharMessage(const SDL_KeyboardEvent & KeyDownEvent);
 
-	/**
-	 * Tracks window activation changes and sends notifications as required
-	 * 
-	 * @param Window window that caused the activation event
-	 * @param Event type of the activation change
-	 */
-	void TrackActivationChanges(const TSharedPtr<FLinuxWindow> Window, EWindowActivation::Type Event);
-
 private:
 
 	struct SDLControllerState
@@ -105,23 +106,25 @@ private:
 		bool analogOverThreshold[10];
 	};
 
-// 	static const FIntPoint MinimizedWindowPosition;
-
 	bool bUsingHighPrecisionMouseInput;
 
 	TArray< SDL_Event > PendingEvents;
 
 	TArray< TSharedRef< FLinuxWindow > > Windows;
 
+	/** Array of windows to focus when current gets removed. */
+	TArray< TSharedRef< FLinuxWindow > > RevertFocusStack;
+
 	int32 bAllowedToDeferMessageProcessing;
 
 	bool bIsMouseCursorLocked;
 	bool bIsMouseCaptureEnabled;
 
-	TSharedPtr< FLinuxWindow > LastEventWindow;
-
-	/** Window that we think has been activated last*/
+	/** Window that we think has been activated last. */
 	TSharedPtr< FLinuxWindow > CurrentlyActiveWindow;
+
+	/** Window that we think has been previously active. */
+	TSharedPtr< FLinuxWindow > PreviousActiveWindow;
 
 	SDL_HWindow MouseCaptureWindow;
 
@@ -137,6 +140,12 @@ private:
 
 	/** Whether we entered one of our own windows */
 	bool bInsideOwnWindow;
+
+	/** This is used to assist the drag/drop on tabs. */
+	bool bIsDragWindowButtonPressed;
+
+	/** Used to check if the application is active or not. */
+	bool bActivateApp;
 };
 
 

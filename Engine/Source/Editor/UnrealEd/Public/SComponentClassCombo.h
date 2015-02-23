@@ -34,12 +34,15 @@ struct FComponentEntryCustomizationArgs
 	FOnComponentCreated OnComponentCreated;
 	/** Brush icon to use instead of the class icon */
 	FName IconOverrideBrushName;
+	/** Custom sort priority to use (smaller means sorted first) */
+	int32 SortPriority;
 
 	FComponentEntryCustomizationArgs()
 		: AssetOverride( nullptr )
 		, ComponentNameOverride()
 		, OnComponentCreated()
 		, IconOverrideBrushName( NAME_None )
+		, SortPriority(0)
 	{
 	
 	}
@@ -49,6 +52,7 @@ class FComponentClassComboEntry: public TSharedFromThis<FComponentClassComboEntr
 public:
 	FComponentClassComboEntry( const FString& InHeadingText, TSubclassOf<UActorComponent> InComponentClass, bool InIncludedInFilter, EComponentCreateAction::Type InComponentCreateAction, FComponentEntryCustomizationArgs InCustomizationArgs = FComponentEntryCustomizationArgs() )
 		: ComponentClass(InComponentClass)
+		, IconClass(InComponentClass)
 		, ComponentName()
 		, ComponentPath()
 		, HeadingText(InHeadingText)
@@ -57,8 +61,9 @@ public:
 		, CustomizationArgs(InCustomizationArgs)
 	{}
 
-	FComponentClassComboEntry(const FString& InHeadingText, const FString& InComponentName, FName InComponentPath, bool InIncludedInFilter)
-		: ComponentClass()
+	FComponentClassComboEntry(const FString& InHeadingText, const FString& InComponentName, FName InComponentPath, const UClass* InIconClass, bool InIncludedInFilter)
+		: ComponentClass(nullptr)
+		, IconClass(InIconClass)
 		, ComponentName(InComponentName)
 		, ComponentPath(InComponentPath)
 		, HeadingText(InHeadingText)
@@ -67,7 +72,8 @@ public:
 	{}
 
 	FComponentClassComboEntry( const FString& InHeadingText )
-		: ComponentClass(NULL)
+		: ComponentClass(nullptr)
+		, IconClass(nullptr)
 		, ComponentName()
 		, ComponentPath()
 		, HeadingText(InHeadingText)
@@ -75,11 +81,14 @@ public:
 	{}
 
 	FComponentClassComboEntry()
-		: ComponentClass(NULL)
+		: ComponentClass(nullptr)
+		, IconClass(nullptr)
 	{}
 
 
 	TSubclassOf<UActorComponent> GetComponentClass() const { return ComponentClass; }
+
+	const UClass* GetIconClass() const { return IconClass; }
 
 	const FString& GetHeadingText() const { return HeadingText; }
 
@@ -125,8 +134,11 @@ public:
 	}
 
 	FName GetIconOverrideBrushName() const { return CustomizationArgs.IconOverrideBrushName; }
+
+	int32 GetSortPriority() const { return CustomizationArgs.SortPriority; }
 private:
 	TSubclassOf<UActorComponent> ComponentClass;
+	const UClass* IconClass;
 	// For components that are not loaded we just keep the name of the component,
 	// loading occurs when the blueprint is spawned, which should also trigger a refresh
 	// of the component list:
@@ -186,14 +198,11 @@ public:
 	/** Returns a component name without the substring "Component" and sanitized for display */
 	static FString GetSanitizedComponentName(FComponentClassComboEntryPtr Entry);
 
-protected:
-
-	/** Called when a project is hot reloaded to refresh the components list */
-	void OnProjectHotReloaded( bool bWasTriggeredAutomatically );
-
 private:
 
 	FText GetFriendlyComponentName(FComponentClassComboEntryPtr Entry) const;
+
+	TSharedRef<SToolTip> GetComponentToolTip(FComponentClassComboEntryPtr Entry) const;
 
 	FComponentClassSelected OnComponentClassSelected;
 

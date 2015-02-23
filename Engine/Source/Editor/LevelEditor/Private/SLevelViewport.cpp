@@ -40,6 +40,7 @@
 #include "Engine/Selection.h"
 #include "GameFramework/PlayerInput.h"
 #include "GameFramework/PlayerController.h"
+#include "SActorPilotViewportToolbar.h"
 
 static const FName LevelEditorName("LevelEditor");
 
@@ -1156,8 +1157,8 @@ void SLevelViewport::BindOptionCommands( FUICommandList& CommandList )
 		);
 
 	CommandList.MapAction(
-		ViewportActions.ToggleLockedCameraView,
-		FExecuteAction::CreateSP(this, &SLevelViewport::ToggleLockedCameraView),
+		ViewportActions.ToggleActorPilotCameraView,
+		FExecuteAction::CreateSP(this, &SLevelViewport::ToggleActorPilotCameraView),
 		FCanExecuteAction(),
 		FIsActionChecked::CreateSP( this, &SLevelViewport::IsLockedCameraViewEnabled )
 		);
@@ -1198,22 +1199,15 @@ void SLevelViewport::BindViewCommands( FUICommandList& CommandList )
 		);
 
 	CommandList.MapAction(
-		ViewportActions.ActorUnlock,
+		ViewportActions.EjectActorPilot,
 		FExecuteAction::CreateSP( this, &SLevelViewport::OnActorUnlock ),
 		FCanExecuteAction::CreateSP( this, &SLevelViewport::CanExecuteActorUnlock )
 		);
 
 	CommandList.MapAction(
-		ViewportActions.ActorLockSelected,
+		ViewportActions.PilotSelectedActor,
 		FExecuteAction::CreateSP( this, &SLevelViewport::OnActorLockSelected ),
 		FCanExecuteAction::CreateSP( this, &SLevelViewport::CanExecuteActorLockSelected )
-		);
-
-	CommandList.MapAction(
-		ViewportActions.ActorUnlockSelected,
-		FExecuteAction::CreateSP( this, &SLevelViewport::OnActorUnlock ),
-		FCanExecuteAction::CreateSP( this, &SLevelViewport::CanExecuteActorUnlock ),
-		FIsActionChecked::CreateSP( this, &SLevelViewport::IsSelectedActorLocked )
 		);
 
 	CommandList.MapAction(
@@ -1574,15 +1568,9 @@ TSharedPtr<SWidget> SLevelViewport::MakeViewportToolbar()
 		.VAlign(VAlign_Top)
 		.HAlign(HAlign_Left)
 		[
-			SNew(SHorizontalBox)
-			.Visibility( EVisibility::SelfHitTestInvisible )
-			+SHorizontalBox::Slot()
-			[
-				SNew(SImage)
-				.Image(FEditorStyle::GetBrush("LevelViewport.ActorLockIcon"))
-				.Visibility(this, &SLevelViewport::GetLockedIconVisibility)
-				.ToolTipText(this, &SLevelViewport::GetLockedIconToolTip)
-			]
+			SNew(SActorPilotViewportToolbar)
+			.Viewport( SharedThis( this ) )
+			.Visibility(this, &SLevelViewport::GetLockedIconVisibility)
 		];
 }
 
@@ -2118,7 +2106,7 @@ bool SLevelViewport::IsAnyActorLocked() const
 	return LevelViewportClient->IsAnyActorLocked();
 }
 
-void SLevelViewport::ToggleLockedCameraView()
+void SLevelViewport::ToggleActorPilotCameraView()
 {
 	LevelViewportClient->bLockedCameraView = !LevelViewportClient->bLockedCameraView;
 }
@@ -2392,7 +2380,7 @@ bool SLevelViewport::IsPlayInEditorViewportActive() const
 	return ActiveViewport->IsPlayInEditorViewport();
 }
 
-void SLevelViewport::OnActorSelectionChanged( const TArray<UObject*>& NewSelection )
+void SLevelViewport::OnActorSelectionChanged(const TArray<UObject*>& NewSelection, bool bForceRefresh)
 {
 	// On the first actor selection after entering Game View, enable the selection show flag
 	if (IsVisible() && IsInGameView() && NewSelection.Num() != 0)

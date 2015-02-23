@@ -85,8 +85,9 @@ void UEditorEngine::EndPlayMap()
 	// Enable screensavers when ending PIE.
 	EnableScreenSaver( true );
 
-	// Move SelectedActors object back to the transient package.
+	// Move SelectedActors and SelectedComponents object back to the transient package.
 	GetSelectedActors()->Rename(nullptr, GetTransientPackage(), REN_DoNotDirty | REN_DontCreateRedirectors | REN_NonTransactional);
+	GetSelectedComponents()->Rename(nullptr,GetTransientPackage(), REN_DoNotDirty | REN_DontCreateRedirectors | REN_NonTransactional);
 
 	// Make a list of all the actors that should be selected
 	TArray<UObject *> SelectedActors;
@@ -125,6 +126,7 @@ void UEditorEngine::EndPlayMap()
 	GEditor->SelectNone( true, true, false );
 	GetSelectedActors()->DeselectAll();
 	GetSelectedObjects()->DeselectAll();
+	GetSelectedComponents()->DeselectAll();
 
 	// For every actor that was selected previously, make sure it's editor equivalent is selected
 	for ( int32 ActorIndex = 0; ActorIndex < SelectedActors.Num(); ++ActorIndex )
@@ -1666,9 +1668,6 @@ void UEditorEngine::PlayForMovieCapture()
 	// (we add to EditorCommandLine because the URL is ignored by WindowsTools)
 	EditorCommandLine += TEXT(" -PIEVIACONSOLE");
 	
-	// Disable splash screen
-	EditorCommandLine += TEXT(" -NoSplash");
-	
 	// if we want to start movie capturing right away, then append the argument for that
 	if (bStartMovieCapture)
 	{
@@ -1679,19 +1678,19 @@ void UEditorEngine::PlayForMovieCapture()
 		EditorCommandLine += FString::Printf(TEXT(" -ResX=%d"), GEditor->MatineeCaptureResolutionX);
 		EditorCommandLine += FString::Printf(TEXT(" -ResY=%d"), GEditor->MatineeCaptureResolutionY);
 					
-		if( GUnrealEd->bNoTextureStreaming )
+		if( GUnrealEd->MatineeScreenshotOptions.bNoTextureStreaming )
 		{
 			EditorCommandLine += TEXT(" -NoTextureStreaming");
 		}
 
 		//set fps
-		EditorCommandLine += FString::Printf(TEXT(" -BENCHMARK -FPS=%d"), GEditor->MatineeCaptureFPS);
+		EditorCommandLine += FString::Printf(TEXT(" -BENCHMARK -FPS=%d"), GEditor->MatineeScreenshotOptions.MatineeCaptureFPS);
 	
-		if (GEditor->MatineeCaptureType.GetValue() != EMatineeCaptureType::AVI)
+		if (GEditor->MatineeScreenshotOptions.MatineeCaptureType.GetValue() != EMatineeCaptureType::AVI)
 		{
-			EditorCommandLine += FString::Printf(TEXT(" -MATINEESSCAPTURE=%s"), *GEngine->MatineeCaptureName);//*GEditor->MatineeNameForRecording);
+			EditorCommandLine += FString::Printf(TEXT(" -MATINEESSCAPTURE=%s"), *GEngine->MatineeScreenshotOptions.MatineeCaptureName);//*GEditor->MatineeNameForRecording);
 
-			switch(GEditor->MatineeCaptureType.GetValue())
+			switch(GEditor->MatineeScreenshotOptions.MatineeCaptureType.GetValue())
 			{
 			case EMatineeCaptureType::BMP:
 				EditorCommandLine += TEXT(" -MATINEESSFORMAT=BMP");
@@ -1714,12 +1713,12 @@ void UEditorEngine::PlayForMovieCapture()
 		}
 		else
 		{
-			EditorCommandLine += FString::Printf(TEXT(" -MATINEEAVICAPTURE=%s"), *GEngine->MatineeCaptureName);//*GEditor->MatineeNameForRecording);
+			EditorCommandLine += FString::Printf(TEXT(" -MATINEEAVICAPTURE=%s"), *GEngine->MatineeScreenshotOptions.MatineeCaptureName);//*GEditor->MatineeNameForRecording);
 		}
 					
-		EditorCommandLine += FString::Printf(TEXT(" -MATINEEPACKAGE=%s"), *GEngine->MatineePackageCaptureName);//*GEditor->MatineePackageNameForRecording);
+		EditorCommandLine += FString::Printf(TEXT(" -MATINEEPACKAGE=%s"), *GEngine->MatineeScreenshotOptions.MatineePackageCaptureName);//*GEditor->MatineePackageNameForRecording);
 	
-		if (GEditor->bCompressMatineeCapture == 1)
+		if (GEditor->MatineeScreenshotOptions.bCompressMatineeCapture == 1)
 		{
 			EditorCommandLine += TEXT(" -CompressCapture");
 		}
@@ -2588,6 +2587,7 @@ UGameInstance* UEditorEngine::CreatePIEGameInstance(int32 PIEInstance, bool bInS
 
 	// Make a list of all the selected actors
 	TArray<UObject *> SelectedActors;
+	TArray<UObject*> SelectedComponents;
 	for ( FSelectionIterator It( GetSelectedActorIterator() ); It; ++It )
 	{
 		AActor* Actor = static_cast<AActor*>( *It );
@@ -2599,10 +2599,12 @@ UGameInstance* UEditorEngine::CreatePIEGameInstance(int32 PIEInstance, bool bInS
 		}
 	}
 
+
 	// Unselect everything
 	GEditor->SelectNone( true, true, false );
 	GetSelectedActors()->DeselectAll();
 	GetSelectedObjects()->DeselectAll();
+	GetSelectedComponents()->DeselectAll();
 
 	// For every actor that was selected previously, make sure it's sim equivalent is selected
 	for ( int32 ActorIndex = 0; ActorIndex < SelectedActors.Num(); ++ActorIndex )
@@ -2623,6 +2625,7 @@ UGameInstance* UEditorEngine::CreatePIEGameInstance(int32 PIEInstance, bool bInS
 	// Move SelectedActors global object to the PIE package for the duration of the PIE session.
 	// This will stop any transactions on it from being saved during PIE.
 	GetSelectedActors()->Rename(nullptr, GWorld->GetOutermost(), REN_DoNotDirty | REN_DontCreateRedirectors | REN_NonTransactional);
+	GetSelectedComponents()->Rename(nullptr, GWorld->GetOutermost(), REN_DoNotDirty | REN_DontCreateRedirectors | REN_NonTransactional);
 
 	// For play in editor, this is the viewport widget where the game is being displayed
 	TSharedPtr<SViewport> PieViewportWidget;
@@ -3261,6 +3264,8 @@ UWorld* UEditorEngine::CreatePIEWorldByDuplication(FWorldContext &WorldContext, 
 	UWorld::WorldTypePreLoadMap.FindOrAdd(PlayWorldMapFName) = EWorldType::PIE;
 
 	// Create a package for the PIE world
+	UE_LOG( LogPlayLevel, Log, TEXT("Creating play world package: %s"),  *PlayWorldMapName );	
+
 	UPackage* PlayWorldPackage = CastChecked<UPackage>(CreatePackage(NULL,*PlayWorldMapName));
 	PlayWorldPackage->PackageFlags |= PKG_PlayInEditor;
 	PlayWorldPackage->PIEInstanceID = WorldContext.PIEInstance;

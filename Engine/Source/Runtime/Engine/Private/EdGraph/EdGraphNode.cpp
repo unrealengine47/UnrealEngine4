@@ -42,6 +42,7 @@ FGraphNodeContextMenuBuilder::FGraphNodeContextMenuBuilder(const UEdGraph* InGra
 UEdGraphNode::UEdGraphNode(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 	, AdvancedPinDisplay(ENodeAdvancedPins::NoPins)
+	, bIsNodeEnabled(true)
 {
 
 #if WITH_EDITORONLY_DATA
@@ -68,6 +69,11 @@ UEdGraphPin* UEdGraphNode::CreatePin(EEdGraphPinDirection Dir, const FString& Pi
 	NewPin->PinType.bIsReference = bIsReference;
 	NewPin->PinType.bIsConst = bIsConst;
 	NewPin->SetFlags(RF_Transactional);
+
+	if (HasAnyFlags(RF_Transient))
+	{
+		NewPin->SetFlags(RF_Transient);
+	}
 
 	Modify(false);
 	if ( Pins.IsValidIndex( Index ) )

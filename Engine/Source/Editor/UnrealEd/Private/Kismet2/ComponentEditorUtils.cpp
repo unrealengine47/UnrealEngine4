@@ -10,6 +10,12 @@
 #include "BlueprintEditorUtils.h"
 #include "Factories.h"
 #include "UnrealExporter.h"
+#include "GenericCommands.h"
+#include "SourceCodeNavigation.h"
+#include "ClassIconFinder.h"
+#include "AssetEditorManager.h"
+
+#define LOCTEXT_NAMESPACE "ComponentEditorUtils"
 
 // Text object factory for pasting components
 struct FComponentObjectTextFactory : public FCustomizableTextObjectFactory
@@ -105,89 +111,6 @@ protected:
 	// FCustomizableTextObjectFactory (end)
 };
 
-USceneComponent* FComponentEditorUtils::GetSceneComponent( UObject* Object, UObject* SubObject /*= NULL*/ )
-{
-	if( Object )
-	{
-		AActor* Actor = Cast<AActor>( Object );
-		if( Actor )
-		{
-			if( SubObject )
-			{
-				if( SubObject->HasAnyFlags( RF_DefaultSubObject ) )
-				{
-					UObject* ClassDefaultObject = SubObject->GetOuter();
-					if( ClassDefaultObject )
-					{
-						for( TFieldIterator<UObjectProperty> ObjPropIt( ClassDefaultObject->GetClass() ); ObjPropIt; ++ObjPropIt )
-						{
-							UObjectProperty* ObjectProperty = *ObjPropIt;
-							if( SubObject == ObjectProperty->GetObjectPropertyValue_InContainer( ClassDefaultObject ) )
-							{
-								return CastChecked<USceneComponent>( ObjectProperty->GetObjectPropertyValue_InContainer( Actor ) );
-							}
-						}
-					}
-				}
-				else if( UBlueprint* Blueprint = Cast<UBlueprint>( SubObject->GetOuter() ) )
-				{
-					if( Blueprint->SimpleConstructionScript )
-					{
-						TArray<USCS_Node*> SCSNodes = Blueprint->SimpleConstructionScript->GetAllNodes();
-						for( int32 SCSNodeIndex = 0; SCSNodeIndex < SCSNodes.Num(); ++SCSNodeIndex )
-						{
-							USCS_Node* SCS_Node = SCSNodes[ SCSNodeIndex ];
-							if( SCS_Node && SCS_Node->ComponentTemplate == SubObject )
-							{
-								return SCS_Node->GetParentComponentTemplate(Blueprint);
-							}
-						}
-					}
-				}
-			}
-
-			return Actor->GetRootComponent();
-		}
-		else if( Object->IsA<USceneComponent>() )
-		{
-			return CastChecked<USceneComponent>( Object );
-		}
-	}
-
-	return NULL;
-}
-
-void FComponentEditorUtils::GetArchetypeInstances( UObject* Object, TArray<UObject*>& ArchetypeInstances )
-{
-	if (Object->HasAnyFlags(RF_ClassDefaultObject))
-	{
-		// Determine if the object is owned by a Blueprint
-		UBlueprint* Blueprint = Cast<UBlueprint>(Object->GetOuter());
-		if(Blueprint != NULL)
-		{
-			if(Blueprint->GeneratedClass != NULL && Blueprint->GeneratedClass->ClassDefaultObject != NULL)
-			{
-				// Collect all instances of the Blueprint
-				Blueprint->GeneratedClass->ClassDefaultObject->GetArchetypeInstances(ArchetypeInstances);
-			}
-		}
-		else
-		{
-			// Object is a default object, collect all instances.
-			Object->GetArchetypeInstances(ArchetypeInstances);
-		}
-	}
-	else if (Object->HasAnyFlags(RF_DefaultSubObject))
-	{
-		UObject* DefaultObject = Object->GetOuter();
-		if(DefaultObject != NULL && DefaultObject->HasAnyFlags(RF_ClassDefaultObject))
-		{
-			// Object is a default subobject, collect all instances of the default object that owns it.
-			DefaultObject->GetArchetypeInstances(ArchetypeInstances);
-		}
-	}
-}
-
 bool FComponentEditorUtils::IsValidVariableNameString(const UActorComponent* InComponent, const FString& InString)
 {
 	// First test to make sure the string is not empty and does not equate to the DefaultSceneRoot node name
@@ -195,7 +118,8 @@ bool FComponentEditorUtils::IsValidVariableNameString(const UActorComponent* InC
 	if(bIsValid && InComponent != NULL)
 	{
 		// Next test to make sure the string doesn't conflict with the format that MakeUniqueObjectName() generates
-		FString MakeUniqueObjectNamePrefix = FString::Printf(TEXT("%s_"), *InComponent->GetClass()->GetName());
+		const FString ClassNameThatWillBeUsedInGenerator = FBlueprintEditorUtils::GetClassNameWithoutSuffix(InComponent->GetClass());
+		const FString MakeUniqueObjectNamePrefix = FString::Printf(TEXT("%s_"), *ClassNameThatWillBeUsedInGenerator);
 		if(InString.StartsWith(MakeUniqueObjectNamePrefix))
 		{
 			bIsValid = !InString.Replace(*MakeUniqueObjectNamePrefix, TEXT("")).IsNumeric();
@@ -221,12 +145,19 @@ FString FComponentEditorUtils::GenerateValidVariableName(TSubclassOf<UActorCompo
 	FString ComponentTypeName = FBlueprintEditorUtils::GetClassNameWithoutSuffix(ComponentClass);
 
 	// Strip off 'Component' if the class ends with that.  It just looks better in the UI.
-	const FString SuffixToStrip( TEXT( "Component" ) );
+	FString SuffixToStrip( TEXT( "Component" ) );
 	if( ComponentTypeName.EndsWith( SuffixToStrip ) )
 	{
 		ComponentTypeName = ComponentTypeName.Left( ComponentTypeName.Len() - SuffixToStrip.Len() );
 	}
-	
+
+	// Strip off 'Actor' if the class ends with that so as not to confuse actors with components
+	SuffixToStrip = TEXT( "Actor" );
+	if( ComponentTypeName.EndsWith( SuffixToStrip ) )
+	{
+		ComponentTypeName = ComponentTypeName.Left( ComponentTypeName.Len() - SuffixToStrip.Len() );
+	}
+
 	// Try to create a name without any numerical suffix first
 	int32 Counter = 1;
 	FString ComponentInstanceName = ComponentTypeName;
@@ -241,17 +172,32 @@ FString FComponentEditorUtils::GenerateValidVariableName(TSubclassOf<UActorCompo
 
 FString FComponentEditorUtils::GenerateValidVariableNameFromAsset(UObject* Asset, AActor* ComponentOwner)
 {
-	check(ComponentOwner);
-
 	int32 Counter = 1;
 	FString AssetName = Asset->GetName();
 
+	UClass* Class = Cast<UClass>(Asset);
+	if (Class)
+	{
+		if (!Class->HasAnyClassFlags(CLASS_CompiledFromBlueprint))
+		{
+			AssetName.RemoveFromEnd(TEXT("Component"));
+		}
+		else
+		{
+			AssetName.RemoveFromEnd("_C");
+		}
+	}
+
 	// Try to create a name without any numerical suffix first
 	FString ComponentInstanceName = AssetName;
-	while (!IsComponentNameAvailable(ComponentInstanceName, ComponentOwner))
+
+	if (ComponentOwner)
 	{
-		// Assign the lowest possible numerical suffix
-		ComponentInstanceName = FString::Printf(TEXT("%s%d"), *AssetName, Counter++);
+		while (!IsComponentNameAvailable(ComponentInstanceName, ComponentOwner))
+		{
+			// Assign the lowest possible numerical suffix
+			ComponentInstanceName = FString::Printf(TEXT("%s%d"), *AssetName, Counter++);
+		}
 	}
 
 	return ComponentInstanceName;
@@ -284,6 +230,31 @@ USceneComponent* FComponentEditorUtils::FindClosestParentInList(UActorComponent*
 	return ClosestParentComponent;
 }
 
+bool FComponentEditorUtils::CanCopyComponents(const TArray<UActorComponent*>& ComponentsToCopy)
+{
+	bool bCanCopy = ComponentsToCopy.Num() > 0;
+	if (bCanCopy)
+	{
+		for (int32 i = 0; i < ComponentsToCopy.Num() && bCanCopy; ++i)
+		{
+			// Check for the default scene root; that cannot be copied/duplicated
+			UActorComponent* Component = ComponentsToCopy[i];
+			bCanCopy = Component != nullptr && Component->GetFName() != USceneComponent::GetDefaultSceneRootVariableName();
+			if (bCanCopy)
+			{
+				UClass* ComponentClass = Component->GetClass();
+				check(ComponentClass != nullptr);
+
+				// Component class cannot be abstract and must also be tagged as BlueprintSpawnable
+				bCanCopy = !ComponentClass->HasAnyClassFlags(CLASS_Abstract)
+					&& ComponentClass->HasMetaData(FBlueprintMetadata::MD_BlueprintSpawnableComponent);
+			}
+		}
+	}
+
+	return bCanCopy;
+}
+
 void FComponentEditorUtils::CopyComponents(const TArray<UActorComponent*>& ComponentsToCopy)
 {
 	FStringOutputDevice Archive;
@@ -295,12 +266,18 @@ void FComponentEditorUtils::CopyComponents(const TArray<UActorComponent*>& Compo
 	// Duplicate the selected component templates into temporary objects that we can modify
 	TMap<FName, FName> ParentMap;
 	TMap<FName, UActorComponent*> ObjectMap;
-	for (auto Component : ComponentsToCopy)
+	for (UActorComponent* Component : ComponentsToCopy)
 	{
 		// Duplicate the component into a temporary object
 		UObject* DuplicatedComponent = StaticDuplicateObject(Component, GetTransientPackage(), *Component->GetName(), RF_AllFlags & ~RF_ArchetypeObject);
 		if (DuplicatedComponent)
 		{
+			// If the duplicated component is a scene component, wipe its attach parent (to prevent log warnings for referencing a private object in an external package)
+			if (auto DuplicatedCompAsSceneComp = Cast<USceneComponent>(DuplicatedComponent))
+			{
+				DuplicatedCompAsSceneComp->AttachParent = nullptr;
+			}
+
 			// Find the closest parent component of the current component within the list of components to copy
 			USceneComponent* ClosestSelectedParent = FindClosestParentInList(Component, ComponentsToCopy);
 			if (ClosestSelectedParent)
@@ -347,13 +324,13 @@ void FComponentEditorUtils::CopyComponents(const TArray<UActorComponent*>& Compo
 	FPlatformMisc::ClipboardCopy(*ExportedText);
 }
 
-bool FComponentEditorUtils::CanPasteComponents(USceneComponent* RootComponent, bool bOverrideCanAttach)
+bool FComponentEditorUtils::CanPasteComponents(USceneComponent* RootComponent, bool bOverrideCanAttach, bool bPasteAsArchetypes)
 {
 	FString ClipboardContent;
 	FPlatformMisc::ClipboardPaste(ClipboardContent);
 
 	// Obtain the component object text factory for the clipboard content and return whether or not we can use it
-	TSharedRef<FComponentObjectTextFactory> Factory = FComponentObjectTextFactory::Get(ClipboardContent);
+	TSharedRef<FComponentObjectTextFactory> Factory = FComponentObjectTextFactory::Get(ClipboardContent, bPasteAsArchetypes);
 	return Factory->NewObjectMap.Num() > 0 && ( bOverrideCanAttach || Factory->CanAttachComponentsTo(RootComponent) );
 }
 
@@ -398,10 +375,7 @@ void FComponentEditorUtils::PasteComponents(TArray<UActorComponent*>& OutPastedC
 				}
 			}
 
-			//So, if we're pasting a component that was the root, we want to attach keeping the world location
-			// Otherwise, we want to attach keeping the relative transform
-			// So how can we tell if a pasted component was a root?
-
+			//@todo: Fix pasting when the pasted component was a root
 			//NewSceneComponent->UpdateComponentToWorld();
 			if (NewComponentParent)
 			{
@@ -420,6 +394,9 @@ void FComponentEditorUtils::PasteComponents(TArray<UActorComponent*>& OutPastedC
 
 		OutPastedComponents.Add(NewActorComponent);
 	}
+
+	// Rerun construction scripts
+	TargetActor->RerunConstructionScripts();
 }
 
 void FComponentEditorUtils::GetComponentsFromClipboard(TMap<FName, FName>& OutParentMap, TMap<FName, UActorComponent*>& OutNewObjectMap, bool bGetComponentsAsArchetypes)
@@ -436,9 +413,28 @@ void FComponentEditorUtils::GetComponentsFromClipboard(TMap<FName, FName>& OutPa
 	OutNewObjectMap = Factory->NewObjectMap;
 }
 
+bool FComponentEditorUtils::CanDeleteComponents(const TArray<UActorComponent*>& ComponentsToDelete)
+{
+	bool bCanDelete = true;
+	for (auto ComponentToDelete : ComponentsToDelete)
+	{
+		// We can't delete non-instance components or the default scene root
+		if (ComponentToDelete->CreationMethod != EComponentCreationMethod::Instance 
+			|| ComponentToDelete->GetFName() == USceneComponent::GetDefaultSceneRootVariableName())
+		{
+			bCanDelete = false;
+			break;
+		}
+	}
+
+	return bCanDelete;
+}
+
 int32 FComponentEditorUtils::DeleteComponents(const TArray<UActorComponent*>& ComponentsToDelete, UActorComponent*& OutComponentToSelect)
 {
 	int32 NumDeletedComponents = 0;
+
+	TArray<AActor*> ActorsToReconstruct;
 
 	for (auto ComponentToDelete : ComponentsToDelete)
 	{
@@ -449,10 +445,13 @@ int32 FComponentEditorUtils::DeleteComponents(const TArray<UActorComponent*>& Co
 			continue;
 		}
 
+		AActor* Owner = ComponentToDelete->GetOwner();
+		check(Owner != nullptr);
+
 		// If necessary, determine the component that should be selected following the deletion of the indicated component
 		if (!OutComponentToSelect || ComponentToDelete == OutComponentToSelect)
 		{
-			USceneComponent* RootComponent = ComponentToDelete->GetOwner()->GetRootComponent();
+			USceneComponent* RootComponent = Owner->GetRootComponent();
 			if (RootComponent != ComponentToDelete)
 			{
 				// Worst-case, the root can be selected
@@ -481,7 +480,7 @@ int32 FComponentEditorUtils::DeleteComponents(const TArray<UActorComponent*>& Co
 				{
 					// For a non-scene component, try to select the preceding non-scene component
 					TInlineComponentArray<UActorComponent*> ActorComponents;
-					ComponentToDelete->GetOwner()->GetComponents(ActorComponents);
+					Owner->GetComponents(ActorComponents);
 					for (int32 i = 0; i < ActorComponents.Num() && ComponentToDelete != ActorComponents[i]; ++i)
 					{
 						if (!ActorComponents[i]->IsA(USceneComponent::StaticClass()))
@@ -497,10 +496,19 @@ int32 FComponentEditorUtils::DeleteComponents(const TArray<UActorComponent*>& Co
 			}
 		}
 
+		// Defer reconstruction
+		ActorsToReconstruct.AddUnique(Owner);
+
 		// Actually delete the component
 		ComponentToDelete->Modify();
 		ComponentToDelete->DestroyComponent(true);
 		NumDeletedComponents++;
+	}
+
+	// Reconstruct owner instance(s) after deletion
+	for(auto ActorToReconstruct : ActorsToReconstruct)
+	{
+		ActorToReconstruct->RerunConstructionScripts();
 	}
 
 	return NumDeletedComponents;
@@ -519,28 +527,46 @@ UActorComponent* FComponentEditorUtils::DuplicateComponent(UActorComponent* Temp
 		FName NewComponentName = *FComponentEditorUtils::GenerateValidVariableName(ComponentClass, Actor);
 
 		bool bKeepWorldLocationOnAttach = false;
-		NewCloneComponent = ConstructObject<UActorComponent>(ComponentClass, Actor, NewComponentName, RF_Transactional, TemplateComponent);
+
+		const bool bTemplateTransactional = TemplateComponent->HasAllFlags(RF_Transactional);
+		TemplateComponent->SetFlags(RF_Transactional);
+
+		NewCloneComponent = DuplicateObject<UActorComponent>(TemplateComponent, Actor, *NewComponentName.ToString() );
 		
-		// ComponentToWorld is not a UPROPERTY, so make sure the clone has calculated it properly
-		NewCloneComponent->UpdateComponentToWorld();
-
-		// If the clone is a scene component without an attach parent, attach it to the root (can happen when duplicating the root component)
-		auto NewSceneComponent = Cast<USceneComponent>(NewCloneComponent);
-		if (NewSceneComponent && !NewSceneComponent->GetAttachParent())
+		if (!bTemplateTransactional)
 		{
-			USceneComponent* RootComponent = Actor->GetRootComponent();
-
-			// There should be no situation in which a scene component is duplicated when a root doesn't exist
-			check(RootComponent);
-
-			NewSceneComponent->AttachTo(RootComponent, NAME_None, EAttachLocation::KeepWorldPosition);
+			TemplateComponent->ClearFlags(RF_Transactional);
 		}
+			
+		USceneComponent* NewSceneComponent = Cast<USceneComponent>(NewCloneComponent);
+		if (NewSceneComponent)
+		{
+			// Ensure the clone doesn't think it has children
+			NewSceneComponent->AttachChildren.Empty();
+
+			// If the clone is a scene component without an attach parent, attach it to the root (can happen when duplicating the root component)
+			if (!NewSceneComponent->GetAttachParent())
+			{
+				USceneComponent* RootComponent = Actor->GetRootComponent();
+				check(RootComponent);
+
+				// ComponentToWorld is not a UPROPERTY, so make sure the clone has calculated it properly before attachment
+				NewSceneComponent->UpdateComponentToWorld();
+
+				NewSceneComponent->AttachTo(RootComponent, NAME_None, EAttachLocation::KeepWorldPosition);
+			}
+		}
+
+		NewCloneComponent->OnComponentCreated();
 
 		// Add to SerializedComponents array so it gets saved
 		Actor->AddInstanceComponent(NewCloneComponent);
 		
 		// Register the new component
 		NewCloneComponent->RegisterComponent();
+
+		// Rerun construction scripts
+		Actor->RerunConstructionScripts();
 	}
 
 	return NewCloneComponent;
@@ -615,7 +641,7 @@ bool FComponentEditorUtils::AttemptApplyMaterialToComponent(USceneComponent* Sce
 	if (MeshComponent || DecalComponent)
 	{
 		bResult = true;
-		const FScopedTransaction Transaction(NSLOCTEXT("UnrealEd", "DropTarget_UndoSetComponentMaterial", "Assign Material to Component (Drag and Drop)"));
+		const FScopedTransaction Transaction(LOCTEXT("DropTarget_UndoSetComponentMaterial", "Assign Material to Component (Drag and Drop)"));
 		SceneComponent->Modify();
 
 		if (MeshComponent)
@@ -652,66 +678,6 @@ bool FComponentEditorUtils::AttemptApplyMaterialToComponent(USceneComponent* Sce
 	}
 
 	return bResult;
-}
-
-void FComponentEditorUtils::PropagateTransformPropertyChangeAmongOverridenTemplates(
-	class USceneComponent* InSceneComponentTemplate,
-	const FTransformData& OldDefaultTransform,
-	const FTransformData& NewDefaultTransform,
-	TSet<class USceneComponent*>& UpdatedComponents)
-{
-	check(InSceneComponentTemplate != nullptr);
-	TArray<UObject*> ArchetypeInstances;
-	InSceneComponentTemplate->GetArchetypeInstances(ArchetypeInstances);
-	for (auto ArchetypeInstance : ArchetypeInstances)
-	{
-		USceneComponent* InstancedSceneComponent = Cast<USceneComponent>(ArchetypeInstance);
-		if (InstancedSceneComponent && InstancedSceneComponent->HasAnyFlags(RF_InheritableComponentTemplate) && !UpdatedComponents.Contains(InstancedSceneComponent))
-		{
-			PropagateTransformInner(InstancedSceneComponent, OldDefaultTransform, NewDefaultTransform, UpdatedComponents);
-		}
-	}
-}
-
-void FComponentEditorUtils::PropagateTransformPropertyChange(
-	class USceneComponent* InSceneComponentTemplate,
-	const FTransformData& OldDefaultTransform,
-	const FTransformData& NewDefaultTransform,
-	TSet<class USceneComponent*>& UpdatedComponents)
-{
-	check(InSceneComponentTemplate != nullptr);
-
-	TArray<UObject*> ArchetypeInstances;
-	FComponentEditorUtils::GetArchetypeInstances(InSceneComponentTemplate, ArchetypeInstances);
-	for(int32 InstanceIndex = 0; InstanceIndex < ArchetypeInstances.Num(); ++InstanceIndex)
-	{
-		USceneComponent* InstancedSceneComponent = FComponentEditorUtils::GetSceneComponent(ArchetypeInstances[InstanceIndex], InSceneComponentTemplate);
-		if(InstancedSceneComponent != nullptr && !UpdatedComponents.Contains(InstancedSceneComponent))
-		{
-			PropagateTransformInner(InstancedSceneComponent, OldDefaultTransform, NewDefaultTransform, UpdatedComponents);
-		}
-	}
-}
-
-void FComponentEditorUtils::PropagateTransformInner(class USceneComponent* InstancedSceneComponent, const FTransformData& OldDefaultTransform, const FTransformData& NewDefaultTransform, TSet<class USceneComponent*>& UpdatedComponents)
-{
-	static const UProperty* RelativeLocationProperty = FindFieldChecked<UProperty>(USceneComponent::StaticClass(), GET_MEMBER_NAME_CHECKED(USceneComponent, RelativeLocation));
-	if (RelativeLocationProperty != nullptr)
-	{
-		PropagateTransformPropertyChange(InstancedSceneComponent, RelativeLocationProperty, OldDefaultTransform.Trans, NewDefaultTransform.Trans, UpdatedComponents);
-	}
-
-	static const UProperty* RelativeRotationProperty = FindFieldChecked<UProperty>(USceneComponent::StaticClass(), GET_MEMBER_NAME_CHECKED(USceneComponent, RelativeRotation));
-	if (RelativeRotationProperty != nullptr)
-	{
-		PropagateTransformPropertyChange(InstancedSceneComponent, RelativeRotationProperty, OldDefaultTransform.Rot, NewDefaultTransform.Rot, UpdatedComponents);
-	}
-
-	static const UProperty* RelativeScale3DProperty = FindFieldChecked<UProperty>(USceneComponent::StaticClass(), GET_MEMBER_NAME_CHECKED(USceneComponent, RelativeScale3D));
-	if (RelativeScale3DProperty != nullptr)
-	{
-		PropagateTransformPropertyChange(InstancedSceneComponent, RelativeScale3DProperty, OldDefaultTransform.Scale, NewDefaultTransform.Scale, UpdatedComponents);
-	}
 }
 
 FName FComponentEditorUtils::FindVariableNameGivenComponentInstance(UActorComponent* ComponentInstance)
@@ -759,3 +725,97 @@ FName FComponentEditorUtils::FindVariableNameGivenComponentInstance(UActorCompon
 
 	return NAME_None;
 }
+
+void FComponentEditorUtils::FillComponentContextMenuOptions(FMenuBuilder& MenuBuilder, const TArray<UActorComponent*>& SelectedComponents)
+{
+	// Basic commands
+	MenuBuilder.BeginSection("EditComponent", LOCTEXT("EditComponentHeading", "Edit"));
+	{
+		MenuBuilder.AddMenuEntry(FGenericCommands::Get().Cut);
+		MenuBuilder.AddMenuEntry(FGenericCommands::Get().Copy);
+		MenuBuilder.AddMenuEntry(FGenericCommands::Get().Paste);
+		MenuBuilder.AddMenuEntry(FGenericCommands::Get().Duplicate);
+		MenuBuilder.AddMenuEntry(FGenericCommands::Get().Delete);
+		MenuBuilder.AddMenuEntry(FGenericCommands::Get().Rename);
+	}
+	MenuBuilder.EndSection();
+
+	if (SelectedComponents.Num() == 1)
+	{
+		UActorComponent* Component = SelectedComponents[0];
+
+		if (Component->GetClass()->ClassGeneratedBy)
+		{
+			MenuBuilder.BeginSection("ComponentAsset", LOCTEXT("ComponentAssetHeading", "Asset"));
+			{
+				MenuBuilder.AddMenuEntry(
+					FText::Format(LOCTEXT("GoToBlueprintForComponent", "Edit {0}"), FText::FromString(Component->GetClass()->ClassGeneratedBy->GetName())),
+					LOCTEXT("EditBlueprintForComponent_ToolTip", "Edits the Blueprint Class that defines this component."),
+					FSlateIcon(FEditorStyle::GetStyleSetName(), FClassIconFinder::FindIconNameForClass(Component->GetClass())),
+					FUIAction(
+					FExecuteAction::CreateStatic(&FComponentEditorUtils::OnEditBlueprintComponent, Component->GetClass()->ClassGeneratedBy),
+					FCanExecuteAction()));
+
+				MenuBuilder.AddMenuEntry(
+					LOCTEXT("GoToAssetForComponent", "Find Class in Content Browser"),
+					LOCTEXT("GoToAssetForComponent_ToolTip", "Summons the content browser and goes to the class for this component."),
+					FSlateIcon(FEditorStyle::GetStyleSetName(), "SystemWideCommands.FindInContentBrowser"),
+					FUIAction(
+					FExecuteAction::CreateStatic(&FComponentEditorUtils::OnGoToComponentAssetInBrowser, Component->GetClass()->ClassGeneratedBy),
+					FCanExecuteAction()));
+			}
+			MenuBuilder.EndSection();
+		}
+		else
+		{
+			MenuBuilder.BeginSection("ComponentCode", LOCTEXT("ComponentCodeHeading", "C++"));
+			{
+				if (FSourceCodeNavigation::IsCompilerAvailable())
+				{
+					FString ClassHeaderPath;
+					if (FSourceCodeNavigation::FindClassHeaderPath(Component->GetClass(), ClassHeaderPath) && IFileManager::Get().FileSize(*ClassHeaderPath) != INDEX_NONE)
+					{
+						const FString CodeFileName = FPaths::GetCleanFilename(*ClassHeaderPath);
+
+						MenuBuilder.AddMenuEntry(
+							FText::Format(LOCTEXT("GoToCodeForComponent", "Open {0}"), FText::FromString(CodeFileName)),
+							FText::Format(LOCTEXT("GoToCodeForComponent_ToolTip", "Opens the header file for this component ({0}) in a code editing program"), FText::FromString(CodeFileName)),
+							FSlateIcon(),
+							FUIAction(
+							FExecuteAction::CreateStatic(&FComponentEditorUtils::OnOpenComponentCodeFile, ClassHeaderPath),
+							FCanExecuteAction()));
+					}
+
+					MenuBuilder.AddMenuEntry(
+						LOCTEXT("GoToAssetForComponent", "Find Class in Content Browser"),
+						LOCTEXT("GoToAssetForComponent_ToolTip", "Summons the content browser and goes to the class for this component."),
+						FSlateIcon(FEditorStyle::GetStyleSetName(), "SystemWideCommands.FindInContentBrowser"),
+						FUIAction(
+						FExecuteAction::CreateStatic(&FComponentEditorUtils::OnGoToComponentAssetInBrowser, (UObject*)Component->GetClass()),
+						FCanExecuteAction()));
+				}
+			}
+			MenuBuilder.EndSection();
+		}
+	}
+}
+
+void FComponentEditorUtils::OnGoToComponentAssetInBrowser(UObject* Asset)
+{
+	TArray<UObject*> Objects;
+	Objects.Add(Asset);
+	GEditor->SyncBrowserToObjects(Objects);
+}
+
+void FComponentEditorUtils::OnOpenComponentCodeFile(const FString CodeFileName)
+{
+	const FString AbsoluteHeaderPath = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*CodeFileName);
+	FSourceCodeNavigation::OpenSourceFile(AbsoluteHeaderPath);
+}
+
+void FComponentEditorUtils::OnEditBlueprintComponent(UObject* Blueprint)
+{
+	FAssetEditorManager::Get().OpenEditorForAsset(Blueprint);
+}
+
+#undef LOCTEXT_NAMESPACE

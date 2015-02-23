@@ -436,7 +436,12 @@ public:
 		GObjectCountDuringLastMarkPhase = 0;
 
 		// Presize array and add a bit of extra slack for prefetching.
-		ObjectsToSerialize.Empty( GUObjectArray.GetObjectArrayNumMinusPermanent() + 2 );
+		ObjectsToSerialize.Empty( GUObjectArray.GetObjectArrayNumMinusPermanent() + 3 );
+		// Make sure GC referencer object is checked for references to other objects even if it resides in permanent object pool
+		if (FPlatformProperties::RequiresCookedData() && FGCObject::GGCObjectReferencer && GUObjectArray.IsDisregardForGC(FGCObject::GGCObjectReferencer))
+		{
+			ObjectsToSerialize.Add(FGCObject::GGCObjectReferencer);
+		}
 
 		for ( FRawObjectIterator It(true); It; ++It )
 		{
@@ -950,10 +955,9 @@ void IncrementalPurgeGarbage( bool bUseTimeLimit, float TimeLimit )
 				GGCObjectsPendingDestruction.Empty( 256 );
 
 				// Destroy has been routed to all objects so it's safe to delete objects now.
-				GObjFinishDestroyHasBeenRoutedToAllObjects		= true;
-				GObjCurrentPurgeObjectIndexNeedsReset			= true;
-				GObjCurrentPurgeObjectIndexResetPastPermanent	= true;
-
+				GObjFinishDestroyHasBeenRoutedToAllObjects = true;
+				GObjCurrentPurgeObjectIndexNeedsReset = true;
+				GObjCurrentPurgeObjectIndexResetPastPermanent = !GExitPurge;
 			}
 		}
 	}		
@@ -1050,6 +1054,27 @@ static const auto CVarAllowParallelGC =
 
 void CollectGarbage( EObjectFlags KeepFlags, bool bPerformFullPurge )
 {
+	// Helper class to register FlushAsyncLoadingCallback on first GC run.
+	struct FAddFlushAsyncLoadingCallback
+	{
+		FAddFlushAsyncLoadingCallback()
+		{
+			bool bFlushStreaming = false;
+			GConfig->GetBool(TEXT("Core.System"), TEXT("FlushStreamingOnGC"), bFlushStreaming, GEngineIni);
+			if (bFlushStreaming)
+			{
+				FCoreUObjectDelegates::PreGarbageCollect.AddStatic(FlushAsyncLoadingCallback);
+			}
+		}
+		/** Wrapper function to handle default parameter when used as function pointer */
+		static void FlushAsyncLoadingCallback()
+		{
+			FlushAsyncLoading();
+		}
+	};
+	// Add FlushAsyncLoadingCallback the first time CollectGarbage is called if requested by ini settings
+	static FAddFlushAsyncLoadingCallback MaybeAddFlushAsyncLoadingCallback;
+
 	// We can't collect garbage while there's a load in progress. E.g. one potential issue is Import.XObject
 	check( !IsLoading() );
 
@@ -1212,17 +1237,6 @@ void UObject::AddReferencedObjects(UObject* This, FReferenceCollector& Collector
 		Collector.AddReferencedObject( LoadOuter, This );
 		Collector.AllowEliminatingReferences(true);
 		Collector.AddReferencedObject( Class, This );
-
-		// Serialize object properties which are defined in the class.
-		// Note: This check is intentionally excluding UClass objects but including subclasses like UBlueprintGeneratedClass
-		// @TODO: is it right to also exclude ULinkerPlaceholderClass here (it was causing a crash in here).
-		if (Class != UClass::StaticClass() && Class != ULinkerPlaceholderClass::StaticClass())
-		{
-			// Script properties
-			FSimpleObjectReferenceCollectorArchive ObjectReferenceCollector( This, Collector );
-			ObjectReferenceCollector.SetSerializedProperty(Collector.GetSerializedProperty());
-			This->SerializeScriptProperties( ObjectReferenceCollector );
-		}
 
 #if TEST_ARO_FINDS_ALL_OBJECTS
 		TArray<UObject*> SerializedObjects;

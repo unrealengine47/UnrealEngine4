@@ -370,12 +370,9 @@ class FTextureAlphaToDistanceField
 		/** Called by the thread pool to do the work in this task */
 		void DoWork(void);
 
-		/** Give the name for external event viewers
-		* @return	the name to display in external event viewers
-		*/
-		static const TCHAR *Name()
+		FORCEINLINE TStatId GetStatId() const
 		{
-			return TEXT("FBuildDistanceFieldTask");
+			RETURN_QUICK_DECLARE_CYCLE_STAT(FBuildDistanceFieldTask, STATGROUP_ThreadPoolAsyncTasks);
 		}
 
 	private:
@@ -1674,7 +1671,7 @@ UTexture2D* UTrueTypeFontFactory::CreateTextureFromBitmap( UFont* Font, uint8* B
 	}
 
 	// Create texture for page.
-	UTexture2D* Texture = NewNamedObject<UTexture2D>(Font, *TextureString);
+	UTexture2D* Texture = NewObject<UTexture2D>(Font, *TextureString);
 
 	// note RF_Public because font textures can be referenced directly by material expressions
 	Texture->SetFlags(RF_Public);

@@ -127,7 +127,7 @@ private:
 	
 	TSharedRef<SDockTab> SpawnLevelEditorTab(const FSpawnTabArgs& Args, FName TabIdentifier, FString InitializationPayload);
 	//TSharedRef<SDockTab> SpawnLevelEditorModeTab(const FSpawnTabArgs& Args, FEdMode* EditorMode);
-	TSharedRef<SDockTab> SummonDetailsPanel( FName Identifier, TSharedPtr<FExtender> ActorMenuExtender = nullptr );
+	TSharedRef<SDockTab> SummonDetailsPanel( FName Identifier );
 
 	/**
 	 * Binds UI commands to actions for the level editor                   
@@ -191,7 +191,7 @@ private:
 	void HandleEditorMapChange( uint32 MapChangeFlags );
 
 	/** Called when actors are selected or unselected */
-	void OnActorSelectionChanged( const TArray<UObject*>& NewSelection );
+	void OnActorSelectionChanged(const TArray<UObject*>& NewSelection, bool bForceRefresh = false);
 private:
 
 	// Tracking the active viewports in this level editor.

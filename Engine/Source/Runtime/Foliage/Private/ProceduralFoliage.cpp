@@ -119,10 +119,11 @@ bool UProceduralFoliage::AnyDirty() const
 
 void UProceduralFoliage::SimulateIfNeeded()
 {
-	if (AnyDirty())
+	//if (AnyDirty())	@todo: for now we must force simulation every time since precomputed tiles are weak pointers
 	{
 		Simulate();
 	}
+
 }
 
 const UProceduralFoliageTile* UProceduralFoliage::GetRandomTile(int32 X, int32 Y)
@@ -136,7 +137,7 @@ const UProceduralFoliageTile* UProceduralFoliage::GetRandomTile(int32 X, int32 Y
 		const float YRand = HashStream.FRand();
 		const int32 RandomNumber = (RAND_MAX * XRand / (YRand + 0.01f));
 		const int32 Idx = FMath::Clamp(RandomNumber % PrecomputedTiles.Num(), 0, PrecomputedTiles.Num() - 1);
-		return PrecomputedTiles[Idx];
+		return PrecomputedTiles[Idx].Get();
 	}
 
 	return nullptr;

@@ -7,6 +7,7 @@
 #include "Engine/SimpleConstructionScript.h"
 #include "Engine/SCS_Node.h"
 #include "Engine/LevelScriptActor.h"
+#include "Engine/InheritableComponentHandler.h"
 
 #if WITH_EDITOR
 #include "BlueprintEditorUtils.h"
@@ -79,6 +80,15 @@ void UBlueprintGeneratedClass::PostLoad()
 		}
 	}
 #endif // WITH_EDITORONLY_DATA
+
+#if UE_BLUEPRINT_EVENTGRAPH_FASTCALLS
+	// Patch the fast calls (needed as we can't bump engine version to serialize it directly in UFunction right now)
+	for (const FEventGraphFastCallPair& Pair : FastCallPairs)
+	{
+		Pair.FunctionToPatch->EventGraphFunction = UberGraphFunction;
+		Pair.FunctionToPatch->EventGraphCallOffset = Pair.EventGraphCallOffset;
+	}
+#endif
 }
 
 void UBlueprintGeneratedClass::GetRequiredPreloadDependencies(TArray<UObject*>& DependenciesOut)
@@ -263,6 +273,23 @@ bool UBlueprintGeneratedClass::IsFunctionImplementedInBlueprint(FName InFunction
 	return Function && Function->GetOuter() && Function->GetOuter()->IsA(UBlueprintGeneratedClass::StaticClass());
 }
 
+UInheritableComponentHandler* UBlueprintGeneratedClass::GetInheritableComponentHandler(const bool bCreateIfNecessary)
+{
+	static const FBoolConfigValueHelper EnableInheritableComponents(TEXT("Kismet"), TEXT("bEnableInheritableComponents"), GEngineIni);
+	if (!EnableInheritableComponents)
+	{
+		return nullptr;
+	}
+
+	if (!InheritableComponentHandler && bCreateIfNecessary)
+	{
+		InheritableComponentHandler = NewObject<UInheritableComponentHandler>(this, FName(TEXT("InheritableComponentHandler")));
+	}
+
+	return InheritableComponentHandler;
+}
+
+
 UObject* UBlueprintGeneratedClass::FindArchetype(UClass* ArchetypeClass, const FName ArchetypeName) const
 {
 	UObject* Archetype = nullptr;
@@ -271,25 +298,33 @@ UObject* UBlueprintGeneratedClass::FindArchetype(UClass* ArchetypeClass, const F
 	// and since preloading the SCS of a script in a world package is bad news, we need to filter them out
 	if (SimpleConstructionScript && !IsChildOf<ALevelScriptActor>())
 	{
-		if (SimpleConstructionScript->HasAllFlags(RF_NeedLoad))
-		{
-			SimpleConstructionScript->PreloadChain();
-		}
-
 		UBlueprintGeneratedClass* Class = const_cast<UBlueprintGeneratedClass*>(this);
 		while (Class)
 		{
-			USCS_Node* SCSNode = Class->SimpleConstructionScript->FindSCSNode(ArchetypeName);
+			USimpleConstructionScript* ClassSCS = Class->SimpleConstructionScript;
+			if (ClassSCS->HasAnyFlags(RF_NeedLoad))
+			{
+				ClassSCS->PreloadChain();
+			}
+
+			USCS_Node* SCSNode = ClassSCS->FindSCSNode(ArchetypeName);
 			if (SCSNode)
 			{
 				Archetype = SCSNode->ComponentTemplate;
-				Class = nullptr;
+			}
+			else if (UInheritableComponentHandler* ICH = Class->GetInheritableComponentHandler())
+			{
+				Archetype = ICH->GetOverridenComponentTemplate(ICH->FindKey(ArchetypeName));
 			}
 
 			if (Archetype == nullptr)
 			{
 				Archetype = static_cast<UObject*>(FindObjectWithOuter(Class, ArchetypeClass, ArchetypeName));
 				Class = (Archetype ? nullptr : Cast<UBlueprintGeneratedClass>(Class->GetSuperClass()));
+			}
+			else
+			{
+				Class = nullptr;
 			}
 		}
 	}
@@ -613,6 +648,10 @@ void UBlueprintGeneratedClass::PurgeClass(bool bRecompilingOnLoad)
 
 	UberGraphFramePointerProperty = NULL;
 	UberGraphFunction = NULL;
+
+#if UE_BLUEPRINT_EVENTGRAPH_FASTCALLS
+	FastCallPairs.Empty();
+#endif
 }
 
 void UBlueprintGeneratedClass::Bind()

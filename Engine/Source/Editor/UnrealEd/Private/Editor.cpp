@@ -34,6 +34,7 @@
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Kismet2/KismetDebugUtilities.h"
 #include "Editor/Kismet/Public/BlueprintEditorModule.h"
+#include "Engine/InheritableComponentHandler.h"
 
 #include "BlueprintUtilities.h"
 
@@ -490,6 +491,7 @@ void UEditorEngine::InitEditor(IEngineLoop* InEngineLoop)
 	// Needs to be set early as materials can be cached with selected material color baked in
 	GEngine->SetSelectedMaterialColor(ViewportSettings->bHighlightWithBrackets ? FLinearColor::Black : StyleSettings->SelectionColor);
 	GEngine->SetSelectionOutlineColor(StyleSettings->SelectionColor);
+	GEngine->SetSubduedSelectionOutlineColor(StyleSettings->GetSubduedSelectionColor());
 	GEngine->SelectionHighlightIntensity = ViewportSettings->SelectionHighlightIntensity;
 	GEngine->BSPSelectionHighlightIntensity = ViewportSettings->BSPSelectionHighlightIntensity;
 	GEngine->HoverHighlightIntensity = ViewportSettings->HoverHighlightIntensity;
@@ -553,6 +555,7 @@ void UEditorEngine::HandleSettingChanged( FName Name )
 		// Selection outline color and material color use the same color but sometimes the selected material color can be overidden so these need to be set independently
 		GEngine->SetSelectedMaterialColor(GetDefault<UEditorStyleSettings>()->SelectionColor);
 		GEngine->SetSelectionOutlineColor(GetDefault<UEditorStyleSettings>()->SelectionColor);
+		GEngine->SetSubduedSelectionOutlineColor(GetDefault<UEditorStyleSettings>()->GetSubduedSelectionColor());
 	}
 }
 
@@ -971,11 +974,6 @@ void UEditorEngine::Tick( float DeltaSeconds, bool bIdleMode )
 		}
 	}
 
-	// Rebuild the BSPs this frame, providing we're not in the middle of a transaction
-	if( ABrush::NeedsRebuild() && GUndo == NULL )
-	{
-		RebuildAlteredBSP();
-	}
 
 	// Potentially rebuilds the streaming data.
 	EditorContext.World()->ConditionallyBuildStreamingData();
@@ -1838,11 +1836,22 @@ void UEditorEngine::PostEditChangeProperty(FPropertyChangedEvent& PropertyChange
 
 	const FName PropertyName = PropertyChangedEvent.Property ? PropertyChangedEvent.Property->GetFName() : NAME_None;
 
-	if( PropertyName == FName( TEXT( "MaximumLoopIterationCount" )))
+	if (PropertyName == GET_MEMBER_NAME_CHECKED(UEngine, MaximumLoopIterationCount))
 	{
 		// Clamp to a reasonable range and feed the new value to the script core
 		MaximumLoopIterationCount = FMath::Clamp( MaximumLoopIterationCount, 100, 10000000 );
 		FBlueprintCoreDelegates::SetScriptMaximumLoopIterations( MaximumLoopIterationCount );
+	}
+	else if (PropertyName == GET_MEMBER_NAME_CHECKED(UEngine, bCanBlueprintsTickByDefault))
+	{
+		FScopedSlowTask SlowTask(100, LOCTEXT("DirtyingBlueprintsDueToTickChange", "InvalidatingAllBlueprints"));
+
+		// Flag all Blueprints as out of date (this doesn't dirty the package as needs saving but will force a recompile during PIE)
+		for (TObjectIterator<UBlueprint> BlueprintIt; BlueprintIt; ++BlueprintIt)
+		{
+			UBlueprint* Blueprint = *BlueprintIt;
+			Blueprint->Status = BS_Dirty;
+		}
 	}
 }
 
@@ -1962,7 +1971,7 @@ void UEditorEngine::PlayPreviewSound( USoundBase* Sound,  USoundNode* SoundNode 
 void UEditorEngine::PlayEditorSound( const FString& SoundAssetName )
 {
 	// Only play sounds if the user has that feature enabled
-	if( GetDefault<ULevelEditorMiscSettings>()->bEnableEditorSounds )
+	if( GetDefault<ULevelEditorMiscSettings>()->bEnableEditorSounds && !GIsSavingPackage )
 	{
 		USoundBase* Sound = Cast<USoundBase>( StaticFindObject( USoundBase::StaticClass(), NULL, *SoundAssetName ) );
 		if( Sound == NULL )
@@ -4032,92 +4041,6 @@ UBrushBuilder* UEditorEngine::FindBrushBuilder( UClass* BrushBuilderClass )
 	return Builder;
 }
 
-bool UEditorEngine::AttachActorToComponent(AActor* ParentActor, AActor* ChildActor, USkeletalMeshComponent* SkeletalMeshComponent, const FName SocketName)
-{
-	bool bAttachedToSocket = false;
-
-	if(SkeletalMeshComponent && SkeletalMeshComponent->SkeletalMesh)
-	{
-		USkeletalMeshSocket const* const Socket = SkeletalMeshComponent->SkeletalMesh->FindSocket(SocketName);
-		if (Socket)
-		{
-			bAttachedToSocket = Socket->AttachActor(ChildActor, SkeletalMeshComponent);
-		}
-		else
-		{
-			// now search bone, if bone exists, snap to the bone
-			int32 BoneIndex = SkeletalMeshComponent->SkeletalMesh->RefSkeleton.FindBoneIndex(SocketName);
-			if (BoneIndex != INDEX_NONE)
-			{
-				ChildActor->GetRootComponent()->SnapTo(ParentActor->GetRootComponent(), SocketName);
-				bAttachedToSocket = true;
-	
-	#if WITH_EDITOR
-				ChildActor->PreEditChange(NULL);
-				ChildActor->PostEditChange();
-	#endif // WITH_EDITOR
-			}
-		}
-	}
-
-	return bAttachedToSocket;
-}
-
-bool UEditorEngine::AttachActorToComponent(AActor* ChildActor, UStaticMeshComponent* StaticMeshComponent, const FName SocketName)
-{
-	bool bAttachedToSocket = false;
-
-	if(StaticMeshComponent && StaticMeshComponent->StaticMesh)
-	{
-		UStaticMeshSocket const* const Socket = StaticMeshComponent->StaticMesh->FindSocket(SocketName);
-		if (Socket)
-		{
-			bAttachedToSocket = Socket->AttachActor(ChildActor, StaticMeshComponent);
-		}
-	}
-
-	return bAttachedToSocket;
-}
-
-bool UEditorEngine::SnapToSocket (AActor* ParentActor, AActor* ChildActor, const FName SocketName, USceneComponent* Component)
-{
-	bool bAttachedToSocket = false;
-
-	ASkeletalMeshActor* ParentSkelMeshActor = Cast<ASkeletalMeshActor>(ParentActor);
-	if (ParentSkelMeshActor != NULL &&
-		ParentSkelMeshActor->GetSkeletalMeshComponent() &&
-		ParentSkelMeshActor->GetSkeletalMeshComponent()->SkeletalMesh)
-	{
-		bAttachedToSocket = AttachActorToComponent(ParentActor, ChildActor, ParentSkelMeshActor->GetSkeletalMeshComponent(), SocketName);
-	}
-
-	AStaticMeshActor* ParentStaticMeshActor = Cast<AStaticMeshActor>(ParentActor);
-	if (ParentStaticMeshActor != NULL &&
-		ParentStaticMeshActor->GetStaticMeshComponent() &&
-		ParentStaticMeshActor->GetStaticMeshComponent()->StaticMesh)
-	{
-		bAttachedToSocket = AttachActorToComponent(ChildActor, ParentStaticMeshActor->GetStaticMeshComponent(), SocketName);
-	}
-
-	// if the component is in a blueprint actor
-	if (Component && ParentActor->OwnsComponent(Component))
-	{
-		USkeletalMeshComponent* const SkeletalMeshComponent = Cast<USkeletalMeshComponent>(Component);
-		if (SkeletalMeshComponent)
-		{
-			bAttachedToSocket = AttachActorToComponent(ParentActor, ChildActor, SkeletalMeshComponent, SocketName);
-		}
-
-		UStaticMeshComponent* const StaticMeshComponent = Cast<UStaticMeshComponent>(Component);		
-		if (StaticMeshComponent)
-		{
-			bAttachedToSocket = AttachActorToComponent(ChildActor, StaticMeshComponent, SocketName);
-		}
-	}
-
-	return bAttachedToSocket;
-}
-
 void UEditorEngine::ParentActors( AActor* ParentActor, AActor* ChildActor, const FName SocketName, USceneComponent* Component)
 {
 	if (CanParentActors(ParentActor, ChildActor))
@@ -4150,17 +4073,12 @@ void UEditorEngine::ParentActors( AActor* ParentActor, AActor* ChildActor, const
 			ParentRoot->DetachFromParent(true);
 		}
 
-		// Try snapping to socket if requested
-		if ((SocketName != NAME_None) && SnapToSocket(ParentActor, ChildActor, SocketName, Component))
-		{
-			// Refresh editor if snapping to socket was successful
-			RedrawLevelEditingViewports();
-		}
-		else
-		{
-			// Perform general attachment
-			ChildRoot->AttachTo( ParentRoot, SocketName, EAttachLocation::KeepWorldPosition );
-		}
+		// Snap to socket if a valid socket name was provided, otherwise attach without changing the relative transform
+		const bool bValidSocketName = !SocketName.IsNone() && ParentRoot->DoesSocketExist(SocketName);
+		ChildRoot->AttachTo(ParentRoot, SocketName, bValidSocketName ? EAttachLocation::SnapToTarget : EAttachLocation::KeepWorldPosition);
+
+		// Refresh editor in case child was translated after snapping to socket
+		RedrawLevelEditingViewports();
 	}
 }
 
@@ -4324,7 +4242,15 @@ bool UEditorEngine::IsPackageOKToSave(UPackage* InPackage, const FString& InFile
 {
 	TArray<FString>	AllStartupPackageNames;
 	appGetAllPotentialStartupPackageNames(AllStartupPackageNames, GEngineIni, false);
-	bool bIsStartupPackage = AllStartupPackageNames.Contains(FPackageName::FilenameToLongPackageName(InFilename));
+
+	FString ConvertedPackageName, ConversionError;
+	if (!FPackageName::TryConvertFilenameToLongPackageName(InFilename, ConvertedPackageName, &ConversionError))
+	{
+		Error->Logf(ELogVerbosity::Error, *FText::Format(NSLOCTEXT("UnrealEd", "CannotConvertPackageName", "Cannot save asset '{0}' as conversion of long package name failed. Reason: '{1}'."), FText::FromString(InFilename), FText::FromString(ConversionError)).ToString());
+		return false;
+	}
+
+	bool bIsStartupPackage = AllStartupPackageNames.Contains(ConvertedPackageName);
 
 	// Make sure that if the package is a startup package, the user indeed wants to save changes
 	if( !IsRunningCommandlet()																		&& // Don't prompt about saving startup packages when running UCC
@@ -5679,7 +5605,7 @@ AActor* UEditorEngine::ConvertBrushesToStaticMesh(const FString& InStaticMeshPac
 	}
 
 	ConversionTempModel->EmptyModel(1, 1);
-
+	GEditor->RebuildAlteredBSP();
 	GEditor->RedrawLevelEditingViewports();
 
 	return NewActor;
@@ -6018,13 +5944,38 @@ void UEditorEngine::DoConvertActors( const TArray<AActor*>& ActorsToConvert, UCl
 void UEditorEngine::NotifyToolsOfObjectReplacement(const TMap<UObject*, UObject*>& OldToNewInstanceMap)
 {
 	// This can be called early on during startup if blueprints need to be compiled.  
-	// If the property module isn't loaded then there arent any property windows to update
+	// If the property module isn't loaded then there aren't any property windows to update
 	if( FModuleManager::Get().IsModuleLoaded( "PropertyEditor" ) )
 	{
 		FPropertyEditorModule& PropertyEditorModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>( "PropertyEditor" );
 		PropertyEditorModule.ReplaceViewedObjects( OldToNewInstanceMap );
 	}
 
+	// Check to see if any selected components were reinstanced
+	USelection* ComponentSelection = GetSelectedComponents();
+	if (ComponentSelection)
+	{
+		TArray<TWeakObjectPtr<UObject> > SelectedComponents;
+		ComponentSelection->GetSelectedObjects(SelectedComponents);
+
+		ComponentSelection->BeginBatchSelectOperation();
+		for (int32 i = 0; i < SelectedComponents.Num(); ++i)
+		{
+			UObject* Component = SelectedComponents[i].GetEvenIfUnreachable();
+
+			// If the component corresponds to a new instance in the map, update the selection accordingly
+			if (OldToNewInstanceMap.Contains(Component))
+			{
+				if (UActorComponent* NewComponent = CastChecked<UActorComponent>(OldToNewInstanceMap[Component], ECastCheckedType::NullAllowed))
+				{
+					ComponentSelection->Deselect(Component);
+					SelectComponent(NewComponent, true, false);
+				}
+			}
+		}
+		ComponentSelection->EndBatchSelectOperation();
+	}
+	
 	BroadcastObjectsReplaced(OldToNewInstanceMap);
 }
 
@@ -7068,56 +7019,87 @@ namespace EditorUtilities
 		// If the source and target components do not match (e.g. context-specific), attempt to find a match in the target's array elsewhere
 		const int32 NumTargetComponents = TargetComponents.Num();
 		if( (SourceComponent != NULL) 
-			&& (TargetComponent != NULL) 
-			&& (SourceComponent->GetFName() != TargetComponent->GetFName()) )
+			&& ((TargetComponent == NULL) 
+				|| (SourceComponent->GetFName() != TargetComponent->GetFName()) ))
 		{
 			// Reset the target component since it doesn't match the source
 			TargetComponent = NULL;
 
-			// Attempt to locate a match elsewhere in the target's component list
-			const int32 StartingIndex = StartIndex + 1;
-			int32 FindTargetComponentIndex = (StartingIndex >= NumTargetComponents) ? 0 : StartingIndex;
-			do
+			if (NumTargetComponents > 0)
 			{
-				// If we found a match, update the target component and adjust the target index to the matching position
-				UActorComponent* FindTargetComponent = TargetComponents[ FindTargetComponentIndex ];
-				if( FindTargetComponent != NULL && SourceComponent->GetFName() == FindTargetComponent->GetFName() )
+				const bool bSourceIsArchetype = SourceComponent->HasAnyFlags(RF_ArchetypeObject);
+				// Attempt to locate a match elsewhere in the target's component list
+				const int32 StartingIndex = (bSourceIsArchetype ? StartIndex : StartIndex + 1);
+				int32 FindTargetComponentIndex = (StartingIndex >= NumTargetComponents) ? 0 : StartingIndex;
+				do
 				{
-					TargetComponent = FindTargetComponent;
-					StartIndex = FindTargetComponentIndex;
+					UActorComponent* FindTargetComponent = TargetComponents[ FindTargetComponentIndex ];
 
-					break;
-				}
+					// In the case that the SourceComponent is an Archetype there is a better than even chance the name won't match due to the way the SCS
+					// is set up, so we're actually going to reverse search
+					if (bSourceIsArchetype)
+					{
+						if ( SourceComponent == FindTargetComponent->GetArchetype())
+						{
+							TargetComponent = FindTargetComponent;
+							StartIndex = FindTargetComponentIndex;
+							break;
+						}
+					}
+					else
+					{
+						// If we found a match, update the target component and adjust the target index to the matching position
+						UActorComponent* FindTargetComponent = TargetComponents[ FindTargetComponentIndex ];
+						if( FindTargetComponent != NULL && SourceComponent->GetFName() == FindTargetComponent->GetFName() )
+						{
+							TargetComponent = FindTargetComponent;
+							StartIndex = FindTargetComponentIndex;
+							break;
+						}
+					}
 
-				// Increment the index counter, and loop back to 0 if necessary
-				if( ++FindTargetComponentIndex >= NumTargetComponents )
-				{
-					FindTargetComponentIndex = 0;
-				}
-			} while( FindTargetComponentIndex != StartIndex );
+					// Increment the index counter, and loop back to 0 if necessary
+					if( ++FindTargetComponentIndex >= NumTargetComponents )
+					{
+						FindTargetComponentIndex = 0;
+					}
 
-			// If we still haven't found a match and we're targeting a class default object
+				} while( FindTargetComponentIndex != StartIndex );
+			}
+
+			// If we still haven't found a match and we're targeting a class default object what we're really looking
+			// for is the Archetype
 			if(TargetComponent == NULL && TargetActor->HasAnyFlags(RF_ClassDefaultObject|RF_ArchetypeObject))
 			{
-				// Check for a Blueprint inheritance hierarchy
-				TArray<UBlueprint*> ParentBPStack;
-				UBlueprint::GetBlueprintHierarchyFromClass(TargetActor->GetClass(), ParentBPStack);
-				for(int32 StackIndex = 0; StackIndex < ParentBPStack.Num() && TargetComponent == NULL; ++StackIndex)
+				TargetComponent = CastChecked<UActorComponent>(SourceComponent->GetArchetype(), ECastCheckedType::NullAllowed);
+
+				// If the returned target component is not from the direct class of the actor we're targeting, we need to insert an inheritable component
+				if (TargetComponent && (TargetComponent->GetOuter() != TargetActor->GetClass()))
 				{
-					// For each Blueprint in the hierarchy, look for a match in the SCS if valid
-					UBlueprint* Blueprint = ParentBPStack[StackIndex];
-					if(Blueprint != NULL && Blueprint->SimpleConstructionScript != NULL)
+					// This component doesn't exist in the hierarchy anywhere and we're not going to modify the CDO, so we'll drop it
+					if (TargetComponent->HasAnyFlags(RF_ClassDefaultObject))
 					{
-						const TArray<USCS_Node*> AllSCSNodes = Blueprint->SimpleConstructionScript->GetAllNodes();
-						for(int32 SCSNodeIndex = 0; SCSNodeIndex < AllSCSNodes.Num(); ++SCSNodeIndex)
+						TargetComponent = nullptr;
+					}
+					else
+					{
+						UBlueprintGeneratedClass* BPGC = CastChecked<UBlueprintGeneratedClass>(TargetActor->GetClass());
+						UBlueprint* Blueprint = CastChecked<UBlueprint>(BPGC->ClassGeneratedBy);
+						UInheritableComponentHandler* InheritableComponentHandler = Blueprint->GetInheritableComponentHandler(true);
+						if (InheritableComponentHandler)
 						{
-							USCS_Node* SCS_Node = AllSCSNodes[SCSNodeIndex];
-							if(SCS_Node != NULL && SourceComponent->GetFName() == SCS_Node->GetVariableName())
+							BPGC = Cast<UBlueprintGeneratedClass>(BPGC->GetSuperClass());
+							USCS_Node* SCSNode = nullptr;
+							while (BPGC)
 							{
-								// Found it!
-								TargetComponent = SCS_Node->ComponentTemplate;
-								break;
+								SCSNode = BPGC->SimpleConstructionScript->FindSCSNode(SourceComponent->GetFName());
+								BPGC = (SCSNode ? nullptr : Cast<UBlueprintGeneratedClass>(BPGC->GetSuperClass()));
 							}
+							check(SCSNode);
+
+							FComponentKey Key(SCSNode);
+							check(InheritableComponentHandler->GetOverridenComponentTemplate(Key) == nullptr);
+							TargetComponent = InheritableComponentHandler->CreateOverridenComponentTemplate(Key);
 						}
 					}
 				}
@@ -7484,6 +7466,10 @@ namespace EditorUtilities
 			}
 		}
 
+		if (!bIsPreviewing && CopiedPropertyCount > 0 && TargetActor->HasAnyFlags(RF_ClassDefaultObject|RF_ArchetypeObject) && TargetActor->GetClass()->HasAllClassFlags(CLASS_CompiledFromBlueprint))
+		{
+			FBlueprintEditorUtils::PostEditChangeBlueprintActors(CastChecked<UBlueprint>(TargetActor->GetClass()->ClassGeneratedBy));
+		}
 
 		// If one of the changed properties was part of the actor's transformation, then we'll call PostEditMove too.
 		if( !bIsPreviewing && bTransformChanged )

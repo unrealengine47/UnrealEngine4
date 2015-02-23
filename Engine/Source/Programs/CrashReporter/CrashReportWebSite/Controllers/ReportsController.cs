@@ -3,10 +3,15 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Linq.Expressions;
+using System.Net;
+using System.Text;
 using System.Web.Mvc;
-
+using System.Xml;
 using Tools.CrashReporter.CrashReportWebSite.Models;
+using Tools.DotNETCommon;
 
 namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 {
@@ -189,9 +194,17 @@ namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 		/// Retrieve all Buggs matching the search criteria.
 		/// </summary>
 		/// <param name="FormData">The incoming form of search criteria from the client.</param>
+		/// <param name="BuggIDToBeAddedToJira">ID of the bugg that will be added to JIRA</param>
 		/// <returns>A view to display the filtered Buggs.</returns>
-		public ReportsViewModel GetResults( FormHelper FormData )
+		public ReportsViewModel GetResults( FormHelper FormData, int BuggIDToBeAddedToJira )
 		{
+			// @TODO yrx 2015-02-17 BuggIDToBeAddedToJira replace with List<int> based on check box and Submit?
+			// Enumerate JIRA projects if needed.
+			// https://jira.ol.epicgames.net//rest/api/2/project
+			var JC = JiraConnection.Get();
+			var JiraComponents = JC.GetNameToComponents();
+			var JiraVersions = JC.GetNameToVersions();
+
 			using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( this.GetType().ToString() ) )
 			{
 				string AnonumousGroup = "Anonymous";
@@ -221,6 +234,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 						BuiltFromCL = Crash.ChangeListVersion,
 						Pattern = Crash.Pattern,
 						MachineID = Crash.ComputerName,
+						Branch = Crash.Branch,
 					} )
 					.ToList();
 				int NumCrashes = Crashes.Count;
@@ -284,6 +298,10 @@ namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 
 				var RealBuggs = BuggRepository.GetDataContext().Buggs.Where( Bugg => PatternAndCount.Keys.Contains( Bugg.Pattern ) ).ToList();
 
+				// Build search string.
+				List<string> FoundJiras = new List<string>();
+				Dictionary<string, List<Bugg>> JiraIDtoBugg = new Dictionary<string, List<Bugg>>();
+
 				List<Bugg> Buggs = new List<Bugg>( 100 );
 				foreach( var Top in PatternAndCount )
 				{
@@ -299,14 +317,20 @@ namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 							NewBugg.TTPID = RealBugg.TTPID;							// JIRA
 							NewBugg.FixedChangeList = RealBugg.FixedChangeList;		// FixCL
 							NewBugg.NumberOfCrashes = Top.Value;					// # Occurrences
+							NewBugg.Pattern = RealBugg.Pattern;					// # Occurrences
 
 							//NewBugg.BuildVersion = 
 
 							var CrashesForBugg = Crashes.Where( Crash => Crash.Pattern == Top.Key ).ToList();
 
-							NewBugg.AffectedBuilds = new SortedSet<string>();
+							NewBugg.AffectedVersions = new SortedSet<string>();
+							NewBugg.AffectedMajorVersions = new SortedSet<string>(); // 4.4, 4.5 and so
+							NewBugg.BranchesFoundIn = new SortedSet<string>();
+							NewBugg.AffectedPlatforms = new SortedSet<string>();
 
 							HashSet<string> MachineIds = new HashSet<string>();
+							int FirstCLAffected = int.MaxValue;
+
 							foreach( var Crash in CrashesForBugg )
 							{
 								// Only add machine if the number has 32 characters
@@ -316,15 +340,54 @@ namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 								}
 
 								// Ignore bad build versions.
+								// @TODO yrx 2015-02-17 What about launcher?
 								if( Crash.BuildVersion.StartsWith( "4." ) )
 								{
-									NewBugg.AffectedBuilds.Add( Crash.BuildVersion );
-								}
+									if( !string.IsNullOrEmpty(Crash.BuildVersion) )
+									{
+										NewBugg.AffectedVersions.Add( Crash.BuildVersion );
+									}
+									if( !string.IsNullOrEmpty( Crash.Branch ) && Crash.Branch.StartsWith( "UE4" ) )
+									{
+										NewBugg.BranchesFoundIn.Add( Crash.Branch );
+									}
+
+									int CrashBuiltFromCL = 0;
+									int.TryParse( Crash.BuiltFromCL, out CrashBuiltFromCL );
+									if( CrashBuiltFromCL > 0 )
+									{
+										FirstCLAffected = Math.Min( FirstCLAffected, CrashBuiltFromCL );
+									}
+
+									if( !string.IsNullOrEmpty( Crash.Platform ) )
+									{
+										// Platform = "Platform [Desc]";
+										var PlatSubs = Crash.Platform.Split( " ".ToCharArray(), StringSplitOptions.RemoveEmptyEntries );
+										if( PlatSubs.Length >= 1 )
+										{
+											NewBugg.AffectedPlatforms.Add( PlatSubs[0] );
+										}
+									}
+								}	
 							}
 
-							if( NewBugg.AffectedBuilds.Count > 0 )
+							// CopyToJira 
+							NewBugg.ToJiraFirstCLAffected = FirstCLAffected;
+
+							if( NewBugg.AffectedVersions.Count > 0 )
 							{
-								NewBugg.BuildVersion = NewBugg.AffectedBuilds.Last();	// Latest Version Affected
+								NewBugg.BuildVersion = NewBugg.AffectedVersions.Last();	// Latest Version Affected
+							}
+
+							
+							foreach( var AffectedBuild in NewBugg.AffectedVersions )
+							{
+								var Subs = AffectedBuild.Split( ".".ToCharArray(), StringSplitOptions.RemoveEmptyEntries );
+								if( Subs.Length >= 2 )
+								{
+									string MajorVersion = Subs[0] + "." + Subs[1];
+									NewBugg.AffectedMajorVersions.Add( MajorVersion );
+								}
 							}
 
 							NewBugg.NumberOfUniqueMachines = MachineIds.Count;		// # Affected Users
@@ -335,12 +398,62 @@ namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 							int ILatestCLAffected = -1;
 							int.TryParse( LatestCLAffected, out ILatestCLAffected );
 							NewBugg.LatestCLAffected = ILatestCLAffected;			// Latest CL Affected
-
+							
 							string LatestOSAffected = CrashesForBugg.OrderByDescending( Crash => Crash.TimeOfCrash ).First().Platform;
-
 							NewBugg.LatestOSAffected = LatestOSAffected;			// Latest Environment Affected
 
 							NewBugg.TimeOfFirstCrash = RealBugg.TimeOfFirstCrash;	// First Crash Timestamp
+
+							// ToJiraSummary
+							var Callstack = RealBugg.GetFunctionCalls();
+							NewBugg.ToJiraSummary = Callstack.Count > 1 ? Callstack[0] : "No valid callstack found";
+
+							// ToJiraVersions
+							NewBugg.ToJiraVersions = new List<object>();
+							foreach( var Version in NewBugg.AffectedMajorVersions )
+							{
+								bool bValid = JC.GetNameToVersions().ContainsKey( Version );
+								if( bValid )
+								{
+									NewBugg.ToJiraVersions.Add( JC.GetNameToVersions()[Version] );
+								}
+							}
+
+							// ToJiraBranches
+							NewBugg.ToJiraBranches = new List<object>();
+							foreach( var Platform in NewBugg.BranchesFoundIn )
+							{
+								string CleanedBranch = Platform.Contains( "UE4-Releases" ) ? "UE4-Releases" : Platform;
+								Dictionary<string, object> JiraBranch = null;
+								JC.GetNameToBranchFoundIn().TryGetValue( CleanedBranch, out JiraBranch );
+								if( JiraBranch != null && !NewBugg.ToJiraBranches.Contains( JiraBranch ) )
+								{
+									NewBugg.ToJiraBranches.Add( JiraBranch );
+								}
+							}
+
+							// ToJiraPlatforms
+							NewBugg.ToJiraPlatforms = new List<object>();
+							foreach( var Platform in NewBugg.AffectedPlatforms )
+							{
+								bool bValid = JC.GetNameToPlatform().ContainsKey( Platform );
+								if( bValid )
+								{
+									NewBugg.ToJiraPlatforms.Add( JC.GetNameToPlatform()[Platform] );
+								}
+							}
+
+							// Verify valid JiraID, this may be still a TTP 
+							if( !string.IsNullOrEmpty( NewBugg.TTPID ) )
+							{
+								int TTPID = 0;
+								int.TryParse( NewBugg.TTPID, out TTPID );
+
+								if( TTPID == 0 )
+								{
+									AddBuggJiraMapping(NewBugg, ref FoundJiras, ref JiraIDtoBugg);						
+								}
+							}
 
 							Buggs.Add( NewBugg );
 						}
@@ -348,6 +461,81 @@ namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 					else
 					{
 						FLogger.WriteEvent( "Bugg for pattern " + Top.Key + " not found" );
+					}
+				}
+
+				if( BuggIDToBeAddedToJira > 0 )
+				{
+					var Bugg = Buggs.Where( X => X.Id == BuggIDToBeAddedToJira ).FirstOrDefault();
+					if( Bugg != null )
+					{
+						Bugg.CopyToJira();
+						AddBuggJiraMapping( Bugg, ref FoundJiras, ref JiraIDtoBugg );
+					}
+				}
+
+				if( JC.CanBeUsed() )
+				{
+					// Grab the data form JIRA.
+					string JiraSearchQuery = string.Join( " OR ", FoundJiras );
+
+					using( FAutoScopedLogTimer JiraResultsTimer = new FAutoScopedLogTimer( "JiraResults" ) )
+					{
+						var JiraResults = JC.SearchJiraTickets(
+							JiraSearchQuery,
+							new string[] 
+						{ 
+							"key",				// string
+							"summary",			// string
+							"components",		// System.Collections.ArrayList, Dictionary<string,object>, name
+							"resolution",		// System.Collections.Generic.Dictionary`2[System.String,System.Object], name
+							"fixVersions",		// System.Collections.ArrayList, Dictionary<string,object>, name
+							"customfield_11200" // string
+						} );
+
+
+						// Jira Key, Summary, Components, Resolution, Fix version, Fix changelist
+						foreach( var Jira in JiraResults )
+						{
+							string JiraID = Jira.Key;
+
+							string Summary = (string)Jira.Value["summary"];
+
+							string ComponentsText = "";
+							System.Collections.ArrayList Components = (System.Collections.ArrayList)Jira.Value["components"];
+							foreach( Dictionary<string, object> Component in Components )
+							{
+								ComponentsText += (string)Component["name"];
+								ComponentsText += " ";
+							}
+
+							Dictionary<string, object> ResolutionFields = (Dictionary<string, object>)Jira.Value["resolution"];
+							string Resolution = ResolutionFields != null ? (string)ResolutionFields["name"] : "";
+
+							string FixVersionsText = "";
+							System.Collections.ArrayList FixVersions = (System.Collections.ArrayList)Jira.Value["fixVersions"];
+							foreach( Dictionary<string, object> FixVersion in FixVersions )
+							{
+								FixVersionsText += (string)FixVersion["name"];
+								FixVersionsText += " ";
+							}
+
+							int FixCL = Jira.Value["customfield_11200"] != null ? (int)(decimal)Jira.Value["customfield_11200"] : 0;
+
+							var BuggsForJira = JiraIDtoBugg[JiraID];
+
+							foreach( Bugg Bugg in BuggsForJira )
+							{
+								Bugg.JiraSummary = Summary;
+								Bugg.JiraComponentsText = ComponentsText;
+								Bugg.JiraResolution = Resolution;
+								Bugg.JiraFixVersionsText = FixVersionsText;
+								if( FixCL != 0 )
+								{
+									Bugg.JiraFixCL = FixCL.ToString();
+								}
+							}
+						}
 					}
 				}
 
@@ -364,6 +552,20 @@ namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 			}
 		}
 
+		private void AddBuggJiraMapping( Bugg NewBugg, ref List<string> FoundJiras, ref Dictionary<string, List<Bugg>> JiraIDtoBugg )
+		{
+			string JiraID = NewBugg.TTPID;
+			FoundJiras.Add( "key = " + JiraID );
+
+			bool bAdd = !JiraIDtoBugg.ContainsKey( JiraID );
+			if( bAdd )
+			{
+				JiraIDtoBugg.Add( JiraID, new List<Bugg>() );
+			}
+
+			JiraIDtoBugg[JiraID].Add( NewBugg );
+		}
+
 		/// <summary>
 		/// 
 		/// </summary>
@@ -374,7 +576,19 @@ namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 			using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( this.GetType().ToString() ) )
 			{
 				FormHelper FormData = new FormHelper( Request, ReportsForm, "JustReport" );
-				ReportsViewModel Results = GetResults( FormData );
+
+				// Handle 'CopyToJira' button
+				int BuggIDToBeAddedToJira = 0;
+				foreach( var Entry in ReportsForm )
+				{
+					
+					if( int.TryParse( Entry.ToString(), out BuggIDToBeAddedToJira ) )
+					{
+						break;
+					}
+				}
+
+				ReportsViewModel Results = GetResults( FormData, BuggIDToBeAddedToJira );
 				Results.GenerationTime = LogTimer.GetElapsedSeconds().ToString( "F2" );
 				return View( "Index", Results );
 			}

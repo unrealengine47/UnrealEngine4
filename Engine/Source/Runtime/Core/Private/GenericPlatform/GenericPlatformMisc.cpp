@@ -871,3 +871,8 @@ FString FGenericPlatformMisc::GetOperatingSystemId()
 	// not implemented by default.
 	return FString();
 }
+
+const TCHAR* FGenericPlatformMisc::GetNativeCommandLine()
+{
+	return TEXT("");
+}

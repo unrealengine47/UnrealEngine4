@@ -3,7 +3,7 @@
 #include "EnginePrivate.h"
 #include "ComponentInstanceDataCache.h"
 
-FComponentInstanceDataBase::FComponentInstanceDataBase(const UActorComponent* SourceComponent)
+FActorComponentInstanceData::FActorComponentInstanceData(const UActorComponent* SourceComponent)
 {
 	check(SourceComponent);
 	SourceComponentName = SourceComponent->GetFName();
@@ -36,14 +36,16 @@ FComponentInstanceDataBase::FComponentInstanceDataBase(const UActorComponent* So
 		}
 	}
 
-	if (SourceComponent->CreationMethod == EComponentCreationMethod::SimpleConstructionScript)
+	/*if (SourceComponent->CreationMethod == EComponentCreationMethod::SimpleConstructionScript)
 	{
 		class FComponentPropertyWriter : public FObjectWriter
 		{
 		public:
-			FComponentPropertyWriter(TArray<uint8>& InBytes)
+			FComponentPropertyWriter(const UActorComponent* Component, TArray<uint8>& InBytes)
 				: FObjectWriter(InBytes)
 			{
+				UClass* ComponentClass = Component->GetClass();
+				ComponentClass->SerializeTaggedProperties(*this, (uint8*)Component, ComponentClass, (uint8*)Component->GetArchetype());
 			}
 
 			virtual bool ShouldSkipProperty(const UProperty* InProperty) const override
@@ -52,13 +54,11 @@ FComponentInstanceDataBase::FComponentInstanceDataBase(const UActorComponent* So
 						|| !InProperty->HasAnyPropertyFlags(CPF_Edit | CPF_Interp));
 			}
 
-		} ComponentPropertyWriter(SavedProperties);
-
-		SourceComponentClass->SerializeTaggedProperties(ComponentPropertyWriter, (uint8*)SourceComponent, SourceComponentClass, (uint8*)SourceComponent->GetArchetype());
-	}
+		} ComponentPropertyWriter(SourceComponent, SavedProperties);
+	}*/
 }
 
-bool FComponentInstanceDataBase::MatchesComponent(const UActorComponent* Component) const
+bool FActorComponentInstanceData::MatchesComponent(const UActorComponent* Component) const
 {
 	bool bMatches = false;
 	if (Component && Component->GetClass() == SourceComponentClass)
@@ -89,23 +89,20 @@ bool FComponentInstanceDataBase::MatchesComponent(const UActorComponent* Compone
 	return bMatches;
 }
 
-void FComponentInstanceDataBase::ApplyToComponent(UActorComponent* Component)
+void FActorComponentInstanceData::ApplyToComponent(UActorComponent* Component, const ECacheApplyPhase CacheApplyPhase)
 {
-	if (SavedProperties.Num() > 0)
+	if (CacheApplyPhase == ECacheApplyPhase::PostSimpleConstructionScript && SavedProperties.Num() > 0)
 	{
 		class FComponentPropertyReader : public FObjectReader
 		{
 		public:
-			FComponentPropertyReader(TArray<uint8>& InBytes)
+			FComponentPropertyReader(UActorComponent* Component, TArray<uint8>& InBytes)
 				: FObjectReader(InBytes)
 			{
+				UClass* Class = Component->GetClass();
+				Class->SerializeTaggedProperties(*this, (uint8*)Component, Class, nullptr);
 			}
-		} ComponentPropertyReader(SavedProperties);
-
-		UObject* ArchetypeToSearch = Component->GetOuter()->GetArchetype();
-		UClass* Class = Component->GetClass();
-
-		Class->SerializeTaggedProperties(ComponentPropertyReader, (uint8*)Component, Class, nullptr);
+		} ComponentPropertyReader(Component, SavedProperties);	
 	}
 }
 
@@ -121,7 +118,7 @@ FComponentInstanceDataCache::FComponentInstanceDataCache(const AActor* Actor)
 		{
 			if (Component->IsCreatedByConstructionScript()) // Only cache data from 'created by construction script' components
 			{
-				FComponentInstanceDataBase* ComponentInstanceData = Component->GetComponentInstanceData();
+				FActorComponentInstanceData* ComponentInstanceData = Component->GetComponentInstanceData();
 				if (ComponentInstanceData)
 				{
 					check(!Component->GetComponentInstanceDataType().IsNone());
@@ -135,11 +132,7 @@ FComponentInstanceDataCache::FComponentInstanceDataCache(const AActor* Actor)
 				{
 					if (SceneComponent->AttachParent && SceneComponent->AttachParent->IsCreatedByConstructionScript())
 					{
-						auto RootComponent = Actor->GetRootComponent();
-						if (RootComponent)
-						{
-							InstanceComponentTransformToRootMap.Add(SceneComponent, SceneComponent->GetComponentTransform().GetRelativeTransform(RootComponent->GetComponentTransform()));
-						}
+						InstanceComponentTransformToRootMap.Add(SceneComponent, SceneComponent->GetComponentTransform().GetRelativeTransform(Actor->GetRootComponent()->GetComponentTransform()));
 					}
 				}
 			}
@@ -155,7 +148,7 @@ FComponentInstanceDataCache::~FComponentInstanceDataCache()
 	}
 }
 
-void FComponentInstanceDataCache::ApplyToActor(AActor* Actor) const
+void FComponentInstanceDataCache::ApplyToActor(AActor* Actor, const ECacheApplyPhase CacheApplyPhase) const
 {
 	if(Actor != NULL)
 	{
@@ -171,14 +164,14 @@ void FComponentInstanceDataCache::ApplyToActor(AActor* Actor) const
 
 				if (!ComponentInstanceDataType.IsNone())
 				{
-					TArray< FComponentInstanceDataBase* > CachedData;
+					TArray< FActorComponentInstanceData* > CachedData;
 					TypeToDataMap.MultiFind(ComponentInstanceDataType, CachedData);
 
-					for (FComponentInstanceDataBase* ComponentInstanceData : CachedData)
+					for (FActorComponentInstanceData* ComponentInstanceData : CachedData)
 					{
 						if (ComponentInstanceData && ComponentInstanceData->MatchesComponent(Component))
 						{
-							ComponentInstanceData->ApplyToComponent(Component);
+							ComponentInstanceData->ApplyToComponent(Component, CacheApplyPhase);
 							break;
 						}
 					}

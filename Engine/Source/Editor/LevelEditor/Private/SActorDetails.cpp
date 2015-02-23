@@ -57,9 +57,9 @@ void SActorDetails::Construct(const FArguments& InArgs, const FName TabIdentifie
 
 	SCSEditor = SNew(SSCSEditor)
 		.EditorMode(EComponentEditorMode::ActorInstance)
+		.AllowEditing(this, &SActorDetails::GetAllowComponentTreeEditing)
 		.ActorContext(this, &SActorDetails::GetActorContext)
-		.OnSelectionUpdated(this, &SActorDetails::OnSCSEditorTreeViewSelectionChanged)
-		.ActorMenuExtender(InArgs._ActorMenuExtender);
+		.OnSelectionUpdated(this, &SActorDetails::OnSCSEditorTreeViewSelectionChanged);
 		
 	ComponentsBox->SetContent(SCSEditor.ToSharedRef());
 
@@ -144,11 +144,11 @@ SActorDetails::~SActorDetails()
 	}
 }
 
-void SActorDetails::SetObjects(const TArray<UObject*>& InObjects)
+void SActorDetails::SetObjects(const TArray<UObject*>& InObjects, bool bForceRefresh)
 {
 	if(!DetailsView->IsLocked())
 	{
-		DetailsView->SetObjects(InObjects);
+		DetailsView->SetObjects(InObjects, bForceRefresh);
 
 		bool bShowingComponents = false;
 
@@ -163,6 +163,8 @@ void SActorDetails::SetObjects(const TArray<UObject*>& InObjects)
 				// Update the tree if a new actor is selected
 				if(GEditor->GetSelectedComponentCount() == 0)
 				{
+					// Enable the selection guard to prevent OnTreeSelectionChanged() from altering the editor's component selection
+					TGuardValue<bool> SelectionGuard(bSelectionGuard, true);
 					SCSEditor->UpdateTree();
 				}
 			}
@@ -176,6 +178,17 @@ void SActorDetails::PostUndo(bool bSuccess)
 {
 	// Enable the selection guard to prevent OnTreeSelectionChanged() from altering the editor's component selection
 	TGuardValue<bool> SelectionGuard(bSelectionGuard, true);
+
+	if (!DetailsView->IsLocked())
+	{
+		// Make sure the locked actor selection matches the editor selection
+		AActor* SelectedActor = GetSelectedActorInEditor();
+		if (SelectedActor && SelectedActor != LockedActorSelection.Get())
+		{
+			LockedActorSelection = SelectedActor;
+		}
+	}
+	
 
 	// Refresh the tree and update the selection to match the world
 	SCSEditor->UpdateTree();
@@ -230,8 +243,13 @@ void SActorDetails::OnEditorSelectionChanged(UObject* Object)
 
 AActor* SActorDetails::GetSelectedActorInEditor() const
 {
-	//@todo this won't work w/ multi-select
-	return Cast<AActor>(*GEditor->GetSelectedActorIterator());
+	//@todo this doesn't work w/ multi-select
+	return GEditor->GetSelectedActors()->GetTop<AActor>();
+}
+
+bool SActorDetails::GetAllowComponentTreeEditing() const
+{
+	return GEditor->PlayWorld == nullptr;
 }
 
 AActor* SActorDetails::GetActorContext() const
@@ -451,7 +469,7 @@ bool SActorDetails::IsPropertyEditingEnabled() const
 		UActorComponent* ActorComp = Cast<UActorComponent>(Object.Get());
 		if(ActorComp)
 		{
-			bIsEditable = ActorComp->CreationMethod != EComponentCreationMethod::UserConstructionScript;
+			bIsEditable = !ActorComp->IsCreatedByConstructionScript();
 			if(!bIsEditable)
 			{
 				break;

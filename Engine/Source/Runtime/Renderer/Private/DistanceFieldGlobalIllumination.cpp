@@ -25,7 +25,7 @@ FAutoConsoleVariableRef CVarDistanceFieldGI(
 	ECVF_Cheat | ECVF_RenderThreadSafe | ECVF_ReadOnly
 	);
 
-int32 GVPLMeshGlobalIllumination = 0;
+int32 GVPLMeshGlobalIllumination = 1;
 FAutoConsoleVariableRef CVarVPLMeshGlobalIllumination(
 	TEXT("r.VPLMeshGlobalIllumination"),
 	GVPLMeshGlobalIllumination,
@@ -85,6 +85,14 @@ int32 GVPLSpreadUpdateOver = 5;
 FAutoConsoleVariableRef CVarVPLSpreadUpdateOver(
 	TEXT("r.VPLSpreadUpdateOver"),
 	GVPLSpreadUpdateOver,
+	TEXT(""),
+	ECVF_Cheat | ECVF_RenderThreadSafe
+	);
+
+float GVPLSelfOcclusionReplacement = .3f;
+FAutoConsoleVariableRef CVarVPLSelfOcclusionReplacement(
+	TEXT("r.VPLSelfOcclusionReplacement"),
+	GVPLSelfOcclusionReplacement,
 	TEXT(""),
 	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
@@ -631,6 +639,7 @@ public:
 		ShadowTileArrayData.Bind(Initializer.ParameterMap, TEXT("ShadowTileArrayData"));
 		ShadowTileListGroupSize.Bind(Initializer.ParameterMap, TEXT("ShadowTileListGroupSize"));
 		WorldToShadow.Bind(Initializer.ParameterMap, TEXT("WorldToShadow"));
+		ShadowObjectIndirectArguments.Bind(Initializer.ParameterMap, TEXT("ShadowObjectIndirectArguments"));
 		ShadowCulledObjectBounds.Bind(Initializer.ParameterMap, TEXT("ShadowCulledObjectBounds"));
 		ShadowCulledObjectData.Bind(Initializer.ParameterMap, TEXT("ShadowCulledObjectData"));
 		ObjectProcessStride.Bind(Initializer.ParameterMap, TEXT("ObjectProcessStride"));
@@ -686,6 +695,7 @@ public:
 
 		SetShaderValue(RHICmdList, ShaderRHI, WorldToShadow, WorldToShadowMatrixValue);
 
+		SetSRVParameter(RHICmdList, ShaderRHI, ShadowObjectIndirectArguments, GShadowCulledObjectBuffers.Buffers.ObjectIndirectArguments.SRV);
 		SetSRVParameter(RHICmdList, ShaderRHI, ShadowCulledObjectBounds, GShadowCulledObjectBuffers.Buffers.Bounds.SRV);
 		SetSRVParameter(RHICmdList, ShaderRHI, ShadowCulledObjectData, GShadowCulledObjectBuffers.Buffers.Data.SRV);
 
@@ -714,6 +724,7 @@ public:
 		Ar << ShadowTileArrayData;
 		Ar << ShadowTileListGroupSize;
 		Ar << WorldToShadow;
+		Ar << ShadowObjectIndirectArguments;
 		Ar << ShadowCulledObjectBounds;
 		Ar << ShadowCulledObjectData;
 		Ar << ObjectProcessStride;
@@ -735,6 +746,7 @@ private:
 	FShaderResourceParameter ShadowTileArrayData;
 	FShaderParameter ShadowTileListGroupSize;
 	FShaderParameter WorldToShadow;
+	FShaderResourceParameter ShadowObjectIndirectArguments;
 	FShaderResourceParameter ShadowCulledObjectBounds;
 	FShaderResourceParameter ShadowCulledObjectData;
 	FShaderParameter ObjectProcessStride;
@@ -881,7 +893,8 @@ public:
 	FClearIrradianceSamplesCS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
 		: FGlobalShader(Initializer)
 	{
-		IrradianceCacheIrradiance.Bind(Initializer.ParameterMap, TEXT("IrradianceCacheIrradiance"));
+		SurfelIrradiance.Bind(Initializer.ParameterMap, TEXT("SurfelIrradiance"));
+		HeightfieldIrradiance.Bind(Initializer.ParameterMap, TEXT("HeightfieldIrradiance"));
 		ScatterDrawParameters.Bind(Initializer.ParameterMap, TEXT("ScatterDrawParameters"));
 		SavedStartIndex.Bind(Initializer.ParameterMap, TEXT("SavedStartIndex"));
 	}
@@ -905,18 +918,21 @@ public:
 		SetSRVParameter(RHICmdList, ShaderRHI, ScatterDrawParameters, SurfaceCacheResources.Level[DepthLevel]->ScatterDrawParameters.SRV);
 		SetSRVParameter(RHICmdList, ShaderRHI, SavedStartIndex, SurfaceCacheResources.Level[DepthLevel]->SavedStartIndex.SRV);
 
-		IrradianceCacheIrradiance.SetBuffer(RHICmdList, ShaderRHI, SurfaceCacheResources.Level[DepthLevel]->Irradiance);
+		SurfelIrradiance.SetBuffer(RHICmdList, ShaderRHI, TemporaryIrradianceCacheResources->SurfelIrradiance);
+		HeightfieldIrradiance.SetBuffer(RHICmdList, ShaderRHI, TemporaryIrradianceCacheResources->HeightfieldIrradiance);
 	}
 
 	void UnsetParameters(FRHICommandList& RHICmdList)
 	{
-		IrradianceCacheIrradiance.UnsetUAV(RHICmdList, GetComputeShader());
+		SurfelIrradiance.UnsetUAV(RHICmdList, GetComputeShader());
+		HeightfieldIrradiance.UnsetUAV(RHICmdList, GetComputeShader());
 	}
 
 	virtual bool Serialize(FArchive& Ar)
 	{		
 		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
-		Ar << IrradianceCacheIrradiance;
+		Ar << SurfelIrradiance;
+		Ar << HeightfieldIrradiance;
 		Ar << ScatterDrawParameters;
 		Ar << SavedStartIndex;
 		return bShaderHasOutdatedParameters;
@@ -924,7 +940,8 @@ public:
 
 private:
 
-	FRWShaderParameter IrradianceCacheIrradiance;
+	FRWShaderParameter SurfelIrradiance;
+	FRWShaderParameter HeightfieldIrradiance;
 	FShaderResourceParameter ScatterDrawParameters;
 	FShaderResourceParameter SavedStartIndex;
 };
@@ -1066,7 +1083,7 @@ public:
 		: FGlobalShader(Initializer)
 	{
 		AOParameters.Bind(Initializer.ParameterMap);
-		IrradianceCacheIrradiance.Bind(Initializer.ParameterMap, TEXT("IrradianceCacheIrradiance"));
+		SurfelIrradiance.Bind(Initializer.ParameterMap, TEXT("SurfelIrradiance"));
 		IrradianceCachePositionRadius.Bind(Initializer.ParameterMap, TEXT("IrradianceCachePositionRadius"));
 		IrradianceCacheNormal.Bind(Initializer.ParameterMap, TEXT("IrradianceCacheNormal"));
 		IrradianceCacheTileCoordinate.Bind(Initializer.ParameterMap, TEXT("IrradianceCacheTileCoordinate"));
@@ -1111,7 +1128,7 @@ public:
 		SetSRVParameter(RHICmdList, ShaderRHI, ScatterDrawParameters, SurfaceCacheResources.Level[DepthLevel]->ScatterDrawParameters.SRV);
 		SetSRVParameter(RHICmdList, ShaderRHI, SavedStartIndex, SurfaceCacheResources.Level[DepthLevel]->SavedStartIndex.SRV);
 
-		IrradianceCacheIrradiance.SetBuffer(RHICmdList, ShaderRHI, SurfaceCacheResources.Level[DepthLevel]->Irradiance);
+		SurfelIrradiance.SetBuffer(RHICmdList, ShaderRHI, TemporaryIrradianceCacheResources->SurfelIrradiance);
 
 		GlobalObjectParameters.Set(RHICmdList, ShaderRHI, *Scene->DistanceFieldSceneData.ObjectBuffers, Scene->DistanceFieldSceneData.NumObjectsInBuffer);
 		extern TGlobalResource<FDistanceFieldObjectBufferResource> GAOCulledObjectBuffers;
@@ -1135,14 +1152,14 @@ public:
 
 	void UnsetParameters(FRHICommandList& RHICmdList)
 	{
-		IrradianceCacheIrradiance.UnsetUAV(RHICmdList, GetComputeShader());
+		SurfelIrradiance.UnsetUAV(RHICmdList, GetComputeShader());
 	}
 
 	virtual bool Serialize(FArchive& Ar)
 	{		
 		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
 		Ar << AOParameters;
-		Ar << IrradianceCacheIrradiance;
+		Ar << SurfelIrradiance;
 		Ar << IrradianceCachePositionRadius;
 		Ar << IrradianceCacheNormal;
 		Ar << IrradianceCacheTileCoordinate;
@@ -1166,7 +1183,7 @@ public:
 private:
 
 	FAOParameters AOParameters;
-	FRWShaderParameter IrradianceCacheIrradiance;
+	FRWShaderParameter SurfelIrradiance;
 	FShaderResourceParameter IrradianceCachePositionRadius;
 	FShaderResourceParameter IrradianceCacheNormal;
 	FShaderResourceParameter IrradianceCacheTileCoordinate;
@@ -1188,6 +1205,84 @@ private:
 
 IMPLEMENT_SHADER_TYPE(template<>,TComputeIrradianceCS<VPLMode_PlaceFromLight>,TEXT("DistanceFieldGlobalIllumination"),TEXT("ComputeIrradianceCS"),SF_Compute);
 IMPLEMENT_SHADER_TYPE(template<>,TComputeIrradianceCS<VPLMode_PlaceFromSurfels>,TEXT("DistanceFieldGlobalIllumination"),TEXT("ComputeIrradianceCS"),SF_Compute);
+
+
+class FCombineIrradianceSamplesCS : public FGlobalShader
+{
+	DECLARE_SHADER_TYPE(FCombineIrradianceSamplesCS,Global)
+public:
+
+	static bool ShouldCache(EShaderPlatform Platform)
+	{
+		return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && DoesPlatformSupportDistanceFieldAO(Platform);
+	}
+
+	static void ModifyCompilationEnvironment(EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Platform,OutEnvironment);
+	}
+
+	FCombineIrradianceSamplesCS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
+		: FGlobalShader(Initializer)
+	{
+		IrradianceCacheIrradiance.Bind(Initializer.ParameterMap, TEXT("IrradianceCacheIrradiance"));
+		SurfelIrradiance.Bind(Initializer.ParameterMap, TEXT("SurfelIrradiance"));
+		HeightfieldIrradiance.Bind(Initializer.ParameterMap, TEXT("HeightfieldIrradiance"));
+		ScatterDrawParameters.Bind(Initializer.ParameterMap, TEXT("ScatterDrawParameters"));
+		SavedStartIndex.Bind(Initializer.ParameterMap, TEXT("SavedStartIndex"));
+	}
+
+	FCombineIrradianceSamplesCS()
+	{
+	}
+
+	void SetParameters(
+		FRHICommandList& RHICmdList, 
+		const FSceneView& View, 
+		int32 DepthLevel, 
+		FTemporaryIrradianceCacheResources* TemporaryIrradianceCacheResources)
+	{
+		FComputeShaderRHIParamRef ShaderRHI = GetComputeShader();
+		FGlobalShader::SetParameters(RHICmdList, ShaderRHI, View);
+
+		const FScene* Scene = (const FScene*)View.Family->Scene;
+		FSurfaceCacheResources& SurfaceCacheResources = *Scene->SurfaceCacheResources;
+
+		SetSRVParameter(RHICmdList, ShaderRHI, SurfelIrradiance, TemporaryIrradianceCacheResources->SurfelIrradiance.SRV);
+		SetSRVParameter(RHICmdList, ShaderRHI, HeightfieldIrradiance,TemporaryIrradianceCacheResources->HeightfieldIrradiance.SRV);
+
+		SetSRVParameter(RHICmdList, ShaderRHI, ScatterDrawParameters, SurfaceCacheResources.Level[DepthLevel]->ScatterDrawParameters.SRV);
+		SetSRVParameter(RHICmdList, ShaderRHI, SavedStartIndex, SurfaceCacheResources.Level[DepthLevel]->SavedStartIndex.SRV);
+
+		IrradianceCacheIrradiance.SetBuffer(RHICmdList, ShaderRHI, SurfaceCacheResources.Level[DepthLevel]->Irradiance);
+	}
+
+	void UnsetParameters(FRHICommandList& RHICmdList)
+	{
+		IrradianceCacheIrradiance.UnsetUAV(RHICmdList, GetComputeShader());
+	}
+
+	virtual bool Serialize(FArchive& Ar)
+	{		
+		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
+		Ar << IrradianceCacheIrradiance;
+		Ar << SurfelIrradiance;
+		Ar << HeightfieldIrradiance;
+		Ar << ScatterDrawParameters;
+		Ar << SavedStartIndex;
+		return bShaderHasOutdatedParameters;
+	}
+
+private:
+
+	FRWShaderParameter IrradianceCacheIrradiance;
+	FShaderResourceParameter SurfelIrradiance;
+	FShaderResourceParameter HeightfieldIrradiance;
+	FShaderResourceParameter ScatterDrawParameters;
+	FShaderResourceParameter SavedStartIndex;
+};
+
+IMPLEMENT_SHADER_TYPE(,FCombineIrradianceSamplesCS,TEXT("DistanceFieldGlobalIllumination"),TEXT("CombineIrradianceSamplesCS"),SF_Compute);
 
 
 void ComputeIrradianceForSamples(
@@ -1262,6 +1357,22 @@ void ComputeIrradianceForSamples(
 
 			ComputeShader->UnsetParameters(RHICmdList);
 		}
+	}
+
+	{	
+		TShaderMapRef<TSetupFinalGatherIndirectArgumentsCS<false> > ComputeShader(View.ShaderMap);
+		RHICmdList.SetComputeShader(ComputeShader->GetComputeShader());
+		ComputeShader->SetParameters(RHICmdList, View, DepthLevel);
+		DispatchComputeShader(RHICmdList, *ComputeShader, 1, 1, 1);
+		ComputeShader->UnsetParameters(RHICmdList);
+	}
+		
+	{
+		TShaderMapRef<FCombineIrradianceSamplesCS> ComputeShader(View.ShaderMap);
+		RHICmdList.SetComputeShader(ComputeShader->GetComputeShader());
+		ComputeShader->SetParameters(RHICmdList, View, DepthLevel, TemporaryIrradianceCacheResources);
+		DispatchIndirectComputeShader(RHICmdList, *ComputeShader, SurfaceCacheResources.DispatchParameters.Buffer, 0);
+		ComputeShader->UnsetParameters(RHICmdList);
 	}
 }
 

@@ -67,7 +67,7 @@ public:
 	virtual ESequencerNode::Type GetType() const = 0;
 
 	/** @return Whether or not this node can be selected */
-	virtual bool IsSelectable() const { return false; }
+	virtual bool IsSelectable() const { return true; }
 
 	/**
 	 * @return The desired height of the node when displayed
@@ -306,7 +306,6 @@ public:
 	virtual ESequencerNode::Type GetType() const override { return ESequencerNode::Track; }
 	virtual float GetNodeHeight() const override;
 	virtual FText GetDisplayName() const override;
-	virtual bool IsSelectable() const override { return true; }
 	virtual bool GetShotFilteredVisibilityToCache() const override;
 	virtual void GetChildKeyAreaNodesRecursively(TArray< TSharedRef<class FSectionKeyAreaNode> >& OutNodes) const override;
 
@@ -369,7 +368,7 @@ public:
 	 * @param InParentNode		The parent of this node or NULL if this is a root node
 	 * @param InParentTree		The tree this node is in
 	 */
-	FObjectBindingNode( FName NodeName, const FText& InObjectName, const FGuid& InObjectBinding, TSharedPtr<FSequencerDisplayNode> InParentNode, FSequencerNodeTree& InParentTree )
+	FObjectBindingNode( FName NodeName, const FString& InObjectName, const FGuid& InObjectBinding, TSharedPtr<FSequencerDisplayNode> InParentNode, FSequencerNodeTree& InParentTree )
 		: FSequencerDisplayNode( NodeName, InParentNode, InParentTree )
 		, ObjectBinding( InObjectBinding )
 		, DisplayName( InObjectName )
@@ -377,9 +376,8 @@ public:
 
 	/** FSequencerDisplayNodeInterface */
 	virtual ESequencerNode::Type GetType() const override { return ESequencerNode::Object; }
-	virtual FText GetDisplayName() const override { return DisplayName; }
+	virtual FText GetDisplayName() const override { return FText::FromString(DisplayName); }
 	virtual float GetNodeHeight() const override;
-	virtual bool IsSelectable() const override { return true; }
 	virtual bool GetShotFilteredVisibilityToCache() const override;
 	
 	/** @return The object binding on this node */
@@ -392,7 +390,7 @@ private:
 	/** The binding to live objects */
 	FGuid ObjectBinding;
 	/** Display name of the object */
-	FText DisplayName;
+	FString DisplayName;
 };
 
 /**

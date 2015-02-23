@@ -539,6 +539,42 @@ class IAnalyticsProvider;
 DECLARE_DELEGATE_OneParam(FBeginStreamingPauseDelegate, FViewport*);
 DECLARE_DELEGATE(FEndStreamingPauseDelegate);
 
+USTRUCT()
+struct FMatineeScreenshotOptions
+{
+	GENERATED_USTRUCT_BODY()
+
+	/** determines if we should start the matinee capture as soon as the game loads */
+	UPROPERTY(transient)
+	uint32 bStartWithMatineeCapture:1;
+
+	/** should we compress the capture */
+	UPROPERTY(transient)
+	uint32 bCompressMatineeCapture:1;
+
+	/** the name of the matine that we want to record */
+	UPROPERTY(transient)
+	FString MatineeCaptureName;
+
+	/** The package name where the matinee belongs to */
+	UPROPERTY(transient)
+	FString MatineePackageCaptureName;
+
+	/** the fps of the matine that we want to record */
+	UPROPERTY(transient)
+	int32 MatineeCaptureFPS;
+
+	/** The capture type, e.g. AVI or Screen Shots */
+	UPROPERTY(transient)
+	TEnumAsByte<EMatineeCaptureType::Type> MatineeCaptureType;
+
+	/** Whether or not to disable texture streaming during matinee movie capture */
+	UPROPERTY(transient)
+	bool bNoTextureStreaming;
+
+	UPROPERTY(transient)
+	bool bHideHud;
+};
 
 /**
  * Abstract base class of all Engine classes, responsible for management of systems critical to editor or game systems.
@@ -1135,6 +1171,14 @@ public:
 	UPROPERTY(EditAnywhere, config, Category=Blueprints)
 	int32 MaximumLoopIterationCount;
 
+	// Controls whether Blueprint subclasses of actors or components can tick by default.
+	//
+	// Blueprints that derive from native C++ classes that have bCanEverTick=true will always be able to tick
+	// Blueprints that derive from exactly AActor or UActorComponent will always be able to tick
+	// Otherwise, they can tick as long as the parent doesn't have meta=(ChildCannotTick) and either bCanBlueprintsTickByDefault is true or the parent has meta=(ChildCanTick)
+	UPROPERTY(EditAnywhere, config, Category=Blueprints)
+	uint32 bCanBlueprintsTickByDefault:1;
+
 	/** @todo document */
 	UPROPERTY(config)
 	uint32 bEnableEditorPSysRealtimeLOD:1;
@@ -1321,6 +1365,10 @@ private:
 	UPROPERTY(transient)
 	FLinearColor SelectionOutlineColor;
 
+	/** Subdued version of the selection outline color. Used for indicating sub-selection of components vs actors */
+	UPROPERTY(transient)
+	FLinearColor SubduedSelectionOutlineColor;
+
 	/** An override to use in some cases instead of the selected material color */
 	UPROPERTY(transient)
 	FLinearColor SelectedMaterialColorOverride;
@@ -1381,34 +1429,8 @@ private:
 	int32 ScreenSaverInhibitorSemaphore;
 
 public:
-
-	/** determines if we should start the matinee capture as soon as the game loads */
 	UPROPERTY(transient)
-	uint32 bStartWithMatineeCapture:1;
-
-	/** should we compress the capture */
-	UPROPERTY(transient)
-	uint32 bCompressMatineeCapture:1;
-
-	/** the name of the matine that we want to record */
-	UPROPERTY(transient)
-	FString MatineeCaptureName;
-
-	/** The package name where the matinee belongs to */
-	UPROPERTY(transient)
-	FString MatineePackageCaptureName;
-
-	/** the fps of the matine that we want to record */
-	UPROPERTY(transient)
-	int32 MatineeCaptureFPS;
-
-	/** The capture type, e.g. AVI or Screen Shots */
-	UPROPERTY(transient)
-	TEnumAsByte<EMatineeCaptureType::Type> MatineeCaptureType;
-
-	/** Whether or not to disable texture streaming during matinee movie capture */
-	UPROPERTY(transient)
-	bool bNoTextureStreaming;
+	FMatineeScreenshotOptions MatineeScreenshotOptions;
 
 	/** true if the the user cannot modify levels that are read only. */
 	UPROPERTY(transient)
@@ -1474,6 +1496,8 @@ public:
 
 	const FLinearColor& GetSelectionOutlineColor() const { return SelectionOutlineColor; }
 
+	const FLinearColor& GetSubduedSelectionOutlineColor() const { return SubduedSelectionOutlineColor; }
+
 	const FLinearColor& GetHoveredMaterialColor() const { return GetSelectedMaterialColor(); }
 
 	/**
@@ -1487,6 +1511,7 @@ public:
 
 	void SetSelectionOutlineColor( const FLinearColor& InSelectionOutlineColor ) { SelectionOutlineColor = InSelectionOutlineColor; }
 
+	void SetSubduedSelectionOutlineColor( const FLinearColor& InSubduedSelectionOutlineColor ) { SubduedSelectionOutlineColor = InSubduedSelectionOutlineColor; }
 	/**
 	 * Sets an override color to use instead of the user setting
 	 *
@@ -2141,11 +2166,13 @@ public:
 		bool bAggressiveDefaultSubobjectReplacement;
 		bool bDoDelta;
 		bool bReplaceObjectClassReferences;
+		bool bCopyDeprecatedProperties;
 
 		FCopyPropertiesForUnrelatedObjectsParams()
 			: bAggressiveDefaultSubobjectReplacement(false)
 			, bDoDelta(true)
 			, bReplaceObjectClassReferences(true)
+			, bCopyDeprecatedProperties(false)
 		{}
 	};
 	static void CopyPropertiesForUnrelatedObjects(UObject* OldObject, UObject* NewObject, FCopyPropertiesForUnrelatedObjectsParams Params = FCopyPropertiesForUnrelatedObjectsParams());//bool bAggressiveDefaultSubobjectReplacement = false, bool bDoDelta = true);

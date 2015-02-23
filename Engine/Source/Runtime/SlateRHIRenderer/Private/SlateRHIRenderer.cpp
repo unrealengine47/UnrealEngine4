@@ -289,9 +289,8 @@ void FSlateRHIRenderer::ConditionalResizeViewport( FViewportInfo* ViewInfo, uint
 		// The viewport size we have doesn't match the requested size of the viewport.
 		// Resize it now.
 
-		// Suspend the rendering thread to avoid deadlocks with the gpu
-		bool bRecreateThread = true;
-		SCOPED_SUSPEND_RENDERING_THREAD( bRecreateThread );
+		// cannot resize the viewport while potentially using it.
+		FlushRenderingCommands();
 
 		// Windows are allowed to be zero sized ( sometimes they are animating to/from zero for example)
 		// but viewports cannot be zero sized.  Use 8x8 as a reasonably sized viewport in this case.
@@ -326,9 +325,6 @@ void FSlateRHIRenderer::ConditionalResizeViewport( FViewportInfo* ViewInfo, uint
 		{
 			ViewInfo->ViewportRHI = RHICreateViewport(ViewInfo->OSWindow, NewWidth, NewHeight, bFullscreen, ViewInfo->PixelFormat);
 		}
-
-		// Safe to call here as the rendering thread has been suspended: game thread == render thread!
-		ViewInfo->RecreateDepthBuffer_RenderThread();
 	}
 }
 
@@ -1216,8 +1212,12 @@ void FSlateRHIRenderer::RequestResize( const TSharedPtr<SWindow>& Window, uint32
 
 	if( ViewInfo )
 	{
-		ViewInfo->DesiredWidth = NewWidth;
-		ViewInfo->DesiredHeight = NewHeight;
+		if (ViewInfo->DesiredWidth != NewWidth ||
+			ViewInfo->DesiredHeight != NewHeight) {
+			ViewInfo->DesiredWidth = NewWidth;
+			ViewInfo->DesiredHeight = NewHeight;
+			FSystemResolution::RequestResolutionChange(NewWidth, NewHeight, EWindowMode::Windowed);
+		}
 	}
 }
 

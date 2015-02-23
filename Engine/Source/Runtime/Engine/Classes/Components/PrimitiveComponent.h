@@ -41,7 +41,7 @@ enum ECanBeCharacterBase
 	ECB_MAX,
 };
 
-//UENUM()
+UENUM()
 namespace EHasCustomNavigableGeometry
 {
 	enum Type
@@ -55,7 +55,7 @@ namespace EHasCustomNavigableGeometry
 		// DoCustomNavigableGeometryExport() should be called even if the mesh is non-collidable and wouldn't normally affect the navmesh
 		EvenIfNotCollidable,
 	};
-};
+}
 
 /** Information about the sprite category */
 USTRUCT()
@@ -128,7 +128,7 @@ public:
 	 * The distance to cull this primitive at.  
 	 * A CachedMaxDrawDistance of 0 indicates that the primitive should not be culled by distance.
 	 */
-	UPROPERTY(Category=LOD, AdvancedDisplay, VisibleAnywhere, BlueprintReadWrite, meta=(DisplayName="Current Max Draw Distance") )
+	UPROPERTY(Category=LOD, AdvancedDisplay, VisibleAnywhere, BlueprintReadOnly, meta=(DisplayName="Current Max Draw Distance") )
 	float CachedMaxDrawDistance;
 
 	/** The scene depth priority group to draw the primitive in. */
@@ -400,12 +400,6 @@ public:
 	/** Cached navigation relevancy flag for collision updates */
 	uint32 bNavigationRelevant : 1;
 
-	/** 
-	 * Shadowed mobility setting used e.g. to assist with physics scene initialization at runtime.
-	 * It will usually match the value of the 'Mobility' property, except e.g. during UCS execution.
-	 */
-	TEnumAsByte<EComponentMobility::Type> PhysicsMobility;
-
 protected:
 
 	virtual void UpdateNavigationData() override;
@@ -420,6 +414,7 @@ protected:
 	float LastCheckedAllCollideableDescendantsTime;
 
 	/** If true then DoCustomNavigableGeometryExport will be called to collect navigable geometry of this component. */
+	UPROPERTY()
 	TEnumAsByte<EHasCustomNavigableGeometry::Type> bHasCustomNavigableGeometry;
 
 	/** Next id to be used by a component. */
@@ -568,14 +563,16 @@ public:
 	virtual bool ComponentOverlapMulti(TArray<struct FOverlapResult>& OutOverlaps, const class UWorld* World, const FVector& Pos, const FRotator& Rot, ECollisionChannel TestChannel, const struct FComponentQueryParams& Params, const struct FCollisionObjectQueryParams& ObjectQueryParams = FCollisionObjectQueryParams::DefaultObjectQueryParam) const;
 
 	/** 
-	 *	Event called when a component collides with something (or is collided with). 
+	 *	Event called when a component hits (or is hit by) something solid. This could happen due to things like Character movement, using Set Location with 'sweep' enabled, or physics simulation.
+	 *	For events when objects overlap (e.g. walking into a trigger) see the 'Overlap' event.
 	 *	@note For collisions during physics simulation to generate hit events, 'Simulation Generates Hit Events' must be enabled for this component
 	 */
 	UPROPERTY(BlueprintAssignable, Category="Collision")
 	FComponentHitSignature OnComponentHit;
 
 	/** 
-	 *	Event called when something starts to overlaps this component. 
+	 *	Event called when something starts to overlaps this component, for example a player walking into a trigger.
+	 *	For events when objects have a blocking collision, for example a player hitting a wall, see 'Hit' events.
 	 *	@note Both this component and the other one must have bGenerateOverlapEvents set to true to generate overlap events.
 	 */
 	UPROPERTY(BlueprintAssignable, Category="Collision")
@@ -679,11 +676,19 @@ public:
 	virtual bool CanEditSimulatePhysics();
 
 	/**
-	 * Sets the specified axis as locked, preventing movement along that axis.
-	 * @param LockedAxis	The axis to lock.
+	* Sets the constraint mode of the component.
+	* @param ConstraintMode	The type of constraint to use.
+	*/
+	DEPRECATED(4.8, "This function is deprecated. Please use SetConstraintMode instead.")
+	UFUNCTION(BlueprintCallable, meta = (DeprecatedFunction, DeprecationMessage = "Use SetConstraintMode instead", Keywords = "set locked axis constraint physics"), Category = Physics)
+	virtual void SetLockedAxis(EDOFMode::Type LockedAxis);
+
+	/**
+	 * Sets the constraint mode of the component.
+	 * @param ConstraintMode	The type of constraint to use.
 	 */
-	UFUNCTION(BlueprintCallable, meta = (FriendlyName = "Set Locked Axis", Keywords = "set locked axis constraint physics"), Category = Physics)
-	virtual void SetLockedAxis(ELockedAxis::Type LockedAxis);
+	UFUNCTION(BlueprintCallable, meta = (FriendlyName = "Set Constraint Mode", Keywords = "set locked axis constraint physics"), Category = Physics)
+	virtual void SetConstraintMode(EDOFMode::Type ConstraintMode);
 
 	/**
 	 *	Add an impulse to a single rigid body. Good for one time instant burst.
@@ -731,11 +736,12 @@ public:
 	 *	Add a force to a single rigid body.
 	 *  This is like a 'thruster'. Good for adding a burst over some (non zero) time. Should be called every frame for the duration of the force.
 	 *
-	 *	@param	Force		Force vector to apply. Magnitude indicates strength of force.
-	 *	@param	BoneName	If a SkeletalMeshComponent, name of body to apply force to. 'None' indicates root body.
+	 *	@param	Force		 Force vector to apply. Magnitude indicates strength of force.
+	 *	@param	BoneName	 If a SkeletalMeshComponent, name of body to apply force to. 'None' indicates root body.
+	 *  @param  bAccelChange If true, Force is taken as a change in acceleration instead of a physical force (i.e. mass will have no affect).
 	 */
 	UFUNCTION(BlueprintCallable, Category="Physics")
-	virtual void AddForce(FVector Force, FName BoneName = NAME_None);
+	virtual void AddForce(FVector Force, FName BoneName = NAME_None, bool bAccelChange = false);
 
 	/**
 	 *	Add a force to a single rigid body at a particular location.
@@ -755,17 +761,19 @@ public:
 	 *	@param Radius		Radius within which to apply the force.
 	 *	@param Strength		Strength of force to apply.
 	 *  @param Falloff		Allows you to control the strength of the force as a function of distance from Origin.
+	 *  @param bAccelChange If true, Strength is taken as a change in acceleration instead of a physical force (i.e. mass will have no affect).
 	 */
 	UFUNCTION(BlueprintCallable, Category="Physics")
-	virtual void AddRadialForce(FVector Origin, float Radius, float Strength, enum ERadialImpulseFalloff Falloff);
+	virtual void AddRadialForce(FVector Origin, float Radius, float Strength, enum ERadialImpulseFalloff Falloff, bool bAccelChange = false);
 
 	/**
 	 *	Add a torque to a single rigid body.
 	 *	@param Torque		Torque to apply. Direction is axis of rotation and magnitude is strength of torque.
 	 *	@param BoneName		If a SkeletalMeshComponent, name of body to apply torque to. 'None' indicates root body.
+	 *  @param bAccelChange If true, Torque is taken as a change in angular acceleration instead of a physical torque (i.e. mass will have no affect).
 	 */
 	UFUNCTION(BlueprintCallable, Category="Physics")
-	void AddTorque(FVector Torque, FName BoneName = NAME_None);
+	void AddTorque(FVector Torque, FName BoneName = NAME_None, bool bAccelChange = false);
 
 	/**
 	 *	Set the linear velocity of a single body.
@@ -949,11 +957,12 @@ public:
 #endif
 
 	// Begin UActorComponent Interface
-	virtual void OnComponentCreated() override;
 	virtual void InvalidateLightingCacheDetailed(bool bInvalidateBuildEnqueuedLighting, bool bTranslationOnly) override;
 	virtual bool IsEditorOnly() const override;
 	virtual bool ShouldCreatePhysicsState() const override;
 	virtual bool HasValidPhysicsState() const override;
+	virtual class FActorComponentInstanceData* GetComponentInstanceData() const override;
+	virtual FName GetComponentInstanceDataType() const override;
 	// End UActorComponent Interface
 
 	/** @return true if the owner is selected and this component is selectable */
@@ -1303,7 +1312,6 @@ public:
 	virtual ECollisionChannel GetCollisionObjectType() const override;
 	virtual const FCollisionResponseContainer& GetCollisionResponseToChannels() const override;
 	virtual FVector GetComponentVelocity() const override;
-	virtual void SetMobility(EComponentMobility::Type NewMobility) override;
 	//End USceneComponent Interface
 
 	/**
@@ -1418,7 +1426,15 @@ public:
 	/** Returns the mass of this component in kg. */
 	UFUNCTION(BlueprintCallable, Category="Physics")
 	virtual float GetMass() const;
-	
+
+	/** Returns the inertia tensor of this component in kg cm^2. The inertia tensor is in local component space.*/
+	UFUNCTION(BlueprintCallable, Category = "Physics", meta =(Keywords = "physics moment of inertia tensor MOI"))
+	virtual FVector GetInertiaTensor(FName BoneName = NAME_None) const;
+
+	/** Scales the given vector by the world space moment of inertia. Useful for computing the torque needed to rotate an object.*/
+	UFUNCTION(BlueprintCallable, Category = "Physics", meta = (Keywords = "physics moment of inertia tensor MOI"))
+	virtual FVector ScaleByMomentOfInertia(FVector InputVector, FName BoneName = NAME_None) const;
+
 	/** Returns the calculated mass in kg. This is not 100% exactly the mass physx will calculate, but it is very close ( difference < 0.1kg ). */
 	virtual float CalculateMass(FName BoneName = NAME_None);
 
@@ -1476,6 +1492,12 @@ private:
 	 * Returns true if restored state is matching requested one (no velocity corrections required)
 	 */
 	bool ApplyRigidBodyState(const FRigidBodyState& NewState, const FRigidBodyErrorCorrection& ErrorCorrection, FVector& OutDeltaPos, FName BoneName = NAME_None);
+
+	/** Check if mobility is set to non-static. If it's static we trigger a PIE warning and return true*/
+	bool CheckStaticMobilityAndWarn(const FText& ActionText) const;
+
+	/** Check if mobility is set to non-static. If BodyInstanceRequiresSimulation is non-null we check that it is simulated. Triggers a PIE warning if conditions fails */
+	void WarnInvalidPhysicsOperations(const FText& ActionText, const FBodyInstance* BodyInstanceRequiresSimulation = nullptr) const;
 
 public:
 
@@ -1630,4 +1652,21 @@ public:
 	void DispatchOnReleased();
 	void DispatchOnInputTouchBegin(const ETouchIndex::Type Key);
 	void DispatchOnInputTouchEnd(const ETouchIndex::Type Key);
+};
+
+/** 
+ *  Component instance cached data base class for primitive components. 
+ *  Stores a list of instance components attached to the 
+ */
+class ENGINE_API FPrimitiveComponentInstanceData : public FSceneComponentInstanceData
+{
+public:
+	FPrimitiveComponentInstanceData(const UPrimitiveComponent* SourceComponent);
+			
+	virtual ~FPrimitiveComponentInstanceData()
+	{}
+
+	virtual void ApplyToComponent(UActorComponent* Component, const ECacheApplyPhase CacheApplyPhase) override;
+
+	bool ContainsData() const;
 };

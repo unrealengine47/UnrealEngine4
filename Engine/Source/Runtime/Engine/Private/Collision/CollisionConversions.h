@@ -60,6 +60,15 @@ bool AddSweepResults(int32 NumHits, const PxSweepHit* Hits, float CheckLength, c
  */
 void ConvertQueryOverlap(const PxShape* PShape, const PxRigidActor* PActor, FOverlapResult& OutOverlap, const PxFilterData& QueryFilter);
 
+/**
+ * Util to determine if a shape is deemed blocking based on the query filter
+ *
+ * @param PShape Shape that overlaps
+ * @QueryFilter Query Filter
+ * @return true if the query filter and shape filter resolve to be blocking
+ */
+bool IsBlocking(const PxShape* PShape, const PxFilterData& QueryFilter);
+
 
 /** 
  * Util to convert a list of overlap hits into FOverlapResult and add them to OutOverlaps, if not already there

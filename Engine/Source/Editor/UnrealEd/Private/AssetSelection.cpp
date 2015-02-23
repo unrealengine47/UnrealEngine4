@@ -92,6 +92,7 @@ namespace AssetSelectionUtils
 							ActorInfo.bHaveBuilderBrush = FActorEditorUtils::IsABuilderBrush(Brush);
 						}
 						ActorInfo.bHaveBrush |= true;
+						ActorInfo.bHaveBSPBrush |= (!Brush->IsVolumeBrush());
 						ActorInfo.bHaveVolume |= Brush->IsVolumeBrush();
 					}
 
@@ -296,6 +297,12 @@ namespace AssetSelectionUtils
 
 
 			}
+		}
+
+		// hack when only BSP is selected
+		if( ActorInfo.SharedWorld == nullptr )
+		{
+			ActorInfo.SharedWorld = GWorld;
 		}
 
 		return ActorInfo;

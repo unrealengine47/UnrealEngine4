@@ -97,8 +97,6 @@ void SPropertyMenuAssetPicker::Construct( const FArguments& InArgs )
 		AssetPickerConfig.Filter.bRecursiveClasses = true;
 		// Set a delegate for setting the asset from the picker
 		AssetPickerConfig.OnAssetSelected = FOnAssetSelected::CreateSP(this, &SPropertyMenuAssetPicker::OnAssetSelected);
-		// Use the smallest size thumbnails
-		AssetPickerConfig.ThumbnailScale = 0;
 		// Use the list view by default
 		AssetPickerConfig.InitialAssetViewType = EAssetViewType::List;
 		// The initial selection should be the current value
@@ -111,6 +109,8 @@ void SPropertyMenuAssetPicker::Construct( const FArguments& InArgs )
 		AssetPickerConfig.OnShouldFilterAsset = OnShouldFilterAsset;
 		// Don't allow dragging
 		AssetPickerConfig.bAllowDragging = false;
+		// Save the settings into a special section for asset pickers for properties
+		AssetPickerConfig.SaveSettingsName = TEXT("AssetPropertyPicker");
 
 		MenuContent =
 			SNew(SBox)

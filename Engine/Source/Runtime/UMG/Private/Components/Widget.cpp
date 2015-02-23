@@ -305,6 +305,39 @@ void UWidget::SetKeyboardFocus()
 	}
 }
 
+bool UWidget::HasUserFocus(int32 UserIndex) const
+{
+	TSharedPtr<SWidget> SafeWidget = GetCachedWidget();
+	if ( SafeWidget.IsValid() )
+	{
+		TOptional<EFocusCause> FocusCause = SafeWidget->HasUserFocus(UserIndex);
+		return FocusCause.IsSet();
+	}
+
+	return false;
+}
+
+bool UWidget::HasAnyUserFocus() const
+{
+	TSharedPtr<SWidget> SafeWidget = GetCachedWidget();
+	if ( SafeWidget.IsValid() )
+	{
+		TOptional<EFocusCause> FocusCause = SafeWidget->HasAnyUserFocus();
+		return FocusCause.IsSet();
+	}
+
+	return false;
+}
+
+void UWidget::SetUserFocus(int32 UserIndex)
+{
+	TSharedPtr<SWidget> SafeWidget = GetCachedWidget();
+	if ( SafeWidget.IsValid() )
+	{
+		FSlateApplication::Get().SetUserFocus(UserIndex, SafeWidget);
+	}
+}
+
 void UWidget::ForceLayoutPrepass()
 {
 	TSharedPtr<SWidget> SafeWidget = GetCachedWidget();
@@ -571,12 +604,12 @@ void UWidget::SynchronizeProperties()
 	if ( IsDesignTime() )
 	{
 		SafeWidget->SetEnabled(true);
-		SafeWidget->SetVisibility(TAttribute<EVisibility>::Create(TAttribute<EVisibility>::FGetter::CreateUObject(this, &UWidget::GetVisibilityInDesigner)));
+		SafeWidget->SetVisibility(BIND_UOBJECT_ATTRIBUTE(EVisibility, GetVisibilityInDesigner));
 	}
 	else
 #endif
 	{
-		SafeWidget->SetEnabled(OPTIONAL_BINDING(bool, bIsEnabled));
+		SafeWidget->SetEnabled(GAME_SAFE_OPTIONAL_BINDING( bool, bIsEnabled ));
 		SafeWidget->SetVisibility(OPTIONAL_BINDING_CONVERT(ESlateVisibility, Visibility, EVisibility, ConvertVisibility));
 	}
 
@@ -602,7 +635,7 @@ void UWidget::SynchronizeProperties()
 	}
 	else if ( !ToolTipText.IsEmpty() || ToolTipTextDelegate.IsBound() )
 	{
-		SafeWidget->SetToolTipText(OPTIONAL_BINDING(FText, ToolTipText));
+		SafeWidget->SetToolTipText(GAME_SAFE_OPTIONAL_BINDING(FText, ToolTipText));
 	}
 
 	if (Navigation != nullptr)
@@ -624,10 +657,12 @@ void UWidget::SynchronizeProperties()
 #endif
 }
 
+#if WITH_EDITOR
 bool UWidget::IsDesignTime() const
 {
 	return bDesignTime;
 }
+#endif
 
 void UWidget::SetIsDesignTime(bool bInDesignTime)
 {
@@ -813,17 +848,22 @@ static UPropertyBinding* GenerateBinder(UDelegateProperty* DelegateProperty, UOb
 	FScriptDelegate* ScriptDelegate = DelegateProperty->GetPropertyValuePtr_InContainer(Container);
 	if ( ScriptDelegate )
 	{
-		if ( UProperty* ReturnProperty = DelegateProperty->SignatureFunction->GetReturnProperty() )
+		// Only delegates that take no parameters have native binders.
+		UFunction* SignatureFunction = DelegateProperty->SignatureFunction;
+		if ( SignatureFunction->NumParms == 1 )
 		{
-			TSubclassOf<UPropertyBinding> BinderClass = UWidget::FindBinderClassForDestination(ReturnProperty);
-			if ( BinderClass != nullptr )
+			if ( UProperty* ReturnProperty = SignatureFunction->GetReturnProperty() )
 			{
-				UPropertyBinding* Binder = NewObject<UPropertyBinding>(Container, BinderClass);
-				Binder->SourceObject = SourceObject;
-				Binder->SourcePath = BindingPath;
-				Binder->Bind(ReturnProperty, ScriptDelegate);
+				TSubclassOf<UPropertyBinding> BinderClass = UWidget::FindBinderClassForDestination(ReturnProperty);
+				if ( BinderClass != nullptr )
+				{
+					UPropertyBinding* Binder = NewObject<UPropertyBinding>(Container, BinderClass);
+					Binder->SourceObject = SourceObject;
+					Binder->SourcePath = BindingPath;
+					Binder->Bind(ReturnProperty, ScriptDelegate);
 
-				return Binder;
+					return Binder;
+				}
 			}
 		}
 	}

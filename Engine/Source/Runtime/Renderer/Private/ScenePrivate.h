@@ -535,7 +535,10 @@ public:
 
 		TemporalAASampleCount = FMath::Min(SampleCount, (uint32)255);
 		
-		++TemporalAASampleIndex;
+		if( !GRenderingRealtimeClock.GetGamePaused() )
+		{
+			TemporalAASampleIndex++;
+		}
 
 		if(TemporalAASampleIndex >= TemporalAASampleCount)
 		{
@@ -1303,6 +1306,11 @@ private:
 
 typedef TMap<FMaterial*, FMaterialShaderMap*> FMaterialsToUpdateMap;
 
+/** 
+ * Renderer scene which is private to the renderer module.
+ * Ordinarily this is the renderer version of a UWorld, but an FScene can be created for previewing in editors which don't have a UWorld as well.
+ * The scene stores renderer state that is independent of any view or frame, with the primary actions being adding and removing of primitives and lights.
+ */
 class FScene : public FSceneInterface
 {
 public:
@@ -1420,6 +1428,9 @@ public:
 	/** The scene's sky light, if any. */
 	FSkyLightSceneProxy* SkyLight;
 
+	/** Used to track the order that skylights were enabled in. */
+	TArray<FSkyLightSceneProxy*> SkyLightStack;
+
 	/** The directional light to use for simple dynamic lighting, if any. */
 	FLightSceneInfo* SimpleDirectionalLight;
 
@@ -1516,6 +1527,7 @@ public:
 	virtual void RemoveLight(ULightComponent* Light);
 	virtual void AddInvisibleLight(ULightComponent* Light);
 	virtual void SetSkyLight(FSkyLightSceneProxy* Light);
+	virtual void DisableSkyLight(FSkyLightSceneProxy* Light);
 	virtual void AddDecal(UDecalComponent* Component);
 	virtual void RemoveDecal(UDecalComponent* Component);
 	virtual void UpdateDecalTransform(UDecalComponent* Decal) override;
@@ -1647,7 +1659,11 @@ public:
 
 	virtual void OnLevelAddedToWorld(FName InLevelName) override;
 
-	virtual bool HasAnyLights() const override { return NumVisibleLights > 0 || bHasSkyLight; }
+	virtual bool HasAnyLights() const override 
+	{ 
+		check(IsInGameThread());
+		return NumVisibleLights_GameThread > 0 || NumEnabledSkylights_GameThread > 0; 
+	}
 
 	virtual bool IsEditorScene() const override { return bIsEditorScene; }
 
@@ -1767,13 +1783,13 @@ private:
 	 * The number of visible lights in the scene
 	 * Note: This is tracked on the game thread!
 	 */
-	int32 NumVisibleLights;
+	int32 NumVisibleLights_GameThread;
 
 	/** 
 	 * Whether the scene has a valid sky light.
 	 * Note: This is tracked on the game thread!
 	 */
-	bool bHasSkyLight;
+	int32 NumEnabledSkylights_GameThread;
 
 	/** This scene's feature level */
 	ERHIFeatureLevel::Type FeatureLevel;

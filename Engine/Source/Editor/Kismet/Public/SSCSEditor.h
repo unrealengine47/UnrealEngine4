@@ -574,7 +574,7 @@ private:
 public:
 	/** Pointer back to owning SCSEditor 2 tool */
 	TWeakPtr<SSCSEditor> SCSEditor;
-
+	TSharedPtr<SInlineEditableTextBlock> InlineWidget;
 private:
 	/** Pointer to node we represent */
 	FSCSEditorTreeNodePtrType TreeNodePtr;
@@ -716,7 +716,6 @@ public:
 		{}
 
 		SLATE_ARGUMENT(EComponentEditorMode::Type, EditorMode)
-		SLATE_ARGUMENT(TSharedPtr<FExtender>, ActorMenuExtender)
 		SLATE_ATTRIBUTE(class AActor*, ActorContext)
 		SLATE_ATTRIBUTE(class AActor*, PreviewActor)
 		SLATE_ATTRIBUTE(bool, AllowEditing)
@@ -825,12 +824,6 @@ public:
 	 * @param GetSelectedObjectsDelegate		the delegate to fill the currently select variables / components
 	 */
 	static void BuildMenuEventsSection( FMenuBuilder& Menu, UBlueprint* Blueprint, UClass* SelectedClass, FCanExecuteAction CanExecuteActionDelegate, FGetSelectedObjectsDelegate GetSelectedObjectsDelegate );
-
-	void OnEditBlueprint(UObject* Blueprint) const;
-
-	void OnGoToAssetInBrowser(UObject* Asset) const;
-
-	void OnOpenCodeFile(const FString CodeFileName) const;
 
 	/**
 	 * Given an actor component, attempts to find an associated tree node.
@@ -979,7 +972,7 @@ protected:
 	FText OnGetResetToBlueprintDefaultsTooltip() const;
 
 	/** Opens the blueprint editor for the blueprint being viewed by the scseditor */
-	void OnOpenBlueprintEditor() const;
+	void OnOpenBlueprintEditor(bool bForceCodeEditing) const;
 
 	/** Propagates instance changes to the blueprint */
 	void OnApplyChangesToBlueprint() const;
@@ -998,9 +991,6 @@ protected:
 
 	/** Adds a root component tree node */
 	TSharedPtr<FSCSEditorTreeNode> AddRootComponentTreeNode(UActorComponent* ActorComp);
-
-	/** Given a class, makes up a default prefix and name for a newly created derived class */
-	void MakeDefaultComponentPrefixAndName( TSubclassOf<UActorComponent> ComponentClass, FString& DefaultClassPrefix, FString& DefaultClassName ) const;
 
 	/**
 	 * Creates a new C++ component from the specified class type

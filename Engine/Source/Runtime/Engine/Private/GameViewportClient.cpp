@@ -32,6 +32,8 @@
 #include "GameFramework/GameUserSettings.h"
 #include "Runtime/Engine/Classes/Engine/UserInterfaceSettings.h"
 
+#define LOCTEXT_NAMESPACE "GameViewport"
+
 /** This variable allows forcing full screen of the first player controller viewport, even if there are multiple controllers plugged in and no cinematic playing. */
 bool GForceFullscreen = false;
 
@@ -229,20 +231,12 @@ void UGameViewportClient::Init(struct FWorldContext& WorldContext, UGameInstance
 	// Create the cursor Widgets
 	UUserInterfaceSettings* UISettings = GetMutableDefault<UUserInterfaceSettings>(UUserInterfaceSettings::StaticClass());
 
-#define ADD_CURSOR(enumeration, variable) \
-	if (UISettings->variable.IsValid()) { \
-	UClass* Class = LoadObject<UClass>(NULL, *UISettings->variable.ToString()); \
-	UUserWidget * UserWidget = CreateWidget<UUserWidget>(GetWorld(), Class); \
-	CursorWidgets.Add(enumeration, UserWidget->TakeWidget()); }
-
-	ADD_CURSOR(EMouseCursor::Default, DefaultCursor);
-	ADD_CURSOR(EMouseCursor::TextEditBeam, TextEditBeamCursor);
-	ADD_CURSOR(EMouseCursor::Crosshairs, CrosshairsCursor);
-	ADD_CURSOR(EMouseCursor::GrabHand, GrabHandCursor);
-	ADD_CURSOR(EMouseCursor::GrabHandClosed, GrabHandClosedCursor);
-	ADD_CURSOR(EMouseCursor::SlashedCircle, SlashedCircleCursor);
-
-#undef ADD_CURSOR
+	AddCursor(EMouseCursor::Default, UISettings->DefaultCursor);
+	AddCursor(EMouseCursor::TextEditBeam, UISettings->TextEditBeamCursor);
+	AddCursor(EMouseCursor::Crosshairs, UISettings->CrosshairsCursor);
+	AddCursor(EMouseCursor::GrabHand, UISettings->GrabHandCursor);
+	AddCursor(EMouseCursor::GrabHandClosed, UISettings->GrabHandClosedCursor);
+	AddCursor(EMouseCursor::SlashedCircle, UISettings->SlashedCircleCursor);
 }
 
 UWorld* UGameViewportClient::GetWorld() const
@@ -260,6 +254,12 @@ bool UGameViewportClient::InputKey(FViewport* InViewport, int32 ControllerId, FK
 	if (IgnoreInput())
 	{
 		return false;
+	}
+
+	if (Key == EKeys::Enter && EventType == EInputEvent::IE_Pressed && FSlateApplication::Get().GetModifierKeys().IsAltDown() && GetDefault<UInputSettings>()->bAltEnterTogglesFullscreen)
+	{
+		HandleToggleFullscreenCommand();
+		return true;
 	}
 
 	if (InViewport->IsPlayInEditorViewport() && Key.IsGamepadKey())
@@ -454,10 +454,10 @@ void UGameViewportClient::MouseLeave(FViewport* InViewport)
 {
 	Super::MouseLeave(InViewport);
 
-	if (GetDefault<UInputSettings>()->bUseMouseForTouch)
+	if (InViewport && GetDefault<UInputSettings>()->bUseMouseForTouch)
 	{
 		FIntPoint LastViewportCursorPos;
-		Viewport->GetMousePos(LastViewportCursorPos, false);
+		InViewport->GetMousePos(LastViewportCursorPos, false);
 		FVector2D CursorPos(LastViewportCursorPos.X, LastViewportCursorPos.Y);
 		FSlateApplication::Get().SetGameIsFakingTouchEvents(false, &CursorPos);
 	}
@@ -554,6 +554,26 @@ EMouseCursor::Type UGameViewportClient::GetCursor(FViewport* InViewport, int32 X
 	}
 
 	return FViewportClient::GetCursor(InViewport, X, Y);
+}
+
+void UGameViewportClient::AddCursor(EMouseCursor::Type Cursor, const FStringClassReference& CursorClass)
+{
+	if ( CursorClass.IsValid() )
+	{
+		UClass* Class = CursorClass.TryLoadClass<UUserWidget>();
+		if ( Class )
+		{
+			UUserWidget* UserWidget = CreateWidget<UUserWidget>(GetGameInstance(), Class);
+			if ( ensure(UserWidget) )
+			{
+				CursorWidgets.Add(Cursor, UserWidget->TakeWidget());
+			}
+		}
+		else
+		{
+			FMessageLog("PIE").Error(FText::Format(LOCTEXT("CursorClassNotFoundFormat", "The cursor class '{0}' was not found, check your custom cursor settings."), FText::FromString(CursorClass.ToString())));
+		}
+	}
 }
 
 TOptional<TSharedRef<SWidget>> UGameViewportClient::MapCursor(FViewport* Viewport, const FCursorReply& CursorReply)
@@ -1079,11 +1099,11 @@ void UGameViewportClient::Draw(FViewport* InViewport, FCanvas* SceneCanvas)
 							FVector2D MaxPos(1.f, 1.f);
 							GetSubtitleRegion(MinPos, MaxPos);
 
-							uint32 SizeX = SceneCanvas->GetRenderTarget()->GetSizeXY().X;
-							uint32 SizeY = SceneCanvas->GetRenderTarget()->GetSizeXY().Y;
+							const uint32 SizeX = SceneCanvas->GetRenderTarget()->GetSizeXY().X;
+							const uint32 SizeY = SceneCanvas->GetRenderTarget()->GetSizeXY().Y;
 							FIntRect SubtitleRegion(FMath::TruncToInt(SizeX * MinPos.X), FMath::TruncToInt(SizeY * MinPos.Y), FMath::TruncToInt(SizeX * MaxPos.X), FMath::TruncToInt(SizeY * MaxPos.Y));
-							// We need a world to do this
 							FSubtitleManager::GetSubtitleManager()->DisplaySubtitles( SceneCanvas, SubtitleRegion, GetWorld()->GetAudioTimeSeconds() );
+							bDisplayedSubtitles = true;
 						}
 					}
 				}
@@ -1185,14 +1205,30 @@ void UGameViewportClient::ProcessScreenShots(FViewport* InViewport)
 	{
 		TArray<FColor> Bitmap;
 
+		bool bShowUI = false;
 		TSharedPtr<SWindow> WindowPtr = GetWindow();
 		if (!GIsDumpingMovie && (FScreenshotRequest::ShouldShowUI() && WindowPtr.IsValid()))
 		{
-			TSharedRef<SWindow> WindowRef = WindowPtr.ToSharedRef();
-			FSlateApplication::Get().ForceRedrawWindow(WindowRef);
+			bShowUI = true;
+		}
+		else if( GIsDumpingMovie && WindowPtr.IsValid() && !GEngine->MatineeScreenshotOptions.bHideHud )
+		{
+			bShowUI = true;
 		}
 
-		if (GetViewportScreenShot(InViewport, Bitmap))
+		bool bScreenshotSuccessful = false;
+		if( bShowUI && FSlateApplication::IsInitialized() )
+		{
+			FIntVector Size;
+			TSharedRef<SWidget> WindowRef = WindowPtr.ToSharedRef();
+			bScreenshotSuccessful = FSlateApplication::Get().TakeScreenshot( WindowRef, Bitmap, Size);
+		}
+		else
+		{
+			bScreenshotSuccessful = GetViewportScreenShot(InViewport, Bitmap);
+		}
+
+		if (bScreenshotSuccessful)
 		{
 			if (ScreenshotCapturedDelegate.IsBound())
 			{
@@ -1842,6 +1878,8 @@ void UGameViewportClient::RemoveViewportWidgetContent( TSharedRef<SWidget> Viewp
 
 void UGameViewportClient::RemoveAllViewportWidgets()
 {
+	CursorWidgets.Empty();
+
 	TSharedPtr< SOverlay > PinnedViewportOverlayWidget( ViewportOverlayWidget.Pin() );
 	if( PinnedViewportOverlayWidget.IsValid() )
 	{
@@ -1919,7 +1957,7 @@ bool UGameViewportClient::Exec( UWorld* InWorld, const TCHAR* Cmd,FOutputDevice&
 	}
 	else if( FParse::Command(&Cmd,TEXT("TOGGLE_FULLSCREEN")) || FParse::Command(&Cmd,TEXT("FULLSCREEN")) )
 	{
-		return HandleToggleFullscreenCommand( Cmd, Ar );
+		return HandleToggleFullscreenCommand();
 	}	
 	else if( FParse::Command(&Cmd,TEXT("SETRES")) )
 	{
@@ -2548,7 +2586,7 @@ bool UGameViewportClient::SetDisplayConfiguration(const FIntPoint* Dimensions, E
 	return true;
 }
 
-bool UGameViewportClient::HandleToggleFullscreenCommand(const TCHAR* Cmd, FOutputDevice& Ar)
+bool UGameViewportClient::HandleToggleFullscreenCommand()
 {
 	auto CVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.FullScreenMode"));
 	check(CVar);
@@ -2995,3 +3033,4 @@ void UGameViewportClient::HandleViewportStatDisableAll(const bool bInAnyViewport
 	}
 }
 
+#undef LOCTEXT_NAMESPACE

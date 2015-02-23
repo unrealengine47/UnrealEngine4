@@ -488,7 +488,7 @@ public:
 	ENGINE_API int32 GetNumLODs() const;
 
 	/**
-	 * Returns the number of LODs used by the mesh.
+	 * Returns true if the mesh has data that can be rendered.
 	 */
 	ENGINE_API bool HasValidRenderData() const;
 
@@ -606,6 +606,8 @@ public:
 	 * Retrieves the localized display names of all LOD groups.
 	 */
 	ENGINE_API static void GetLODGroupsDisplayNames(TArray<FText>& OutLODGroupsDisplayNames);
+
+	ENGINE_API void GenerateLodsInPackage();
 
 private:
 	/**

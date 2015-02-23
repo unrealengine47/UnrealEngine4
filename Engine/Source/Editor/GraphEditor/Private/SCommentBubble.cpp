@@ -46,6 +46,12 @@ void SCommentBubble::Construct( const FArguments& InArgs )
 	IsGraphNodeHovered		= InArgs._IsGraphNodeHovered;
 	HintText				= InArgs._HintText.IsSet() ? InArgs._HintText : NSLOCTEXT( "CommentBubble", "EditCommentHint", "Click to edit" );
 	OpacityValue			= SCommentBubbleDefs::FadeDelay;
+	// Ensue this value is set to something sensible
+	ForegroundColor = SCommentBubbleDefs::LightForegroundClr;
+
+	// Cache the comment
+	CachedComment = CommentAttribute.Get();
+	CachedCommentText = FText::FromString( CachedComment );
 
 	// Create Widget
 	UpdateBubble();
@@ -114,9 +120,9 @@ void SCommentBubble::UpdateBubble()
 	if( GraphNode->bCommentBubbleVisible )
 	{
 		const FSlateBrush* CommentCalloutArrowBrush = FEditorStyle::GetBrush(TEXT("Graph.Node.CommentArrow"));
-		const FMargin BubblePadding = FEditorStyle::GetMargin( TEXT("Graph.Node.Comment.BubblePadding"));
-		const FMargin PinIconPadding = FEditorStyle::GetMargin( TEXT("Graph.Node.Comment.PinIconPadding"));
-		const FMargin BubbleOffset = FEditorStyle::GetMargin( TEXT("Graph.Node.Comment.BubbleOffset"));
+		const FMargin BubblePadding = FEditorStyle::GetMargin(TEXT("Graph.Node.Comment.BubbleWidgetMargin"));
+		const FMargin PinIconPadding = FEditorStyle::GetMargin(TEXT("Graph.Node.Comment.PinIconPadding"));
+		const FMargin BubbleOffset = FEditorStyle::GetMargin(TEXT("Graph.Node.Comment.BubbleOffset"));
 		// Conditionally create bubble controls
 		TSharedPtr<SWidget> BubbleControls = SNullWidget::NullWidget;
 
@@ -192,7 +198,7 @@ void SCommentBubble::UpdateBubble()
 					[
 						SNew(SImage)
 						.Image( FEditorStyle::GetBrush( TEXT("Graph.Node.CommentBubble")) )
-						.ColorAndOpacity( ColorAndOpacity )
+						.ColorAndOpacity( this, &SCommentBubble::GetBubbleColor )
 					]
 					+SOverlay::Slot()
 					.HAlign(HAlign_Left)
@@ -272,7 +278,11 @@ void SCommentBubble::UpdateBubble()
 
 FVector2D SCommentBubble::GetOffset() const
 {
-	return FVector2D( 0.f, -GetDesiredSize().Y );
+	if( GraphNode->bCommentBubbleVisible || OpacityValue > 0.f )
+	{
+		return FVector2D( 0.f, -GetDesiredSize().Y );
+	}
+	return FVector2D::ZeroVector;
 }
 
 FVector2D SCommentBubble::GetSize() const
@@ -304,11 +314,6 @@ FText SCommentBubble::GetCommentText() const
 	{
 		return HintText.Get();
 	}
-	else if( CachedComment != CommentAttribute.Get() )
-	{
-		CachedComment = CommentAttribute.Get();
-		CachedCommentText = FText::FromString( CachedComment );
-	}
 	return CachedCommentText;
 }
 
@@ -328,6 +333,17 @@ FSlateColor SCommentBubble::GetToggleButtonColor() const
 {
 	const FLinearColor BubbleColor = ColorAndOpacity.Get().GetSpecifiedColor();
 	return FLinearColor( 1.f, 1.f, 1.f, OpacityValue * OpacityValue );
+}
+
+FSlateColor SCommentBubble::GetBubbleColor() const
+{
+	FLinearColor ReturnColor = ColorAndOpacity.Get().GetSpecifiedColor();
+
+	if(!GraphNode->bIsNodeEnabled)
+	{
+		ReturnColor.A *= 0.6f;
+	}
+	return ReturnColor;
 }
 
 FSlateColor SCommentBubble::GetTextBackgroundColor() const

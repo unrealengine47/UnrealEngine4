@@ -14,7 +14,7 @@ void UObjectPropertyBase::BeginDestroy()
 #if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 	if (ULinkerPlaceholderClass* PlaceholderClass = Cast<ULinkerPlaceholderClass>(PropertyClass))
 	{
-		PlaceholderClass->RemoveTrackedReference(this);
+		PlaceholderClass->RemovePropertyReference(this);
 	}
 #endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 
@@ -94,7 +94,7 @@ void UObjectPropertyBase::Serialize( FArchive& Ar )
 	{
 		if (ULinkerPlaceholderClass* PlaceholderClass = Cast<ULinkerPlaceholderClass>(PropertyClass))
 		{
-			PlaceholderClass->AddTrackedReference(this);
+			PlaceholderClass->AddReferencingProperty(this);
 		}
 	}
 #endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
@@ -105,12 +105,12 @@ void UObjectPropertyBase::SetPropertyClass(UClass* NewPropertyClass)
 {
 	if (ULinkerPlaceholderClass* NewPlaceholderClass = Cast<ULinkerPlaceholderClass>(NewPropertyClass))
 	{
-		NewPlaceholderClass->AddTrackedReference(this);
+		NewPlaceholderClass->AddReferencingProperty(this);
 	}
 	
 	if (ULinkerPlaceholderClass* OldPlaceholderClass = Cast<ULinkerPlaceholderClass>(PropertyClass))
 	{
-		OldPlaceholderClass->RemoveTrackedReference(this);
+		OldPlaceholderClass->RemovePropertyReference(this);
 	}
 	PropertyClass = NewPropertyClass;
 }
@@ -171,7 +171,14 @@ void UObjectPropertyBase::ExportTextItem( FString& ValueStr, const void* Propert
 		}
 		else if (Parent && !Parent->HasAnyFlags(RF_ClassDefaultObject) && Temp->IsDefaultSubobject())
 		{
-			ValueStr += Temp->GetName();
+			if ((PortFlags & PPF_Delimited) && (!Temp->GetFName().IsValidXName(INVALID_OBJECTNAME_CHARACTERS)))
+			{
+				ValueStr += FString::Printf(TEXT("\"%s\""), *Temp->GetName().ReplaceQuotesWithEscapedQuotes());
+			}
+			else
+			{
+				ValueStr += Temp->GetName();
+			}
 		}
 		else
 		{

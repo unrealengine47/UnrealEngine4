@@ -31,6 +31,8 @@
 #include "GenericCommands.h"
 #include "Engine/Selection.h"
 #include "Kismet2/BlueprintEditorUtils.h"
+#include "ComponentEditorUtils.h"
+#include "LevelViewportActions.h"
 
 #define LOCTEXT_NAMESPACE "LevelViewportContextMenu"
 
@@ -155,10 +157,15 @@ void FLevelEditorContextMenu::FillMenu( FMenuBuilder& MenuBuilder, TWeakPtr<SLev
 
 	if (GEditor->GetSelectedComponentCount() > 0)
 	{
-		// Show component-specific context menu
-		MenuBuilder.BeginSection("Component", LOCTEXT("ComponentHeading", "Component"));
+		TArray<UActorComponent*> SelectedComponents;
+		for (FSelectedEditableComponentIterator It(GEditor->GetSelectedEditableComponentIterator()); It; ++It)
 		{
-			auto OwnerActor = Cast<AActor>(*(GEditor->GetSelectedActorIterator()));
+			SelectedComponents.Add(CastChecked<UActorComponent>(*It));
+		}
+
+		MenuBuilder.BeginSection("ComponentControl", LOCTEXT("ComponentControlHeading", "Component"));
+		{
+			auto OwnerActor = GEditor->GetSelectedActors()->GetTop<AActor>();
 			check(OwnerActor);
 
 			MenuBuilder.AddMenuEntry(
@@ -168,8 +175,20 @@ void FLevelEditorContextMenu::FillMenu( FMenuBuilder& MenuBuilder, TWeakPtr<SLev
 				TAttribute<FText>(),
 				FSlateIcon(FEditorStyle::GetStyleSetName(), FClassIconFinder::FindIconNameForClass(OwnerActor->GetClass()))
 				);
+
+			MenuBuilder.AddMenuEntry(FEditorViewportCommands::Get().FocusViewportToSelection);
+
+
+			const FVector* ClickLocation = &GEditor->ClickLocation;
+			FUIAction GoHereAction;
+			GoHereAction.ExecuteAction = FExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::GoHere_Clicked, ClickLocation);
+
+			MenuBuilder.AddMenuEntry(FLevelEditorCommands::Get().GoHere);
+			MenuBuilder.AddMenuEntry(FLevelEditorCommands::Get().SnapCameraToObject);
 		}
 		MenuBuilder.EndSection();
+
+		FComponentEditorUtils::FillComponentContextMenuOptions(MenuBuilder, SelectedComponents);
 	}
 	else
 	{
@@ -198,12 +217,6 @@ void FLevelEditorContextMenu::FillMenu( FMenuBuilder& MenuBuilder, TWeakPtr<SLev
 			}
 		}
 		MenuBuilder.PushExtender(FExtender::Combine(Extenders).ToSharedRef());
-
-		TArray<TWeakObjectPtr<UObject>> LabelObjects;
-		for (FSelectionIterator SelItor(*GEditor->GetSelectedActors()); SelItor; ++SelItor)
-		{
-			LabelObjects.Add(*SelItor);
-		}
 
 		// Check if current selection has any assets that can be browsed to
 		TArray< UObject* > ReferencedAssets;
@@ -262,7 +275,35 @@ void FLevelEditorContextMenu::FillMenu( FMenuBuilder& MenuBuilder, TWeakPtr<SLev
 			GoHereAction.ExecuteAction = FExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::GoHere_Clicked, ClickLocation);
 
 			MenuBuilder.AddMenuEntry(FLevelEditorCommands::Get().GoHere);
-			MenuBuilder.AddMenuEntry(FLevelEditorCommands::Get().SnapCameraToActor);
+			MenuBuilder.AddMenuEntry(FLevelEditorCommands::Get().SnapCameraToObject);
+
+			if (SelectedActors.Num() == 1)
+			{
+				const FLevelViewportCommands& Actions = FLevelViewportCommands::Get();
+
+				auto Viewport = LevelEditor.Pin()->GetActiveViewport();
+				auto& ViewportClient = Viewport->GetLevelViewportClient();
+
+				if (ViewportClient.IsPerspective() && !ViewportClient.IsLockedToMatinee())
+				{
+				    if (Viewport->IsSelectedActorLocked())
+				    {
+					    MenuBuilder.AddMenuEntry(
+						    Actions.EjectActorPilot,
+						    NAME_None,
+						    FText::Format(LOCTEXT("PilotActor", "Stop piloting '{0}'"), FText::FromString(SelectedActors[0]->GetActorLabel()))
+						    );
+					}
+					else
+					{
+					    MenuBuilder.AddMenuEntry(
+						    Actions.PilotSelectedActor,
+						    NAME_None,
+						    FText::Format(LOCTEXT("PilotActor", "Pilot '{0}'"), FText::FromString(SelectedActors[0]->GetActorLabel()))
+						    );
+					}
+				}
+			}
 		}
 		MenuBuilder.EndSection();
 

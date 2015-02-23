@@ -12,7 +12,7 @@
  * @see https://docs.unrealengine.com/latest/INT/Engine/Content/Types/SkeletalMeshes/
  * @see USkeletalMesh
  */
-UCLASS(ClassGroup=ISkeletalMeshes, Blueprintable, ConversionRoot, meta=(ChildCanTick))
+UCLASS(ClassGroup=ISkeletalMeshes, Blueprintable, ComponentWrapperClass, ConversionRoot, meta=(ChildCanTick))
 class ENGINE_API ASkeletalMeshActor : public AActor, public IMatineeAnimInterface
 {
 	GENERATED_UCLASS_BODY()
@@ -88,9 +88,11 @@ public:
 	// End IMatineeAnimInterface Interface
 
 private:
-	EAnimationMode::Type	SavedAnimationMode;
 	// utility function to see if it can play animation or not
-	bool CanPlayAnimation();
+	bool CanPlayAnimation(class UAnimSequenceBase* AnimAssetBase=NULL) const;
+
+	// currently actively playing montage
+	TWeakObjectPtr<class UAnimMontage> CurrentlyPlayingMontage;
 
 public:
 	/** Returns SkeletalMeshComponent subobject **/

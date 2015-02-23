@@ -1,5 +1,4 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
-
 #include "CoreUObjectPrivate.h"
 #include "SecureHash.h"
 #include "DebuggingDefines.h"
@@ -722,6 +721,8 @@ bool ULinkerLoad::IsTimeLimitExceeded( const TCHAR* CurrentTask, int32 Granulari
  */
 ULinkerLoad::ELinkerStatus ULinkerLoad::CreateLoader()
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "ULinkerLoad::CreateLoader" ), STAT_LinkerLoad_CreateLoader, STATGROUP_LinkerLoad );
+
 #if WITH_EDITOR
 
 	if (!LoadProgressScope)
@@ -754,11 +755,13 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::CreateLoader()
 			if( PrecacheInfo->SynchronizationObject->GetValue() != 0 )
 			{
 				double StartTime = FPlatformTime::Seconds();
-				while (PrecacheInfo->SynchronizationObject->GetValue() != 0)
+			
+				FPlatformProcess::ConditionalSleep( [&]()
 				{
 					SHUTDOWN_IF_EXIT_REQUESTED;
-					FPlatformProcess::Sleep(0);
-				}
+					return PrecacheInfo->SynchronizationObject->GetValue() == 0;
+				} 
+				);
 				float WaitTime = FPlatformTime::Seconds() - StartTime;
 				UE_LOG(LogInit, Log, TEXT("Waited %.3f sec for async package '%s' to complete caching."), WaitTime, *Filename);
 			}
@@ -831,10 +834,11 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::CreateLoader()
 		}
 
 		// Set status info.
-		ArUE4Ver		= GPackageFileUE4Version;
-		ArLicenseeUE4Ver	= GPackageFileLicenseeUE4Version;
-		ArIsLoading		= true;
-		ArIsPersistent	= true;
+		ArUE4Ver = GPackageFileUE4Version;
+		ArLicenseeUE4Ver = GPackageFileLicenseeUE4Version;
+		ArEngineVer = GEngineVersion;
+		ArIsLoading = true;
+		ArIsPersistent = true;
 
 		// Reset all custom versions
 		ResetCustomVersions();
@@ -863,6 +867,8 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::CreateLoader()
  */
 ULinkerLoad::ELinkerStatus ULinkerLoad::SerializePackageFileSummary()
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "ULinkerLoad::SerializePackageFileSummary" ), STAT_LinkerLoad_SerializePackageFileSummary, STATGROUP_LinkerLoad );
+
 	if( bHasSerializedPackageFileSummary == false )
 	{
 #if WITH_EDITOR
@@ -972,9 +978,11 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::SerializePackageFileSummary()
 		// Loader needs to be the same version.
 		Loader->SetUE4Ver(Summary.GetFileVersionUE4());
 		Loader->SetLicenseeUE4Ver(Summary.GetFileVersionLicenseeUE4());
+		Loader->SetEngineVer(Summary.EngineVersion);
 
 		ArUE4Ver = Summary.GetFileVersionUE4();
 		ArLicenseeUE4Ver = Summary.GetFileVersionLicenseeUE4();
+		ArEngineVer = Summary.EngineVersion;
 
 		const FCustomVersionContainer& SummaryVersions = Summary.GetCustomVersionContainer();
 		Loader->SetCustomVersions(SummaryVersions);
@@ -1065,6 +1073,8 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::SerializePackageFileSummary()
  */
 ULinkerLoad::ELinkerStatus ULinkerLoad::SerializeNameMap()
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "ULinkerLoad::SerializeNameMap" ), STAT_LinkerLoad_SerializeNameMap, STATGROUP_LinkerLoad );
+
 	// The name map is the first item serialized. We wait till all the header information is read
 	// before any serialization. @todo async, @todo seamless: this could be spread out across name,
 	// import and export maps if the package file summary contained more detailed information on
@@ -1115,6 +1125,8 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::SerializeNameMap()
  */
 ULinkerLoad::ELinkerStatus ULinkerLoad::SerializeImportMap()
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "ULinkerLoad::SerializeImportMap" ), STAT_LinkerLoad_SerializeImportMap, STATGROUP_LinkerLoad );
+
 	if( ImportMapIndex == 0 && Summary.ImportCount > 0 )
 	{
 		Seek( Summary.ImportOffset );
@@ -1136,6 +1148,8 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::SerializeImportMap()
  */
 ULinkerLoad::ELinkerStatus ULinkerLoad::FixupImportMap()
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "ULinkerLoad::FixupImportMap" ), STAT_LinkerLoad_FixupImportMap, STATGROUP_LinkerLoad );
+
 	if( bHasFixedUpImportMap == false )
 	{
 #if WITH_EDITOR
@@ -1333,6 +1347,8 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::FixupImportMap()
  */
 ULinkerLoad::ELinkerStatus ULinkerLoad::SerializeExportMap()
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "ULinkerLoad::SerializeExportMap" ), STAT_LinkerLoad_SerializeExportMap, STATGROUP_LinkerLoad );
+
 	if( ExportMapIndex == 0 && Summary.ExportCount > 0 )
 	{
 		Seek( Summary.ExportOffset );
@@ -1351,6 +1367,8 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::SerializeExportMap()
 
 ULinkerLoad::ELinkerStatus ULinkerLoad::RemapImports()
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "ULinkerLoad::RemapImports" ), STAT_LinkerLoad_RemapImports, STATGROUP_LinkerLoad );
+
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 
 	for (int32 ImportIndex = 0; ImportIndex < ImportMap.Num(); ImportIndex++)
@@ -1392,6 +1410,8 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::RemapImports()
  */
 ULinkerLoad::ELinkerStatus ULinkerLoad::StartTextureAllocation()
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "ULinkerLoad::StartTextureAllocation" ), STAT_LinkerLoad_StartTextureAllocation, STATGROUP_LinkerLoad );
+
 	double StartTime = FPlatformTime::Seconds();
 	int32 NumAllocationsStarted = 0;
 	int32 NumAllocationsConsidered = 0;
@@ -1460,6 +1480,8 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::StartTextureAllocation()
  */
 ULinkerLoad::ELinkerStatus ULinkerLoad::SerializeDependsMap()
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "ULinkerLoad::SerializeDependsMap" ), STAT_LinkerLoad_SerializeDependsMap, STATGROUP_LinkerLoad );
+
 	// Skip serializing depends map if we are using seekfree loading
 	if( FPlatformProperties::RequiresCookedData() 
 	// or we are neither Editor nor commandlet
@@ -1583,6 +1605,8 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::SerializeThumbnails( bool bForceEnableIn
  */
 ULinkerLoad::ELinkerStatus ULinkerLoad::CreateExportHash()
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "ULinkerLoad::CreateExportHash" ), STAT_LinkerLoad_CreateExportHash, STATGROUP_LinkerLoad );
+
 	// Zero initialize hash on first iteration.
 	if( ExportHashIndex == 0 )
 	{
@@ -1615,6 +1639,8 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::CreateExportHash()
  */
 ULinkerLoad::ELinkerStatus ULinkerLoad::FindExistingExports()
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "ULinkerLoad::FindExistingExports" ), STAT_LinkerLoad_FindExistingExports, STATGROUP_LinkerLoad );
+
 	if( bHasFoundExistingExports == false )
 	{
 		// only look for existing exports in the editor after it has started up
@@ -1649,6 +1675,8 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::FindExistingExports()
  */
 ULinkerLoad::ELinkerStatus ULinkerLoad::FinalizeCreation()
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "ULinkerLoad::FinalizeCreation" ), STAT_LinkerLoad_FinalizeCreation, STATGROUP_LinkerLoad );
+
 	if( bHasFinishedInitialization == false )
 	{
 #if WITH_EDITOR
@@ -2193,7 +2221,6 @@ bool ULinkerLoad::VerifyImportInner(const int32 ImportIndex, FString& WarningSuf
 
 		if (!bWasFullyLoaded)
 		{
-
 #if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 			// when LOAD_DeferDependencyLoads is in play, we usually head off 
 			// dependency loads before we get to this point, but there are two 
@@ -2632,10 +2659,28 @@ void ULinkerLoad::LoadAllObjects( bool bForcePreload )
 #if WITH_EDITOR
 		SlowTask.EnterProgressFrame(1);
 #endif
-		if(ExportIndex == MetaDataIndex)
+		if (ExportIndex == MetaDataIndex)
 		{
 			continue;
 		}
+
+#if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
+		// this is here to prevent infinite recursion; if IsExportBeingResolved() 
+		// returns true, then that means the export's class is currently being 
+		// force-generated... in that scenario, the export's Object member would 
+		// not have been set yet, and the call below to CreateExport() would put 
+		// us right back here in the same situation (CreateExport() needs the 
+		// export's Object set in order to return early... it's what makes this 
+		// function reentrant)
+		//
+		// since we don't actually use the export object here at this point, 
+		// then it is safe to skip over it (it's already being created further 
+		// up the callstack, so don't worry about it being missed)
+		if (IsExportBeingResolved(ExportIndex))
+		{
+			continue;
+		}
+#endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 
 		CreateExportAndPreload(ExportIndex, bForcePreload);
 	}
@@ -2832,17 +2877,26 @@ void ULinkerLoad::Preload( UObject* Object )
 	check(Object);
 
 #if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
-	UClass* ObjectAsClass = Cast<UClass>(Object);
-	// we can determine that this is a blueprint class, if it is indeed a class
-	// AND it is not native (blueprint classes are the only asset package 
-	// classes we have)
-	bool const bIsBlueprintClass = (ObjectAsClass != nullptr) && !(ObjectAsClass->GetOutermost()->PackageFlags & PKG_CompiledIn);
+	bool const bIsNonNativeObject = !(Object->GetOutermost()->PackageFlags & PKG_CompiledIn);
+	// we can determine that this is a blueprint class/struct by checking if it 
+	// is a class/struct object AND if it is not native (blueprint 
+	// structs/classes are the only asset package structs/classes we have)
+	bool const bIsBlueprintClass  = (Cast<UClass>(Object) != nullptr) && bIsNonNativeObject;
+	bool const bIsBlueprintStruct = (Cast<UScriptStruct>(Object) != nullptr) && bIsNonNativeObject;
+	// to avoid cyclic dependency issues, we want to defer all external loads 
+	// that MAY rely on this class/struct (meaning all other blueprint packages)  
+	bool const bDeferDependencyLoads = (bIsBlueprintClass || bIsBlueprintStruct) && FBlueprintSupport::UseDeferredDependencyLoading();
 
 #if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 	// we should NEVER be pre-loading another blueprint class when the 
-	// DeferDependencyLoads flag is set (some other blueprint class is already 
-	// being loaded further up the load chain, and this could introduce a 
-	// circular load)
+	// DeferDependencyLoads flag is set (some other blueprint class/struct is  
+	// already being loaded further up the load chain, and this could introduce  
+	// a circular load)
+	//
+	// NOTE: we do allow Preload() calls for structs (because we need a struct 
+	//       loaded to determine its size), but structs will be prevented from 
+	//       further loading any of its BP class dependencies (we pass along the 
+	//       LOAD_DeferDependencyLoads flag)
 	check(!bIsBlueprintClass || !Object->HasAnyFlags(RF_NeedLoad) || !(LoadFlags & LOAD_DeferDependencyLoads));
 	// right now there are no known scenarios where someone requests a Preloa() 
 	// on a temporary ULinkerPlaceholderExportObject
@@ -2871,7 +2925,7 @@ void ULinkerLoad::Preload( UObject* Object )
 
 #if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 			TGuardValue<uint32> LoadFlagsGuard(LoadFlags, LoadFlags);			
-			if (FBlueprintSupport::UseDeferredDependencyLoading() && bIsBlueprintClass)
+			if (bDeferDependencyLoads)
 			{
 				LoadFlags |= LOAD_DeferDependencyLoads;
 			}
@@ -2914,7 +2968,6 @@ void ULinkerLoad::Preload( UObject* Object )
 #else // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 							{
 #endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-
 								// since serializing the CDO can introduce circular 
 								// dependencies, we want to stave that off until 
 								// we're ready to handle those 
@@ -2950,31 +3003,45 @@ void ULinkerLoad::Preload( UObject* Object )
 					SCOPE_CYCLE_COUNTER(STAT_LinkerLoadDeferred);
 					if ((LoadFlags & LOAD_DeferDependencyLoads) != (*LoadFlagsGuard & LOAD_DeferDependencyLoads))
 					{
+						if (bIsBlueprintStruct)
+						{
+							ResolveDeferredDependencies((UScriptStruct*)Object); 
+							// user-defined-structs don't have classes/CDOs, so 
+							// we don't have to call FinalizeBlueprint() (to 
+							// serialize/regenerate them)
+						}
+						else
+						{
+							UClass* ObjectAsClass = (UClass*)Object;
 #if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-						// since class serialization reads in the class's CDO, 
-						// then we can be certain that the CDO export object 
-						// exists (and DeferredExportIndex should reference it);
-						// FinalizeBlueprint() depends on this (and since 
-						// ResolveDeferredDependencies() can recurse into 
-						// FinalizeBlueprint(), we check it here, before the
-						// resolve is handled)
-						//
-						// however, sometimes DeferredExportIndex doesn't get
-						// set at all, and that happens when the class's 
-						// ClassGeneratedBy is serialized in null... this would 
-						// normally be a problem in the editor (we don't end up
-						// regenerating the class), but if we're running the 
-						// game (in PIE or elsewhere) it shouldn't be a concern 
-						// (if it makes you feel better: with the old way of 
-						// doing things, in CreateExport(), you can see that 
-						// the class wouldn't be regenerated there either)... in
-						// this scenario FinalizeBlueprint() essentially does nothing
-						// @TODO: maybe only allow a null ClassGeneratedBy when PIE'ing/running a game?
-						check((DeferredCDOIndex != INDEX_NONE) || (ObjectAsClass->ClassGeneratedBy == nullptr) || FBlueprintSupport::IsDeferredCDOSerializationDisabled());
+							check(bIsBlueprintClass);
+							// since class serialization reads in the class's CDO, then we can be certain that the CDO export object exists 
+							// (and DeferredExportIndex should reference it); FinalizeBlueprint() depends on DeferredExportIndex being set 
+							// (and since ResolveDeferredDependencies() can recurse into FinalizeBlueprint(), we check it here, before the 
+							// resolve is handled)
+							//
+							// however, sometimes DeferredExportIndex doesn't get set at all (we have to utilize FindCDOExportIndex() to set
+							// it), and that happens when the class's ClassGeneratedBy is serialized in null... this will happen for cooked 
+							// builds (because Blueprints are editor-only objects)
+							check((DeferredCDOIndex != INDEX_NONE) || FPlatformProperties::RequiresCookedData() || FBlueprintSupport::IsDeferredCDOSerializationDisabled());
+
+							if ((DeferredCDOIndex == INDEX_NONE) && !FBlueprintSupport::IsDeferredCDOSerializationDisabled())
+							{
+								DeferredCDOIndex = FindCDOExportIndex(ObjectAsClass);
+								check(DeferredCDOIndex != INDEX_NONE);
+							}
+#else  // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
+							// just because DeferredCDOIndex wasn't set (in cooked/PIE scenarios) doesn't mean that we don't need it 
+							// (FinalizeBlueprint() relies on it being set), so here we make sure we flag the CDO so it gets resolved
+							if (DeferredCDOIndex == INDEX_NONE)
+							{
+								DeferredCDOIndex = FindCDOExportIndex(ObjectAsClass);
+							}
 #endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 
-						ResolveDeferredDependencies(ObjectAsClass);
-						FinalizeBlueprint(ObjectAsClass);
+							ResolveDeferredDependencies(ObjectAsClass);
+							FinalizeBlueprint(ObjectAsClass);
+						}
 					}
 #endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 				}
@@ -3224,9 +3291,13 @@ UObject* ULinkerLoad::CreateExport( int32 Index )
 			}
 			else if ((Export.Object == nullptr) && !(Export.ObjectFlags & RF_ClassDefaultObject))
 			{
-				if (UObject* PlaceholderObj = DeferExportCreation(Index))
+				bool const bExportWasDeferred = DeferExportCreation(Index);
+				if (bExportWasDeferred)
 				{
-					return PlaceholderObj; 
+#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
+					check(Export.Object != nullptr);
+#endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
+					return Export.Object;
 				}				
 			}
 #else  // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
@@ -3256,23 +3327,6 @@ UObject* ULinkerLoad::CreateExport( int32 Index )
 				}
 			}
 		}
-#if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
-		else if (ULinkerPlaceholderClass* PlaceholderClass = Cast<ULinkerPlaceholderClass>(LoadClass))
-		{
-#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-			// this blueprint package's CDO should NOT be using a placeholder 
-			// class (its class should be internal to this package)
-			check(!(Export.ObjectFlags & RF_ClassDefaultObject));
-#endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-			if (Export.Object == nullptr)
-			{
-				if (UObject* PlaceholderObj = DeferExportCreation(Index))
-				{
-					return PlaceholderObj;
-				}
-			}
-		}
-#endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 
 #if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 		// we're going to have troubles if we're attempting to create an export 
@@ -3472,9 +3526,7 @@ UObject* ULinkerLoad::CreateExport( int32 Index )
 			}
 		}
 
-
 		LoadClass->GetDefaultObject();
-
 
 		Export.Object = StaticConstructObject_Internal
 		(
@@ -3496,26 +3548,30 @@ UObject* ULinkerLoad::CreateExport( int32 Index )
 		
 		if( Export.Object )
 		{
-			// Check to see if LoadClass is a blueprint, which potentially needs to be refreshed and regenerated.  If so, regenerate and patch it back into the export table
-			if( !LoadClass->bCooked
-				&& LoadClass->ClassGeneratedBy 
-				&& (LoadClass->GetOutermost() != GetTransientPackage()) 
-				&& ((Export.ObjectFlags&RF_ClassDefaultObject) != 0) )
-			{
-#if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
-				if ( (LoadFlags & LOAD_DeferDependencyLoads) != 0
-#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-					&& !FBlueprintSupport::IsDeferredCDOSerializationDisabled()
-#endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-				   )
-				{
-					// if LOAD_DeferDependencyLoads is set, then we're already
-					// serializing the blueprint's class somewhere up the chain,
-					DeferredCDOIndex = Index;
-					return Export.Object;
-				}
-#endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
+			bool const bIsBlueprintCDO = ((Export.ObjectFlags & RF_ClassDefaultObject) != 0) && (LoadClass->ClassGeneratedBy != nullptr);
 
+#if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
+			bool bDeferCDOSerialization = bIsBlueprintCDO && ((LoadFlags & LOAD_DeferDependencyLoads) != 0);
+#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
+			bDeferCDOSerialization &= !FBlueprintSupport::IsDeferredCDOSerializationDisabled();
+#endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS	
+
+			if (bDeferCDOSerialization)			
+			{
+				// if LOAD_DeferDependencyLoads is set, then we're already
+				// serializing the blueprint's class somewhere up the chain... 
+				// we don't want the class regenerated while it in the middle of
+				// serializing
+				DeferredCDOIndex = Index;
+				return Export.Object;
+			}
+			else 
+#endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
+			// Check to see if LoadClass is a blueprint, which potentially needs 
+			// to be refreshed and regenerated.  If so, regenerate and patch it 
+			// back into the export table
+			if( !LoadClass->bCooked && bIsBlueprintCDO && (LoadClass->GetOutermost() != GetTransientPackage()) )
+			{			
 				{
 					// For classes that are about to be regenerated, make sure we register them with the linker, so future references to this linker index will be valid
 					const EObjectFlags OldFlags = Export.Object->GetFlags();
@@ -3626,7 +3682,7 @@ UObject* ULinkerLoad::CreateImport( int32 Index )
 	// actively trying to avoid that at this point in the load process), then 
 	// this will stub in the Import with a placeholder object, to be replace 
 	// later on (this will return true if the import was actually deferred)
-	DeferPotentialCircularImport(Index);
+	DeferPotentialCircularImport(Index); 
 #endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 
 	if( Import.XObject == NULL )
@@ -3826,6 +3882,10 @@ void ULinkerLoad::Detach( bool bEnsureAllBulkDataIsLoaded )
 	NameMap.Empty();
 	ImportMap.Empty();
 	ExportMap.Empty();
+
+#if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
+	ResetDeferredLoadingState();
+#endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 
 	// Make sure we're never associated with LinkerRoot again.
 	LinkerRoot = NULL;
@@ -4217,6 +4277,8 @@ FName ULinkerLoad::FindNewNameForClass(FName OldClassName, bool bIsInstance)
 */
 ULinkerLoad::ELinkerStatus ULinkerLoad::FixupExportMap()
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "ULinkerLoad::FixupExportMap" ), STAT_LinkerLoad_FixupExportMap, STATGROUP_LinkerLoad );
+
 	// No need to fixup exports if everything is cooked.
 	if (!FPlatformProperties::RequiresCookedData())
 	{
@@ -4231,19 +4293,26 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::FixupExportMap()
 			FName NameClass = GetExportClassName(ExportMapIdx);
 			FName NamePackage = GetExportClassPackage(ExportMapIdx);
 
-			// ActorComponents outered to a BlueprintGeneratedClass need to be marked RF_Public, but older content was not created
-			// as such.  This updates the ExportTable such that they are correctly flagged when created and when other packages
-			// validate their imports
+			// ActorComponents outered to a BlueprintGeneratedClass (or even older ones that are outered to Blueprint) need to be marked RF_Public, but older content was 
+			// not created as such.  This updates the ExportTable such that they are correctly flagged when created and when other packages validate their imports.
 			// TODO: Wrap this in a version check if possible. Mark up for future removal when minimum version is incremented
 			if ((Export.ObjectFlags & RF_Public) == 0)
 			{
 				static const FName NAME_BlueprintGeneratedClass("BlueprintGeneratedClass");
+				static const FName NAME_Blueprint("Blueprint");
 				const FName OuterClassName = GetExportClassName(Export.OuterIndex);
-				if (OuterClassName == NAME_BlueprintGeneratedClass)
+				if (OuterClassName == NAME_BlueprintGeneratedClass || OuterClassName == NAME_Blueprint)
 				{
 					static const UClass* ActorComponentClass = FindObjectChecked<UClass>(ANY_PACKAGE, TEXT("ActorComponent"), true);
-					UClass* Class = FindObject<UClass>(ANY_PACKAGE, *NameClass.ToString());
-					if (Class && Class->IsChildOf(ActorComponentClass))
+					static const FString BPGeneratedClassPostfix(TEXT("_C"));
+					const FString NameClassString = NameClass.ToString();
+					UClass* Class = FindObject<UClass>(ANY_PACKAGE, *NameClassString);
+
+					// It is (obviously) a component if the class is a child of actor component
+					// and (almost certainly) a component if the class cannot be loaded but it ends in _C meaning it was generated from a blueprint
+					// However, it (probably) isn't safe to load the blueprint class, so we just check the _C and it is (probably) good enough
+					if (    ((Class != nullptr) && Class->IsChildOf(ActorComponentClass))
+						 || ((Class == nullptr) && NameClassString.EndsWith(BPGeneratedClassPostfix)))
 					{
 						Export.ObjectFlags |= RF_Public;
 					}

@@ -812,6 +812,9 @@ void FSceneView::OverridePostProcessSettings(const FPostProcessSettings& Src, fl
 	LERP_PP(IndirectLightingColor);
 	LERP_PP(IndirectLightingIntensity);
 	LERP_PP(DepthOfFieldFocalDistance);
+	LERP_PP(DepthOfFieldFstop);
+	LERP_PP(DepthOfFieldDepthBlurRadius);
+	LERP_PP(DepthOfFieldDepthBlurAmount);
 	LERP_PP(DepthOfFieldFocalRegion);
 	LERP_PP(DepthOfFieldNearTransitionRegion);
 	LERP_PP(DepthOfFieldFarTransitionRegion);

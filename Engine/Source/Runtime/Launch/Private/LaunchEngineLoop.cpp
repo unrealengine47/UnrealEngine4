@@ -1914,7 +1914,7 @@ void FEngineLoop::InitTime()
 	FParse::Value(FCommandLine::Get(),TEXT("FPS="),FixedFPS);
 	if( FixedFPS > 0 )
 	{
-		GEngine->MatineeCaptureFPS = (int32)FixedFPS;
+		GEngine->MatineeScreenshotOptions.MatineeCaptureFPS = (int32)FixedFPS;
 		FApp::SetFixedDeltaTime(1 / FixedFPS);
 	}
 
@@ -2651,11 +2651,6 @@ bool FEngineLoop::AppInit( )
 
 #if STATS
 	FThreadStats::StartThread();
-	if (FThreadStats::WillEverCollectData())
-	{
-		FThreadStats::ExplicitFlush(); // flush the stats and set update the scope so we don't flush again until a frame update, this helps prevent fragmentation
-	}
-	FStartupMessages::Get().AddThreadMetadata( NAME_GameThread, FPlatformTLS::GetCurrentThreadId() );
 #endif
 
 #if WITH_ENGINE

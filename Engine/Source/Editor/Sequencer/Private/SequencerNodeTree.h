@@ -13,6 +13,8 @@ class UMovieSceneTrack;
 class FSequencerNodeTree : public TSharedFromThis<FSequencerNodeTree>
 {
 public:
+	DECLARE_MULTICAST_DELEGATE(FOnSelectionChanged)
+
 	FSequencerNodeTree( class FSequencer& InSequencer )
 		: Sequencer( InSequencer )
 	{}
@@ -92,6 +94,10 @@ public:
 	
 	/** Updates nodes visibility for use when shot filters change at all */
 	void UpdateCachedVisibilityBasedOnShotFiltersChanged();
+
+	/** Gets the multicast delegate which is run when the node selection changes. */
+	FOnSelectionChanged* GetOnSelectionChanged();
+
 private:
 	/**
 	 * Finds or adds a type editor for the track
@@ -114,7 +120,7 @@ private:
 	 * 
 	 * @param ObjectBinding	The object binding guid
 	 */
-	TSharedRef<FObjectBindingNode> AddObjectBinding( const FText& ObjectName, const FGuid& ObjectBinding );
+	TSharedRef<FObjectBindingNode> AddObjectBinding( const FString& ObjectName, const FGuid& ObjectBinding );
 private:
 	/** Tools for building movie scene section layouts.  One tool for each track */
 	TMap< class UMovieSceneTrack*, TSharedPtr<FMovieSceneTrackEditor> > EditorMap;
@@ -130,4 +136,6 @@ private:
 	FString FilterString;
 	/** Sequencer interface */
 	FSequencer& Sequencer;
+	/** The multicast delegate which is run when the node selection changes */
+	FOnSelectionChanged OnSelectionChanged;
 };

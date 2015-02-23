@@ -94,6 +94,7 @@ void AActor::InitializeDefaults()
 	bPendingKillPending = false;
 	bFindCameraComponentWhenViewTarget = true;
 	bAllowReceiveTickEventOnDedicatedServer = true;
+	bRelevantForNetworkReplays = true;
 }
 
 void FActorTickFunction::ExecuteTick(float DeltaTime, enum ELevelTick TickType, ENamedThreads::Type CurrentThread, const FGraphEventRef& MyCompletionGraphEvent)
@@ -1523,9 +1524,14 @@ void AActor::RouteEndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void AActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	// Dispatch the blueprint events
-	ReceiveEndPlay(EndPlayReason);
-	OnEndPlay.Broadcast(EndPlayReason);
+	if (bActorHasBegunPlay)
+	{
+		bActorHasBegunPlay = false;
+
+		// Dispatch the blueprint events
+		ReceiveEndPlay(EndPlayReason);
+		OnEndPlay.Broadcast(EndPlayReason);
+	}
 
 	// Behaviors specific to an actor being unloaded due to a streaming level removal
 	if (EndPlayReason == EEndPlayReason::RemovedFromWorld)
@@ -1743,13 +1749,10 @@ float AActor::InternalTakePointDamage(float Damage, FPointDamageEvent const& Poi
 }
 
 /** Util to check if prim comp pointer is valid and still alive */
-static bool IsPrimCompValidAndAlive(UPrimitiveComponent* PrimComp)
-{
-	return (PrimComp != NULL) && !PrimComp->IsPendingKill();
-}
+extern bool IsPrimCompValidAndAlive(UPrimitiveComponent* PrimComp);
 
 /** Used to determine if it is ok to call a notification on this object */
-static bool IsActorValidToNotify(AActor* Actor)
+bool IsActorValidToNotify(AActor* Actor)
 {
 	return (Actor != NULL) && !Actor->IsPendingKill() && !Actor->GetClass()->HasAnyClassFlags(CLASS_NewerVersionExists);
 }
@@ -2005,18 +2008,47 @@ void AActor::AddOwnedComponent(UActorComponent* Component)
 	{
 		ReplicatedComponents.AddUnique(Component);
 	}
+
+	if (Component->IsCreatedByConstructionScript())
+	{
+		BlueprintCreatedComponents.AddUnique(Component);
+	}
+	else if (Component->CreationMethod == EComponentCreationMethod::Instance)
+	{
+		InstanceComponents.AddUnique(Component);
+	}
 }
 
 void AActor::RemoveOwnedComponent(UActorComponent* Component)
 {
-	if (OwnedComponents.RemoveSwap(Component) == 0)
+	if (OwnedComponents.RemoveSwap(Component) > 0)
+	{
+		ReplicatedComponents.RemoveSwap(Component);
+		if (Component->IsCreatedByConstructionScript())
+		{
+			BlueprintCreatedComponents.RemoveSwap(Component);
+		}
+		else if (Component->CreationMethod == EComponentCreationMethod::Instance)
+		{
+			InstanceComponents.RemoveSwap(Component);
+		}
+	}
+	else
 	{
 		// If we didn't remove something we expected to then it probably got NULL through the
 		// property system so take the time to pull them out now
-		OwnedComponents.RemoveSwap(NULL);
-	}
+		OwnedComponents.RemoveSwap(nullptr);
 
-	ReplicatedComponents.RemoveSwap(Component);
+		ReplicatedComponents.RemoveSwap(nullptr);
+		if (Component->IsCreatedByConstructionScript())
+		{
+			BlueprintCreatedComponents.RemoveSwap(nullptr);
+		}
+		else if (Component->CreationMethod == EComponentCreationMethod::Instance)
+		{
+			InstanceComponents.RemoveSwap(nullptr);
+		}
+	}
 }
 
 #if DO_CHECK
@@ -2033,7 +2065,7 @@ const TArray<UActorComponent*>& AActor::GetReplicatedComponents() const
 
 void AActor::UpdateReplicatedComponent(UActorComponent* Component)
 {
-	check(Component->GetOwner() == this);
+	checkf(Component->GetOwner() == this, TEXT("UE-9568: Component %s being updated for Actor %s"), *Component->GetPathName(), *GetPathName() );
 	if (Component->GetIsReplicated())
 	{
 		ReplicatedComponents.AddUnique(Component);
@@ -2065,7 +2097,7 @@ const TArray<UActorComponent*>& AActor::GetInstanceComponents() const
 void AActor::AddInstanceComponent(UActorComponent* Component)
 {
 	Component->CreationMethod = EComponentCreationMethod::Instance;
-	InstanceComponents.Add(Component);
+	InstanceComponents.AddUnique(Component);
 }
 
 void AActor::RemoveInstanceComponent(UActorComponent* Component)
@@ -2189,15 +2221,23 @@ static void DispatchOnComponentsCreated(AActor* NewActor)
 	TInlineComponentArray<UActorComponent*> Components;
 	NewActor->GetComponents(Components);
 
-	for (int32 Idx = 0; Idx < Components.Num(); Idx++)
+	for (UActorComponent* ActorComp : Components)
 	{
-		UActorComponent* ActorComp = Components[Idx];
-		if (ActorComp != NULL && !ActorComp->bHasBeenCreated)
+		if (ActorComp && !ActorComp->bHasBeenCreated)
 		{
 			ActorComp->OnComponentCreated();
 		}
 	}
 }
+
+#if WITH_EDITOR
+void AActor::PostEditImport()
+{
+	Super::PostEditImport();
+
+	DispatchOnComponentsCreated(this);
+}
+#endif
 
 void AActor::PostSpawnInitialize(FVector const& SpawnLocation, FRotator const& SpawnRotation, AActor* InOwner, APawn* InInstigator, bool bRemoteOwned, bool bNoFail, bool bDeferConstruction)
 {
@@ -2401,9 +2441,12 @@ void AActor::ExchangeNetRoles(bool bRemoteOwned)
 
 void AActor::BeginPlay()
 {
+	ensure(!bActorHasBegunPlay);
 	SetLifeSpan( InitialLifeSpan );
 
 	ReceiveBeginPlay();
+
+	bActorHasBegunPlay = true;
 }
 
 void AActor::EnableInput(APlayerController* PlayerController)

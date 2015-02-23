@@ -273,77 +273,105 @@ FBlueprintCompileReinstancer::~FBlueprintCompileReinstancer()
 	}
 }
 
-void FBlueprintCompileReinstancer::ReinstanceObjects(bool bAlwaysReinstance)
+void FBlueprintCompileReinstancer::ReinstanceFast()
 {
-	BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_ReinstanceObjects);
+	UE_LOG(LogBlueprint, Log, TEXT("BlueprintCompileReinstancer: Doing a fast path refresh on class '%s'."), *GetPathNameSafe(ClassToReinstance));
 
-	// Make sure we only reinstance classes once!
-	if( bHasReinstanced )
+	TArray<UObject*> ObjectsToReplace;
+	GetObjectsOfClass(DuplicatedClass, ObjectsToReplace, /*bIncludeDerivedClasses=*/ false);
+
+	const bool bIsActor = ClassToReinstance->IsChildOf<AActor>();
+	const bool bIsAnimInstance = ClassToReinstance->IsChildOf<UAnimInstance>();
+	const bool bIsComponent = ClassToReinstance->IsChildOf<UActorComponent>();
+	for (auto Obj : ObjectsToReplace)
 	{
-		return;
-	}
-	bHasReinstanced = true;
+		UE_LOG(LogBlueprint, Log, TEXT("  Fast path is refreshing (not replacing) %s"), *Obj->GetFullName());
 
+		if ((!Obj->IsTemplate() || bIsComponent) && !Obj->IsPendingKill())
+		{
+			const bool bIsSelected = bIsActor ? Obj->IsSelected() : false;
+
+			Obj->SetClass(ClassToReinstance);
+
+			if (bIsActor)
+			{
+				auto Actor = CastChecked<AActor>(Obj);
+				Actor->ReregisterAllComponents();
+				Actor->RerunConstructionScripts();
+
+				if (bIsSelected)
+				{
+					GEditor->SelectActor(Actor, /*bInSelected =*/true, /*bNotify =*/true, false, true);
+				}
+			}
+
+			if (bIsAnimInstance)
+			{
+				// Initialising the anim instance isn't enough to correctly set up the skeletal mesh again in a
+				// paused world, need to initialise the skeletal mesh component that contains the anim instance.
+				if (USkeletalMeshComponent* SkelComponent = Cast<USkeletalMeshComponent>(Obj->GetOuter()))
+				{
+					SkelComponent->InitAnim(true);
+				}
+			}
+		}
+	}
+
+	TArray<UObject*> SourceObjects;
+	TMap<UObject*, UObject*> OldToNewInstanceMap;
+	TMap<FStringAssetReference, UObject*> ReinstancedObjectsWeakReferenceMap;
+	FReplaceReferenceHelper::IncludeCDO(DuplicatedClass, ClassToReinstance, OldToNewInstanceMap, SourceObjects, OriginalCDO);
+	FReplaceReferenceHelper::FindAndReplaceReferences(SourceObjects, &ObjectsThatShouldUseOldStuff, ObjectsToReplace, OldToNewInstanceMap, ReinstancedObjectsWeakReferenceMap);
+}
+
+void FBlueprintCompileReinstancer::CompileChildren()
+{
+	BP_SCOPED_COMPILER_EVENT_STAT(EKismetReinstancerStats_RecompileChildClasses);
+
+	// Reparent all dependent blueprints, and recompile to ensure that they get reinstanced with the new memory layout
+	for (auto ChildBP = Children.CreateIterator(); ChildBP; ++ChildBP)
+	{
+		UBlueprint* BP = *ChildBP;
+		if (BP->ParentClass == ClassToReinstance || BP->ParentClass == DuplicatedClass)
+		{
+			ReparentChild(BP);
+
+			FKismetEditorUtilities::CompileBlueprint(BP, false, bSkipGarbageCollection);
+		}
+	}
+}
+
+void FBlueprintCompileReinstancer::ReinstanceInner(bool bForceAlwaysReinstance)
+{
 	if (ClassToReinstance && DuplicatedClass)
 	{
+		static const FBoolConfigValueHelper ReinstanceOnlyWhenNecessary(TEXT("Kismet"), TEXT("bReinstanceOnlyWhenNecessary"), GEngineIni);
 		bool bShouldReinstance = true;
-		if (!bAlwaysReinstance)
+		// See if we need to do a full reinstance or can do the faster refresh path (when enabled or no values were modified, and the structures match)
+		if (ReinstanceOnlyWhenNecessary && !bForceAlwaysReinstance)
 		{
 			BP_SCOPED_COMPILER_EVENT_STAT(EKismetReinstancerStats_ReplaceClassNoReinsancing);
 
-			auto BPClassA = Cast<const UBlueprintGeneratedClass>(DuplicatedClass);
-			auto BPClassB = Cast<const UBlueprintGeneratedClass>(ClassToReinstance);
-			auto BP = Cast<const UBlueprint>(ClassToReinstance->ClassGeneratedBy);
+			const UBlueprintGeneratedClass* BPClassA = Cast<const UBlueprintGeneratedClass>(DuplicatedClass);
+			const UBlueprintGeneratedClass* BPClassB = Cast<const UBlueprintGeneratedClass>(ClassToReinstance);
+			const UBlueprint* BP = Cast<const UBlueprint>(ClassToReinstance->ClassGeneratedBy);
 
 			static const FBoolConfigValueHelper ChangeDefaultValueWithoutReinstancing(TEXT("Kismet"), TEXT("bChangeDefaultValueWithoutReinstancing"), GEngineIni);
-			const bool bTheSameDefaultValues = BP && ClassToReinstanceDefaultValuesCRC && (BP->CrcPreviousCompiledCDO == ClassToReinstanceDefaultValuesCRC);
-			const bool bTheSame = (ChangeDefaultValueWithoutReinstancing || bTheSameDefaultValues) && BPClassA && BPClassB && FStructUtils::TheSameLayout(BPClassA, BPClassB, true);
-			if (bTheSame)
+			const bool bTheSameDefaultValues = (BP != nullptr) && (ClassToReinstanceDefaultValuesCRC != 0) && (BP->CrcPreviousCompiledCDO == ClassToReinstanceDefaultValuesCRC);
+
+			const bool bTheSameLayout = (BPClassA != nullptr) && (BPClassB != nullptr) && FStructUtils::TheSameLayout(BPClassA, BPClassB, true);
+
+			const bool bAllowedToDoFastPath = (ChangeDefaultValueWithoutReinstancing || bTheSameDefaultValues) && bTheSameLayout;
+			if (bAllowedToDoFastPath)
 			{
-				UE_LOG(LogBlueprint, Log, TEXT("BlueprintCompileReinstancer: class '%s' is replaced without reinstancing (the optimized way)."), *GetPathNameSafe(ClassToReinstance));
-
-				TArray<UObject*> ObjectsToReplace;
-				GetObjectsOfClass(DuplicatedClass, ObjectsToReplace, false);
-
-				const bool bIsActor = ClassToReinstance->IsChildOf<AActor>();
-				const bool bIsAnimInstance = ClassToReinstance->IsChildOf<UAnimInstance>();
-				const bool bIsComponent = ClassToReinstance->IsChildOf<UActorComponent>();
-				for (auto Obj : ObjectsToReplace)
-				{
-					if ((!Obj->IsTemplate() || bIsComponent) && !Obj->IsPendingKill())
-					{
-						Obj->SetClass(ClassToReinstance);
-						if (bIsActor)
-						{
-							auto Actor = CastChecked<AActor>(Obj);
-							Actor->ReregisterAllComponents();
-							Actor->RerunConstructionScripts();
-						}
-
-						if (bIsAnimInstance)
-						{
-							// Initialising the anim instance isn't enough to correctly set up the skeletal mesh again in a
-							// paused world, need to initialise the skeletal mesh component that contains the anim instance.
-							if (USkeletalMeshComponent* SkelComponent = Cast<USkeletalMeshComponent>(Obj->GetOuter()))
-							{
-								SkelComponent->InitAnim(true);
-							}
-						}
-					}
-				}
-
-				TArray<UObject*> SourceObjects;
-				TMap<UObject*, UObject*> OldToNewInstanceMap;
-				TMap<FStringAssetReference, UObject*> ReinstancedObjectsWeakReferenceMap;
-				FReplaceReferenceHelper::IncludeCDO(DuplicatedClass, ClassToReinstance, OldToNewInstanceMap, SourceObjects, OriginalCDO);
-				FReplaceReferenceHelper::FindAndReplaceReferences(SourceObjects, &ObjectsThatShouldUseOldStuff, ObjectsToReplace, OldToNewInstanceMap, ReinstancedObjectsWeakReferenceMap);
-
+				ReinstanceFast();
 				bShouldReinstance = false;
 			}
 		}
 
 		if (bShouldReinstance)
 		{
+			UE_LOG(LogBlueprint, Log, TEXT("BlueprintCompileReinstancer: Doing a full reinstance on class '%s'"), *GetPathNameSafe(ClassToReinstance));
 			ReplaceInstancesOfClass(DuplicatedClass, ClassToReinstance, OriginalCDO, &ObjectsThatShouldUseOldStuff);
 		}
 		else if (ClassToReinstance->IsChildOf<UActorComponent>())
@@ -351,24 +379,60 @@ void FBlueprintCompileReinstancer::ReinstanceObjects(bool bAlwaysReinstance)
 			// ReplaceInstancesOfClass() handles this itself, if we had to re-instance
 			ReconstructOwnerInstances(ClassToReinstance);
 		}
+	}
+}
+
+void FBlueprintCompileReinstancer::ReinstanceObjects(bool bForceAlwaysReinstance)
+{
+	BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_ReinstanceObjects);
 	
-		{ 
-			BP_SCOPED_COMPILER_EVENT_STAT(EKismetReinstancerStats_RecompileChildClasses);
+	static const FBoolConfigValueHelper FirstCompileChildrenThenReinstance(TEXT("Kismet"), TEXT("bFirstCompileChildrenThenReinstance"), GEngineIni);
 
-			// Reparent all dependent blueprints, and recompile to ensure that they get reinstanced with the new memory layout
-			for( auto ChildBP = Children.CreateIterator(); ChildBP; ++ChildBP)
+	if (FirstCompileChildrenThenReinstance)
+	{
+		// Make sure we only reinstance classes once!
+		static TArray<TSharedPtr<FBlueprintCompileReinstancer>> QueueToReinstance;
+		TSharedPtr<FBlueprintCompileReinstancer> SharedThis = AsShared();
+		const bool bAlreadyQueued = QueueToReinstance.Contains(SharedThis);
+		ensure(!bAlreadyQueued);
+		if (!bAlreadyQueued)
+		{
+			QueueToReinstance.Push(SharedThis);
+
+			if (ClassToReinstance && DuplicatedClass)
 			{
-				UBlueprint* BP = *ChildBP;
-				if( BP->ParentClass == ClassToReinstance || BP->ParentClass == DuplicatedClass)
-				{
-					ReparentChild(BP);
-
-					FKismetEditorUtilities::CompileBlueprint(BP, false, bSkipGarbageCollection);
-				}
+				CompileChildren();
 			}
+		}
+
+		if (QueueToReinstance.Num() && (QueueToReinstance[0] == SharedThis))
+		{
+			// All children were recompiled. It's safe to reinstance.
+			for (int32 Idx = 0; Idx < QueueToReinstance.Num(); ++Idx)
+			{
+				QueueToReinstance[Idx]->ReinstanceInner(bForceAlwaysReinstance);
+			}
+			QueueToReinstance.Empty();
+		}
+	}
+	else
+	{
+		//THE OLD WAY
+		if (bHasReinstanced)
+		{
+			return;
+		}
+		bHasReinstanced = true;
+
+		if (ClassToReinstance && DuplicatedClass)
+		{
+			ReinstanceInner(bForceAlwaysReinstance);
+			CompileChildren();
 		}
 	}
 }
+
+
 
 void FBlueprintCompileReinstancer::UpdateBytecodeReferences()
 {
@@ -422,6 +486,14 @@ struct FActorReplacementHelper
 	{
 		CachedActorData = StaticCastSharedPtr<AActor::FActorTransactionAnnotation>(OldActor->GetTransactionAnnotation());
 		CacheAttachInfo(OldActor);
+
+		for (UActorComponent* OldActorComponent : OldActor->GetComponents())
+		{
+			if (OldActorComponent)
+			{
+				OldActorComponentNameMap.Add(OldActorComponent->GetFName(), OldActorComponent);
+			}
+		}
 	}
 
 	/**
@@ -454,15 +526,18 @@ private:
 	 * Takes the cached child actors, as well as the old AttachParent, and sets
 	 * up the new actor so that its attachment hierarchy reflects the old actor
 	 * that it is replacing.
+	 *
+	 * @param OldToNewInstanceMap Mapping of reinstanced objects.
 	 */
-	void ApplyAttachments();
+	void ApplyAttachments(const TMap<UObject*, UObject*>& OldToNewInstanceMap);
 	
 	/**
 	 * Takes the cached child actors, and attaches them under the new actor.
 	 *
 	 * @param  RootComponent	The new actor's root, which the child actors should attach to.
+	 * @param  OldToNewInstanceMap	Mapping of reinstanced objects. Used for when child and parent actor are of the same type (and thus parent may have been reinstanced, so we can't reattach to the old instance).
 	 */
-	void AttachChildActors(USceneComponent* RootComponent);
+	void AttachChildActors(USceneComponent* RootComponent, const TMap<UObject*, UObject*>& OldToNewInstanceMap);
 
 private:
 	AActor*          NewActor;
@@ -482,6 +557,8 @@ private:
 
 	/** Holds actor component data, etc. that we use to apply */
 	TSharedPtr<AActor::FActorTransactionAnnotation> CachedActorData;
+
+	TMap<FName, UActorComponent*> OldActorComponentNameMap;
 };
 
 void FActorReplacementHelper::Finalize(const TMap<UObject*, UObject*>& OldToNewInstanceMap)
@@ -519,12 +596,25 @@ void FActorReplacementHelper::Finalize(const TMap<UObject*, UObject*>& OldToNewI
 		}
 	}
 
-	ApplyAttachments();
+	ApplyAttachments(OldToNewInstanceMap);
 
 	if (bSelectNewActor)
 	{
-		GEditor->SelectActor(NewActor, /*bInSelected =*/true, /*bNotify =*/false);
+		GEditor->SelectActor(NewActor, /*bInSelected =*/true, /*bNotify =*/true);
 	}
+
+	TMap<UObject*, UObject*> ConstructedComponentReplacementMap;
+	for (UActorComponent* NewActorComponent : NewActor->GetComponents())
+	{
+		if (NewActorComponent)
+		{
+			if (UActorComponent** OldActorComponent = OldActorComponentNameMap.Find(NewActorComponent->GetFName()))
+			{
+				ConstructedComponentReplacementMap.Add(*OldActorComponent, NewActorComponent);
+			}
+		}
+	}
+	GEditor->NotifyToolsOfObjectReplacement(ConstructedComponentReplacementMap);
 	
 	// Destroy actor and clear references.
 	NewActor->Modify();
@@ -586,7 +676,7 @@ void FActorReplacementHelper::CacheChildAttachments(const AActor* OldActor)
 	}
 }
 
-void FActorReplacementHelper::ApplyAttachments()
+void FActorReplacementHelper::ApplyAttachments(const TMap<UObject*, UObject*>& OldToNewInstanceMap)
 {
 	USceneComponent* NewRootComponent = NewActor->GetRootComponent();
 	if (NewRootComponent == nullptr)
@@ -606,14 +696,21 @@ void FActorReplacementHelper::ApplyAttachments()
 		}
 	}
 
-	AttachChildActors(NewRootComponent);
+	AttachChildActors(NewRootComponent, OldToNewInstanceMap);
 }
 
-void FActorReplacementHelper::AttachChildActors(USceneComponent* RootComponent)
+void FActorReplacementHelper::AttachChildActors(USceneComponent* RootComponent, const TMap<UObject*, UObject*>& OldToNewInstanceMap)
 {
 	// if we had attached children reattach them now - unless they are already attached
 	for (FAttachedActorInfo& Info : PendingChildAttachments)
 	{
+		// Check for a reinstanced attachment, and redirect to the new instance if found
+		AActor* NewAttachedActor = Cast<AActor>(OldToNewInstanceMap.FindRef(Info.AttachedActor));
+		if (NewAttachedActor)
+		{
+			Info.AttachedActor = NewAttachedActor;
+		}
+
 		// If this actor is no longer attached to anything, reattach
 		if (!Info.AttachedActor->IsPendingKill() && Info.AttachedActor->GetAttachParentActor() == nullptr)
 		{

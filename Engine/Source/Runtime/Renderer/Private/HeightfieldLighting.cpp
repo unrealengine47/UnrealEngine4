@@ -34,14 +34,6 @@ FAutoConsoleVariableRef CVarHeightfieldGlobalIllumination(
 	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
-int32 GHeightfieldHemisphereSamples = 32;
-FAutoConsoleVariableRef CVarHeightfieldHemisphereSamples(
-	TEXT("r.HeightfieldHemisphereSamples"),
-	GHeightfieldHemisphereSamples,
-	TEXT(""),
-	ECVF_Cheat | ECVF_RenderThreadSafe
-	);
-
 float GHeightfieldInnerBounceDistance = 3000;
 FAutoConsoleVariableRef CVarHeightfieldInnerBounceDistancer(
 	TEXT("r.HeightfieldInnerBounceDistance"),
@@ -1077,6 +1069,7 @@ public:
 		GlobalHeightfieldParameters.Bind(Initializer.ParameterMap);
 		LightDirection.Bind(Initializer.ParameterMap, TEXT("LightDirection"));
 		LightColor.Bind(Initializer.ParameterMap, TEXT("LightColor"));
+		SkyLightIndirectScale.Bind(Initializer.ParameterMap, TEXT("SkyLightIndirectScale"));
 		HeightfieldShadowing.Bind(Initializer.ParameterMap, TEXT("HeightfieldShadowing"));
 		HeightfieldShadowingSampler.Bind(Initializer.ParameterMap, TEXT("HeightfieldShadowingSampler"));
 		WorldToLight.Bind(Initializer.ParameterMap, TEXT("WorldToLight"));
@@ -1089,7 +1082,8 @@ public:
 		const FLightSceneInfo& LightSceneInfo, 
 		const FMaterialRenderProxy* MaterialProxy,
 		int32 NumHeightfieldsValue, 
-		const FHeightfieldLightingAtlas& Atlas)
+		const FHeightfieldLightingAtlas& Atlas,
+		float SkyLightIndirectScaleValue)
 	{
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 
@@ -1100,6 +1094,8 @@ public:
 
 		SetShaderValue(RHICmdList, ShaderRHI, LightDirection, LightSceneInfo.Proxy->GetDirection());
 		SetShaderValue(RHICmdList, ShaderRHI, LightColor, LightSceneInfo.Proxy->GetColor() * LightSceneInfo.Proxy->GetIndirectLightingScale());
+
+		SetShaderValue(RHICmdList, ShaderRHI, SkyLightIndirectScale, SkyLightIndirectScaleValue);
 
 		const FSceneViewState* ViewState = (const FSceneViewState*)View.State;
 		SetTextureParameter(RHICmdList, ShaderRHI, HeightfieldShadowing, HeightfieldShadowingSampler, TStaticSamplerState<SF_Bilinear>::GetRHI(), Atlas.DirectionalLightShadowing->GetRenderTargetItem().ShaderResourceTexture);
@@ -1122,6 +1118,7 @@ public:
 		Ar << GlobalHeightfieldParameters;
 		Ar << LightDirection;
 		Ar << LightColor;
+		Ar << SkyLightIndirectScale;
 		Ar << HeightfieldShadowing;
 		Ar << HeightfieldShadowingSampler;
 		Ar << WorldToLight;
@@ -1135,6 +1132,7 @@ private:
 	FGlobalHeightfieldParameters GlobalHeightfieldParameters;
 	FShaderParameter LightDirection;
 	FShaderParameter LightColor;
+	FShaderParameter SkyLightIndirectScale;
 	FShaderResourceParameter HeightfieldShadowing;
 	FShaderResourceParameter HeightfieldShadowingSampler;
 	FShaderParameter WorldToLight;
@@ -1175,6 +1173,10 @@ void FHeightfieldLightingViewInfo::ComputeLighting(const FViewInfo& View, FRHICo
 			LightSceneInfo.Proxy->GetLightFunctionMaterial() : 
 			UMaterial::GetDefaultMaterial(MD_LightFunction)->GetRenderProxy(false);
 
+		const FScene* Scene = (const FScene*)View.Family->Scene;
+
+		const float SkyLightIndirectScale = ShouldRenderDynamicSkyLight(Scene, *View.Family) ? Scene->SkyLight->IndirectLightingIntensity : 0;
+
 		// Skip rendering if the DefaultLightFunctionMaterial isn't compiled yet
 		if (MaterialProxy->GetMaterial(FeatureLevel)->IsLightFunction())
 		{
@@ -1203,7 +1205,7 @@ void FHeightfieldLightingViewInfo::ComputeLighting(const FViewInfo& View, FRHICo
 					RHICmdList.SetLocalBoundShaderState(BoundShaderState);
 
 					VertexShader->SetParameters(RHICmdList, View, HeightfieldDescriptions.Num());
-					PixelShader->SetParameters(RHICmdList, View, LightSceneInfo, MaterialProxy, HeightfieldDescriptions.Num(), Atlas);
+					PixelShader->SetParameters(RHICmdList, View, LightSceneInfo, MaterialProxy, HeightfieldDescriptions.Num(), Atlas, SkyLightIndirectScale);
 
 					RHICmdList.DrawPrimitive(PT_TriangleList, 0, 2, HeightfieldDescriptions.Num());
 				}
@@ -1408,35 +1410,6 @@ void FHeightfieldLightingViewInfo::ComputeOcclusionForSamples(
 	}
 }
 
-BEGIN_UNIFORM_BUFFER_STRUCT(FHemisphereSamples,)
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER_ARRAY(FVector4,SampleDirections,[1024])
-END_UNIFORM_BUFFER_STRUCT(FHemisphereSamples)
-
-IMPLEMENT_UNIFORM_BUFFER_STRUCT(FHemisphereSamples,TEXT("HemisphereSamples"));
-
-/** Generates unit length, stratified and uniformly distributed direction samples in a hemisphere. */
-void GenerateStratifiedUniformHemisphereSamples(int32 NumThetaSteps, int32 NumPhiSteps, FRandomStream& RandomStream, TArray<FVector4>& Samples)
-{
-	Samples.Empty(NumThetaSteps * NumPhiSteps);
-	for (int32 ThetaIndex = 0; ThetaIndex < NumThetaSteps; ThetaIndex++)
-	{
-		for (int32 PhiIndex = 0; PhiIndex < NumPhiSteps; PhiIndex++)
-		{
-			const float U1 = RandomStream.GetFraction();
-			const float U2 = RandomStream.GetFraction();
-
-			const float Fraction1 = (ThetaIndex + U1) / (float)NumThetaSteps;
-			const float Fraction2 = (PhiIndex + U2) / (float)NumPhiSteps;
-
-			const float R = FMath::Sqrt(1.0f - Fraction1 * Fraction1);
-
-			const float Phi = 2.0f * (float)PI * Fraction2;
-			// Convert to Cartesian
-			Samples.Add(FVector4(FMath::Cos(Phi) * R, FMath::Sin(Phi) * R, Fraction1));
-		}
-	}
-}
-
 class FCalculateHeightfieldIrradianceCS : public FGlobalShader
 {
 	DECLARE_SHADER_TYPE(FCalculateHeightfieldIrradianceCS,Global)
@@ -1462,10 +1435,9 @@ public:
 		AOParameters.Bind(Initializer.ParameterMap);
 		HeightfieldDescriptionParameters.Bind(Initializer.ParameterMap);
 		GlobalHeightfieldParameters.Bind(Initializer.ParameterMap);
-		IrradianceCacheIrradiance.Bind(Initializer.ParameterMap, TEXT("IrradianceCacheIrradiance"));
+		HeightfieldIrradiance.Bind(Initializer.ParameterMap, TEXT("HeightfieldIrradiance"));
 		IrradianceCacheNormal.Bind(Initializer.ParameterMap, TEXT("IrradianceCacheNormal"));
 		IrradianceCachePositionRadius.Bind(Initializer.ParameterMap, TEXT("IrradianceCachePositionRadius"));
-		IrradianceCacheBentNormal.Bind(Initializer.ParameterMap, TEXT("IrradianceCacheBentNormal"));
 		ScatterDrawParameters.Bind(Initializer.ParameterMap, TEXT("ScatterDrawParameters"));
 		SavedStartIndex.Bind(Initializer.ParameterMap, TEXT("SavedStartIndex"));
 		BentNormalNormalizeFactor.Bind(Initializer.ParameterMap, TEXT("BentNormalNormalizeFactor"));
@@ -1475,9 +1447,9 @@ public:
 		TanConeHalfAngle.Bind(Initializer.ParameterMap, TEXT("TanConeHalfAngle"));
 		HeightfieldLighting.Bind(Initializer.ParameterMap, TEXT("HeightfieldLighting"));
 		HeightfieldLightingSampler.Bind(Initializer.ParameterMap, TEXT("HeightfieldLightingSampler"));
-		NumHemisphereSamples.Bind(Initializer.ParameterMap, TEXT("NumHemisphereSamples"));
 		InnerLightTransferDistance.Bind(Initializer.ParameterMap, TEXT("InnerLightTransferDistance"));
 		OuterLightTransferDistanceScale.Bind(Initializer.ParameterMap, TEXT("OuterLightTransferDistanceScale"));
+		RecordConeVisibility.Bind(Initializer.ParameterMap, TEXT("RecordConeVisibility"));
 	}
 
 	FCalculateHeightfieldIrradianceCS()
@@ -1505,11 +1477,11 @@ public:
 
 		SetSRVParameter(RHICmdList, ShaderRHI, IrradianceCacheNormal, SurfaceCacheResources.Level[DepthLevel]->Normal.SRV);
 		SetSRVParameter(RHICmdList, ShaderRHI, IrradianceCachePositionRadius, SurfaceCacheResources.Level[DepthLevel]->PositionAndRadius.SRV);
-		SetSRVParameter(RHICmdList, ShaderRHI, IrradianceCacheBentNormal, SurfaceCacheResources.Level[DepthLevel]->BentNormal.SRV);
 		SetSRVParameter(RHICmdList, ShaderRHI, ScatterDrawParameters, SurfaceCacheResources.Level[DepthLevel]->ScatterDrawParameters.SRV);
 		SetSRVParameter(RHICmdList, ShaderRHI, SavedStartIndex, SurfaceCacheResources.Level[DepthLevel]->SavedStartIndex.SRV);
+		SetSRVParameter(RHICmdList, ShaderRHI, RecordConeVisibility, TemporaryIrradianceCacheResources.ConeVisibility.SRV);
 
-		IrradianceCacheIrradiance.SetBuffer(RHICmdList, ShaderRHI, SurfaceCacheResources.Level[DepthLevel]->Irradiance);
+		HeightfieldIrradiance.SetBuffer(RHICmdList, ShaderRHI, TemporaryIrradianceCacheResources.HeightfieldIrradiance);
 
 		{
 			FAOSampleData2 AOSampleData;
@@ -1535,28 +1507,6 @@ public:
 			SetShaderValue(RHICmdList, ShaderRHI, BentNormalNormalizeFactor, BentNormalNormalizeFactorValue);
 		}
 
-		{
-			//@todo - cache this buffer
-			FHemisphereSamples HemisphereSamples;
-
-			const float NumThetaStepsFloat = FMath::Sqrt(GHeightfieldHemisphereSamples / (float)PI);
-			const int32 NumThetaSteps = FMath::TruncToInt(NumThetaStepsFloat);
-			const int32 NumPhiSteps = FMath::TruncToInt(NumThetaStepsFloat * (float)PI);
-
-			TArray<FVector4> SampleDirections;
-			FRandomStream RandomStream(12345);
-			GenerateStratifiedUniformHemisphereSamples(NumThetaSteps, NumPhiSteps, RandomStream, SampleDirections);
-
-			for (int32 SampleIndex = 0; SampleIndex < NumThetaSteps * NumPhiSteps; SampleIndex++)
-			{
-				HemisphereSamples.SampleDirections[SampleIndex] = FVector4(SampleDirections[SampleIndex]);
-			}
-
-			SetUniformBufferParameterImmediate(RHICmdList, ShaderRHI, GetUniformBufferParameter<FHemisphereSamples>(), HemisphereSamples);
-
-			SetShaderValue(RHICmdList, ShaderRHI, NumHemisphereSamples, NumThetaSteps * NumPhiSteps);
-		}
-
 		extern float GAOConeHalfAngle;
 		SetShaderValue(RHICmdList, ShaderRHI, TanConeHalfAngle, FMath::Tan(GAOConeHalfAngle));
 		extern float GAORecordRadiusScale;
@@ -1571,7 +1521,7 @@ public:
 
 	void UnsetParameters(FRHICommandList& RHICmdList)
 	{
-		IrradianceCacheIrradiance.UnsetUAV(RHICmdList, GetComputeShader());
+		HeightfieldIrradiance.UnsetUAV(RHICmdList, GetComputeShader());
 	}
 
 	virtual bool Serialize(FArchive& Ar)
@@ -1580,10 +1530,9 @@ public:
 		Ar << AOParameters;
 		Ar << HeightfieldDescriptionParameters;
 		Ar << GlobalHeightfieldParameters;
-		Ar << IrradianceCacheIrradiance;
+		Ar << HeightfieldIrradiance;
 		Ar << IrradianceCacheNormal;
 		Ar << IrradianceCachePositionRadius;
-		Ar << IrradianceCacheBentNormal;
 		Ar << ScatterDrawParameters;
 		Ar << SavedStartIndex;
 		Ar << BentNormalNormalizeFactor;
@@ -1593,9 +1542,9 @@ public:
 		Ar << TanConeHalfAngle;
 		Ar << HeightfieldLighting;
 		Ar << HeightfieldLightingSampler;
-		Ar << NumHemisphereSamples;
 		Ar << InnerLightTransferDistance;
 		Ar << OuterLightTransferDistanceScale;
+		Ar << RecordConeVisibility;
 		return bShaderHasOutdatedParameters;
 	}
 
@@ -1604,10 +1553,9 @@ private:
 	FAOParameters AOParameters;
 	FHeightfieldDescriptionParameters HeightfieldDescriptionParameters;
 	FGlobalHeightfieldParameters GlobalHeightfieldParameters;
-	FRWShaderParameter IrradianceCacheIrradiance;
+	FRWShaderParameter HeightfieldIrradiance;
 	FShaderResourceParameter IrradianceCacheNormal;
 	FShaderResourceParameter IrradianceCachePositionRadius;
-	FShaderResourceParameter IrradianceCacheBentNormal;
 	FShaderResourceParameter ScatterDrawParameters;
 	FShaderResourceParameter SavedStartIndex;
 	FShaderParameter BentNormalNormalizeFactor;
@@ -1617,9 +1565,9 @@ private:
 	FShaderParameter TanConeHalfAngle;
 	FShaderResourceParameter HeightfieldLighting;
 	FShaderResourceParameter HeightfieldLightingSampler;
-	FShaderParameter NumHemisphereSamples;
 	FShaderParameter InnerLightTransferDistance;
 	FShaderParameter OuterLightTransferDistanceScale;
+	FShaderResourceParameter RecordConeVisibility;
 };
 
 IMPLEMENT_SHADER_TYPE(,FCalculateHeightfieldIrradianceCS,TEXT("HeightfieldLighting"),TEXT("CalculateHeightfieldIrradianceCS"),SF_Compute);

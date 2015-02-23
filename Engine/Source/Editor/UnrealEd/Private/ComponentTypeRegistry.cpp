@@ -3,34 +3,52 @@
 #include "UnrealEd.h"
 
 #include "AssetRegistryModule.h"
+#include "ClassIconFinder.h"
 #include "ComponentTypeRegistry.h"
 #include "EdGraphSchema_K2.h"
 #include "KismetEditorUtilities.h"
+#include "HotReloadInterface.h"
+#include "SComponentClassCombo.h"
 
 #define LOCTEXT_NAMESPACE "ComponentTypeRegistry"
+
+//////////////////////////////////////////////////////////////////////////
+// FComponentTypeRegistryData
 
 struct FComponentTypeRegistryData
 	: public FTickableEditorObject
 {
 	FComponentTypeRegistryData();
-	void RefreshComponentList();
+
+	// Force a refresh of the components list right now (also calls the ComponentListChanged delegate to notify watchers)
+	void ForceRefreshComponentList();
+
+	static void AddBasicShapeComponents(TArray<FComponentClassComboEntryPtr>& SortedClassList);
 
 	/** Implementation of FTickableEditorObject */
 	virtual void Tick(float) override;
 	virtual bool IsTickable() const override { return true; }
 	virtual TStatId GetStatId() const { RETURN_QUICK_DECLARE_CYCLE_STAT(FTypeDatabaseUpdater, STATGROUP_Tickables); }
-	/** End implementation of FTickableEditorObject */
 
+	// Request a refresh of the components list next frame
+	void Invalidate()
+	{
+		bNeedsRefreshNextTick = true;
+	}
+public:
+	/** End implementation of FTickableEditorObject */
 	TArray<FComponentClassComboEntryPtr> ComponentClassList;
+	TArray<FComponentTypeEntry> ComponentTypeList;
 	TArray<FAssetData> PendingAssetData;
 	FOnComponentTypeListChanged ComponentListChanged;
+	bool bNeedsRefreshNextTick;
 };
 
 static const FString CommonClassGroup(TEXT("Common"));
 // This has to stay in sync with logic in FKismetCompilerContext::FinishCompilingClass
 static const FString BlueprintComponents(TEXT("Custom"));
 
-static void AddBasicShapeComponents(TArray<FComponentClassComboEntryPtr>& SortedClassList)
+void FComponentTypeRegistryData::AddBasicShapeComponents(TArray<FComponentClassComboEntryPtr>& SortedClassList)
 {
 	FString BasicShapesHeading = LOCTEXT("BasicShapesHeading", "Basic Shapes").ToString();
 
@@ -49,9 +67,18 @@ static void AddBasicShapeComponents(TArray<FComponentClassComboEntryPtr>& Sorted
 		Args.OnComponentCreated = FOnComponentCreated::CreateStatic(OnBasicShapeCreated);
 		Args.ComponentNameOverride = LOCTEXT("BasicCubeShapeDisplayName", "Cube").ToString();
 		Args.IconOverrideBrushName = FName("ClassIcon.Cube");
+		Args.SortPriority = 2;
 
-		FComponentClassComboEntryPtr NewShape = MakeShareable(new FComponentClassComboEntry(BasicShapesHeading, UStaticMeshComponent::StaticClass(), true, EComponentCreateAction::SpawnExistingClass, Args));
-		SortedClassList.Add(NewShape);
+		{
+			FComponentClassComboEntryPtr NewShape = MakeShareable(new FComponentClassComboEntry(BasicShapesHeading, UStaticMeshComponent::StaticClass(), true, EComponentCreateAction::SpawnExistingClass, Args));
+			SortedClassList.Add(NewShape);
+		}
+
+		{
+			//Cube also goes in the common group
+			FComponentClassComboEntryPtr NewShape = MakeShareable(new FComponentClassComboEntry(CommonClassGroup, UStaticMeshComponent::StaticClass(), false, EComponentCreateAction::SpawnExistingClass, Args));
+			SortedClassList.Add(NewShape);
+		}
 	}
 
 	{
@@ -60,9 +87,17 @@ static void AddBasicShapeComponents(TArray<FComponentClassComboEntryPtr>& Sorted
 		Args.OnComponentCreated = FOnComponentCreated::CreateStatic(OnBasicShapeCreated);
 		Args.ComponentNameOverride = LOCTEXT("BasicSphereShapeDisplayName", "Sphere").ToString();
 		Args.IconOverrideBrushName = FName("ClassIcon.Sphere");
+		Args.SortPriority = 2;
+		{
+			FComponentClassComboEntryPtr NewShape = MakeShareable(new FComponentClassComboEntry(BasicShapesHeading, UStaticMeshComponent::StaticClass(), true, EComponentCreateAction::SpawnExistingClass, Args));
+			SortedClassList.Add(NewShape);
+		}
 
-		FComponentClassComboEntryPtr NewShape = MakeShareable(new FComponentClassComboEntry(BasicShapesHeading, UStaticMeshComponent::StaticClass(), true, EComponentCreateAction::SpawnExistingClass, Args));
-		SortedClassList.Add(NewShape);
+		{
+			// Sphere also goes in the common group
+			FComponentClassComboEntryPtr NewShape = MakeShareable(new FComponentClassComboEntry(CommonClassGroup, UStaticMeshComponent::StaticClass(), false, EComponentCreateAction::SpawnExistingClass, Args));
+			SortedClassList.Add(NewShape);
+		}
 	}
 
 	{
@@ -71,7 +106,7 @@ static void AddBasicShapeComponents(TArray<FComponentClassComboEntryPtr>& Sorted
 		Args.OnComponentCreated = FOnComponentCreated::CreateStatic(OnBasicShapeCreated);
 		Args.ComponentNameOverride = LOCTEXT("BasicCylinderShapeDisplayName", "Cylinder").ToString();
 		Args.IconOverrideBrushName = FName("ClassIcon.Cylinder");
-
+		Args.SortPriority = 3;
 		FComponentClassComboEntryPtr NewShape = MakeShareable(new FComponentClassComboEntry(BasicShapesHeading, UStaticMeshComponent::StaticClass(), true, EComponentCreateAction::SpawnExistingClass, Args));
 		SortedClassList.Add(NewShape);
 	}
@@ -82,13 +117,14 @@ static void AddBasicShapeComponents(TArray<FComponentClassComboEntryPtr>& Sorted
 		Args.OnComponentCreated = FOnComponentCreated::CreateStatic(OnBasicShapeCreated);
 		Args.ComponentNameOverride = LOCTEXT("BasicConeShapeDisplayName", "Cone").ToString();
 		Args.IconOverrideBrushName = FName("ClassIcon.Cone");
-
+		Args.SortPriority = 4;
 		FComponentClassComboEntryPtr NewShape = MakeShareable(new FComponentClassComboEntry(BasicShapesHeading, UStaticMeshComponent::StaticClass(), true, EComponentCreateAction::SpawnExistingClass, Args));
 		SortedClassList.Add(NewShape);
 	}
 }
 
 FComponentTypeRegistryData::FComponentTypeRegistryData()
+	: bNeedsRefreshNextTick(false)
 {
 	const auto HandleAdded = [](const FAssetData& Data, FComponentTypeRegistryData* Parent)
 	{
@@ -106,9 +142,10 @@ FComponentTypeRegistryData::FComponentTypeRegistryData()
 	AssetRegistryModule.Get().OnAssetRenamed().AddStatic(HandleRenamed, this);
 }
 
-void FComponentTypeRegistryData::RefreshComponentList()
+void FComponentTypeRegistryData::ForceRefreshComponentList()
 {
 	ComponentClassList.Empty();
+	ComponentTypeList.Empty();
 
 	struct SortComboEntry
 	{
@@ -120,7 +157,14 @@ void FComponentTypeRegistryData::RefreshComponentList()
 			int32 HeadingCompareResult = FCString::Stricmp(*A->GetHeadingText(), *B->GetHeadingText());
 			if (HeadingCompareResult == 0)
 			{
-				bResult = FCString::Stricmp(*A->GetClassName(), *B->GetClassName()) < 0;
+				if( A->GetSortPriority() == 0 && B->GetSortPriority() == 0 )
+				{
+					bResult = FCString::Stricmp(*A->GetClassName(), *B->GetClassName()) < 0;
+				}
+				else
+				{
+					bResult = A->GetSortPriority() < B->GetSortPriority();
+				}
 			}
 			else if (CommonClassGroup == A->GetHeadingText())
 			{
@@ -148,17 +192,20 @@ void FComponentTypeRegistryData::RefreshComponentList()
 		FComponentClassComboEntryPtr NewClassHeader = MakeShareable(new FComponentClassComboEntry(NewComponentsHeading));
 		ComponentClassList.Add(NewClassHeader);
 
-		FComponentClassComboEntryPtr NewCPPClass = MakeShareable(new FComponentClassComboEntry(NewComponentsHeading, UActorComponent::StaticClass(), true, EComponentCreateAction::CreateNewCPPClass));
-		ComponentClassList.Add(NewCPPClass);
-
 		FComponentClassComboEntryPtr NewBPClass = MakeShareable(new FComponentClassComboEntry(NewComponentsHeading, UActorComponent::StaticClass(), true, EComponentCreateAction::CreateNewBlueprintClass));
 		ComponentClassList.Add(NewBPClass);
+
+		FComponentClassComboEntryPtr NewCPPClass = MakeShareable(new FComponentClassComboEntry(NewComponentsHeading, UActorComponent::StaticClass(), true, EComponentCreateAction::CreateNewCPPClass));
+		ComponentClassList.Add(NewCPPClass);
 
 		FComponentClassComboEntryPtr NewSeparator(new FComponentClassComboEntry());
 		ComponentClassList.Add(NewSeparator);
 	}
 
 	TArray<FComponentClassComboEntryPtr> SortedClassList;
+
+	AddBasicShapeComponents(SortedClassList);
+
 	TArray<FName> InMemoryClasses;
 	for (TObjectIterator<UClass> It; It; ++It)
 	{
@@ -187,10 +234,15 @@ void FComponentTypeRegistryData::RefreshComponentList()
 					SortedClassList.Add(NewEntry);
 				}
 			}
+
+			bool const bOutOfDateClass = Class->HasAnyClassFlags(CLASS_NewerVersionExists);
+			if (!bOutOfDateClass && !FKismetEditorUtilities::IsClassABlueprintSkeleton(Class))
+			{
+				FComponentTypeEntry Entry = { Class->GetName(), FString(), Class };
+				ComponentTypeList.Add(Entry);
+			}
 		}
 	}
-
-	AddBasicShapeComponents(SortedClassList);
 
 	{
 		// make sure that we add any user created classes immediately, generally this will not create anything (because assets have not been discovered yet), but asset discovery
@@ -213,19 +265,25 @@ void FComponentTypeRegistryData::RefreshComponentList()
 
 		for (auto OnDiskClass : OnDiskClasses)
 		{
-			FName AssetPath;
+			FAssetData AssetData;
 			FString FixedString = OnDiskClass.ToString();
 			FixedString.RemoveFromEnd(TEXT("_C"));
 			for (auto Blueprint : BlueprintAssetData)
 			{
 				if (Blueprint.AssetName.ToString() == FixedString)
 				{
-					AssetPath = Blueprint.ObjectPath;
+					AssetData = Blueprint;
 					break;
 				}
 			}
 
-			FComponentClassComboEntryPtr NewEntry(new FComponentClassComboEntry(BlueprintComponents, FixedString, AssetPath, bIncludeInFilter));
+			FComponentTypeEntry Entry = { FixedString, AssetData.ObjectPath.ToString(), nullptr };
+			ComponentTypeList.Add(Entry);
+
+			// The blueprint is unloaded, so we need to work out which icon to use for it using its asset data
+			const UClass* BlueprintIconClass = FClassIconFinder::GetIconClassForAssetData(AssetData);
+
+			FComponentClassComboEntryPtr NewEntry(new FComponentClassComboEntry(BlueprintComponents, FixedString, AssetData.ObjectPath, BlueprintIconClass, bIncludeInFilter));
 			SortedClassList.Add(NewEntry);
 		}
 	}
@@ -258,11 +316,14 @@ void FComponentTypeRegistryData::RefreshComponentList()
 			ComponentClassList.Add(CurrentEntry);
 		}
 	}
+
+	ComponentListChanged.Broadcast();
 }
 
 void FComponentTypeRegistryData::Tick(float)
 {
-	bool bRequiresRefresh = false;
+	bool bRequiresRefresh = bNeedsRefreshNextTick;
+	bNeedsRefreshNextTick = false;
 
 	if (PendingAssetData.Num() != 0)
 	{
@@ -274,7 +335,7 @@ void FComponentTypeRegistryData::Tick(float)
 
 		for (auto Asset : PendingAssetData)
 		{
-			const FName BPParentClassName(TEXT("ParentClass"));
+			const FName BPParentClassName(GET_MEMBER_NAME_CHECKED(UBlueprint, ParentClass));
 
 			bool FoundBPNotify = false;
 			for (TMap<FName, FString>::TConstIterator TagIt(Asset.TagsAndValues); TagIt; ++TagIt)
@@ -294,10 +355,12 @@ void FComponentTypeRegistryData::Tick(float)
 
 	if (bRequiresRefresh)
 	{
-		RefreshComponentList();
-		ComponentListChanged.Broadcast();
+		ForceRefreshComponentList();
 	}
 }
+
+//////////////////////////////////////////////////////////////////////////
+// FComponentTypeRegistry
 
 FComponentTypeRegistry& FComponentTypeRegistry::Get()
 {
@@ -312,6 +375,13 @@ FOnComponentTypeListChanged& FComponentTypeRegistry::SubscribeToComponentList(TA
 	return Data->ComponentListChanged;
 }
 
+FOnComponentTypeListChanged& FComponentTypeRegistry::SubscribeToComponentList(const TArray<FComponentTypeEntry>*& OutComponentList)
+{
+	check(Data);
+	OutComponentList = &Data->ComponentTypeList;
+	return Data->ComponentListChanged;
+}
+
 FOnComponentTypeListChanged& FComponentTypeRegistry::GetOnComponentTypeListChanged()
 {
 	check(Data);
@@ -322,7 +392,30 @@ FComponentTypeRegistry::FComponentTypeRegistry()
 	: Data(nullptr)
 {
 	Data = new FComponentTypeRegistryData();
-	Data->RefreshComponentList();
+	Data->ForceRefreshComponentList();
+
+	IHotReloadInterface& HotReloadSupport = FModuleManager::LoadModuleChecked<IHotReloadInterface>("HotReload");
+	HotReloadSupport.OnHotReload().AddRaw(this, &FComponentTypeRegistry::OnProjectHotReloaded);
 }
+
+FComponentTypeRegistry::~FComponentTypeRegistry()
+{
+	if( FModuleManager::Get().IsModuleLoaded("HotReload") )
+	{
+		IHotReloadInterface& HotReloadSupport = FModuleManager::GetModuleChecked<IHotReloadInterface>("HotReload");
+		HotReloadSupport.OnHotReload().RemoveAll(this);
+	}
+}
+
+void FComponentTypeRegistry::OnProjectHotReloaded( bool bWasTriggeredAutomatically )
+{
+	Data->ForceRefreshComponentList();
+}
+
+void FComponentTypeRegistry::InvalidateClass(TSubclassOf<UActorComponent> /*ClassToUpdate*/)
+{
+	Data->Invalidate();
+}
+
 
 #undef LOCTEXT_NAMESPACE

@@ -14,6 +14,7 @@
 #include "GenericCommands.h"
 #include "ToolboxModule.h"
 
+
 #define LOCTEXT_NAMESPACE "MainFileMenu"
 
 
@@ -238,6 +239,12 @@ void FMainMenu::FillWindowMenu( FMenuBuilder& MenuBuilder, const TSharedRef< FEx
 						LOCTEXT("EditorPreferencesSubMenuToolTip", "Open the Translation Editor for a Given Project and Language"),
 						FNewMenuDelegate::CreateStatic(&FMainFrameTranslationEditorMenu::MakeMainFrameTranslationEditorSubMenu)
 						);
+					MenuBuilder.AddMenuEntry(
+						LOCTEXT("TranslationPickerMenuItem", "Translation Picker"),
+						LOCTEXT("TranslationPickerMenuItemToolTip", "Launch the Translation Picker to Modify Editor Translations"),
+						FSlateIcon(),
+						FUIAction(FExecuteAction::CreateStatic(&FMainFrameTranslationEditorMenu::HandleOpenTranslationPicker))
+						);
 				}
 			}
 			MenuBuilder.EndSection();
@@ -406,6 +413,14 @@ TSharedRef< SWidget > FMainMenu::MakeMainTabMenu( const TSharedPtr<FTabManager>&
 						NAME_None,
 						FText::Format(LOCTEXT("OpenIDELabel", "Open {0}"), ShortIDEName),
 						FText::Format(LOCTEXT("OpenIDETooltip", "Opens your C++ code in {0}."), ShortIDEName)
+					);
+				}
+				else
+				{
+					MenuBuilder.AddMenuEntry( FMainFrameCommands::Get().RefreshCodeProject,
+						NAME_None,
+						FText::Format(LOCTEXT("GenerateCodeProjectLabel", "Generate {0} Project"), ShortIDEName),
+						FText::Format(LOCTEXT("GenerateCodeProjectTooltip", "Generates your C++ code project in {0}."), ShortIDEName)
 					);
 				}
 

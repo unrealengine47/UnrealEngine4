@@ -1138,7 +1138,11 @@ namespace ClassViewer
 		 */
 		static void OpenCreateCPlusPlusClassWizard(UClass* InCreationClass)
 		{
-			FGameProjectGenerationModule::Get().OpenAddCodeToProjectDialog(InCreationClass, FString(), FGlobalTabmanager::Get()->GetRootWindow());
+			FGameProjectGenerationModule::Get().OpenAddCodeToProjectDialog(
+				FAddToProjectConfig()
+				.ParentClass(InCreationClass)
+				.ParentWindow(FGlobalTabmanager::Get()->GetRootWindow())
+			);
 		}
 
 		/**
@@ -2990,6 +2994,11 @@ void SClassViewer::Tick( const FGeometry& AllottedGeometry, const double InCurre
 		SetExpansionStatesInTree(RootTreeItems[0]);
 		bPendingSetExpansionStates = false;
 	}
+}
+
+bool SClassViewer::IsClassAllowed(const UClass* InClass) const
+{
+	return ClassViewer::Helpers::IsClassAllowed(InitOptions, InClass);
 }
 
 #undef LOCTEXT_NAMESPACE

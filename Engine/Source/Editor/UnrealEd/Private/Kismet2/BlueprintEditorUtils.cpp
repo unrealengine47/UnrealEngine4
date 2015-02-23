@@ -25,8 +25,8 @@
 #include "Editor/UnrealEd/Public/Kismet2/BlueprintEditorUtils.h"
 #include "Editor/UnrealEd/Public/Kismet2/StructureEditorUtils.h"
 #include "ScopedTransaction.h"
-#include "Editor/ClassViewer/Public/ClassViewerModule.h"
-#include "Editor/ClassViewer/Public/ClassViewerFilter.h"
+#include "ClassViewerModule.h"
+#include "ClassViewerFilter.h"
 #include "Editor/Kismet/Public/FindInBlueprintManager.h"
 
 #include "BlueprintEditor.h"
@@ -1316,6 +1316,7 @@ UClass* FBlueprintEditorUtils::RegenerateBlueprintClass(UBlueprint* Blueprint, U
 						UEditorEngine::FCopyPropertiesForUnrelatedObjectsParams CopyDetails;
 						CopyDetails.bAggressiveDefaultSubobjectReplacement = true;
 						CopyDetails.bDoDelta = false;
+						CopyDetails.bCopyDeprecatedProperties = true;
 						UEditorEngine::CopyPropertiesForUnrelatedObjects(PreviousCDO, NewCDO, CopyDetails);
 					}
 
@@ -2378,6 +2379,12 @@ bool FBlueprintEditorUtils::IsDataOnlyBlueprint(const UBlueprint* Blueprint)
 		return false;
 	}
 
+
+	if( Blueprint->ParentClass->IsChildOf( UActorComponent::StaticClass() ) )
+	{
+		return false;
+	}
+
 	// No new variables defined
 	if (Blueprint->NewVariables.Num() > 0)
 	{
@@ -2434,7 +2441,14 @@ bool FBlueprintEditorUtils::IsDataOnlyBlueprint(const UBlueprint* Blueprint)
 	UEdGraph* EventGraph = (Blueprint->UbergraphPages.Num() == 1) ? Blueprint->UbergraphPages[0] : NULL;
 	if( EventGraph && EventGraph->Nodes.Num() > 0 )
 	{
-		return false;
+		for(UEdGraphNode* GraphNode : EventGraph->Nodes)
+		{
+			// If there is an enabled node in the event graph, the Blueprint is not data only
+			if (GraphNode && GraphNode->bIsNodeEnabled)
+			{
+				return false;
+			}
+		}
 	}
 
 	// No implemented interfaces
@@ -3089,6 +3103,9 @@ void FBlueprintEditorUtils::RemoveBlueprintVariableMetaData(UBlueprint* Blueprin
 
 void FBlueprintEditorUtils::SetBlueprintVariableCategory(UBlueprint* Blueprint, const FName& VarName, const UStruct* InLocalVarScope, const FName& NewCategory, bool bDontRecompile)
 {
+	const FScopedTransaction Transaction( LOCTEXT("ChangeVariableCategory", "Change Variable Category") );
+	Blueprint->Modify();
+
 	// Ensure we always set a category
 	const UEdGraphSchema_K2* K2Schema = GetDefault<UEdGraphSchema_K2>();
 	FName SetCategory = NewCategory;
@@ -3127,6 +3144,7 @@ void FBlueprintEditorUtils::SetBlueprintVariableCategory(UBlueprint* Blueprint, 
 					
 					if(bIsCategoryChanged)
 					{
+						Blueprint->SimpleConstructionScript->GetAllNodes()[SCS_NodeIndex]->Modify();
 						Blueprint->SimpleConstructionScript->GetAllNodes()[SCS_NodeIndex]->CategoryName = SetCategory;
 					}
 				}
@@ -3140,13 +3158,15 @@ void FBlueprintEditorUtils::SetBlueprintVariableCategory(UBlueprint* Blueprint, 
 	}
 	else if(InLocalVarScope)
 	{
-		if(FBPVariableDescription* LocalVariable = FindLocalVariable(Blueprint, InLocalVarScope, VarName))
+		UK2Node_FunctionEntry* OutFunctionEntryNode;
+		if(FBPVariableDescription* LocalVariable = FindLocalVariable(Blueprint, InLocalVarScope, VarName, &OutFunctionEntryNode))
 		{
 			// If the category does not change, we will not recompile the Blueprint
 			bool bIsCategoryChanged = LocalVariable->Category != SetCategory;
 
 			if(bIsCategoryChanged)
 			{
+				OutFunctionEntryNode->Modify();
 				LocalVariable->SetMetaData(TEXT("Category"), *SetCategory.ToString());
 				LocalVariable->Category = SetCategory;
 			}
@@ -3388,21 +3408,22 @@ void FBlueprintEditorUtils::GetNewVariablesOfType( const UBlueprint* Blueprint, 
 
 void FBlueprintEditorUtils::GetLocalVariablesOfType( const UEdGraph* Graph, const FEdGraphPinType& Type, TArray<FName>& OutVars)
 {
-	if(Graph && Graph->GetSchema()->GetGraphType(Graph) == GT_Function)
+	if ((Graph != nullptr) && (Graph->GetSchema()->GetGraphType(Graph) == GT_Function))
 	{
 		TArray<UK2Node_FunctionEntry*> GraphNodes;
 		Graph->GetNodesOfClass<UK2Node_FunctionEntry>(GraphNodes);
 
-		bool bFoundLocalVariable = false;
-
-		// There is only ever 1 function entry
-		check(GraphNodes.Num() == 1);
-
-		for( auto& LocalVar : GraphNodes[0]->LocalVariables )
+		if (GraphNodes.Num() > 0)
 		{
-			if(LocalVar.VarType == Type)
+			// If there is an entry node, there should only be one
+			check(GraphNodes.Num() == 1);
+
+			for (const FBPVariableDescription& LocalVar : GraphNodes[0]->LocalVariables)
 			{
-				OutVars.Add(LocalVar.VarName);
+				if (LocalVar.VarType == Type)
+				{
+					OutVars.Add(LocalVar.VarName);
+				}
 			}
 		}
 	}
@@ -4034,7 +4055,8 @@ UFunction* FFunctionFromNodeHelper::FunctionFromNode(UK2Node* Node)
 	{
 		if (UK2Node_Event* EventNode = Cast<UK2Node_Event>(Node))
 		{
-			Function = EventNode->EventReference.ResolveMember<UFunction>((UClass*)(SearchScope));
+			// We need to search up the class hierachy by name or functions like CanAddParentNode will fail:
+			Function = SearchScope->FindFunctionByName(EventNode->EventReference.GetMemberName());
 		}
 		else if (UK2Node_FunctionEntry* FunctionNode = Cast<UK2Node_FunctionEntry>(Node))
 		{
@@ -6874,6 +6896,11 @@ bool FBlueprintEditorUtils::IsPaletteActionReadOnly(TSharedPtr<FEdGraphSchemaAct
 
 		bIsReadOnly = (AssociatedNode == NULL) || (!AssociatedNode->bCanRenameNode);	
 	}
+	else if (ActionIn->GetTypeId() == FEdGraphSchemaAction_K2InputAction::StaticGetTypeId())
+	{
+		bIsReadOnly = true;
+	}
+
 
 	return bIsReadOnly;
 }

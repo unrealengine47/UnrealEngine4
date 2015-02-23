@@ -417,6 +417,17 @@ public:
 #endif
 };
 
+USTRUCT()
+struct ENGINE_API FEventGraphFastCallPair
+{
+	GENERATED_USTRUCT_BODY()
+
+	UPROPERTY()
+	UFunction* FunctionToPatch;
+
+	UPROPERTY()
+	int32 EventGraphCallOffset;
+};
 
 UCLASS()
 class ENGINE_API UBlueprintGeneratedClass : public UClass
@@ -454,6 +465,9 @@ public:
 	UPROPERTY()
 	UFunction* UberGraphFunction;
 
+	UPROPERTY()
+	TArray<FEventGraphFastCallPair> FastCallPairs;
+
 	/** 
 	 * Gets an array of all BPGeneratedClasses (including InClass as 0th element) parents of given generated class 
 	 *
@@ -462,6 +476,8 @@ public:
 	 * @return						true if there were no status errors in any of the parent blueprints, otherwise false
 	 */
 	static bool GetGeneratedClassesHierarchy(const UClass* InClass, TArray<const UBlueprintGeneratedClass*>& OutBPGClasses);
+
+	UInheritableComponentHandler* GetInheritableComponentHandler(const bool bCreateIfNecessary = false);
 
 	/** Find the object in the TemplateObjects array with the supplied name */
 	UActorComponent* FindComponentTemplateByName(const FName& TemplateName) const;

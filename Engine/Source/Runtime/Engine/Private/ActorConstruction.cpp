@@ -7,109 +7,13 @@
 #include "Engine/LevelScriptActor.h"
 
 #if WITH_EDITOR
+#include "Editor.h"
 #include "Editor/UnrealEd/Public/Kismet2/BlueprintEditorUtils.h"
 #include "Editor/UnrealEd/Public/Kismet2/KismetEditorUtilities.h"
 #endif
 #include "Engine/SimpleConstructionScript.h"
 
 DEFINE_LOG_CATEGORY(LogBlueprintUserMessages);
-
-//////////////////////////////////////////////////////////////////////////
-// Local Types
-
-namespace
-{
-	/** Tracks info for components instanced during UCS execution */
-	struct FUCSComponentInfo
-	{
-		EComponentMobility::Type Mobility;
-		TWeakObjectPtr<UActorComponent> ComponentPtr;
-
-		FUCSComponentInfo(UActorComponent* InComponent)
-			: ComponentPtr(InComponent)
-		{
-			ensure(!InComponent || !InComponent->IsPendingKill());
-			USceneComponent* SceneComponent = Cast<USceneComponent>(InComponent);
-			if(SceneComponent != nullptr)
-			{
-				// Save original mobility
-				Mobility = SceneComponent->Mobility;
-
-				// Temporarily set to 'movable' to allow changes during UCS
-				SceneComponent->Mobility = EComponentMobility::Movable;
-			}
-		}
-	};
-
-	/** Helper class to manage components instanced during UCS execution */
-	class FUCSComponentManager
-	{
-		/** Map of actors and any components created during UCS */
-		TMap<const AActor*, TArray<FUCSComponentInfo> > UCSComponentsMap;
-
-	public:
-		/** Called before UCS execution has started for the given Actor */
-		void PreProcessComponents(const AActor* InActor)
-		{
-			TInlineComponentArray<UActorComponent*> ActorComponents;
-			InActor->GetComponents(ActorComponents);
-			for (auto CompIt = ActorComponents.CreateConstIterator(); CompIt; ++CompIt)
-			{
-				AddComponent(InActor, *CompIt);
-			}
-		}
-
-		/** Add a component instance for the given Actor */
-		void AddComponent(const AActor* InActor, UActorComponent* InComponent)
-		{
-			TArray<FUCSComponentInfo>& UCSComponentsList = UCSComponentsMap.FindOrAdd(InActor);
-			UCSComponentsList.Add(FUCSComponentInfo(InComponent));
-		}
-
-		/** Called after UCS execution has finished for the given Actor */
-		void PostProcessComponents(const AActor* InActor)
-		{
-			TArray<FUCSComponentInfo> UCSComponentsList;
-			const bool bFound = UCSComponentsMap.RemoveAndCopyValue(InActor, UCSComponentsList);
-			if (bFound)
-			{
-				for (int32 ComponentIndex = 0; ComponentIndex < UCSComponentsList.Num(); ++ComponentIndex)
-				{
-					const FUCSComponentInfo& UCSComponentInfo = UCSComponentsList[ComponentIndex];
-
-					USceneComponent* SceneComponent = Cast<USceneComponent>(UCSComponentInfo.ComponentPtr.Get());
-					if(SceneComponent != nullptr)
-					{
-						// Restore original mobility after UCS execution
-						SceneComponent->Mobility = UCSComponentInfo.Mobility;
-
-						// A parent component can't be more mobile than its children, so we check for that here and adjust as needed.
-						if(SceneComponent->AttachParent != nullptr && SceneComponent->AttachParent->Mobility > SceneComponent->Mobility)
-						{
-							if(SceneComponent->IsA<UStaticMeshComponent>())
-							{
-								// SMCs can't be stationary, so always set them (and any children) to be movable
-								SceneComponent->SetMobility(EComponentMobility::Movable);
-							}
-							else
-							{
-								// Set the new component (and any children) to be at least as mobile as its parent
-								SceneComponent->SetMobility(SceneComponent->AttachParent->Mobility);
-							}
-						}
-					}
-				}
-			}
-		}
-
-		/** Gets the FUCSComponentManager singleton. */
-		static FUCSComponentManager& Get()
-		{
-			static FUCSComponentManager Singleton;
-			return Singleton;
-		}
-	};
-}
 
 //////////////////////////////////////////////////////////////////////////
 // AActor Blueprint Stuff
@@ -219,7 +123,7 @@ void AActor::DestroyConstructedComponents()
 				// Rename component to avoid naming conflicts in the case where we rerun the SCS and name the new components the same way.
 				FName const NewBaseName( *(FString::Printf(TEXT("TRASH_%s"), *Component->GetClass()->GetName())) );
 				FName const NewObjectName = MakeUniqueObjectName(this, GetClass(), NewBaseName);
-				Component->Rename(*NewObjectName.ToString(), this, REN_ForceNoResetLoaders|REN_DontCreateRedirectors);
+				Component->Rename(*NewObjectName.ToString(), this, REN_ForceNoResetLoaders|REN_DontCreateRedirectors|REN_NonTransactional);
 			}
 		}
 	}
@@ -295,8 +199,10 @@ void AActor::RerunConstructionScripts()
 				Parent = ActorTransactionAnnotation->RootComponentData.AttachedParentInfo.Actor.Get();
 				if (Parent)
 				{
-					DetachRootComponentFromParent();
+					USceneComponent* AttachParent = ActorTransactionAnnotation->RootComponentData.AttachedParentInfo.AttachParent.Get();
+					ParentComponent = (AttachParent ? AttachParent : FindObjectFast<USceneComponent>(Parent, ActorTransactionAnnotation->RootComponentData.AttachedParentInfo.AttachParentName));
 					SocketName = ActorTransactionAnnotation->RootComponentData.AttachedParentInfo.SocketName;
+					DetachRootComponentFromParent();
 				}
 
 				for (const auto& CachedAttachInfo : ActorTransactionAnnotation->RootComponentData.AttachedToInfo)
@@ -369,6 +275,37 @@ void AActor::RerunConstructionScripts()
 			OldTransform.SetTranslation(RootComponent->GetComponentLocation()); // take into account any custom location
 		}
 
+#if WITH_EDITOR
+		// Save the current construction script-created components by name
+		TMap<const FName, UObject*> DestroyedComponentsByName;
+		TInlineComponentArray<UActorComponent*> PreviouslyAttachedComponents;
+		GetComponents(PreviouslyAttachedComponents);
+		for (auto Component : PreviouslyAttachedComponents)
+		{
+			if (Component)
+			{
+				if (Component->IsCreatedByConstructionScript())
+				{
+
+					DestroyedComponentsByName.Add(Component->GetFName(), Component);
+				}
+				else
+				{
+					UActorComponent* OuterComponent = Component->GetTypedOuter<UActorComponent>();
+					while (OuterComponent)
+					{
+						if (OuterComponent->IsCreatedByConstructionScript())
+						{
+							DestroyedComponentsByName.Add(Component->GetFName(), Component);
+							break;
+						}
+						OuterComponent = OuterComponent->GetTypedOuter<UActorComponent>();
+					}
+				}
+			}
+		}
+#endif
+
 		// Destroy existing components
 		DestroyConstructedComponents();
 
@@ -421,6 +358,25 @@ void AActor::RerunConstructionScripts()
 		GUndo = CurrentTransaction;
 
 #if WITH_EDITOR
+		// Create the mapping of old->new components and notify the editor of the replacements
+		TMap<UObject*, UObject*> OldToNewComponentMapping;
+
+		TInlineComponentArray<UActorComponent*> NewComponents;
+		GetComponents(NewComponents);
+		for (auto NewComp : NewComponents)
+		{
+			const FName NewCompName = NewComp->GetFName();
+			if (DestroyedComponentsByName.Contains(NewCompName))
+			{
+				OldToNewComponentMapping.Add(DestroyedComponentsByName[NewCompName], NewComp);
+			}
+		}
+
+		if (GEditor && (OldToNewComponentMapping.Num() > 0))
+		{
+			GEditor->NotifyToolsOfObjectReplacement(OldToNewComponentMapping);
+		}
+
 		if (ActorTransactionAnnotation)
 		{
 			CurrentTransactionAnnotation = NULL;
@@ -472,7 +428,7 @@ void AActor::ExecuteConstruction(const FTransform& Transform, const FComponentIn
 			// If we passed in cached data, we apply it now, so that the UserConstructionScript can use the updated values
 			if(InstanceDataCache)
 			{
-				InstanceDataCache->ApplyToActor(this);
+				InstanceDataCache->ApplyToActor(this, ECacheApplyPhase::PostSimpleConstructionScript);
 			}
 
 #if WITH_EDITOR
@@ -492,7 +448,7 @@ void AActor::ExecuteConstruction(const FTransform& Transform, const FComponentIn
 			// @TODO Don't re-apply to components we already applied to above
 			if (InstanceDataCache)
 			{
-				InstanceDataCache->ApplyToActor(this);
+				InstanceDataCache->ApplyToActor(this, ECacheApplyPhase::PostUserConstructionScript);
 			}
 		}
 		else
@@ -521,17 +477,31 @@ void AActor::ExecuteConstruction(const FTransform& Transform, const FComponentIn
 
 void AActor::ProcessUserConstructionScript()
 {
-	// Process components that may have already been instanced before UCS execution.
-	FUCSComponentManager& UCSComponentManager = FUCSComponentManager::Get();
-	UCSComponentManager.PreProcessComponents(this);
-
 	// Set a flag that this actor is currently running UserConstructionScript.
 	bRunningUserConstructionScript = true;
 	UserConstructionScript();
 	bRunningUserConstructionScript = false;
 
-	// Perform any post processing on this Actor's components after UCS execution.
-	UCSComponentManager.PostProcessComponents(this);
+	// Validate component mobility after UCS execution
+	TInlineComponentArray<USceneComponent*> SceneComponents;
+	GetComponents(SceneComponents);
+	for (auto SceneComponent : SceneComponents)
+	{
+		// A parent component can't be more mobile than its children, so we check for that here and adjust as needed.
+		if(SceneComponent != RootComponent && SceneComponent->AttachParent != nullptr && SceneComponent->AttachParent->Mobility > SceneComponent->Mobility)
+		{
+			if(SceneComponent->IsA<UStaticMeshComponent>())
+			{
+				// SMCs can't be stationary, so always set them (and any children) to be movable
+				SceneComponent->SetMobility(EComponentMobility::Movable);
+			}
+			else
+			{
+				// Set the new component (and any children) to be at least as mobile as its parent
+				SceneComponent->SetMobility(SceneComponent->AttachParent->Mobility);
+			}
+		}
+	}
 }
 
 void AActor::FinishAndRegisterComponent(UActorComponent* Component)
@@ -606,13 +576,7 @@ UActorComponent* AActor::AddComponent(FName TemplateName, bool bManualAttachment
 	{
 		// Call function to notify component it has been created
 		NewActorComp->OnComponentCreated();
-
-		// Keep track of the new component during UCS execution. This also does a temporary mobility swap during UCS execution in order to allow attachment and other things to succeed within that context.
-		if(bRunningUserConstructionScript)
-		{
-		FUCSComponentManager::Get().AddComponent(this, NewActorComp);
-		}
-
+		
 		// The user has the option of doing attachment manually where they have complete control or via the automatic rule
 		// that the first component added becomes the root component, with subsequent components attached to the root.
 		USceneComponent* NewSceneComp = Cast<USceneComponent>(NewActorComp);

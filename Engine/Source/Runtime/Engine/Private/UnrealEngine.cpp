@@ -99,12 +99,15 @@
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "NotificationManager.h"
 #include "SNotificationList.h"
+#include "Engine/UserInterfaceSettings.h"
 
-DEFINE_LOG_CATEGORY_STATIC(LogEngine, Log, All);
+DEFINE_LOG_CATEGORY(LogEngine);
 
 IMPLEMENT_MODULE( FEngineModule, Engine );
 
 #define LOCTEXT_NAMESPACE "UnrealEngine"
+
+DECLARE_CYCLE_STAT(TEXT("DrawStats"),STAT_DrawStats,STATGROUP_StatSystem);
 
 void FEngineModule::StartupModule()
 {
@@ -1143,36 +1146,41 @@ void UEngine::ParseCommandline()
 		bDisableAILogging = false;
 	}
 
-	bStartWithMatineeCapture = false;
-	bCompressMatineeCapture = false;
+	MatineeScreenshotOptions.bStartWithMatineeCapture = false;
+	MatineeScreenshotOptions.bCompressMatineeCapture = false;
 #if WITH_EDITOR
-	if (!GIsEditor && FParse::Value(FCommandLine::Get(), TEXT("-MATINEEAVICAPTURE="), MatineeCaptureName))
+	if (!GIsEditor && FParse::Value(FCommandLine::Get(), TEXT("-MATINEEAVICAPTURE="), MatineeScreenshotOptions.MatineeCaptureName))
 	{
-		MatineeCaptureType = EMatineeCaptureType::AVI;
-		bStartWithMatineeCapture = true;
+		MatineeScreenshotOptions.MatineeCaptureType = EMatineeCaptureType::AVI;
+		MatineeScreenshotOptions.bStartWithMatineeCapture = true;
 	}
-	else if (!GIsEditor && FParse::Value(FCommandLine::Get(), TEXT("-MATINEESSCAPTURE="), MatineeCaptureName))
+	else if (!GIsEditor && FParse::Value(FCommandLine::Get(), TEXT("-MATINEESSCAPTURE="), MatineeScreenshotOptions.MatineeCaptureName))
 	{
-		MatineeCaptureType = EMatineeCaptureType::BMP;
+		MatineeScreenshotOptions.MatineeCaptureType = EMatineeCaptureType::BMP;
 
 		FString MatineeCaptureFormat;
 		if(FParse::Value(FCommandLine::Get(), TEXT("-MATINEESSFORMAT="), MatineeCaptureFormat))
 		{
 			if(MatineeCaptureFormat == TEXT("BMP"))
 			{
-				MatineeCaptureType = EMatineeCaptureType::BMP;
+				MatineeScreenshotOptions.MatineeCaptureType = EMatineeCaptureType::BMP;
 			}
 			else if(MatineeCaptureFormat == TEXT("PNG"))
 			{
-				MatineeCaptureType = EMatineeCaptureType::PNG;
+				MatineeScreenshotOptions.MatineeCaptureType = EMatineeCaptureType::PNG;
 			}
 			else if(MatineeCaptureFormat == TEXT("JPEG"))
 			{
-				MatineeCaptureType = EMatineeCaptureType::JPEG;
+				MatineeScreenshotOptions.MatineeCaptureType = EMatineeCaptureType::JPEG;
 			}
 		}
 
-		bStartWithMatineeCapture = true;
+		MatineeScreenshotOptions.bStartWithMatineeCapture = true;
+	}
+
+	if( !GIsEditor && MatineeScreenshotOptions.bStartWithMatineeCapture )
+	{
+		GConfig->GetBool( TEXT("MatineeCreateMovieOptions"), TEXT("HideHUD"), MatineeScreenshotOptions.bHideHud, GEditorUserSettingsIni );
 	}
 
 	// If we are capturing a matinee movie and we want to dump the buffer visualization shots too, for on all required functionality
@@ -1186,17 +1194,17 @@ void UEngine::ParseCommandline()
 		}
 	}
 
-	if (bStartWithMatineeCapture)
+	if (MatineeScreenshotOptions.bStartWithMatineeCapture)
 	{
-		FParse::Value(FCommandLine::Get(), TEXT("-MATINEEPACKAGE="), MatineePackageCaptureName);
+		FParse::Value(FCommandLine::Get(), TEXT("-MATINEEPACKAGE="), MatineeScreenshotOptions.MatineePackageCaptureName);
 	}
 
 	if ( !GIsEditor && FParse::Param(FCommandLine::Get(), TEXT("COMPRESSCAPTURE")) )
 	{
-		bCompressMatineeCapture = true;
+		MatineeScreenshotOptions.bCompressMatineeCapture = true;
 	}
 #endif
-	MatineeCaptureFPS = 30;
+	MatineeScreenshotOptions.MatineeCaptureFPS = 30;
 }
 
 
@@ -1455,6 +1463,9 @@ void UEngine::InitializeObjectReferences()
 
 		checkf(DefaultPreviewPawnClass != NULL, TEXT("Engine config value DefaultPreviewPawnClass is not a valid class name."));
 	}
+
+	UUserInterfaceSettings* UISettings = GetMutableDefault<UUserInterfaceSettings>(UUserInterfaceSettings::StaticClass());
+	UISettings->LoadCursors();
 }
 
 //
@@ -2169,11 +2180,11 @@ bool UEngine::Exec( UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar )
 	{
 		return HandleStatCommand(InWorld, GStatProcessingViewportClient, Cmd, Ar);
 	}
-	else if( FParse::Command(&Cmd,TEXT("STARTMOVIECAPTURE")) && (GEngine->bStartWithMatineeCapture == true || GIsEditor) )
+	else if( FParse::Command(&Cmd,TEXT("STARTMOVIECAPTURE")) && (GEngine->MatineeScreenshotOptions.bStartWithMatineeCapture == true || GIsEditor) )
 	{
 		return HandleStartMovieCaptureCommand( Cmd, Ar );
 	}
-	else if( FParse::Command(&Cmd,TEXT("STOPMOVIECAPTURE")) && (GEngine->bStartWithMatineeCapture == true || GIsEditor) )
+	else if( FParse::Command(&Cmd,TEXT("STOPMOVIECAPTURE")) && (GEngine->MatineeScreenshotOptions.bStartWithMatineeCapture == true || GIsEditor) )
 	{
 		return HandleStopMovieCaptureCommand( Cmd, Ar );
 	}
@@ -8680,8 +8691,6 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 	WorldContext.SeamlessTravelHandler.CancelTravel();
 
 	double	StartTime = FPlatformTime::Seconds();
-	{
-		DECLARE_SCOPE_CYCLE_COUNTER(TEXT("Loading URL"), STAT_LoadMap, STATGROUP_LoadTime);
 
 	UE_LOG(LogLoad, Log,  TEXT("LoadMap: %s"), *URL.ToString() );
 	GInitRunaway();
@@ -8755,6 +8764,29 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 			GEngine->WorldDestroyed(WorldContext.World());
 		}
 		WorldContext.World()->RemoveFromRoot();
+
+		// mark everything else contained in the world to be deleted
+		TArray<UWorld*> CurrentWorlds;
+		for (auto LevelIt(WorldContext.World()->GetLevelIterator()); LevelIt; ++LevelIt)
+		{
+			const ULevel* Level = *LevelIt;
+			if (Level)
+			{
+				CurrentWorlds.Add(CastChecked<UWorld>(Level->GetOuter()));
+			}
+		}
+
+		for (TObjectIterator<UObject> It; It; ++It)
+		{
+			for (const UWorld* World : CurrentWorlds)
+			{
+				if (It->IsIn(World))
+				{
+					It->MarkPendingKill();
+					break;
+				}
+			}
+		}
 
 		WorldContext.SetCurrentWorld(NULL);
 	}
@@ -9109,7 +9141,6 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 	IStreamingManager::Get().NotifyLevelChange();
 
 	WorldContext.World()->BeginPlay();
-	}
 
 	// send a callback message
 	PostLoadMapCaller.bCalled = true;
@@ -10302,7 +10333,7 @@ void UEngine::CopyPropertiesForUnrelatedObjects(UObject* OldObject, UObject* New
 
 	// Bad idea to write data to an actor while its components are registered
 	AActor* NewActor = Cast<AActor>(NewObject);
-	if(NewActor != NULL)
+	if (NewActor != nullptr)
 	{
 		TInlineComponentArray<UActorComponent*> Components;
 		NewActor->GetComponents(Components);
@@ -10314,12 +10345,12 @@ void UEngine::CopyPropertiesForUnrelatedObjects(UObject* OldObject, UObject* New
 	}
 
 	// If the new object is an Actor, save the root component reference, to be restored later
-	USceneComponent* SavedRootComponent = NULL;
-	UObjectProperty* RootComponentProperty = NULL;
-	if(NewActor != NULL)
+	USceneComponent* SavedRootComponent = nullptr;
+	UObjectProperty* RootComponentProperty = nullptr;
+	if (NewActor != nullptr)
 	{
 		RootComponentProperty = FindField<UObjectProperty>(NewActor->GetClass(), "RootComponent");
-		if(RootComponentProperty != NULL)
+		if (RootComponentProperty != nullptr)
 		{
 			SavedRootComponent = Cast<USceneComponent>(RootComponentProperty->GetObjectPropertyValue_InContainer(NewActor));
 		}
@@ -10330,15 +10361,16 @@ void UEngine::CopyPropertiesForUnrelatedObjects(UObject* OldObject, UObject* New
 	TIndirectArray<FInstancedObjectRecord> SavedInstances;
 	TMap<FName, int32> OldInstanceMap;
 
+	const uint32 AdditinalPortFlags = Params.bCopyDeprecatedProperties ? PPF_UseDeprecatedProperties : PPF_None;
 	// Save the modified properties of the old CDO
 	{
-		FObjectWriter Writer(OldObject, SavedProperties, true, true, Params.bDoDelta);
+		FObjectWriter Writer(OldObject, SavedProperties, true, true, Params.bDoDelta, AdditinalPortFlags);
 	}
 
 	{
 		// Find all instanced objects of the old CDO, and save off their modified properties to be later applied to the newly instanced objects of the new CDO
 		TArray<UObject*> Components;
-		OldObject->CollectDefaultSubobjects(Components,true);
+		OldObject->CollectDefaultSubobjects(Components, true);
 
 		for (int32 Index = 0; Index < Components.Num(); Index++)
 		{
@@ -10346,7 +10378,7 @@ void UEngine::CopyPropertiesForUnrelatedObjects(UObject* OldObject, UObject* New
 			UObject* OldInstance = Components[Index];
 			pRecord->OldInstance = OldInstance;
 			OldInstanceMap.Add(OldInstance->GetFName(), SavedInstances.Num() - 1);
-			FObjectWriter Writer(OldInstance, pRecord->SavedProperties, true, true);
+			FObjectWriter Writer(OldInstance, pRecord->SavedProperties, true, true, true, AdditinalPortFlags);
 		}
 	}
 
@@ -10450,19 +10482,20 @@ void UEngine::CopyPropertiesForUnrelatedObjects(UObject* OldObject, UObject* New
 	}
 
 	// Replace references to old classes and instances on this object with the corresponding new ones
-	FArchiveReplaceObjectRef<UObject> ReplaceInCDOAr(NewObject, ReferenceReplacementMap, /*bNullPrivateRefs=*/ false, /*bIgnoreOuterRef=*/ false, /*bIgnoreArchetypeRef=*/ false);
+	UPackage* NewPackage = Cast<UPackage>(NewObject->GetOutermost());
+	FArchiveReplaceOrClearExternalReferences<UObject> ReplaceInCDOAr(NewObject, ReferenceReplacementMap, NewPackage);
 
 	// Replace references inside each individual component. This is always required because if something is in ReferenceReplacementMap, the above replace code will skip fixing child properties
 	for (int32 ComponentIndex = 0; ComponentIndex < ComponentsOnNewObject.Num(); ++ComponentIndex)
 	{
 		UObject* NewComponent = ComponentsOnNewObject[ComponentIndex];
-		FArchiveReplaceObjectRef<UObject> ReplaceInComponentAr(NewComponent, ReferenceReplacementMap, /*bNullPrivateRefs=*/ false, /*bIgnoreOuterRef=*/ false, /*bIgnoreArchetypeRef=*/ false);
+		FArchiveReplaceOrClearExternalReferences<UObject> ReplaceInComponentAr(NewComponent, ReferenceReplacementMap, NewPackage);
 	}
 
 	// Restore the root component reference
-	if(NewActor != NULL)
+	if (NewActor != nullptr)
 	{
-		if(RootComponentProperty != NULL)
+		if (RootComponentProperty != nullptr)
 		{
 			RootComponentProperty->SetObjectPropertyValue_InContainer(NewActor, SavedRootComponent);
 		}
@@ -10472,15 +10505,15 @@ void UEngine::CopyPropertiesForUnrelatedObjects(UObject* OldObject, UObject* New
 
 	bool bDumpProperties = CVarDumpCopyPropertiesForUnrelatedObjects.GetValueOnGameThread() != 0;
 	// Uncomment the next line to debug CPFUO for a specific object:
-	// bDumpProperties |= (NewObject->GetName().InStr(TEXT("Charm_Vim")) != INDEX_NONE);
+	// bDumpProperties |= (NewObject->GetName().Find(TEXT("SpinTree")) != INDEX_NONE);
 	if (bDumpProperties)
 	{
-		DumpObject(TEXT("CopyPropertiesForUnrelatedObjects: Old"), OldObject);
-		DumpObject(TEXT("CopyPropertiesForUnrelatedObjects: New"), NewObject);
+		DumpObject(*FString::Printf(TEXT("CopyPropertiesForUnrelatedObjects: Old (%s)"), *OldObject->GetFullName()), OldObject);
+		DumpObject(*FString::Printf(TEXT("CopyPropertiesForUnrelatedObjects: New (%s)"), *NewObject->GetFullName()), NewObject);
 	}
 
 	// Now notify any tools that aren't already updated via the FArchiveReplaceObjectRef path
-	if( GEngine != NULL )
+	if (GEngine != nullptr)
 	{
 		GEngine->NotifyToolsOfObjectReplacement(ReferenceReplacementMap);
 	}
@@ -10648,7 +10681,7 @@ void UEngine::HandleScreenshotCaptured(int32 Width, int32 Height, const TArray<F
 
 		IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>( FName("ImageWrapper") );
 
-		switch(MatineeCaptureType.GetValue())
+		switch(MatineeScreenshotOptions.MatineeCaptureType.GetValue())
 		{
 		default:
 		case EMatineeCaptureType::BMP:

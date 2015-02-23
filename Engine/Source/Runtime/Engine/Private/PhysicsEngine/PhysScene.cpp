@@ -241,7 +241,7 @@ void FPhysScene::AddCustomPhysics(FBodyInstance* BodyInstance, FCalculateCustomP
 #endif
 }
 
-void FPhysScene::AddForce(FBodyInstance* BodyInstance, const FVector& Force, bool bAllowSubstepping)
+void FPhysScene::AddForce(FBodyInstance* BodyInstance, const FVector& Force, bool bAllowSubstepping, bool bAccelChange)
 {
 #if WITH_PHYSX
 
@@ -252,13 +252,13 @@ void FPhysScene::AddForce(FBodyInstance* BodyInstance, const FVector& Force, boo
 		if (bAllowSubstepping && IsSubstepping(BodySceneType))
 		{
 			FPhysSubstepTask * PhysSubStepper = PhysSubSteppers[BodySceneType];
-			PhysSubStepper->AddForce(BodyInstance, Force);
+			PhysSubStepper->AddForce(BodyInstance, Force, bAccelChange);
 		}
 		else
 #endif
 		{
 			SCOPED_SCENE_WRITE_LOCK(PRigidBody->getScene());
-			PRigidBody->addForce(U2PVector(Force), PxForceMode::eFORCE, true);
+			PRigidBody->addForce(U2PVector(Force), bAccelChange ? PxForceMode::eACCELERATION : PxForceMode::eFORCE, true);
 		}
 	}
 #endif
@@ -287,7 +287,7 @@ void FPhysScene::AddForceAtPosition(FBodyInstance* BodyInstance, const FVector& 
 #endif
 }
 
-void FPhysScene::AddTorque(FBodyInstance* BodyInstance, const FVector& Torque, bool bAllowSubstepping)
+void FPhysScene::AddRadialForceToBody(FBodyInstance* BodyInstance, const FVector& Origin, const float Radius, const float Strength, const uint8 Falloff, bool bAccelChange, bool bAllowSubstepping)
 {
 #if WITH_PHYSX
 
@@ -298,13 +298,36 @@ void FPhysScene::AddTorque(FBodyInstance* BodyInstance, const FVector& Torque, b
 		if (bAllowSubstepping && IsSubstepping(BodySceneType))
 		{
 			FPhysSubstepTask * PhysSubStepper = PhysSubSteppers[BodySceneType];
-			PhysSubStepper->AddTorque(BodyInstance, Torque);
+			PhysSubStepper->AddRadialForceToBody(BodyInstance, Origin, Radius, Strength, Falloff, bAccelChange);
 		}
 		else
 #endif
 		{
 			SCOPED_SCENE_WRITE_LOCK(PRigidBody->getScene());
-			PRigidBody->addTorque(U2PVector(Torque), PxForceMode::eFORCE, true);
+			AddRadialForceToPxRigidBody(*PRigidBody, Origin, Radius, Strength, Falloff, bAccelChange);
+		}
+	}
+#endif
+}
+
+void FPhysScene::AddTorque(FBodyInstance* BodyInstance, const FVector& Torque, bool bAllowSubstepping, bool bAccelChange)
+{
+#if WITH_PHYSX
+
+	if (PxRigidBody * PRigidBody = BodyInstance->GetPxRigidBody())
+	{
+#if WITH_SUBSTEPPING
+		uint32 BodySceneType = SceneType(BodyInstance);
+		if (bAllowSubstepping && IsSubstepping(BodySceneType))
+		{
+			FPhysSubstepTask * PhysSubStepper = PhysSubSteppers[BodySceneType];
+			PhysSubStepper->AddTorque(BodyInstance, Torque, bAccelChange);
+		}
+		else
+#endif
+		{
+			SCOPED_SCENE_WRITE_LOCK(PRigidBody->getScene());
+			PRigidBody->addTorque(U2PVector(Torque), bAccelChange ? PxForceMode::eACCELERATION : PxForceMode::eFORCE, true);
 		}
 	}
 #endif

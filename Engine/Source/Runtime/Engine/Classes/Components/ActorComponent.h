@@ -82,6 +82,9 @@ private:
 	/** Is this component's dynamic data in need of sending to the renderer? */
 	uint32 bRenderDynamicDataDirty:1;
 
+	/** Used to ensure that any subclass of UActorComponent that overrides PostRename calls up to the Super to make OwnedComponents arrays get updated correctly */
+	uint32 bRoutedPostRename:1;
+
 public:
 
 	/** Does this component automatically register with its owner */
@@ -231,6 +234,8 @@ private:
 	/** Calls OnRegister, CreateRenderState_Concurrent and CreatePhysicsState. */
 	void ExecuteRegisterEvents();
 
+	/* Utility function for each of the PostEditChange variations to call for the same behavior */
+	void ConsolidatedPostEditChange();
 protected:
 
 	friend class FComponentReregisterContextBase;
@@ -474,10 +479,10 @@ public:
 	virtual void PostNetReceive() { }
 
 	/** Called before we throw away components during RerunConstructionScripts, to cache any data we wish to persist across that operation */
-	virtual class FComponentInstanceDataBase* GetComponentInstanceData() const { return NULL; }
+	virtual class FActorComponentInstanceData* GetComponentInstanceData() const;
 
 	/** The type of the component instance data that this component is interested in */
-	virtual FName GetComponentInstanceDataType() const { return NAME_None; }
+	virtual FName GetComponentInstanceDataType() const;
 
 	// Begin UObject interface.
 	virtual void BeginDestroy() override;
@@ -487,10 +492,13 @@ public:
 	virtual bool CallRemoteFunction( UFunction* Function, void* Parameters, FOutParmRec* OutParms, FFrame* Stack ) override;
 	virtual void PostInitProperties() override;
 	virtual void PostLoad() override;
+	virtual bool Rename( const TCHAR* NewName=NULL, UObject* NewOuter=NULL, ERenameFlags Flags=REN_None ) override;
 	virtual void PostRename(UObject* OldOuter, const FName OldName) override;
 #if WITH_EDITOR
+	virtual bool Modify( bool bAlwaysMarkDirty = true ) override;
 	virtual void PreEditChange(UProperty* PropertyThatWillChange) override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+	virtual void PostEditChangeChainProperty( FPropertyChangedChainEvent& PropertyChangedEvent ) override;
 	virtual void PostEditUndo() override;
 #endif // WITH_EDITOR
 	// End UObject interface.
@@ -502,7 +510,7 @@ public:
 	// End IInterface_AssetUserData Interface
 
 	/** See if the owning Actor is currently running the UCS */
-	bool IsRunningUserConstructionScript() const;
+	bool IsOwnerRunningUserConstructionScript() const;
 
 	/** See if this component is currently registered */
 	FORCEINLINE bool IsRegistered() const

@@ -72,6 +72,7 @@
 #include "AnimationTransitionGraph.h"
 #include "BlueprintEditorModes.h"
 #include "BlueprintEditorSettings.h"
+#include "K2Node_SwitchString.h"
 
 #include "EngineAnalytics.h"
 #include "IAnalyticsProvider.h"
@@ -291,7 +292,7 @@ static bool BlueprintEditorImpl::GraphHasDefaultNode(UEdGraph const* InGraph)
 			continue;
 		}
 
-		if (Node->GetOutermost()->GetMetaData()->HasValue(Node, FNodeMetadata::DefaultGraphNode))
+		if (Node->GetOutermost()->GetMetaData()->HasValue(Node, FNodeMetadata::DefaultGraphNode) && Node->bIsNodeEnabled)
 		{
 			bHasDefaultNodes = true;
 			break;
@@ -510,11 +511,6 @@ bool FBlueprintEditor::IsCompilingEnabled() const
 	return Blueprint && Blueprint->BlueprintType != BPTYPE_MacroLibrary && InEditingMode();
 }
 
-bool FBlueprintEditor::IsPropertyEditingEnabled() const
-{
-	return true;
-}
-
 bool FBlueprintEditor::InDebuggingMode() const
 {
 	return GEditor->PlayWorld != NULL;
@@ -607,14 +603,46 @@ void FBlueprintEditor::AnalyticsTrackCompileEvent( UBlueprint* Blueprint, int32 
 
 void FBlueprintEditor::RefreshEditors(ERefreshBlueprintEditorReason::Type Reason)
 {
-	if( Reason != ERefreshBlueprintEditorReason::BlueprintCompiled )
+	bool bForceFocusOnSelectedNodes = false;
+
+	if (CurrentUISelection == SelectionState_MyBlueprint)
+	{
+		// Handled below, here to avoid tripping the ensure
+	}
+	else if (CurrentUISelection == SelectionState_Components)
+	{
+		if (SCSEditor.IsValid())
+		{
+			SCSEditor->RefreshSelectionDetails();
+		}
+	}
+	else if (CurrentUISelection == SelectionState_Graph)
+	{
+		bForceFocusOnSelectedNodes = true;
+	}
+	else if (CurrentUISelection == SelectionState_ClassSettings)
+	{
+		// No need for a refresh, the Blueprint object didn't change
+	}
+	else if (CurrentUISelection == SelectionState_ClassDefaults)
+	{
+		StartEditingDefaults(/*bAutoFocus=*/ false, true);
+	}
+
+	//@TODO: Should determine when we need to do the invalid/refresh business and if the graph node selection change
+	// under non-compiles is necessary (except when the selection mode is appropriate, as already detected above)
+	if (Reason != ERefreshBlueprintEditorReason::BlueprintCompiled)
 	{
 		DocumentManager->CleanInvalidTabs();
 
 		DocumentManager->RefreshAllTabs();
 
-		// The workflow manager only tracks document tabs.
-		FocusInspectorOnGraphSelection(GetSelectedNodes(), true);
+		bForceFocusOnSelectedNodes = true;
+	}
+
+	if (bForceFocusOnSelectedNodes)
+	{
+		FocusInspectorOnGraphSelection(GetSelectedNodes(), /*bForceRefresh=*/ true);
 	}
 
 	if (MyBlueprintWidget.IsValid())
@@ -622,7 +650,7 @@ void FBlueprintEditor::RefreshEditors(ERefreshBlueprintEditorReason::Type Reason
 		MyBlueprintWidget->Refresh();
 	}
 
-	if(SCSEditor.IsValid())
+	if (SCSEditor.IsValid())
 	{
 		SCSEditor->UpdateTree();
 		
@@ -630,12 +658,12 @@ void FBlueprintEditor::RefreshEditors(ERefreshBlueprintEditorReason::Type Reason
 		UpdateSCSPreview();
 	}
 
-	// Only force a refresh of the defaults view if we have a standalone defaults viewer.
 	// Note: There is an optimization inside of ShowDetailsForSingleObject() that skips the refresh if the object being selected is the same as the previous object.
 	// The SKismetInspector class is shared between both Defaults mode and Components mode, but in Defaults mode the object selected is always going to be the CDO. Given
 	// that the selection does not really change, we force it to refresh and skip the optimization. Otherwise, some things may not work correctly in Defaults mode. For
 	// example, transform details are customized and the rotation value is cached at customization time; if we don't force refresh here, then after an undo of a previous
 	// rotation edit, transform details won't be re-customized and thus the cached rotation value will be stale, resulting in an invalid rotation value on the next edit.
+	//@TODO: Probably not always necessary
 	RefreshStandAloneDefaultsEditor();
 
 	// Update associated controls like the function editor
@@ -783,6 +811,8 @@ void FBlueprintEditor::OnSelectionUpdated(const TArray<FSCSEditorTreeNodePtrType
 					DefaultActor->GetName(Title);
 					InspectorTitle = FText::FromString(Title);
 					bShowComponents = false;
+
+					TryInvokingDetailsTab();
 				}
 				else
 				{
@@ -791,6 +821,15 @@ void FBlueprintEditor::OnSelectionUpdated(const TArray<FSCSEditorTreeNodePtrType
 					{
 						InspectorTitle = FText::FromString(NodePtr->GetDisplayString());
 						InspectorObjects.Add(EditableComponent);
+					}
+
+					if ( SCSViewport.IsValid() )
+					{
+						TSharedPtr<SDockTab> OwnerTab = SCSViewport->GetOwnerTab();
+						if ( OwnerTab.IsValid() )
+						{
+							OwnerTab->FlashTab();
+						}
 					}
 				}
 			}
@@ -1162,7 +1201,7 @@ TSharedRef<SGraphEditor> FBlueprintEditor::CreateGraphEditorWidget(TSharedRef<FT
 	return Editor;
 }
 
-FGraphAppearanceInfo FBlueprintEditor::GetGraphAppearance() const
+FGraphAppearanceInfo FBlueprintEditor::GetCurrentGraphAppearance() const
 {
 	return GetGraphAppearance(GetFocusedGraph());
 }
@@ -1494,6 +1533,9 @@ void FBlueprintEditor::RegisterTabSpawners(const TSharedRef<class FTabManager>& 
 
 void FBlueprintEditor::SetCurrentMode(FName NewMode)
 {
+	// Clear the selection state when the mode changes.
+	SetUISelectionState(NAME_None);
+
 	OnModeSetData.Broadcast( NewMode );
 	FWorkflowCentricApplication::SetCurrentMode(NewMode);
 }
@@ -1652,6 +1694,11 @@ void FBlueprintEditor::RegisterApplicationModes(const TArray<UBlueprint*>& InBlu
 						FBlueprintEditorApplicationModes::StandardBlueprintEditorMode,
 						MakeShareable(new FBlueprintEditorUnifiedMode(SharedThis(this), FBlueprintEditorApplicationModes::StandardBlueprintEditorMode, FBlueprintEditorApplicationModes::GetLocalizedMode, CanAccessComponentsMode())));
 					SetCurrentMode(FBlueprintEditorApplicationModes::StandardBlueprintEditorMode);
+
+					if ( bShouldOpenInComponentsMode && CanAccessComponentsMode() )
+					{
+						TabManager->InvokeTab(FBlueprintEditorTabs::SCSViewportID);
+					}
 				}
 			}
 			else
@@ -1720,8 +1767,9 @@ void FBlueprintEditor::PostRegenerateMenusAndToolbars()
 			.VAlign(VAlign_Center)
 			[
 				SNew(STextBlock)
-				.ShadowOffset( FVector2D::UnitVector )
+				.ShadowOffset(FVector2D::UnitVector)
 				.Text(this, &FBlueprintEditor::GetParentClassNameText)
+				.TextStyle(FEditorStyle::Get(), "Common.InheritedFromBlueprintTextStyle")
 				.ToolTipText(LOCTEXT("ParentClassToolTip", "The class that the current Blueprint is based on. The parent provides the base definition, which the current Blueprint extends."))
 				.Visibility(this, &FBlueprintEditor::GetParentClassNameVisibility)
 			]
@@ -1764,8 +1812,7 @@ void FBlueprintEditor::PostRegenerateMenusAndToolbars()
 			.VAlign(VAlign_Center)
 			[
 				SNew(SHyperlink)
-				.Style(FEditorStyle::Get(), "EditBPHyperlink")
-				.TextStyle(FEditorStyle::Get(), "DetailsView.EditBlueprintHyperlinkStyle")
+				.Style(FEditorStyle::Get(), "Common.GotoNativeCodeHyperlink")
 				.IsEnabled(this, &FBlueprintEditor::IsNativeParentClassCodeLinkEnabled)
 				.Visibility(this, &FBlueprintEditor::GetNativeParentClassButtonsVisibility)
 				.OnNavigate(this, &FBlueprintEditor::OnEditParentClassNativeCodeClicked)
@@ -1959,7 +2006,7 @@ void FBlueprintEditor::SetupViewForBlueprintEditingMode()
 
 	// Make sure the inspector is always on top
 	//@TODO: This is necessary right now because of a bug in restoring layouts not remembering which tab is on top (to get it right initially), but do we want this behavior always?
-	TabManager->InvokeTab(FBlueprintEditorTabs::DetailsID);
+	TryInvokingDetailsTab();
 
 	UBlueprint* Blueprint = GetBlueprintObj();
 	if ((Blueprint != nullptr) && (Blueprint->Status == EBlueprintStatus::BS_Error))
@@ -2037,7 +2084,7 @@ FBlueprintEditor::~FBlueprintEditor()
 void FBlueprintEditor::FocusInspectorOnGraphSelection(const FGraphPanelSelectionSet& NewSelection, bool bForceRefresh)
 {
 	// If this graph has selected nodes update the details panel to match.
-	if ( NewSelection.Array().Num() > 0 )
+	if ( NewSelection.Num() > 0 || CurrentUISelection == FBlueprintEditor::SelectionState_Graph )
 	{
 		SetUISelectionState(FBlueprintEditor::SelectionState_Graph);
 
@@ -2554,12 +2601,7 @@ void FBlueprintEditor::EditGlobalOptions_Clicked()
 		// Show details for the Blueprint instance we're editing
 		Inspector->ShowDetailsForSingleObject(Blueprint);
 
-		TSharedPtr<SDockTab> OwnerTab = Inspector->GetOwnerTab();
-		if ( OwnerTab.IsValid() )
-		{
-			OwnerTab->ActivateInParent(ETabActivationCause::SetDirectly);
-			OwnerTab->FlashTab();
-		}
+		TryInvokingDetailsTab();
 	}
 }
 
@@ -2724,27 +2766,8 @@ bool FBlueprintEditor::CanRedoGraphAction() const
 	return !InDebuggingMode();
 }
 
-void FBlueprintEditor::OnActiveTabChanged( TSharedPtr<SDockTab> PreviouslyActive, TSharedPtr<SDockTab> NewlyActivated )
+void FBlueprintEditor::OnActiveTabChanged(TSharedPtr<SDockTab> PreviouslyActive, TSharedPtr<SDockTab> NewlyActivated)
 {
-	if (NewlyActivated.IsValid() == false)
-	{
-		SetUISelectionState(NAME_None);
-		//UE_LOG(LogBlueprint, Log, TEXT("OnActiveTabChanged: NONE"));
-	}
-	else
-	{
-		//UE_LOG(LogBlueprint, Log, TEXT("OnActiveTabChanged: %s"), *NewlyActivated->GetLayoutIdentifier().ToString());
-	}
-
-	if ( NewlyActivated->GetTabRole() == ETabRole::DocumentTab )
-	{
-		FocusedGraphEdPtr = nullptr;
-	}
-
-	if (MyBlueprintWidget.IsValid() == true)
-	{
-		MyBlueprintWidget->Refresh();
-	}
 }
 
 void FBlueprintEditor::OnGraphEditorFocused(const TSharedRef<SGraphEditor>& InGraphEditor)
@@ -2770,16 +2793,19 @@ void FBlueprintEditor::OnGraphEditorFocused(const TSharedRef<SGraphEditor>& InGr
 			{
 				MyBlueprintWidget->Refresh();
 			}
-
-			// If this graph doesn't have any selected nodes, but the current selection state is from another graph,
-			// lets just set the focused graph to be the selected one.  We don't want the wrong function context to 
-			// seem relevant when you're looking at a different function.
-			if ( SelectedNodes.Num() == 0 )
-			{
-				SetUISelectionState(FBlueprintEditor::SelectionState_Graph);
-				Inspector->ShowDetailsForSingleObject(FocusedGraph);
-			}
 		}
+	}
+}
+
+void FBlueprintEditor::OnGraphEditorBackgrounded(const TSharedRef<SGraphEditor>& InGraphEditor)
+{
+	// If the newly active document tab isn't a graph we want to make sure we clear the focused graph pointer.
+	// Several other UI reads that, like the MyBlueprints view uses it to determine if it should show the "Local Variable" section.
+	FocusedGraphEdPtr = nullptr;
+
+	if ( MyBlueprintWidget.IsValid() == true )
+	{
+		MyBlueprintWidget->Refresh();
 	}
 }
 
@@ -6291,11 +6317,9 @@ void FBlueprintEditor::StartEditingDefaults(bool bAutoFocus, bool bForceRefresh)
 
 					Inspector->ShowDetailsForSingleObject(DefaultObject, Options);
 
-					TSharedPtr<SDockTab> OwnerTab = Inspector->GetOwnerTab();
-					if ( OwnerTab.IsValid() )
+					if ( bAutoFocus )
 					{
-						OwnerTab->ActivateInParent(ETabActivationCause::SetDirectly);
-						OwnerTab->FlashTab();
+						TryInvokingDetailsTab();
 					}
 				}
 			}
@@ -6329,7 +6353,7 @@ void FBlueprintEditor::RefreshStandAloneDefaultsEditor()
 void FBlueprintEditor::RenameNewlyAddedAction(FName InActionName)
 {
 	TabManager->InvokeTab(FBlueprintEditorTabs::MyBlueprintID);
-	TabManager->InvokeTab(FBlueprintEditorTabs::DetailsID);
+	TryInvokingDetailsTab(/*Flash*/false);
 
 	if (MyBlueprintWidget.IsValid())
 	{
@@ -6589,10 +6613,13 @@ void FBlueprintEditor::NotifyPostChange(const FPropertyChangedEvent& PropertyCha
 void FBlueprintEditor::OnFinishedChangingProperties(const FPropertyChangedEvent& PropertyChangedEvent)
 {
 	FName PropertyName = (PropertyChangedEvent.Property != NULL) ? PropertyChangedEvent.Property->GetFName() : NAME_None;
-	if (PropertyName == TEXT("bHasDefaultPin") ||
-		PropertyName == TEXT("StartIndex") ||
-		PropertyName == TEXT("PinNames") ||
-		PropertyName == TEXT("bIsCaseSensitive"))
+
+	//@TODO: This code does not belong here (might not even be necessary anymore as they seem to have PostEditChangeProperty impls now)!
+	if ((PropertyName == GET_MEMBER_NAME_CHECKED(UK2Node_Switch, bHasDefaultPin)) ||
+		(PropertyName == GET_MEMBER_NAME_CHECKED(UK2Node_SwitchInteger, StartIndex)) ||
+		(PropertyName == GET_MEMBER_NAME_CHECKED(UK2Node_SwitchString, PinNames)) ||
+		(PropertyName == GET_MEMBER_NAME_CHECKED(UK2Node_SwitchName, PinNames)) ||
+		(PropertyName == GET_MEMBER_NAME_CHECKED(UK2Node_SwitchString, bIsCaseSensitive)))
 	{
 		DocumentManager->RefreshAllTabs();
 	}
@@ -7530,10 +7557,33 @@ void FBlueprintEditor::SaveAsset_Execute()
 	IBlueprintEditor::SaveAsset_Execute();
 }
 
-/////////////////////////////////////////////////////
-/////////////////////////////////////////////////////
-/////////////////////////////////////////////////////
+void FBlueprintEditor::TryInvokingDetailsTab(bool bFlash)
+{
+	if ( TabManager->CanSpawnTab(FBlueprintEditorTabs::DetailsID) )
+	{
+		TSharedPtr<SDockTab> BlueprintTab = FGlobalTabmanager::Get()->GetMajorTabForTabManager(TabManager.ToSharedRef());
 
+		// We don't want to force this tab into existance when the blueprint editor isn't in the foreground and actively
+		// being interacted with.  So we make sure the window it's in is focused and the tab is in the foreground.
+		if ( BlueprintTab.IsValid() && BlueprintTab->IsForeground() && BlueprintTab->GetParentWindow()->HasFocusedDescendants() )
+		{
+			// Show the details panel if it doesn't exist.
+			TabManager->InvokeTab(FBlueprintEditorTabs::DetailsID);
+
+			if ( bFlash )
+			{
+				TSharedPtr<SDockTab> OwnerTab = Inspector->GetOwnerTab();
+				if ( OwnerTab.IsValid() )
+				{
+					OwnerTab->FlashTab();
+				}
+			}
+		}
+	}
+}
+
+/////////////////////////////////////////////////////
+/////////////////////////////////////////////////////
+/////////////////////////////////////////////////////
 
 #undef LOCTEXT_NAMESPACE
-

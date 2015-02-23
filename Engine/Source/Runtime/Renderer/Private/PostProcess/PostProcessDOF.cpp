@@ -351,6 +351,63 @@ FPooledRenderTargetDesc FRCPassPostProcessDOFRecombine::ComputeOutputDesc(EPassO
 
 
 
+
+
+// Convert f-stop and focal distance into projected size in half resolution pixels.
+// Setup depth based blur.
+static FVector CircleDofCoc(const FRenderingCompositePassContext& Context)
+{
+    // Convert FOV to focal length,
+	// 
+	// fov = 2 * atan(d/(2*f))
+	// where,
+	//   d = sensor dimension (APS-C 24.576 mm)
+	//   f = focal length
+	// 
+	// f = 0.5 * d * (1/tan(fov/2))
+	float HalfFOV = FMath::Atan(1.0f / Context.View.ViewMatrices.ProjMatrix.M[0][0]);
+	float FocalLength = 0.5f * 24.576f * (1.0f/FMath::Tan(HalfFOV));
+	 
+	// Convert focal distance in world position to mm.
+	// Conversion is 1 world position = 1 cm.
+	float Distance = Context.View.FinalPostProcessSettings.DepthOfFieldFocalDistance;
+	Distance *= 10.0f;
+
+	// Convert f-stop, focal length, and focal distance to
+	// projected circle of confusion size at infinity in mm.
+    //
+	// coc = f*f / (n * (d - f))
+	// where,
+	//   f = focal length
+	//   d = focal distance
+    //   n = fstop (where n is the "n" in "f/n")
+	float Radius = FocalLength * FocalLength / (Context.View.FinalPostProcessSettings.DepthOfFieldFstop * (Distance - FocalLength));
+
+	// Scale so that APS-C 24.576 mm = full frame.
+	// Convert mm to pixels.
+	float Width = (float)Context.GetViewport().Size().X;
+	Radius = Radius * Width * (1.0f/24.576f);
+
+	// Convert diameter to radius at half resolution (algorithm radius is at half resolution).
+	Radius *= 0.25f;
+
+	// Comment out for now, allowing settings which the algorithm cannot cleanly do.
+	#if 0
+		// Limit to algorithm max size.
+		if(Radius > 6.0f) 
+		{
+			Radius = 6.0f; 
+		}
+	#endif
+
+	// The DepthOfFieldDepthBlurAmount = km at which depth blur is 50%.
+	// Need to convert to cm here.
+	return FVector(
+		Radius, 
+		1.0f/(Context.View.FinalPostProcessSettings.DepthOfFieldDepthBlurAmount * 100000.0),
+		Context.View.FinalPostProcessSettings.DepthOfFieldDepthBlurRadius * Width / 1920.0f);
+}
+
 /** Encapsulates the Circle DOF setup pixel shader. */
 template <uint32 NearBlurEnable>
 class FPostProcessCircleDOFSetupPS : public FGlobalShader
@@ -375,6 +432,7 @@ public:
 	FPostProcessPassParameters PostprocessParameter;
 	FDeferredPixelShaderParameters DeferredParameters;
 	FShaderParameter DepthOfFieldParams;
+	FShaderParameter CircleDofParams;
 
 	/** Initialization constructor. */
 	FPostProcessCircleDOFSetupPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
@@ -383,13 +441,14 @@ public:
 		PostprocessParameter.Bind(Initializer.ParameterMap);
 		DeferredParameters.Bind(Initializer.ParameterMap);
 		DepthOfFieldParams.Bind(Initializer.ParameterMap,TEXT("DepthOfFieldParams"));
+		CircleDofParams.Bind(Initializer.ParameterMap,TEXT("CircleDofParams"));
 	}
 
 	// FShader interface.
 	virtual bool Serialize(FArchive& Ar)
 	{
 		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
-		Ar << PostprocessParameter << DeferredParameters << DepthOfFieldParams;
+		Ar << PostprocessParameter << DeferredParameters << DepthOfFieldParams << CircleDofParams;
 		return bShaderHasOutdatedParameters;
 	}
 
@@ -410,6 +469,8 @@ public:
 
 			SetShaderValueArray(Context.RHICmdList, ShaderRHI, DepthOfFieldParams, DepthOfFieldParamValues, 2);
 		}
+
+		SetShaderValue(Context.RHICmdList, ShaderRHI, CircleDofParams, CircleDofCoc(Context));
 	}
 };
 
@@ -418,7 +479,7 @@ IMPLEMENT_SHADER_TYPE(template<>,FPostProcessCircleDOFSetupPS<1>,TEXT("PostProce
 
 void FRCPassPostProcessCircleDOFSetup::Process(FRenderingCompositePassContext& Context)
 {
-	SCOPED_DRAW_EVENT(Context.RHICmdList, DOFSetup);
+	SCOPED_DRAW_EVENT(Context.RHICmdList, CircleDOFSetup);
 
 	const FPooledRenderTargetDesc* InputDesc = GetInputDesc(ePId_Input0);
 
@@ -559,6 +620,7 @@ public:
 	FPostProcessPassParameters PostprocessParameter;
 	FDeferredPixelShaderParameters DeferredParameters;
 	FShaderParameter DepthOfFieldParams;
+	FShaderParameter CircleDofParams;
 
 	/** Initialization constructor. */
 	FPostProcessCircleDOFDilatePS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
@@ -567,13 +629,14 @@ public:
 		PostprocessParameter.Bind(Initializer.ParameterMap);
 		DeferredParameters.Bind(Initializer.ParameterMap);
 		DepthOfFieldParams.Bind(Initializer.ParameterMap,TEXT("DepthOfFieldParams"));
+		CircleDofParams.Bind(Initializer.ParameterMap,TEXT("CircleDofParams"));
 	}
 
 	// FShader interface.
 	virtual bool Serialize(FArchive& Ar)
 	{
 		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
-		Ar << PostprocessParameter << DeferredParameters << DepthOfFieldParams;
+		Ar << PostprocessParameter << DeferredParameters << DepthOfFieldParams << CircleDofParams;
 		return bShaderHasOutdatedParameters;
 	}
 
@@ -594,6 +657,8 @@ public:
 
 			SetShaderValueArray(Context.RHICmdList, ShaderRHI, DepthOfFieldParams, DepthOfFieldParamValues, 2);
 		}
+
+		SetShaderValue(Context.RHICmdList, ShaderRHI, CircleDofParams, CircleDofCoc(Context));
 	}
 };
 
@@ -602,7 +667,7 @@ IMPLEMENT_SHADER_TYPE(template<>,FPostProcessCircleDOFDilatePS<1>,TEXT("PostProc
 
 void FRCPassPostProcessCircleDOFDilate::Process(FRenderingCompositePassContext& Context)
 {
-	SCOPED_DRAW_EVENT(Context.RHICmdList, DOFSetup);
+	SCOPED_DRAW_EVENT(Context.RHICmdList, CircleDOFNear);
 
 	const FPooledRenderTargetDesc* InputDesc = GetInputDesc(ePId_Input0);
 
@@ -746,7 +811,6 @@ static void TemporalRandom2(FVector2D* RESTRICT const Constant, uint32 FrameNumb
 	Constant->Y = TemporalHalton2(FrameNumber & 1023, 3);
 }
 
-
 template <uint32 NearBlurEnable>
 class FPostProcessCircleDOFPS : public FGlobalShader
 {
@@ -771,6 +835,7 @@ public:
 	FDeferredPixelShaderParameters DeferredParameters;
 	FShaderParameter DepthOfFieldParams;
 	FShaderParameter RandomOffset;
+	FShaderParameter CircleDofParams;
 
 	/** Initialization constructor. */
 	FPostProcessCircleDOFPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
@@ -780,13 +845,14 @@ public:
 		DeferredParameters.Bind(Initializer.ParameterMap);
 		DepthOfFieldParams.Bind(Initializer.ParameterMap,TEXT("DepthOfFieldParams"));
 		RandomOffset.Bind(Initializer.ParameterMap, TEXT("RandomOffset"));
+		CircleDofParams.Bind(Initializer.ParameterMap,TEXT("CircleDofParams"));
 	}
 
 	// FShader interface.
 	virtual bool Serialize(FArchive& Ar)
 	{
 		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
-		Ar << PostprocessParameter << DeferredParameters << DepthOfFieldParams << RandomOffset;
+		Ar << PostprocessParameter << DeferredParameters << DepthOfFieldParams << RandomOffset << CircleDofParams;
 		return bShaderHasOutdatedParameters;
 	}
 
@@ -811,6 +877,8 @@ public:
 		FVector2D RandomOffsetValue;
 		TemporalRandom2(&RandomOffsetValue, Context.View.Family->FrameNumber);
 		SetShaderValue(Context.RHICmdList, ShaderRHI, RandomOffset, RandomOffsetValue);
+
+		SetShaderValue(Context.RHICmdList, ShaderRHI, CircleDofParams, CircleDofCoc(Context));
 	}
 };
 
@@ -819,7 +887,7 @@ IMPLEMENT_SHADER_TYPE(template<>,FPostProcessCircleDOFPS<1>,TEXT("PostProcessDOF
 
 void FRCPassPostProcessCircleDOF::Process(FRenderingCompositePassContext& Context)
 {
-	SCOPED_DRAW_EVENT(Context.RHICmdList, DOFSetup);
+	SCOPED_DRAW_EVENT(Context.RHICmdList, CircleDOFApply);
 
 	const FPooledRenderTargetDesc* InputDesc = GetInputDesc(ePId_Input0);
 
@@ -957,6 +1025,7 @@ public:
 	FDeferredPixelShaderParameters DeferredParameters;
 	FShaderParameter DepthOfFieldUVLimit;
 	FShaderParameter RandomOffset;
+	FShaderParameter CircleDofParams;
 
 	/** Initialization constructor. */
 	FPostProcessCircleDOFRecombinePS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
@@ -966,13 +1035,14 @@ public:
 		DeferredParameters.Bind(Initializer.ParameterMap);
 		DepthOfFieldUVLimit.Bind(Initializer.ParameterMap,TEXT("DepthOfFieldUVLimit"));
 		RandomOffset.Bind(Initializer.ParameterMap, TEXT("RandomOffset"));
+		CircleDofParams.Bind(Initializer.ParameterMap,TEXT("CircleDofParams"));
 	}
 
 	// FShader interface.
 	virtual bool Serialize(FArchive& Ar)
 	{
 		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
-		Ar << PostprocessParameter << DeferredParameters << DepthOfFieldUVLimit << RandomOffset;
+		Ar << PostprocessParameter << DeferredParameters << DepthOfFieldUVLimit << RandomOffset << CircleDofParams;
 		return bShaderHasOutdatedParameters;
 	}
 
@@ -997,6 +1067,8 @@ public:
 		FVector2D RandomOffsetValue;
 		TemporalRandom2(&RandomOffsetValue, Context.View.Family->FrameNumber);
 		SetShaderValue(Context.RHICmdList, ShaderRHI, RandomOffset, RandomOffsetValue);
+
+		SetShaderValue(Context.RHICmdList, ShaderRHI, CircleDofParams, CircleDofCoc(Context));
 	}
 };
 

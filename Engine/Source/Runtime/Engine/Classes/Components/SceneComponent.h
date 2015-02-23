@@ -4,6 +4,7 @@
 #include "Components/ActorComponent.h"
 #include "Engine/EngineTypes.h"
 #include "RHIDefinitions.h"
+#include "ComponentInstanceDataCache.h" // for FActorComponentInstanceData
 #include "SceneComponent.generated.h"
 
 /** Overlap info consisting of the primitive and the body that is overlapping */
@@ -76,7 +77,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FPhysicsVolumeChanged, class APhysic
  * Useful as a 'dummy' component in the hierarchy to offset others.
  * @see [Scene Components](https://docs.unrealengine.com/latest/INT/Programming/UnrealArchitecture/Actors/Components/index.html#scenecomponents)
  */
-UCLASS(ClassGroup=Utility, BlueprintType, hideCategories=(Trigger, PhysicsVolume), meta=(BlueprintSpawnableComponent, ShortTooltip="A Scene Component is a component that has a scene transform and can be attached to other scene components."))
+UCLASS(ClassGroup=(Utility, Common), BlueprintType, hideCategories=(Trigger, PhysicsVolume), meta=(BlueprintSpawnableComponent, IgnoreCategoryKeywordsInSubclasses, ShortTooltip="A Scene Component is a component that has a scene transform and can be attached to other scene components."))
 class ENGINE_API USceneComponent : public UActorComponent
 {
 	GENERATED_BODY()
@@ -511,7 +512,7 @@ public:
 
 public:
 	/** Delegate that will be called when PhysicsVolume has been changed **/
-	UPROPERTY(BlueprintAssignable, Category=PhysicsVolume)
+	UPROPERTY(BlueprintAssignable, Category=PhysicsVolume, meta=(DisplayName="Physics Volume Changed"))
 	FPhysicsVolumeChanged PhysicsVolumeChangedDelegate;
 
 	// Begin ActorComponent interface
@@ -520,7 +521,7 @@ public:
 	virtual void DestroyComponent(bool bPromoteChildren = false) override;
 	virtual void OnComponentDestroyed() override;
 	virtual void ApplyWorldOffset(const FVector& InOffset, bool bWorldShift) override;
-	virtual class FComponentInstanceDataBase* GetComponentInstanceData() const override;
+	virtual class FActorComponentInstanceData* GetComponentInstanceData() const override;
 	virtual FName GetComponentInstanceDataType() const override;
 	// End ActorComponent interface
 
@@ -805,13 +806,24 @@ protected:
 
 	/** Called after changing transform, tries to update navigation octree */
 	virtual void UpdateNavigationData();
+
+	/**
+	 * Determine if dynamic data is allowed to be changed.
+	 * 
+	 * @param bIgnoreStationary Whether or not to ignore stationary mobility when checking. Default is true (i.e. - check for static mobility only).
+	 * @return Whether or not dynamic data is allowed to be changed.
+	 */
+	FORCEINLINE bool AreDynamicDataChangesAllowed(bool bIgnoreStationary = true) const
+	{
+		return (IsOwnerRunningUserConstructionScript()) || !(IsRegistered() && (Mobility == EComponentMobility::Static || (!bIgnoreStationary && Mobility == EComponentMobility::Stationary)));
+	}
 };
 
 /** 
  *  Component instance cached data base class for scene components. 
  *  Stores a list of instance components attached to the 
  */
-class ENGINE_API FSceneComponentInstanceData : public FComponentInstanceDataBase
+class ENGINE_API FSceneComponentInstanceData : public FActorComponentInstanceData
 {
 public:
 	FSceneComponentInstanceData(const USceneComponent* SourceComponent);
@@ -819,7 +831,7 @@ public:
 	virtual ~FSceneComponentInstanceData()
 	{}
 
-	virtual void ApplyToComponent(UActorComponent* Component) override;
+	virtual void ApplyToComponent(UActorComponent* Component, const ECacheApplyPhase CacheApplyPhase) override;
 	virtual void FindAndReplaceInstances(const TMap<UObject*, UObject*>& OldToNewInstanceMap) override;
 
 	TArray<USceneComponent*> AttachedInstanceComponents;

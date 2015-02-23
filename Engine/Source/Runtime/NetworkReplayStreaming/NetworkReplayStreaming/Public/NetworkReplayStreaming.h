@@ -50,6 +50,8 @@ public:
 	virtual FArchive* GetHeaderArchive() = 0;
 	virtual FArchive* GetStreamingArchive() = 0;
 	virtual FArchive* GetMetadataArchive() = 0;
+	virtual void UpdateTotalDemoTime( uint32 TimeInMS ) = 0;
+	virtual uint32 GetTotalDemoTime() const = 0;
 	virtual bool IsDataAvailable() const = 0;
 	
 	/** Returns true if the given StreamName is a game currently in progress */
@@ -68,7 +70,7 @@ public:
 	 *
 	 * @param Delegate A delegate that will be executed if bound when the list of streams is available
 	 */
-	virtual void EnumerateStreams( const FOnEnumerateStreamsComplete& Delegate ) const = 0;
+	virtual void EnumerateStreams( const FString& VersionString, const FOnEnumerateStreamsComplete& Delegate ) = 0;
 };
 
 /** Replay streamer factory */

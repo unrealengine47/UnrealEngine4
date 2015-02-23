@@ -5,6 +5,7 @@
 #include "SGraphPinClass.h"
 #include "Editor/ContentBrowser/Public/ContentBrowserModule.h"
 #include "AssetData.h"
+#include "Editor/UnrealEd/Public/ScopedTransaction.h"
 
 #define LOCTEXT_NAMESPACE "SGraphPinObject"
 
@@ -181,7 +182,6 @@ TSharedRef<SWidget> SGraphPinObject::GenerateAssetPicker()
 	AssetPickerConfig.bAllowNullSelection = true;
 	AssetPickerConfig.Filter.bRecursiveClasses = true;
 	AssetPickerConfig.OnAssetSelected = FOnAssetSelected::CreateSP(this, &SGraphPinObject::OnAssetSelectedFromPicker);
-	AssetPickerConfig.ThumbnailScale = 0;
 	AssetPickerConfig.InitialAssetViewType = EAssetViewType::List;
 	AssetPickerConfig.bAllowDragging = false;
 
@@ -200,11 +200,18 @@ TSharedRef<SWidget> SGraphPinObject::GenerateAssetPicker()
 
 void SGraphPinObject::OnAssetSelectedFromPicker(const class FAssetData& AssetData)
 {
-	// Close the asset picker
-	AssetPickerAnchor->SetIsOpen(false);
+	UObject* AssetObject = AssetData.GetAsset();
+	if(GraphPinObj->DefaultObject != AssetObject)
+	{
+		const FScopedTransaction Transaction( NSLOCTEXT("GraphEditor", "ChangeObjectPinValue", "Change Object Pin Value" ) );
+		GraphPinObj->Modify();
 
-	// Set the object found from the asset picker
-	GraphPinObj->GetSchema()->TrySetDefaultObject(*GraphPinObj, AssetData.GetAsset());
+		// Close the asset picker
+		AssetPickerAnchor->SetIsOpen(false);
+
+		// Set the object found from the asset picker
+		GraphPinObj->GetSchema()->TrySetDefaultObject(*GraphPinObj, AssetObject);
+	}
 }
 
 

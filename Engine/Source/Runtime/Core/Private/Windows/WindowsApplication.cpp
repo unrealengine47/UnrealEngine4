@@ -78,6 +78,8 @@ FWindowsApplication::FWindowsApplication( const HINSTANCE HInstance, const HICON
 		TextInputMethodSystem.Reset();
 	}
 
+	TaskbarList = FTaskbarList::Create();
+
 	// Get initial display metrics. (display information for existing desktop, before we start changing resolutions)
 	FDisplayMetrics::GetDisplayMetrics(InitialDisplayMetrics);
 
@@ -630,10 +632,6 @@ LRESULT CALLBACK FWindowsApplication::AppWndProc(HWND hwnd, uint32 msg, WPARAM w
 
 int32 FWindowsApplication::ProcessMessage( HWND hwnd, uint32 msg, WPARAM wParam, LPARAM lParam )
 {
-	//The message id for when the taskbar button becoems created.
-	//This is set to s proper id once a WM_CREATE message is received.
-	static DWORD wmTaskbarButtonCreate = (DWORD)-1; 
-
 	TSharedPtr< FWindowsWindow > CurrentNativeEventWindowPtr = FindWindowByHWND( Windows, hwnd );
 
 	if( Windows.Num() && CurrentNativeEventWindowPtr.IsValid() )
@@ -762,7 +760,6 @@ int32 FWindowsApplication::ProcessMessage( HWND hwnd, uint32 msg, WPARAM wParam,
 		case WM_NCMOUSEMOVE:
 		case WM_MOUSEMOVE:
 		case WM_MOUSEWHEEL:
-		case WM_SETCURSOR:
 			{
 				DeferMessage( CurrentNativeEventWindowPtr, hwnd, msg, wParam, lParam );
 				// Handled
@@ -770,6 +767,11 @@ int32 FWindowsApplication::ProcessMessage( HWND hwnd, uint32 msg, WPARAM wParam,
 			}
 			break;
 
+		case WM_SETCURSOR:
+			{
+				DeferMessage( CurrentNativeEventWindowPtr, hwnd, msg, wParam, lParam );
+			}
+			break;
 		// Mouse Movement
 		case WM_INPUT:
 			{
@@ -1098,22 +1100,13 @@ int32 FWindowsApplication::ProcessMessage( HWND hwnd, uint32 msg, WPARAM wParam,
 			break;
 		
 		case WM_CREATE:
-			{
-				wmTaskbarButtonCreate = RegisterWindowMessage(TEXT("TaskbarButtonCreated"));
-				return 0;
-			}
-			break;
+			return 0;
 
 		case WM_DEVICECHANGE:
 			{
 				XInput->SetNeedsControllerStateUpdate(); 
 				QueryConnectedMice();
 			}
-		}
-
-		if (wmTaskbarButtonCreate)
-		{
-			TaskbarList = FTaskbarList::Create();
 		}
 	}
 

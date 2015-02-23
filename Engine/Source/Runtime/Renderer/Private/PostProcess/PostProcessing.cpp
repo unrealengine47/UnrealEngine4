@@ -273,7 +273,7 @@ static void AddVisualizeBloomOverlay(FPostprocessContext& Context, FRenderingCom
 	Context.FinalOutput = FRenderingCompositeOutputRef(Node);
 }
 
-static void AddPostProcessDepthOfFieldBokeh(FPostprocessContext& Context, FRenderingCompositeOutputRef& SeparateTranslucency)
+static void AddPostProcessDepthOfFieldBokeh(FPostprocessContext& Context, FRenderingCompositeOutputRef& SeparateTranslucency, FRenderingCompositeOutputRef& VelocityInput)
 {
 	// downsample, mask out the in focus part, depth in alpha
 	FRenderingCompositePass* DOFSetup = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessBokehDOFSetup());
@@ -300,7 +300,7 @@ static void AddPostProcessDepthOfFieldBokeh(FPostprocessContext& Context, FRende
 		NodeTemporalAA->SetInput( ePId_Input0, DOFSetup );
 		NodeTemporalAA->SetInput( ePId_Input1, FRenderingCompositeOutputRef( HistoryInput ) );
 		NodeTemporalAA->SetInput( ePId_Input2, FRenderingCompositeOutputRef( HistoryInput ) );
-		//NodeTemporalAA->SetInput( ePId_Input3, VelocityInput );
+		NodeTemporalAA->SetInput( ePId_Input3, VelocityInput );
 
 		DOFInputPass = NodeTemporalAA;
 		ViewState->bBokehDOFHistory = true;
@@ -319,7 +319,7 @@ static void AddPostProcessDepthOfFieldBokeh(FPostprocessContext& Context, FRende
 	Context.FinalOutput = FRenderingCompositeOutputRef(NodeRecombined);
 }
 
-static void AddPostProcessDepthOfFieldGaussian(FPostprocessContext& Context, FDepthOfFieldStats& Out)
+static void AddPostProcessDepthOfFieldGaussian(FPostprocessContext& Context, FDepthOfFieldStats& Out, FRenderingCompositeOutputRef& VelocityInput)
 {
 	float FarSize = Context.View.FinalPostProcessSettings.DepthOfFieldFarBlurSize;
 	float NearSize = Context.View.FinalPostProcessSettings.DepthOfFieldNearBlurSize;
@@ -368,7 +368,7 @@ static void AddPostProcessDepthOfFieldGaussian(FPostprocessContext& Context, FDe
 		NodeTemporalAA->SetInput( ePId_Input0, DOFSetup );
 		NodeTemporalAA->SetInput( ePId_Input1, FRenderingCompositeOutputRef( HistoryInput ) );
 		NodeTemporalAA->SetInput( ePId_Input2, FRenderingCompositeOutputRef( HistoryInput ) );
-		//NodeTemporalAA->SetInput( ePId_Input3, VelocityInput );
+		NodeTemporalAA->SetInput( ePId_Input3, VelocityInput );
 
 		DOFInputPass = NodeTemporalAA;
 		ViewState->bBokehDOFHistory = false;
@@ -396,7 +396,7 @@ static void AddPostProcessDepthOfFieldGaussian(FPostprocessContext& Context, FDe
 		NodeTemporalAA->SetInput( ePId_Input0, FRenderingCompositeOutputRef( DOFSetup, ePId_Output1 ) );
 		NodeTemporalAA->SetInput( ePId_Input1, FRenderingCompositeOutputRef( HistoryInput, DOFInputPassId2 ) );
 		NodeTemporalAA->SetInput( ePId_Input2, FRenderingCompositeOutputRef( HistoryInput, DOFInputPassId2 ) );
-		//NodeTemporalAA->SetInput( ePId_Input3, VelocityInput );
+		NodeTemporalAA->SetInput( ePId_Input3, VelocityInput );
 
 		DOFInputPass2 = NodeTemporalAA;
 		ViewState->bBokehDOFHistory2 = false;
@@ -427,7 +427,7 @@ static void AddPostProcessDepthOfFieldGaussian(FPostprocessContext& Context, FDe
 	Context.FinalOutput = FRenderingCompositeOutputRef(NodeRecombined);
 }
 
-static void AddPostProcessDepthOfFieldCircle(FPostprocessContext& Context, FDepthOfFieldStats& Out)
+static void AddPostProcessDepthOfFieldCircle(FPostprocessContext& Context, FDepthOfFieldStats& Out, FRenderingCompositeOutputRef& VelocityInput)
 {
 	if(Context.View.Family->EngineShowFlags.VisualizeDOF)
 	{
@@ -459,7 +459,7 @@ static void AddPostProcessDepthOfFieldCircle(FPostprocessContext& Context, FDept
 		NodeTemporalAA->SetInput( ePId_Input0, DOFSetup );
 		NodeTemporalAA->SetInput( ePId_Input1, FRenderingCompositeOutputRef( HistoryInput ) );
 		NodeTemporalAA->SetInput( ePId_Input2, FRenderingCompositeOutputRef( HistoryInput ) );
-		//NodeTemporalAA->SetInput( ePId_Input3, VelocityInput );
+		NodeTemporalAA->SetInput( ePId_Input3, VelocityInput );
 
 		DOFInputPass = NodeTemporalAA;
 		ViewState->bBokehDOFHistory = false;
@@ -926,6 +926,13 @@ bool FPostProcessing::AllowFullPostProcessing(const FViewInfo& View, ERHIFeature
 		&& !View.Family->EngineShowFlags.VisualizeMeshDistanceFields;
 }
 
+static TAutoConsoleVariable<int32> CVarMotionBlurNew(
+	TEXT("r.MotionBlurNew"),
+	0,
+	TEXT(""),
+	ECVF_RenderThreadSafe
+);
+
 void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, FViewInfo& View, TRefCountPtr<IPooledRenderTarget>& VelocityRT)
 {
 	QUICK_SCOPE_CYCLE_COUNTER( STAT_PostProcessing_Process );
@@ -1025,11 +1032,31 @@ void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, FViewInfo& V
 				bool bCircleDOF = View.FinalPostProcessSettings.DepthOfFieldMethod == DOFM_CircleDOF;
 				if(!bCircleDOF)
 				{
-					AddPostProcessDepthOfFieldGaussian(Context, DepthOfFieldStat);
+					if(VelocityInput.IsValid())
+					{
+						AddPostProcessDepthOfFieldGaussian(Context, DepthOfFieldStat, VelocityInput);
+					}
+					else
+					{
+						// black is how we clear the velocity buffer so this means no velocity
+						FRenderingCompositePass* NoVelocity = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessInput(GSystemTextures.BlackDummy));
+						FRenderingCompositeOutputRef NoVelocityRef(NoVelocity);
+						AddPostProcessDepthOfFieldGaussian(Context, DepthOfFieldStat, NoVelocityRef);
+					}
 				}
 				else
 				{
-					AddPostProcessDepthOfFieldCircle(Context, DepthOfFieldStat);
+					if(VelocityInput.IsValid())
+					{
+						AddPostProcessDepthOfFieldCircle(Context, DepthOfFieldStat, VelocityInput);
+					}
+					else
+					{
+						// black is how we clear the velocity buffer so this means no velocity
+						FRenderingCompositePass* NoVelocity = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessInput(GSystemTextures.BlackDummy));
+						FRenderingCompositeOutputRef NoVelocityRef(NoVelocity);
+						AddPostProcessDepthOfFieldCircle(Context, DepthOfFieldStat, NoVelocityRef);
+					}
 				}
 			}
 
@@ -1040,7 +1067,17 @@ void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, FViewInfo& V
 
 			if(bBokehDOF)
 			{
-				AddPostProcessDepthOfFieldBokeh(Context, SeparateTranslucency);
+				if(VelocityInput.IsValid())
+				{
+					AddPostProcessDepthOfFieldBokeh(Context, SeparateTranslucency, VelocityInput);
+				}
+				else
+				{
+					// black is how we clear the velocity buffer so this means no velocity
+					FRenderingCompositePass* NoVelocity = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessInput(GSystemTextures.BlackDummy));
+					FRenderingCompositeOutputRef NoVelocityRef(NoVelocity);
+					AddPostProcessDepthOfFieldBokeh(Context, SeparateTranslucency, NoVelocityRef);
+				}
 			}
 			else 
 			{
@@ -1076,53 +1113,80 @@ void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, FViewInfo& V
 
 			if(IsMotionBlurEnabled(View) && VelocityInput.IsValid())
 			{
-				// Motionblur is enabled
-				FRenderingCompositeOutputRef SoftEdgeVelocity;
+				// Motion blur
 
-				FRenderingCompositeOutputRef MotionBlurHalfVelocity;
-				FRenderingCompositeOutputRef MotionBlurColorDepth;
-
-				// down sample screen space velocity and extend outside of borders to allows soft edge motion blur
+				if( CVarMotionBlurNew.GetValueOnRenderThread() )
 				{
-					// Down sample and prepare for soft masked blurring
-					FRenderingCompositePass* HalfResVelocity = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessMotionBlurSetup());
-					HalfResVelocity->SetInput(ePId_Input0, VelocityInput);
-					HalfResVelocity->SetInput(ePId_Input1, FRenderingCompositeOutputRef(Context.FinalOutput));
-					// only for Depth of Field we need the depth in the alpha channel
-					HalfResVelocity->SetInput(ePId_Input2, FRenderingCompositeOutputRef(Context.SceneDepth));
-					
-					MotionBlurHalfVelocity = FRenderingCompositeOutputRef(HalfResVelocity, ePId_Output0);
-					MotionBlurColorDepth = FRenderingCompositeOutputRef(HalfResVelocity, ePId_Output1);
+					FRenderingCompositeOutputRef MaxTileVelocity;
+					FRenderingCompositeOutputRef SceneDepth( Context.SceneDepth );
 
-					FRenderingCompositePass* QuarterResVelocity = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessDownsample(PF_Unknown, 0, TEXT("QuarterResVelocity")));
-					QuarterResVelocity->SetInput(ePId_Input0, HalfResVelocity);
-
-					SoftEdgeVelocity = FRenderingCompositeOutputRef(QuarterResVelocity);
-
-					float MotionBlurSoftEdgeSize = CVarMotionBlurSoftEdgeSize.GetValueOnRenderThread();
-
-					if(MotionBlurSoftEdgeSize > 0.01f)
 					{
-						SoftEdgeVelocity = RenderGaussianBlur(Context, TEXT("VelocityBlurX"), TEXT("VelocityBlurY"), QuarterResVelocity, MotionBlurSoftEdgeSize);
+						FRenderingCompositePass* VelocityFlattenPass = Context.Graph.RegisterPass( new(FMemStack::Get()) FRCPassPostProcessVelocityFlatten() );
+						VelocityFlattenPass->SetInput( ePId_Input0, VelocityInput );
+						VelocityFlattenPass->SetInput( ePId_Input1, SceneDepth );
+
+						VelocityInput		= FRenderingCompositeOutputRef( VelocityFlattenPass, ePId_Output0 );
+						MaxTileVelocity		= FRenderingCompositeOutputRef( VelocityFlattenPass, ePId_Output1 );
 					}
-				}
 
-				// doing the actual motion blur sampling, alpha to mask out the blurred areas
-				FRenderingCompositePass* MotionBlurPass;
-
-				if(View.Family->EngineShowFlags.VisualizeMotionBlur)
-				{
-					MotionBlurPass = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessVisualizeMotionBlur());
-					bAllowTonemapper = false;
+					{
+						FRenderingCompositePass* MotionBlurPass = Context.Graph.RegisterPass( new(FMemStack::Get()) FRCPassPostProcessMotionBlurNew( GetMotionBlurQualityFromCVar() ) );
+						MotionBlurPass->SetInput( ePId_Input0, Context.FinalOutput );
+						MotionBlurPass->SetInput( ePId_Input1, SceneDepth );
+						MotionBlurPass->SetInput( ePId_Input2, VelocityInput );
+						MotionBlurPass->SetInput( ePId_Input3, MaxTileVelocity );
+					
+						Context.FinalOutput = FRenderingCompositeOutputRef( MotionBlurPass );
+					}
 				}
 				else
 				{
-					int32 MotionBlurQuality = GetMotionBlurQualityFromCVar();
+					FRenderingCompositeOutputRef SoftEdgeVelocity;
 
-					MotionBlurPass = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessMotionBlur(MotionBlurQuality));
-				}
+					FRenderingCompositeOutputRef MotionBlurHalfVelocity;
+					FRenderingCompositeOutputRef MotionBlurColorDepth;
 
-				MotionBlurPass->SetInput(ePId_Input0, MotionBlurColorDepth);
+					// down sample screen space velocity and extend outside of borders to allows soft edge motion blur
+					{
+						// Down sample and prepare for soft masked blurring
+						FRenderingCompositePass* HalfResVelocity = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessMotionBlurSetup());
+						HalfResVelocity->SetInput(ePId_Input0, VelocityInput);
+						HalfResVelocity->SetInput(ePId_Input1, FRenderingCompositeOutputRef(Context.FinalOutput));
+						// only for Depth of Field we need the depth in the alpha channel
+						HalfResVelocity->SetInput(ePId_Input2, FRenderingCompositeOutputRef(Context.SceneDepth));
+					
+						MotionBlurHalfVelocity = FRenderingCompositeOutputRef(HalfResVelocity, ePId_Output0);
+						MotionBlurColorDepth = FRenderingCompositeOutputRef(HalfResVelocity, ePId_Output1);
+
+						FRenderingCompositePass* QuarterResVelocity = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessDownsample(PF_Unknown, 0, TEXT("QuarterResVelocity")));
+						QuarterResVelocity->SetInput(ePId_Input0, HalfResVelocity);
+
+						SoftEdgeVelocity = FRenderingCompositeOutputRef(QuarterResVelocity);
+
+						float MotionBlurSoftEdgeSize = CVarMotionBlurSoftEdgeSize.GetValueOnRenderThread();
+
+						if(MotionBlurSoftEdgeSize > 0.01f)
+						{
+							SoftEdgeVelocity = RenderGaussianBlur(Context, TEXT("VelocityBlurX"), TEXT("VelocityBlurY"), QuarterResVelocity, MotionBlurSoftEdgeSize);
+						}
+					}
+
+					// doing the actual motion blur sampling, alpha to mask out the blurred areas
+					FRenderingCompositePass* MotionBlurPass;
+
+					if(View.Family->EngineShowFlags.VisualizeMotionBlur)
+					{
+						MotionBlurPass = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessVisualizeMotionBlur());
+						bAllowTonemapper = false;
+					}
+					else
+					{
+						int32 MotionBlurQuality = GetMotionBlurQualityFromCVar();
+
+						MotionBlurPass = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessMotionBlur(MotionBlurQuality));
+					}
+
+					MotionBlurPass->SetInput(ePId_Input0, MotionBlurColorDepth);
 
 				if(VelocityInput.IsValid())
 				{
@@ -1132,10 +1196,11 @@ void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, FViewInfo& V
 					MotionBlurPass->SetInput(ePId_Input2, MotionBlurHalfVelocity);
 				}
 
-				FRenderingCompositePass* MotionBlurRecombinePass = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessMotionBlurRecombine());
-				MotionBlurRecombinePass->SetInput(ePId_Input0, Context.FinalOutput);
-				MotionBlurRecombinePass->SetInput(ePId_Input1, FRenderingCompositeOutputRef(MotionBlurPass));
-				Context.FinalOutput = FRenderingCompositeOutputRef(MotionBlurRecombinePass);
+					FRenderingCompositePass* MotionBlurRecombinePass = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessMotionBlurRecombine());
+					MotionBlurRecombinePass->SetInput(ePId_Input0, Context.FinalOutput);
+					MotionBlurRecombinePass->SetInput(ePId_Input1, FRenderingCompositeOutputRef(MotionBlurPass));
+					Context.FinalOutput = FRenderingCompositeOutputRef(MotionBlurRecombinePass);
+				}
 			}
 
 			if(bVisualizeBloom)
@@ -1420,7 +1485,7 @@ void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, FViewInfo& V
 			{
 				Node = Context.Graph.RegisterPass(new FRCPassPostProcessHMD());
 			}
-#if HAS_MORPHEUS
+#if MORPHEUS_ENGINE_DISTORTION
 			else if(DeviceType == EHMDDeviceType::DT_Morpheus)
 			{
 				Node = Context.Graph.RegisterPass(new FRCPassPostProcessMorpheus());

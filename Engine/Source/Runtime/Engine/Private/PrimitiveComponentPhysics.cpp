@@ -2,8 +2,11 @@
 
 #include "EnginePrivate.h"
 #include "Components/LineBatchComponent.h"
+#include "MessageLog.h"
 
 //////////////// PRIMITIVECOMPONENT ///////////////
+
+#define LOCTEXT_NAMESPACE "PrimitiveComponent"
 
 bool UPrimitiveComponent::ApplyRigidBodyState(const FRigidBodyState& NewState, const FRigidBodyErrorCorrection& ErrorCorrection, FVector& OutDeltaPos, FName BoneName)
 {
@@ -149,12 +152,26 @@ void UPrimitiveComponent::SetWalkableSlopeOverride(const FWalkableSlopeOverride&
 	BodyInstance.SetWalkableSlopeOverride(NewOverride);
 }
 
+void UPrimitiveComponent::WarnInvalidPhysicsOperations(const FText& ActionText, const FBodyInstance* BI) const
+{
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+	if (!CheckStaticMobilityAndWarn(ActionText))	//all physics operations require non-static mobility
+	{
+		if (BI && BI->bSimulatePhysics == false)	//some require to be simulating too
+		{
+			FMessageLog("PIE").Warning(FText::Format(LOCTEXT("InvalidPhysicsOperation", "{0} has to have 'Simulate Physics' enabled if you'd like to {1}. "), FText::FromString(GetReadableName()), ActionText));
+		}
+	}
+#endif
+}
+
+
 void UPrimitiveComponent::SetSimulatePhysics(bool bSimulate)
 {
 	BodyInstance.SetInstanceSimulatePhysics(bSimulate);
 }
 
-void UPrimitiveComponent::SetLockedAxis(ELockedAxis::Type LockedAxis)
+void UPrimitiveComponent::SetConstraintMode(EDOFMode::Type ConstraintMode)
 {
 	FBodyInstance * RootBI = GetBodyInstance(NAME_None, false);
 
@@ -163,14 +180,19 @@ void UPrimitiveComponent::SetLockedAxis(ELockedAxis::Type LockedAxis)
 		return;
 	}
 
-	RootBI->SetDOFLock(LockedAxis);
+	RootBI->SetDOFLock(ConstraintMode);
+}
+
+void UPrimitiveComponent::SetLockedAxis(EDOFMode::Type LockedAxis)
+{
+	SetConstraintMode(LockedAxis);
 }
 
 void UPrimitiveComponent::AddImpulse(FVector Impulse, FName BoneName, bool bVelChange)
 {
-	FBodyInstance* BI = GetBodyInstance(BoneName);
-	if(BI)
+	if (FBodyInstance* BI = GetBodyInstance(BoneName))
 	{
+		WarnInvalidPhysicsOperations(LOCTEXT("AddImpulse", "AddImpulse"), BI);
 		BI->AddImpulse(Impulse, bVelChange);
 	}
 }
@@ -179,15 +201,16 @@ void UPrimitiveComponent::AddAngularImpulse(FVector Impulse, FName BoneName, boo
 {
 	if (FBodyInstance* BI = GetBodyInstance(BoneName))
 	{
+		WarnInvalidPhysicsOperations(LOCTEXT("AddAngularImpulse", "AddAngularImpulse"), BI);
 		BI->AddAngularImpulse(Impulse, bVelChange);
 	}
 }
 
 void UPrimitiveComponent::AddImpulseAtLocation(FVector Impulse, FVector Location, FName BoneName)
 {
-	FBodyInstance* BI = GetBodyInstance(BoneName);
-	if(BI)
+	if (FBodyInstance* BI = GetBodyInstance(BoneName))
 	{
+		WarnInvalidPhysicsOperations(LOCTEXT("AddImpulseAtLocation", "AddImpulseAtLocation"), BI);
 		BI->AddImpulseAtPosition(Impulse, Location);
 	}
 }
@@ -207,25 +230,25 @@ void UPrimitiveComponent::AddRadialImpulse(FVector Origin, float Radius, float S
 }
 
 
-void UPrimitiveComponent::AddForce(FVector Force, FName BoneName)
+void UPrimitiveComponent::AddForce(FVector Force, FName BoneName, bool bAccelChange)
 {
-	FBodyInstance* BI = GetBodyInstance(BoneName);
-	if(BI)
+	if (FBodyInstance* BI = GetBodyInstance(BoneName))
 	{
-		BI->AddForce(Force);
+		WarnInvalidPhysicsOperations(LOCTEXT("AddForce", "AddForce"), BI);
+		BI->AddForce(Force, true, bAccelChange);
 	}
 }
 
 void UPrimitiveComponent::AddForceAtLocation(FVector Force, FVector Location, FName BoneName)
 {
-	FBodyInstance* BI = GetBodyInstance(BoneName);
-	if(BI)
+	if (FBodyInstance* BI = GetBodyInstance(BoneName))
 	{
+		WarnInvalidPhysicsOperations(LOCTEXT("AddForceAtLocation", "AddForceAtLocation"), BI);
 		BI->AddForceAtPosition(Force, Location);
 	}
 }
 
-void UPrimitiveComponent::AddRadialForce(FVector Origin, float Radius, float Strength, ERadialImpulseFalloff Falloff)
+void UPrimitiveComponent::AddRadialForce(FVector Origin, float Radius, float Strength, ERadialImpulseFalloff Falloff, bool bAccelChange)
 {
 	if(bIgnoreRadialForce)
 	{
@@ -235,24 +258,24 @@ void UPrimitiveComponent::AddRadialForce(FVector Origin, float Radius, float Str
 	FBodyInstance* BI = GetBodyInstance();
 	if (BI)
 	{
-		BI->AddRadialForceToBody(Origin, Radius, Strength, Falloff);
+		BI->AddRadialForceToBody(Origin, Radius, Strength, Falloff, bAccelChange);
 	}
 }
 
-void UPrimitiveComponent::AddTorque(FVector Torque, FName BoneName)
+void UPrimitiveComponent::AddTorque(FVector Torque, FName BoneName, bool bAccelChange)
 {
-	FBodyInstance* BI = GetBodyInstance(BoneName);
-	if(BI)
+	if (FBodyInstance* BI = GetBodyInstance(BoneName))
 	{
-		BI->AddTorque(Torque);
+		WarnInvalidPhysicsOperations(LOCTEXT("AddTorque", "AddTorque"), BI);
+		BI->AddTorque(Torque, true, bAccelChange);
 	}
 }
 
 void UPrimitiveComponent::SetPhysicsLinearVelocity(FVector NewVel, bool bAddToCurrent, FName BoneName)
 {
-	FBodyInstance* BI = GetBodyInstance(BoneName);
-	if(BI != NULL)
+	if (FBodyInstance* BI = GetBodyInstance(BoneName))
 	{
+		WarnInvalidPhysicsOperations(LOCTEXT("SetPhysicsLinearVelocity", "SetPhysicsLinearVelocity"));
 		BI->SetLinearVelocity(NewVel, bAddToCurrent);
 	}
 }
@@ -274,18 +297,18 @@ void UPrimitiveComponent::SetAllPhysicsLinearVelocity(FVector NewVel,bool bAddTo
 
 void UPrimitiveComponent::SetPhysicsAngularVelocity(FVector NewAngVel, bool bAddToCurrent, FName BoneName)
 {
-	FBodyInstance* const BI = GetBodyInstance(BoneName);
-	if(BI != NULL)
+	if (FBodyInstance* BI = GetBodyInstance(BoneName))
 	{
+		WarnInvalidPhysicsOperations(LOCTEXT("SetPhysicsAngularVelocity", "SetPhysicsAngularVelocity"));
 		BI->SetAngularVelocity(NewAngVel, bAddToCurrent);
 	}
 }
 
 void UPrimitiveComponent::SetPhysicsMaxAngularVelocity(float NewMaxAngVel, bool bAddToCurrent, FName BoneName)
 {
-	FBodyInstance* const BI = GetBodyInstance(BoneName);
-	if (BI != NULL)
+	if (FBodyInstance* BI = GetBodyInstance(BoneName))
 	{
+		WarnInvalidPhysicsOperations(LOCTEXT("SetPhysicsMaxAngularVelocity", "SetPhysicsMaxAngularVelocity"));
 		BI->SetMaxAngularVelocity(NewMaxAngVel, bAddToCurrent);
 	}
 }
@@ -428,6 +451,25 @@ float UPrimitiveComponent::GetMass() const
 	}
 
 	return 0.0f;
+}
+
+FVector UPrimitiveComponent::GetInertiaTensor(FName BoneName /* = NAME_None */) const 
+{
+	if(FBodyInstance* BI = GetBodyInstance(BoneName))
+	{
+		return BI->GetBodyInertiaTensor();
+	}
+
+	return FVector::ZeroVector;
+}
+
+FVector UPrimitiveComponent::ScaleByMomentOfInertia(FVector InputVector, FName BoneName /* = NAME_None */) const
+{
+	const FVector LocalInertiaTensor = GetInertiaTensor(BoneName);
+	const FVector InputVectorLocal = ComponentToWorld.InverseTransformVectorNoScale(InputVector);
+	const FVector LocalScaled = InputVectorLocal * LocalInertiaTensor;
+	const FVector WorldScaled = ComponentToWorld.TransformFVector4NoScale(LocalScaled);
+	return WorldScaled;
 }
 
 float UPrimitiveComponent::CalculateMass(FName)
@@ -943,3 +985,4 @@ void UPrimitiveComponent::UpdatePhysicsToRBChannels()
 	}
 }
 
+#undef LOCTEXT_NAMESPACE

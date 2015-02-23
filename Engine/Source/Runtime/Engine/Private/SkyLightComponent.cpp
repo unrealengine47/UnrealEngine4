@@ -80,6 +80,7 @@ FSkyLightSceneProxy::FSkyLightSceneProxy(const USkyLightComponent* InLightCompon
 	, bHasStaticLighting(InLightComponent->HasStaticLighting())
 	, LightColor(FLinearColor(InLightComponent->LightColor) * InLightComponent->Intensity)
 	, IrradianceEnvironmentMap(InLightComponent->IrradianceEnvironmentMap)
+	, IndirectLightingIntensity(InLightComponent->IndirectLightingIntensity)
 	, OcclusionMaxDistance(InLightComponent->OcclusionMaxDistance)
 	, Contrast(InLightComponent->Contrast)
 	, MinOcclusion(InLightComponent->MinOcclusion)
@@ -109,6 +110,7 @@ USkyLightComponent::USkyLightComponent(const FObjectInitializer& ObjectInitializ
 	bCaptureDirty = false;
 	bLowerHemisphereIsBlack = true;
 	bSavedConstructionScriptValuesValid = true;
+	bHasEverCaptured = false;
 	OcclusionMaxDistance = 1000;
 	MinOcclusion = 0;
 	OcclusionTint = FColor::Black;
@@ -124,7 +126,7 @@ FSkyLightSceneProxy* USkyLightComponent::CreateSceneProxy() const
 	return NULL;
 }
 
-void USkyLightComponent::SetCaptureIsDirty() 
+void USkyLightComponent::SetCaptureIsDirty()
 { 
 	if (bVisible && bAffectsWorld)
 	{
@@ -159,8 +161,11 @@ void USkyLightComponent::CreateRenderState_Concurrent()
 		// Create the light's scene proxy.
 		SceneProxy = CreateSceneProxy();
 
-		// Add the light to the scene.
-		World->Scene->SetSkyLight(SceneProxy);
+		if (SceneProxy)
+		{
+			// Add the light to the scene.
+			World->Scene->SetSkyLight(SceneProxy);
+		}
 	}
 }
 
@@ -192,6 +197,26 @@ void USkyLightComponent::PostLoad()
 }
 
 /** 
+ * Fast path for updating light properties that doesn't require a re-register,
+ * Which would otherwise cause the scene's static draw lists to be recreated.
+ */
+void USkyLightComponent::UpdateLimitedRenderingStateFast()
+{
+	if (SceneProxy)
+	{
+		ENQUEUE_UNIQUE_RENDER_COMMAND_THREEPARAMETER(
+			FFastUpdateSkyLightCommand,
+			FSkyLightSceneProxy*,LightSceneProxy,SceneProxy,
+			FLinearColor,LightColor,FLinearColor(LightColor) * Intensity,
+			float,IndirectLightingIntensity,IndirectLightingIntensity,
+		{
+			LightSceneProxy->LightColor = LightColor;
+			LightSceneProxy->IndirectLightingIntensity = IndirectLightingIntensity;
+		});
+	}
+}
+
+/** 
 * This is called when property is modified by InterpPropertyTracks
 *
 * @param PropertyThatChanged	Property that changed
@@ -207,7 +232,7 @@ void USkyLightComponent::PostInterpChange(UProperty* PropertyThatChanged)
 		|| PropertyName == IntensityName
 		|| PropertyName == IndirectLightingIntensityName)
 	{
-		MarkRenderStateDirty();
+		UpdateLimitedRenderingStateFast();
 	}
 	else
 	{
@@ -218,16 +243,20 @@ void USkyLightComponent::PostInterpChange(UProperty* PropertyThatChanged)
 void USkyLightComponent::DestroyRenderState_Concurrent()
 {
 	Super::DestroyRenderState_Concurrent();
-	World->Scene->SetSkyLight(NULL);
 
-	ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
-		FDestroySkyLightCommand,
-		FSkyLightSceneProxy*,LightSceneProxy,SceneProxy,
+	if (SceneProxy)
 	{
-		delete LightSceneProxy;
-	});
+		World->Scene->DisableSkyLight(SceneProxy);
 
-	SceneProxy = NULL;
+		ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
+			FDestroySkyLightCommand,
+			FSkyLightSceneProxy*,LightSceneProxy,SceneProxy,
+		{
+			delete LightSceneProxy;
+		});
+
+		SceneProxy = NULL;
+	}
 }
 
 #if WITH_EDITOR
@@ -333,9 +362,9 @@ public:
 		: FSceneComponentInstanceData(SourceComponent)
 	{}
 
-	virtual void ApplyToComponent(UActorComponent* Component) override
+	virtual void ApplyToComponent(UActorComponent* Component, const ECacheApplyPhase CacheApplyPhase) override
 	{
-		FSceneComponentInstanceData::ApplyToComponent(Component);
+		FSceneComponentInstanceData::ApplyToComponent(Component, CacheApplyPhase);
 		CastChecked<USkyLightComponent>(Component)->ApplyComponentInstanceData(this);
 	}
 
@@ -353,7 +382,7 @@ FName USkyLightComponent::GetComponentInstanceDataType() const
 	return PrecomputedSkyLightInstanceDataTypeName;
 }
 
-FComponentInstanceDataBase* USkyLightComponent::GetComponentInstanceData() const
+FActorComponentInstanceData* USkyLightComponent::GetComponentInstanceData() const
 {
 	FPrecomputedSkyLightInstanceData* InstanceData = new FPrecomputedSkyLightInstanceData(this);
 	InstanceData->LightGuid = LightGuid;
@@ -410,9 +439,9 @@ void USkyLightComponent::UpdateSkyCaptureContents(UWorld* WorldToUpdate)
 						CaptureComponent->MarkRenderStateDirty();
 					}
 
-					//@todo - defer this until shader compilation is finished, just like reflection captures, otherwise we will capture an incomplete scene.
 					WorldToUpdate->Scene->UpdateSkyCaptureContents(CaptureComponent, false, CaptureComponent->ProcessedSkyTexture, CaptureComponent->IrradianceEnvironmentMap);
 
+					CaptureComponent->bHasEverCaptured = true;
 					CaptureComponent->MarkRenderStateDirty();
 				}
 
@@ -439,11 +468,11 @@ void USkyLightComponent::CaptureEmissiveIrradianceEnvironmentMap(FSHVectorRGB3& 
 void USkyLightComponent::SetIntensity(float NewIntensity)
 {
 	// Can't set brightness on a static light
-	if ((IsRunningUserConstructionScript() || !(IsRegistered() && Mobility == EComponentMobility::Static))
+	if (AreDynamicDataChangesAllowed()
 		&& Intensity != NewIntensity)
 	{
 		Intensity = NewIntensity;
-		MarkRenderStateDirty();
+		UpdateLimitedRenderingStateFast();
 	}
 }
 
@@ -453,18 +482,18 @@ void USkyLightComponent::SetLightColor(FLinearColor NewLightColor)
 	FColor NewColor(NewLightColor);
 
 	// Can't set color on a static light
-	if ((IsRunningUserConstructionScript() || !(IsRegistered() && Mobility == EComponentMobility::Static))
+	if (AreDynamicDataChangesAllowed()
 		&& LightColor != NewColor)
 	{
 		LightColor = NewColor;
-		MarkRenderStateDirty();
+		UpdateLimitedRenderingStateFast();
 	}
 }
 
 void USkyLightComponent::SetCubemap(UTextureCube* NewCubemap)
 {
 	// Can't set color on a static light
-	if ((IsRunningUserConstructionScript() || !(IsRegistered() && Mobility == EComponentMobility::Static))
+	if (AreDynamicDataChangesAllowed()
 		&& Cubemap != NewCubemap)
 	{
 		Cubemap = NewCubemap;
@@ -476,7 +505,7 @@ void USkyLightComponent::SetCubemap(UTextureCube* NewCubemap)
 void USkyLightComponent::SetOcclusionTint(const FColor& InTint)
 {
 	// Can't set on a static light
-	if ((IsRunningUserConstructionScript() || !(IsRegistered() && Mobility == EComponentMobility::Static))
+	if (AreDynamicDataChangesAllowed()
 		&& OcclusionTint != InTint)
 	{
 		OcclusionTint = InTint;
@@ -487,11 +516,24 @@ void USkyLightComponent::SetOcclusionTint(const FColor& InTint)
 void USkyLightComponent::SetMinOcclusion(float InMinOcclusion)
 {
 	// Can't set on a static light
-	if ((IsRunningUserConstructionScript() || !(IsRegistered() && Mobility == EComponentMobility::Static))
+	if (AreDynamicDataChangesAllowed()
 		&& MinOcclusion != InMinOcclusion)
 	{
 		MinOcclusion = InMinOcclusion;
 		MarkRenderStateDirty();
+	}
+}
+
+void USkyLightComponent::SetVisibility(bool bNewVisibility, bool bPropagateToChildren)
+{
+	const bool bOldWasVisible = bVisible;
+
+	Super::SetVisibility(bNewVisibility, bPropagateToChildren);
+
+	if (bVisible && !bOldWasVisible && !bHasEverCaptured)
+	{
+		// Capture if we are being enabled for the first time
+		SetCaptureIsDirty();
 	}
 }
 
