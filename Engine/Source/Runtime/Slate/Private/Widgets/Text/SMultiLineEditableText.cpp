@@ -8,7 +8,7 @@
 #include "PlainTextLayoutMarshaller.h"
 #include "GenericCommands.h"
 
-void SMultiLineEditableText::FCursorInfo::SetCursorLocationAndCalculateAlignment(const TSharedPtr<FTextLayout>& TextLayout, const FTextLocation& InCursorPosition)
+void SMultiLineEditableText::FCursorInfo::SetCursorLocationAndCalculateAlignment(const TSharedPtr<FTextLayout>& InTextLayout, const FTextLocation& InCursorPosition)
 {
 	FTextLocation NewCursorPosition = InCursorPosition;
 	ECursorAlignment NewAlignment = ECursorAlignment::Left;
@@ -17,9 +17,9 @@ void SMultiLineEditableText::FCursorInfo::SetCursorLocationAndCalculateAlignment
 	const int32 CursorOffset = InCursorPosition.GetOffset();
 
 	// A CursorOffset of zero could mark the end of an empty line, but we don't need to adjust the cursor for an empty line
-	if (TextLayout.IsValid() && CursorOffset > 0)
+	if (InTextLayout.IsValid() && CursorOffset > 0)
 	{
-		const TArray< FTextLayout::FLineModel >& Lines = TextLayout->GetLineModels();
+		const TArray< FTextLayout::FLineModel >& Lines = InTextLayout->GetLineModels();
 		const FTextLayout::FLineModel& Line = Lines[CursorLineIndex];
 		if (Line.Text->Len() == CursorOffset)
 		{
@@ -467,16 +467,37 @@ void SMultiLineEditableText::OnVScrollBarMoved(const float InScrollOffsetFractio
 	OnVScrollBarUserScrolled.ExecuteIfBound(InScrollOffsetFraction);
 }
 
+void SMultiLineEditableText::EnsureActiveTick()
+{
+	TSharedPtr<FActiveTimerHandle> ActiveTickTimerPin = ActiveTickTimer.Pin();
+	if(ActiveTickTimerPin.IsValid())
+	{
+		return;
+	}
+
+	auto DoActiveTick = [this](double InCurrentTime, float InDeltaTime) -> EActiveTimerReturnType
+	{
+		// Continue if we still have focus, otherwise treat as a fire-and-forget Tick() request
+		const bool bShouldAppearFocused = HasKeyboardFocus() || ActiveContextMenu.IsValid();
+		return (bShouldAppearFocused) ? EActiveTimerReturnType::Continue : EActiveTimerReturnType::Stop;
+	};
+
+	ActiveTickTimer = RegisterActiveTimer(0.5f, FWidgetActiveTimerDelegate::CreateLambda(DoActiveTick));
+}
+
 FReply SMultiLineEditableText::OnFocusReceived( const FGeometry& MyGeometry, const FFocusEvent& InFocusEvent )
 {
 	// Skip the focus received code if it's due to the context menu closing
 	if ( !ActiveContextMenu.IsValid() )
 	{
+		// We need to Tick() while we have focus to keep some things up-to-date
+		EnsureActiveTick();
+
 		FSlateApplication& SlateApplication = FSlateApplication::Get();
 		if (FPlatformMisc::GetRequiresVirtualKeyboard())
 		{
 			// @TODO: Create ITextInputMethodSystem derivations for mobile
-			SlateApplication.ShowVirtualKeyboard(true, SharedThis(this));
+			SlateApplication.ShowVirtualKeyboard(true, InFocusEvent.GetUser(), SharedThis(this));
 		}
 		else
 		{
@@ -486,7 +507,6 @@ FReply SMultiLineEditableText::OnFocusReceived( const FGeometry& MyGeometry, con
 				TextInputMethodSystem->ActivateContext(TextInputMethodContext.ToSharedRef());
 			}
 		}
-
 
 		UpdateCursorHighlight();
 
@@ -510,7 +530,7 @@ void SMultiLineEditableText::OnFocusLost( const FFocusEvent& InFocusEvent )
 		FSlateApplication& SlateApplication = FSlateApplication::Get();
 		if (FPlatformMisc::GetRequiresVirtualKeyboard())
 		{
-			SlateApplication.ShowVirtualKeyboard(false);
+			SlateApplication.ShowVirtualKeyboard(false, InFocusEvent.GetUser());
 		}
 		else
 		{
@@ -1008,6 +1028,7 @@ FReply SMultiLineEditableText::MoveCursor( FMoveCursor Args )
 void SMultiLineEditableText::UpdateCursorHighlight()
 {
 	PositionToScrollIntoView = FScrollInfo(CursorInfo.GetCursorInteractionLocation(), CursorInfo.GetCursorAlignment());
+	EnsureActiveTick();
 
 	RemoveCursorHighlight();
 
@@ -1344,6 +1365,7 @@ void SMultiLineEditableText::ScrollTo(const FTextLocation& NewLocation)
 		if (NewLocation.GetOffset() <= Line.Text->Len())
 		{
 			PositionToScrollIntoView = FScrollInfo(NewLocation, ECursorAlignment::Left);
+			EnsureActiveTick();
 		}
 	}
 }
@@ -1718,22 +1740,7 @@ void SMultiLineEditableText::OnEnter()
 {
 	if ( FSlateApplication::Get().GetModifierKeys().AreModifersDown(ModiferKeyForNewLine) )
 	{
-		if ( AnyTextSelected() )
-		{
-			// Delete selected text
-			DeleteSelectedText();
-		}
-
-		const FTextLocation CursorInteractionPosition = CursorInfo.GetCursorInteractionLocation();
-		if ( TextLayout->SplitLineAt(CursorInteractionPosition) )
-		{
-			// Adjust the cursor position to be at the beginning of the new line
-			const FTextLocation NewCursorPosition = FTextLocation(CursorInteractionPosition.GetLineIndex() + 1, 0);
-			CursorInfo.SetCursorLocationAndCalculateAlignment(TextLayout, NewCursorPosition);
-		}
-
-		ClearSelection();
-		UpdateCursorHighlight();
+		InsertNewLineAtCursorImpl();
 	}
 	else
 	{
@@ -1877,7 +1884,7 @@ void SMultiLineEditableText::InsertTextAtCursorImpl(const FString& InString)
 		{
 			if (*Character == '\n')
 			{
-				OnEnter();
+				InsertNewLineAtCursorImpl();
 			}
 			else
 			{
@@ -1885,6 +1892,26 @@ void SMultiLineEditableText::InsertTextAtCursorImpl(const FString& InString)
 			}
 		}
 	}
+}
+
+void SMultiLineEditableText::InsertNewLineAtCursorImpl()
+{
+	if ( AnyTextSelected() )
+	{
+		// Delete selected text
+		DeleteSelectedText();
+	}
+
+	const FTextLocation CursorInteractionPosition = CursorInfo.GetCursorInteractionLocation();
+	if ( TextLayout->SplitLineAt(CursorInteractionPosition) )
+	{
+		// Adjust the cursor position to be at the beginning of the new line
+		const FTextLocation NewCursorPosition = FTextLocation(CursorInteractionPosition.GetLineIndex() + 1, 0);
+		CursorInfo.SetCursorLocationAndCalculateAlignment(TextLayout, NewCursorPosition);
+	}
+
+	ClearSelection();
+	UpdateCursorHighlight();
 }
 
 bool SMultiLineEditableText::CanExecuteUndo() const
@@ -2274,17 +2301,17 @@ FVector2D SMultiLineEditableText::ComputeDesiredSize( float ) const
 	const float FontMaxCharHeight = FTextEditHelper::GetFontHeight(TextStyle.Font);
 	const float CaretWidth = FTextEditHelper::CalculateCaretWidth(FontMaxCharHeight);
 
-	// The layouts current margin size. We should not report a size smaller then the margins.
-	const FMargin Margin = TextLayout->GetMargin();
-	const FVector2D TextLayoutSize = TextLayout->GetSize();
+	// If a wrapping width has been provided, then we need to report the wrapped size as the desired width
+	// (rather than the actual text layout size as that can have non-breaking lines that extend beyond the wrap width)
+	// Note: We don't do this when auto-wrapping as it would cause a feedback loop in the Slate sizing logic
 	const float WrappingWidth = WrapTextAt.Get();
+	const FVector2D TextLayoutBaseSize = WrappingWidth > 0 ? TextLayout->GetWrappedSize() : TextLayout->GetSize();
+	const FVector2D TextLayoutSize = TextLayoutBaseSize + FVector2D(CaretWidth, 0);
 
-	// If a wrapping width has been provided that should be reported as the desired width.
-	float DesiredWidth = WrappingWidth > 0 ? WrappingWidth : TextLayoutSize.X;
-	DesiredWidth = FMath::Max(Margin.GetTotalSpaceAlong<Orient_Horizontal>(), DesiredWidth);
-	DesiredWidth += CaretWidth;
-
-	float DesiredHeight = FMath::Max(Margin.GetTotalSpaceAlong<Orient_Vertical>(), TextLayoutSize.Y);
+	// The layouts current margin size. We should not report a size smaller then the margins.
+	const FMargin TextLayoutMargin = TextLayout->GetMargin();
+	float DesiredWidth = FMath::Max(TextLayoutMargin.GetTotalSpaceAlong<Orient_Horizontal>(), TextLayoutSize.X);
+	float DesiredHeight = FMath::Max(TextLayoutMargin.GetTotalSpaceAlong<Orient_Vertical>(), TextLayoutSize.Y);
 	DesiredHeight = FMath::Max(DesiredHeight, FontMaxCharHeight);
 	
 	return FVector2D(DesiredWidth, DesiredHeight);

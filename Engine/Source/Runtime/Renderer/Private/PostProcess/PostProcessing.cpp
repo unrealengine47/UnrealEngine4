@@ -933,6 +933,20 @@ static TAutoConsoleVariable<int32> CVarMotionBlurNew(
 	ECVF_RenderThreadSafe
 );
 
+static TAutoConsoleVariable<int32> CVarMotionBlurScatter(
+	TEXT("r.MotionBlurScatter"),
+	1,
+	TEXT(""),
+	ECVF_RenderThreadSafe
+);
+
+static TAutoConsoleVariable<int32> CVarMotionBlurDilate(
+	TEXT("r.MotionBlurDilate"),
+	0,
+	TEXT(""),
+	ECVF_RenderThreadSafe
+);
+
 void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, FViewInfo& View, TRefCountPtr<IPooledRenderTarget>& VelocityRT)
 {
 	QUICK_SCOPE_CYCLE_COUNTER( STAT_PostProcessing_Process );
@@ -1125,8 +1139,24 @@ void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, FViewInfo& V
 						VelocityFlattenPass->SetInput( ePId_Input0, VelocityInput );
 						VelocityFlattenPass->SetInput( ePId_Input1, SceneDepth );
 
-						VelocityInput		= FRenderingCompositeOutputRef( VelocityFlattenPass, ePId_Output0 );
-						MaxTileVelocity		= FRenderingCompositeOutputRef( VelocityFlattenPass, ePId_Output1 );
+						VelocityInput	= FRenderingCompositeOutputRef( VelocityFlattenPass, ePId_Output0 );
+						MaxTileVelocity	= FRenderingCompositeOutputRef( VelocityFlattenPass, ePId_Output1 );
+					}
+
+					if( CVarMotionBlurScatter.GetValueOnRenderThread() )
+					{
+						FRenderingCompositePass* VelocityScatterPass = Context.Graph.RegisterPass( new(FMemStack::Get()) FRCPassPostProcessVelocityScatter() );
+						VelocityScatterPass->SetInput( ePId_Input0, MaxTileVelocity );
+
+						MaxTileVelocity	= FRenderingCompositeOutputRef( VelocityScatterPass );
+					}
+
+					if( CVarMotionBlurDilate.GetValueOnRenderThread() )
+					{
+						FRenderingCompositePass* VelocityDilatePass = Context.Graph.RegisterPass( new(FMemStack::Get()) FRCPassPostProcessVelocityDilate() );
+						VelocityDilatePass->SetInput( ePId_Input0, MaxTileVelocity );
+
+						MaxTileVelocity	= FRenderingCompositeOutputRef( VelocityDilatePass );
 					}
 
 					{
@@ -1908,7 +1938,6 @@ void FPostProcessing::ProcessES2(FRHICommandListImmediate& RHICmdList, FViewInfo
 			}
 
 			// Mobile temporal AA is done after tonemapping.
-			FIntPoint PrePostSourceViewportSize = View.ViewRect.Size();
 			FRenderingCompositePass* PostProcessAa = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessAaES2());
 			PostProcessAa->SetInput(ePId_Input0, Context.FinalOutput);
 			PostProcessAa->SetInput(ePId_Input1, PostProcessPrior);

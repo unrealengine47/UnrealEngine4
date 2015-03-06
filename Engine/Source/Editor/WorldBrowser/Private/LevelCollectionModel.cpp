@@ -85,6 +85,10 @@ void FLevelCollectionModel::BindCommands()
 	ActionList.MapAction(Commands.MoveActorsToSelected,
 		FExecuteAction::CreateSP(this, &FLevelCollectionModel::MoveActorsToSelected_Executed),
 		FCanExecuteAction::CreateSP(this, &FLevelCollectionModel::IsValidMoveActorsToLevel));
+
+	ActionList.MapAction(Commands.MoveFoliageToSelected,
+		FExecuteAction::CreateSP(this, &FLevelCollectionModel::MoveFoliageToSelected_Executed),
+		FCanExecuteAction::CreateSP(this, &FLevelCollectionModel::IsValidMoveFoliageToLevel));
 		
 	ActionList.MapAction(Commands.World_SaveSelectedLevels,
 		FExecuteAction::CreateSP(this, &FLevelCollectionModel::SaveSelectedLevels_Executed),
@@ -206,12 +210,10 @@ void FLevelCollectionModel::PopulateFilteredLevelsList()
 	FilteredLevelsList.Empty();
 
 	// Filter out our flat list
-	for (auto It = AllLevelsList.CreateIterator(); It; ++It)
+	for (auto& LevelModel : AllLevelsList)
 	{
-		TSharedPtr<FLevelModel> LevelModel = (*It);
-		
 		LevelModel->SetLevelFilteredOutFlag(true);
-		if (LevelModel->IsPersistent() || PassesAllFilters(LevelModel))
+		if (LevelModel->IsPersistent() || PassesAllFilters(*LevelModel))
 		{
 			FilteredLevelsList.Add(LevelModel);
 			LevelModel->SetLevelFilteredOutFlag(false);
@@ -331,9 +333,9 @@ void FLevelCollectionModel::SetSelectedLevels(const FLevelModelList& InList)
 	SelectedLevelsList.Empty(); 
 	
 	// Set selection flag to selected levels	
-	for (auto LevelModel : InList)
+	for (auto& LevelModel : InList)
 	{
-		if (LevelModel.IsValid() && PassesAllFilters(LevelModel))
+		if (LevelModel.IsValid() && PassesAllFilters(*LevelModel))
 		{
 			LevelModel->SetLevelSelectionFlag(true);
 			SelectedLevelsList.Add(LevelModel);
@@ -652,9 +654,9 @@ TSharedPtr<FLevelDragDropOp> FLevelCollectionModel::CreateDragDropOp() const
 	return TSharedPtr<FLevelDragDropOp>();
 }
 
-bool FLevelCollectionModel::PassesAllFilters(TSharedPtr<FLevelModel> Item) const
+bool FLevelCollectionModel::PassesAllFilters(const FLevelModel& Item) const
 {
-	if (Item->IsPersistent() || Filters->PassesAllFilters(Item))
+	if (Item.IsPersistent() || Filters->PassesAllFilters(&Item))
 	{
 		return true;
 	}
@@ -1505,6 +1507,15 @@ void FLevelCollectionModel::MoveActorsToSelected_Executed()
 	RequestUpdateAllLevels();
 }
 
+void FLevelCollectionModel::MoveFoliageToSelected_Executed()
+{
+	if (GetSelectedLevels().Num() == 1)
+	{
+		ULevel* TargetLevel = GetSelectedLevels()[0]->GetLevelObject();
+		Editor->MoveSelectedFoliageToLevel(TargetLevel);
+	}
+}
+
 void FLevelCollectionModel::SelectActors_Executed()
 {
 	//first clear any existing actor selection
@@ -1763,7 +1774,7 @@ void FLevelCollectionModel::CacheCanExecuteSourceControlVars() const
 	}
 }
 
-bool FLevelCollectionModel::IsValidMoveActorsToLevel() 
+bool FLevelCollectionModel::IsValidMoveActorsToLevel() const
 {
 	static bool bCachedIsValidActorMoveResult = false;
 	if (bSelectionHasChanged)
@@ -1797,6 +1808,18 @@ bool FLevelCollectionModel::IsValidMoveActorsToLevel()
 			
 	// if non of the selected actors are in the level, just check the level is unlocked
 	return bCachedIsValidActorMoveResult && AreAllSelectedLevelsEditableAndVisible();
+}
+
+bool FLevelCollectionModel::IsValidMoveFoliageToLevel() const
+{
+	if (IsOneLevelSelected() && 
+		AreAllSelectedLevelsEditableAndVisible() && 
+		GLevelEditorModeTools().IsModeActive(FBuiltinEditorModes::EM_Foliage))
+	{
+		return true;
+	}
+
+	return false;
 }
 
 void FLevelCollectionModel::OnActorSelectionChanged(UObject* obj)

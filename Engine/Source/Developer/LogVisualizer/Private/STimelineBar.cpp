@@ -254,7 +254,9 @@ int32 STimelineBar::GetClosestItem(float Time) const
 		}
 	}
 
-	if (BestItemIndex != INDEX_NONE)
+	const float CurrentDist = Entries.IsValidIndex(CurrentItemIndex) ? FMath::Abs(Entries[CurrentItemIndex].Entry.TimeStamp - Time) : MAX_FLT;
+
+	if (BestItemIndex != INDEX_NONE && CurrentDist > BestDistance)
 	{
 		return BestItemIndex;
 	}
@@ -479,13 +481,13 @@ int32 STimelineBar::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 
 	if (BestItemIndex != INDEX_NONE && TimelineOwner.Pin()->IsSelected())
 	{
-		auto &Entries = TimelineOwner.Pin()->GetEntries();
+		const auto &BestItemEntry = TimelineOwner.Pin()->GetEntries()[BestItemIndex];
 		if (BestItemIndex != CurrentItemIndex)
 		{
-			FLogVisualizer::Get().GetVisualLoggerEvents().OnItemSelectionChanged.ExecuteIfBound(Entries[BestItemIndex]);
+			FLogVisualizer::Get().GetVisualLoggerEvents().OnItemSelectionChanged.ExecuteIfBound(BestItemEntry);
 		}
 
-		float CurrentTime = Entries[BestItemIndex].Entry.TimeStamp;
+		float CurrentTime = BestItemEntry.Entry.TimeStamp;
 		float LinePos = (CurrentTime - LocalViewRange.GetLowerBoundValue()) * PixelsPerInput;
 
 		FSlateDrawElement::MakeBox(

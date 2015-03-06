@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include "PaperEditorShared/AssetEditorSelectedItem.h"
+
 //////////////////////////////////////////////////////////////////////////
 // FSelectionTypes
 
@@ -11,74 +13,10 @@ public:
 	static const FName Vertex;
 	static const FName Edge;
 	static const FName Pivot;
-	static const FName Socket;
 	static const FName SourceRegion;
 private:
 	FSelectionTypes() {}
 };
-
-class FSpriteSelectedVertex;
-
-//////////////////////////////////////////////////////////////////////////
-// FSelectedItem
-
-class FSelectedItem
-{
-protected:
-	FSelectedItem(FName InTypeName)
-		: TypeName(InTypeName)
-	{
-	}
-
-protected:
-	FName TypeName;
-public:
-	virtual bool IsA(FName TestType) const
-	{
-		return TestType == TypeName;
-	}
-
-	virtual uint32 GetTypeHash() const
-	{
-		return 0;
-	}
-
-	virtual bool Equals(const FSelectedItem& OtherItem) const
-	{
-		return false;
-	}
-
-	virtual void ApplyDelta(const FVector2D& Delta)
-	{
-	}
-
-	//@TODO: Doesn't belong here in base!
-	virtual void SplitEdge()
-	{
-	}
-
-	virtual FVector GetWorldPos() const
-	{
-		return FVector::ZeroVector;
-	}
-
-	virtual const FSpriteSelectedVertex* CastSelectedVertex() const
-	{
-		return nullptr;
-	}
-
-	virtual ~FSelectedItem() {}
-};
-
-inline uint32 GetTypeHash(const FSelectedItem& Vertex)
-{
-	return Vertex.GetTypeHash();
-}
-
-inline bool operator==(const FSelectedItem& V1, const FSelectedItem& V2)
-{
-	return V1.Equals(V2);
-}
 
 //////////////////////////////////////////////////////////////////////////
 // FSpriteSelectedSourceRegion
@@ -233,9 +171,12 @@ public:
 		return Result;
 	}
 
-	virtual void ApplyDelta(const FVector2D& Delta) override
+	virtual void ApplyDelta(const FVector2D& Delta, const FRotator& Rotation, const FVector& Scale3D, FWidget::EWidgetMode MoveMode) override
 	{
-		ApplyDeltaIndexed(Delta, VertexIndex);
+		if (MoveMode == FWidget::WM_Translate)
+		{
+			ApplyDeltaIndexed(Delta, VertexIndex);
+		}
 	}
 
 	FVector GetWorldPos() const override
@@ -272,17 +213,14 @@ public:
 	{
 	}
 
-	virtual bool IsValidInEditor(UPaperSprite* Sprite, bool bRenderData) const
+	virtual bool IsValidInEditor(UPaperSprite* Sprite, bool bInRenderData) const
 	{
-		if (SpritePtr == Sprite && this->bRenderData == bRenderData)
+		if (Sprite && SpritePtr == Sprite && bRenderData == bInRenderData)
 		{
-			if (UPaperSprite* Sprite = SpritePtr.Get())
+			FSpritePolygonCollection& Geometry = bRenderData ? Sprite->RenderGeometry : Sprite->CollisionGeometry;
+			if (Geometry.Polygons.IsValidIndex(PolygonIndex) && Geometry.Polygons[PolygonIndex].Vertices.IsValidIndex(VertexIndex))
 			{
-				FSpritePolygonCollection& Geometry = bRenderData ? Sprite->RenderGeometry : Sprite->CollisionGeometry;
-				if (Geometry.Polygons.IsValidIndex(PolygonIndex) && Geometry.Polygons[PolygonIndex].Vertices.IsValidIndex(VertexIndex))
-				{
-					return true;
-				}
+				return true;
 			}
 		}
 		return false;
@@ -356,9 +294,12 @@ public:
 		return Result;
 	}
 
-	virtual void ApplyDelta(const FVector2D& Delta) override
+	virtual void ApplyDelta(const FVector2D& Delta, const FRotator& Rotation, const FVector& Scale3D, FWidget::EWidgetMode MoveMode) override
 	{
-		ApplyDeltaIndexed(Delta, VertexIndex);
+		if (MoveMode == FWidget::WM_Translate)
+		{
+			ApplyDeltaIndexed(Delta, VertexIndex);
+		}
 	}
 
 	FVector GetWorldPos() const override
@@ -402,7 +343,7 @@ public:
 		}
 	}
 
-	virtual void ApplyDelta(const FVector2D& Delta) override
+	virtual void ApplyDelta(const FVector2D& Delta, const FRotator& Rotation, const FVector& Scale3D, FWidget::EWidgetMode MoveMode) override
 	{
 		ApplyDeltaIndexed(Delta, VertexIndex);
 		ApplyDeltaIndexed(Delta, VertexIndex+1);
@@ -436,71 +377,5 @@ public:
 				}
 			}
 		}
-	}
-};
-
-
-
-//////////////////////////////////////////////////////////////////////////
-// FSpriteSelectedSocket
-
-class FSpriteSelectedSocket : public FSelectedItem
-{
-public:
-	FName SocketName;
-	TWeakObjectPtr<UPaperSprite> SpritePtr;
-
-public:
-	FSpriteSelectedSocket()
-		: FSelectedItem(FSelectionTypes::Socket)
-	{
-	}
-
-	virtual bool Equals(const FSelectedItem& OtherItem) const override
-	{
-		if (OtherItem.IsA(FSelectionTypes::Socket))
-		{
-			const FSpriteSelectedSocket& S1 = *this;
-			const FSpriteSelectedSocket& S2 = *(FSpriteSelectedSocket*)(&OtherItem);
-
-			return (S1.SocketName == S2.SocketName) && (S1.SpritePtr == S2.SpritePtr);
-		}
-		else
-		{
-			return false;
-		}
-	}
-
-	//@TODO: Currently sockets are in unflipped pivot space,
-	virtual void ApplyDelta(const FVector2D& Delta) override
-	{
-		if (UPaperSprite* Sprite = SpritePtr.Get())
-		{
-			if (FPaperSpriteSocket* Socket = Sprite->FindSocket(SocketName))
-			{
-				const FVector Delta3D_UU = (PaperAxisX * Delta.X) + (PaperAxisY * -Delta.Y);
-				const FVector Delta3D = Delta3D_UU * Sprite->GetPixelsPerUnrealUnit();
-				Socket->LocalTransform.SetLocation(Socket->LocalTransform.GetLocation() + Delta3D);
-			}
-		}
-	}
-
-	FVector GetWorldPos() const override
-	{
-		if (UPaperSprite* Sprite = SpritePtr.Get())
-		{
-			if (FPaperSpriteSocket* Socket = Sprite->FindSocket(SocketName))
-			{
- 				const FVector PivotSpacePos = Socket->LocalTransform.GetLocation();
-				return Sprite->GetPivotToWorld().TransformPosition(PivotSpacePos);
-			}
-		}
-
-		return FVector::ZeroVector;
-	}
-
-	virtual void SplitEdge() override
-	{
-		// Nonsense operation on a socket, do nothing
 	}
 };

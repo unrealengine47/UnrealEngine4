@@ -1694,6 +1694,7 @@ void FProjectedShadowInfo::RenderDepth(FRHICommandList& RHICmdList, FSceneRender
 	FoundView->UniformBuffer = FoundView->CreateUniformBuffer(
 		nullptr,
 		ShadowViewMatrix, 
+		ShadowViewMatrix.Inverse(),
 		VolumeBounds,
 		TVC_MAX);
 
@@ -3547,11 +3548,14 @@ bool FForwardShadingSceneRenderer::RenderShadowDepthMap(FRHICommandListImmediate
 		for (int32 ShadowIndex = 0; ShadowIndex < Shadows.Num(); ShadowIndex++)
 		{
 			FProjectedShadowInfo* ProjectedShadowInfo = Shadows[ShadowIndex];
-			check(!ProjectedShadowInfo->bTranslucentShadow);
-			ProjectedShadowInfo->bRendered = false;
-			ProjectedShadowInfo->bAllocated = true;
-			ProjectedShadowInfo->RenderDepth(RHICmdList, this, SetShadowRenderTargets);
-			bAttenuationBufferDirty = true;
+			if (ProjectedShadowInfo->bAllocated)
+			{
+				check(!ProjectedShadowInfo->bTranslucentShadow);
+				ProjectedShadowInfo->RenderDepth(RHICmdList, this, SetShadowRenderTargets);
+				ProjectedShadowInfo->bRendered = true;
+				ProjectedShadowInfo->bAllocated = false;
+				bAttenuationBufferDirty = true;
+			}
 		}
 
 		GSceneRenderTargets.FinishRenderingShadowDepth(RHICmdList);

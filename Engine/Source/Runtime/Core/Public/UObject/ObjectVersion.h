@@ -470,6 +470,19 @@ enum EUnrealEngineObjectUE4Version
 	VER_UE4_OPTIONALLY_CLEAR_GPU_EMITTERS_ON_INIT,
 	// Also store the Material guid with the landscape grass data
 	VER_UE4_SERIALIZE_LANDSCAPE_GRASS_DATA_MATERIAL_GUID,
+	// Make sure that all template components from blueprint generated classes are flagged as public
+	VER_UE4_BLUEPRINT_GENERATED_CLASS_COMPONENT_TEMPLATES_PUBLIC,
+	// Split out creation method on ActorComponents to distinguish between native, instance, and simple or user construction script
+	VER_UE4_ACTOR_COMPONENT_CREATION_METHOD,
+	// K2Node_Event now uses FMemberReference for handling references
+	VER_UE4_K2NODE_EVENT_MEMBER_REFERENCE,
+	// FPropertyTag stores GUID of struct
+	VER_UE4_STRUCT_GUID_IN_PROPERTY_TAG,
+	// Remove unused UPolys from UModel cooked content
+	VER_UE4_REMOVE_UNUSED_UPOLYS_FROM_UMODEL,
+	// This doesn't do anything except trigger a rebuild on HISMC cluster trees, in this case to get a good "occlusion query" level
+	VER_UE4_REBUILD_HIERARCHICAL_INSTANCE_TREES,
+
 
 	// -----<new versions can be added before this line>-------------------------------------------------
 	// - this needs to be the last line (see note below)

@@ -1505,6 +1505,9 @@ bool GameProjectUtils::NameContainsOnlyLegalCharacters(const FString& TestName, 
 
 bool GameProjectUtils::NameContainsUnderscoreAndXB1Installed(const FString& TestName)
 {
+	// disabled for now so people with the SDK installed can use the editor
+	return false;
+
 	bool bContainsIllegalCharacters = false;
 
 	// Only allow alphanumeric characters in the project name
@@ -1646,8 +1649,8 @@ bool GameProjectUtils::GenerateConfigFiles(const FProjectInformation& InProjectI
 				}
 				else
 				{
-					SpecificEditorStartupMap = TEXT("/Game/StarterContent/StarterMap");
-					SpecificGameDefaultMap = TEXT("/Game/StarterContent/StarterMap");
+					SpecificEditorStartupMap = TEXT("/Game/StarterContent/Maps/StarterMap");
+					SpecificGameDefaultMap = TEXT("/Game/StarterContent/Maps/StarterMap");
 				}
 			}						
 			
@@ -2581,10 +2584,7 @@ bool GameProjectUtils::GenerateGameResourceFiles(const FString& NewResourceFolde
 	FString IconFileName = GameRoot / TEXT("Build/Windows/Application.ico");
 	if(!FPaths::FileExists(IconFileName))
 	{
-		if(!SourceControlHelpers::CopyFileUnderSourceControl(IconFileName, FPaths::EngineContentDir() / TEXT("Editor/Templates/Resources/Windows/_GAME_NAME_.ico"), LOCTEXT("IconFileDescription", "icon"), OutFailReason))
-		{
-			return false;
-		}
+		SourceControlHelpers::CopyFileUnderSourceControl(IconFileName, FPaths::EngineContentDir() / TEXT("Editor/Templates/Resources/Windows/_GAME_NAME_.ico"), LOCTEXT("IconFileDescription", "icon"), OutFailReason);
 		OutCreatedFiles.Add(IconFileName);
 	}
 	
@@ -2618,10 +2618,7 @@ bool GameProjectUtils::GenerateGameResourceFiles(const FString& NewResourceFolde
 			}
 		};
 
-		if(!SourceControlHelpers::CheckoutOrMarkForAdd(OutputFilename, LOCTEXT("ResourceFileDescription", "resource"), FOnPostCheckOut::CreateStatic(&Local::WriteFile, &TemplateText, &OutCreatedFiles), OutFailReason))
-		{
-			return false;
-		}
+		SourceControlHelpers::CheckoutOrMarkForAdd(OutputFilename, LOCTEXT("ResourceFileDescription", "resource"), FOnPostCheckOut::CreateStatic(&Local::WriteFile, &TemplateText, &OutCreatedFiles), OutFailReason);
 	}
 #elif PLATFORM_MAC
 	//@todo MAC: Implement MAC version of these files...
@@ -3103,7 +3100,7 @@ void GameProjectUtils::HarvestCursorSyncLocation( FString& FinalOutput, FString&
 
 	// Determine the cursor focus location if this file will by synced after creation
 	TArray<FString> Lines;
-	FinalOutput.ParseIntoArray( &Lines, TEXT( "\n" ), false );
+	FinalOutput.ParseIntoArray( Lines, TEXT( "\n" ), false );
 	for( int32 LineIdx = 0; LineIdx < Lines.Num(); ++LineIdx )
 	{
 		const FString& Line = Lines[ LineIdx ];

@@ -77,6 +77,21 @@ namespace FocusConstants
 	const float TransitionTime = 0.25f;
 }
 
+namespace PreviewLightConstants
+{
+	const float MovingPreviewLightTimerDuration = 1.0f;
+
+	const float MinMouseRadius = 100.0f;
+	const float MinArrowLength = 10.0f;
+	const float ArrowLengthToSizeRatio = 0.1f;
+	const float MouseLengthToArrowLenghtRatio = 0.2f;
+
+	const float ArrowLengthToThicknessRatio = 0.05f;
+	const float MinArrowThickness = 2.0f;
+
+	// Note: MinMouseRadius must be greater than MinArrowLength
+}
+
 /**
  * Cached off joystick input state
  */
@@ -87,8 +102,6 @@ public:
 	TMap <FKey, float> AxisDeltaValues;
 	TMap <FKey, EInputEvent> KeyEventValues;
 };
-
-
 
 FViewportCameraTransform::FViewportCameraTransform()
 	: TransitionCurve( new FCurveSequence( 0.0f, FocusConstants::TransitionTime, ECurveEaseFunction::CubicOut ) )
@@ -254,6 +267,8 @@ FEditorViewportClient::FEditorViewportClient(FEditorModeTools* InModeTools, FPre
 	, bCameraLock(false)
 	, EditorViewportWidget(InEditorViewportWidget)
 	, PreviewScene(InPreviewScene)
+	, MovingPreviewLightSavedScreenPos(ForceInitToZero)
+	, MovingPreviewLightTimer(0.0f)
 	, PerspViewModeIndex(DefaultPerspectiveViewMode)
 	, OrthoViewModeIndex(DefaultOrthoViewMode)
 	, NearPlane(-1.0f)
@@ -386,11 +401,11 @@ void FEditorViewportClient::SetViewLocationForOrbiting(const FVector& LookAtPoin
 	SetLookAtLocation( LookAtPoint );
 }
 
-void FEditorViewportClient::SetInitialViewTransform(ELevelViewportType ViewportType, const FVector& ViewLocation, const FRotator& ViewRotation, float InOrthoZoom )
+void FEditorViewportClient::SetInitialViewTransform(ELevelViewportType InViewportType, const FVector& ViewLocation, const FRotator& ViewRotation, float InOrthoZoom )
 {
-	check(ViewportType < LVT_MAX);
+	check(InViewportType < LVT_MAX);
 
-	FViewportCameraTransform& ViewTransform = (ViewportType == LVT_Perspective) ? ViewTransformPerspective : ViewTransformOrthographic;
+	FViewportCameraTransform& ViewTransform = (InViewportType == LVT_Perspective) ? ViewTransformPerspective : ViewTransformOrthographic;
 
 	ViewTransform.SetLocation(ViewLocation);
 	ViewTransform.SetRotation(ViewRotation);
@@ -549,141 +564,133 @@ FSceneView* FEditorViewportClient::CalcSceneView(FSceneViewFamily* ViewFamily)
 	TimeForForceRedraw = 0.0;
 
 	const bool bConstrainAspectRatio = bUseControllingActorViewInfo && ControllingActorViewInfo.bConstrainAspectRatio;
+	const EAspectRatioAxisConstraint AspectRatioAxisConstraint = GetDefault<ULevelEditorViewportSettings>()->AspectRatioAxisConstraint;
 
 	ViewInitOptions.ViewOrigin = ViewLocation;
-	if (EffectiveViewportType == LVT_Perspective)
+
+	if (bUseControllingActorViewInfo)
 	{
-		if (bUsingOrbitCamera)
-		{
-			ViewInitOptions.ViewRotationMatrix = ViewTransform.ComputeOrbitMatrix();
-			ViewInitOptions.ViewOrigin = FVector::ZeroVector;
-		}
-		else
-		{
-			ViewInitOptions.ViewRotationMatrix = FInverseRotationMatrix(ViewRotation);
-		}
+		ViewInitOptions.ViewRotationMatrix = FInverseRotationMatrix(ViewRotation) * FMatrix(
+			FPlane(0, 0, 1, 0),
+			FPlane(1, 0, 0, 0),
+			FPlane(0, 1, 0, 0),
+			FPlane(0, 0, 0, 1));
 
-		ViewInitOptions.ViewRotationMatrix = ViewInitOptions.ViewRotationMatrix * FMatrix(
-			FPlane(0,	0,	1,	0),
-			FPlane(1,	0,	0,	0),
-			FPlane(0,	1,	0,	0),
-			FPlane(0,	0,	0,	1));
-
-		float MinZ = GetNearClipPlane();
-		float MaxZ = MinZ;
-		// Avoid zero ViewFOV's which cause divide by zero's in projection matrix
-		float MatrixFOV = FMath::Max(0.001f, ViewFOV) * (float)PI / 360.0f;
-
-		if( bConstrainAspectRatio )
-		{
-			ViewInitOptions.ProjectionMatrix = FReversedZPerspectiveMatrix(
-				MatrixFOV,
-				MatrixFOV,
-				1.0f,
-				AspectRatio,
-				MinZ,
-				MaxZ
-				);
-
-			ViewInitOptions.SetConstrainedViewRectangle(Viewport->CalculateViewExtents(AspectRatio, ViewRect));
-		}
-		else
-		{
-			float XAxisMultiplier;
-			float YAxisMultiplier;
-			const EAspectRatioAxisConstraint AspectRatioAxisConstraint = GetDefault<ULevelEditorViewportSettings>()->AspectRatioAxisConstraint;
-
-			if (((ViewportSizeXY.X > ViewportSizeXY.Y) && (AspectRatioAxisConstraint == AspectRatio_MajorAxisFOV)) || (AspectRatioAxisConstraint == AspectRatio_MaintainXFOV))
-			{
-				//if the viewport is wider than it is tall
-				XAxisMultiplier = 1.0f;
-				YAxisMultiplier = ViewportSizeXY.X / (float)ViewportSizeXY.Y;
-			}
-			else
-			{
-				//if the viewport is taller than it is wide
-				XAxisMultiplier = ViewportSizeXY.Y / (float)ViewportSizeXY.X;
-				YAxisMultiplier = 1.0f;
-			}
-
-			ViewInitOptions.ProjectionMatrix = FReversedZPerspectiveMatrix (
-				MatrixFOV,
-				MatrixFOV,
-				XAxisMultiplier,
-				YAxisMultiplier,
-				MinZ,
-				MaxZ
-				);
-		}
+		FMinimalViewInfo::CalculateProjectionMatrixGivenView(ControllingActorViewInfo, AspectRatioAxisConstraint, Viewport, /*inout*/ ViewInitOptions);
 	}
 	else
 	{
-		float ZScale = 0.5f / HALF_WORLD_MAX;
-		float ZOffset = HALF_WORLD_MAX;
+		//
+		if (EffectiveViewportType == LVT_Perspective)
+		{
+			if (bUsingOrbitCamera)
+			{
+				ViewInitOptions.ViewRotationMatrix = ViewTransform.ComputeOrbitMatrix();
+				ViewInitOptions.ViewOrigin = FVector::ZeroVector;
+			}
+			else
+			{
+				ViewInitOptions.ViewRotationMatrix = FInverseRotationMatrix(ViewRotation);
+			}
 
-		//The divisor for the matrix needs to match the translation code.
-		const float Zoom = GetOrthoUnitsPerPixel(Viewport);
-
-		float OrthoWidth = Zoom * ViewportSizeXY.X / 2.0f;
-		float OrthoHeight = Zoom * ViewportSizeXY.Y / 2.0f;
-
-		if (EffectiveViewportType == LVT_OrthoXY)
-		{
-			ViewInitOptions.ViewRotationMatrix = FMatrix(
-				FPlane(1,	0,	0,					0),
-				FPlane(0,	-1,	0,					0),
-				FPlane(0,	0,	-1,					0),
-				FPlane(0,	0,	-ViewLocation.Z,	1));
-		}
-		else if (EffectiveViewportType == LVT_OrthoXZ)
-		{
-			ViewInitOptions.ViewRotationMatrix = FMatrix(
-				FPlane(1,	0,	0,					0),
-				FPlane(0,	0,	-1,					0),
-				FPlane(0,	1,	0,					0),
-				FPlane(0,	0,	-ViewLocation.Y,	1));
-		}
-		else if (EffectiveViewportType == LVT_OrthoYZ)
-		{
-			ViewInitOptions.ViewRotationMatrix = FMatrix(
-				FPlane(0,	0,	1,					0),
-				FPlane(1,	0,	0,					0),
-				FPlane(0,	1,	0,					0),
-				FPlane(0,	0,	ViewLocation.X,		1));
-		}
-		else if (EffectiveViewportType == LVT_OrthoFreelook)
-		{
-			ViewInitOptions.ViewRotationMatrix = FInverseRotationMatrix(ViewRotation);
 			ViewInitOptions.ViewRotationMatrix = ViewInitOptions.ViewRotationMatrix * FMatrix(
-				FPlane(0,	0,	 1,	0),
-				FPlane(1,	0,	 0,	0),
-				FPlane(0,	1,	 0,	0),
-				FPlane(0,	0,	 0,	1));
+				FPlane(0, 0, 1, 0),
+				FPlane(1, 0, 0, 0),
+				FPlane(0, 1, 0, 0),
+				FPlane(0, 0, 0, 1));
 
-			const float EffectiveAspectRatio = bConstrainAspectRatio ? AspectRatio : (ViewportSizeXY.X / (float)ViewportSizeXY.Y);
-			const float YScale = 1.0f / EffectiveAspectRatio;
-			OrthoWidth = ControllingActorViewInfo.OrthoWidth / 2.0f;
-			OrthoHeight = (ControllingActorViewInfo.OrthoWidth / 2.0f) * YScale;
+			float MinZ = GetNearClipPlane();
+			float MaxZ = MinZ;
+			// Avoid zero ViewFOV's which cause divide by zero's in projection matrix
+			float MatrixFOV = FMath::Max(0.001f, ViewFOV) * (float)PI / 360.0f;
 
-			const float NearViewPlane = -ViewInitOptions.ViewOrigin.X;
-			const float FarViewPlane = NearViewPlane - 2.0f*WORLD_MAX;
+			if (bConstrainAspectRatio)
+			{
+				ViewInitOptions.ProjectionMatrix = FReversedZPerspectiveMatrix(
+					MatrixFOV,
+					MatrixFOV,
+					1.0f,
+					AspectRatio,
+					MinZ,
+					MaxZ
+					);
+			}
+			else
+			{
+				float XAxisMultiplier;
+				float YAxisMultiplier;
 
-			const float InverseRange = 1.0f / (FarViewPlane - NearViewPlane);
-			ZScale = -2.0f * InverseRange;
-			ZOffset = -(FarViewPlane + NearViewPlane) * InverseRange;
+				if (((ViewportSizeXY.X > ViewportSizeXY.Y) && (AspectRatioAxisConstraint == AspectRatio_MajorAxisFOV)) || (AspectRatioAxisConstraint == AspectRatio_MaintainXFOV))
+				{
+					//if the viewport is wider than it is tall
+					XAxisMultiplier = 1.0f;
+					YAxisMultiplier = ViewportSizeXY.X / (float)ViewportSizeXY.Y;
+				}
+				else
+				{
+					//if the viewport is taller than it is wide
+					XAxisMultiplier = ViewportSizeXY.Y / (float)ViewportSizeXY.X;
+					YAxisMultiplier = 1.0f;
+				}
+
+				ViewInitOptions.ProjectionMatrix = FReversedZPerspectiveMatrix(
+					MatrixFOV,
+					MatrixFOV,
+					XAxisMultiplier,
+					YAxisMultiplier,
+					MinZ,
+					MaxZ
+					);
+			}
 		}
 		else
 		{
-			// Unknown viewport type
-			check(false);
-		}
+			float ZScale = 0.5f / HALF_WORLD_MAX;
+			float ZOffset = HALF_WORLD_MAX;
 
-		ViewInitOptions.ProjectionMatrix = FReversedZOrthoMatrix(
-			OrthoWidth,
-			OrthoHeight,
-			ZScale,
-			ZOffset
-			);
+			//The divisor for the matrix needs to match the translation code.
+			const float Zoom = GetOrthoUnitsPerPixel(Viewport);
+
+			float OrthoWidth = Zoom * ViewportSizeXY.X / 2.0f;
+			float OrthoHeight = Zoom * ViewportSizeXY.Y / 2.0f;
+
+			if (EffectiveViewportType == LVT_OrthoXY)
+			{
+				ViewInitOptions.ViewRotationMatrix = FMatrix(
+					FPlane(1, 0, 0, 0),
+					FPlane(0, -1, 0, 0),
+					FPlane(0, 0, -1, 0),
+					FPlane(0, 0, -ViewLocation.Z, 1));
+			}
+			else if (EffectiveViewportType == LVT_OrthoXZ)
+			{
+				ViewInitOptions.ViewRotationMatrix = FMatrix(
+					FPlane(1, 0, 0, 0),
+					FPlane(0, 0, -1, 0),
+					FPlane(0, 1, 0, 0),
+					FPlane(0, 0, -ViewLocation.Y, 1));
+			}
+			else if (EffectiveViewportType == LVT_OrthoYZ)
+			{
+				ViewInitOptions.ViewRotationMatrix = FMatrix(
+					FPlane(0, 0, 1, 0),
+					FPlane(1, 0, 0, 0),
+					FPlane(0, 1, 0, 0),
+					FPlane(0, 0, ViewLocation.X, 1));
+			}
+			else
+			{
+				// Unknown viewport type
+				check(false);
+			}
+
+			ViewInitOptions.ProjectionMatrix = FReversedZOrthoMatrix(
+				OrthoWidth,
+				OrthoHeight,
+				ZScale,
+				ZOffset
+				);
+		}
 
 		if (bConstrainAspectRatio)
 		{
@@ -702,6 +709,11 @@ FSceneView* FEditorViewportClient::CalcSceneView(FSceneViewFamily* ViewFamily)
 	// for ortho views to steal perspective view origin
 	ViewInitOptions.OverrideLODViewOrigin = FVector::ZeroVector;
 	ViewInitOptions.bUseFauxOrthoViewPos = true;
+
+	if (bUseControllingActorViewInfo)
+	{
+		ViewInitOptions.bUseFieldOfViewForLOD = ControllingActorViewInfo.bUseFieldOfViewForLOD;
+	}
 
 	ViewInitOptions.OverrideFarClippingPlaneDistance = FarPlane;
 	ViewInitOptions.CursorPos = CurrentMousePos;
@@ -836,6 +848,17 @@ void FEditorViewportClient::Tick(float DeltaTime)
 	if ( bIsAnimating || ( TimeForForceRedraw != 0.0 && FPlatformTime::Seconds() > TimeForForceRedraw ) )
 	{
 		Invalidate();
+	}
+
+	// Update the fade out animation
+	if (MovingPreviewLightTimer > 0.0f)
+	{
+		MovingPreviewLightTimer = FMath::Max(MovingPreviewLightTimer - DeltaTime, 0.0f);
+
+		if (MovingPreviewLightTimer == 0.0f)
+		{
+			Invalidate();
+		}
 	}
 
 	// Tick the editor modes
@@ -2912,7 +2935,7 @@ void FEditorViewportClient::Draw(FViewport* InViewport, FCanvas* Canvas)
 	Viewport = ViewportBackup;
 }
 
-void FEditorViewportClient::Draw(const FSceneView* View,FPrimitiveDrawInterface* PDI)
+void FEditorViewportClient::Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI)
 {
 	// Draw the drag tool.
 	MouseDeltaTracker->Render3DDragTool( View, PDI );
@@ -2930,8 +2953,57 @@ void FEditorViewportClient::Draw(const FSceneView* View,FPrimitiveDrawInterface*
 	// Draw the current editor mode.
 	ModeTools->Render(View, Viewport, PDI);
 
+	// Draw the preview scene light visualization
+	DrawPreviewLightVisualization(View, PDI);
+
 	// This viewport was just rendered, reset this value.
 	FramesSinceLastDraw = 0;
+}
+
+void FEditorViewportClient::DrawPreviewLightVisualization(const FSceneView* View, FPrimitiveDrawInterface* PDI)
+{
+	// Draw the indicator of the current light direction if it was recently moved
+	if ((PreviewScene != nullptr) && (PreviewScene->DirectionalLight != nullptr) && (MovingPreviewLightTimer > 0.0f))
+	{
+		const float A = MovingPreviewLightTimer / PreviewLightConstants::MovingPreviewLightTimerDuration;
+
+		ULightComponent* Light = PreviewScene->DirectionalLight;
+
+		const FLinearColor ArrowColor = Light->LightColor;
+
+		// Figure out where the light is (ignoring position for directional lights)
+		const FTransform LightLocalToWorldRaw = Light->GetComponentToWorld();
+		FTransform LightLocalToWorld = LightLocalToWorldRaw;
+		if (Light->IsA(UDirectionalLightComponent::StaticClass()))
+		{
+			LightLocalToWorld.SetTranslation(FVector::ZeroVector);
+		}
+		LightLocalToWorld.SetScale3D(FVector(1.0f));
+
+		// Project the last mouse position during the click into world space
+		FVector LastMouseWorldPos;
+		FVector LastMouseWorldDir;
+		View->DeprojectFVector2D(MovingPreviewLightSavedScreenPos, /*out*/ LastMouseWorldPos, /*out*/ LastMouseWorldDir);
+
+		// The world pos may be nuts due to a super distant near plane for orthographic cameras, so find the closest
+		// point to the origin along the ray
+		LastMouseWorldPos = FMath::ClosestPointOnLine(LastMouseWorldPos, LastMouseWorldPos + LastMouseWorldDir * WORLD_MAX, FVector::ZeroVector);
+
+		// Figure out the radius to draw the light preview ray at
+		const FVector LightToMousePos = LastMouseWorldPos - LightLocalToWorld.GetTranslation();
+		const float LightToMouseRadius = FMath::Max(LightToMousePos.Size(), PreviewLightConstants::MinMouseRadius);
+
+		const float ArrowLength = FMath::Max(PreviewLightConstants::MinArrowLength, LightToMouseRadius * PreviewLightConstants::MouseLengthToArrowLenghtRatio);
+		const float ArrowSize = PreviewLightConstants::ArrowLengthToSizeRatio * ArrowLength;
+		const float ArrowThickness = FMath::Max(PreviewLightConstants::ArrowLengthToThicknessRatio * ArrowLength, PreviewLightConstants::MinArrowThickness);
+
+		const FVector ArrowOrigin = LightLocalToWorld.TransformPosition(FVector(-LightToMouseRadius - 0.5f * ArrowLength, 0.0f, 0.0f));
+		const FVector ArrowDirection = LightLocalToWorld.TransformVector(FVector(-1.0f, 0.0f, 0.0f));
+
+		const FQuatRotationTranslationMatrix ArrowToWorld(LightLocalToWorld.GetRotation(), ArrowOrigin);
+
+		DrawDirectionalArrow(PDI, ArrowToWorld, ArrowColor, ArrowLength, ArrowSize, SDPG_World, ArrowThickness);
+	}
 }
 
 void FEditorViewportClient::RenderDragTool(const FSceneView* View, FCanvas* Canvas)
@@ -3096,12 +3168,18 @@ bool FEditorViewportClient::InputAxis(FViewport* InViewport, int32 ControllerId,
 
 	if( bLightMoveDown && bMouseButtonDown && PreviewScene )
 	{
+		// Adjust the preview light direction
 		FRotator LightDir = PreviewScene->GetLightDirection();
 
 		LightDir.Yaw += -DragX * LightRotSpeed;
 		LightDir.Pitch += -DragY * LightRotSpeed;
 
 		PreviewScene->SetLightDirection( LightDir );
+		
+		// Remember that we adjusted it for the visualization
+		MovingPreviewLightTimer = PreviewLightConstants::MovingPreviewLightTimerDuration;
+		MovingPreviewLightSavedScreenPos = FVector2D(LastMouseX, LastMouseY);
+
 		Invalidate();
 	}
 	else
@@ -3151,6 +3229,7 @@ bool FEditorViewportClient::InputGesture(FViewport* InViewport, EGestureEvent::T
 	const FRotator& ViewRotation = GetViewRotation();
 
 	const bool LeftMouseButtonDown = InViewport->KeyState(EKeys::LeftMouseButton);
+	const bool RightMouseButtonDown = Viewport->KeyState(EKeys::RightMouseButton);
 
 	const ELevelViewportType LevelViewportType = GetViewportType();
 
@@ -3162,8 +3241,6 @@ bool FEditorViewportClient::InputGesture(FViewport* InViewport, EGestureEvent::T
 	case LVT_OrthoXZ:
 	case LVT_OrthoYZ:
 		{
-			const bool LeftMouseButtonDown = Viewport->KeyState(EKeys::LeftMouseButton);
-			const bool RightMouseButtonDown = Viewport->KeyState(EKeys::RightMouseButton);
 			if (GestureType == EGestureEvent::Scroll && !LeftMouseButtonDown && !RightMouseButtonDown)
 			{
 				const float UnitsPerPixel = GetOrthoUnitsPerPixel(Viewport);

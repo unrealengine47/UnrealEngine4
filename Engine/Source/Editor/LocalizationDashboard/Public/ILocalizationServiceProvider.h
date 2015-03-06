@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -6,7 +6,7 @@
 #include "EditorStyleSet.h"
 #include "PropertyHandle.h"
 #include "DetailCategoryBuilder.h"
-#include "ProjectLocalizationSettings.h"
+#include "LocalizationTarget.h"
 
 /**
  * Interface to talking with localization service providers.

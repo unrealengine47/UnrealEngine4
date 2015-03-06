@@ -7,6 +7,7 @@
 #include "GameplayTagContainer.h"
 #include "TimerManager.h"
 #include "GameplayEffectTypes.h"
+#include "GameplayAbilitySpec.h"
 #include "GameplayEffectAggregator.h"
 #include "GameplayEffectCalculation.h"
 #include "ActiveGameplayEffectIterator.h"
@@ -166,7 +167,7 @@ struct FSetByCallerFloat
 
 /** Struct representing the magnitude of a gameplay effect modifier, potentially calculated in numerous different ways */
 USTRUCT()
-struct FGameplayEffectModifierMagnitude
+struct GAMEPLAYABILITIES_API FGameplayEffectModifierMagnitude
 {
 	GENERATED_USTRUCT_BODY()
 
@@ -232,8 +233,14 @@ public:
 
 	EGameplayEffectMagnitudeCalculation GetMagnitudeCalculationType() const { return MagnitudeCalculationType; }
 
+	/** Returns the magnitude as it was entered in data. Only applies to ScalableFloat or any other type that can return data without context */
+	bool GetStaticMagnitudeIfPossible(float InLevel, float& OutMagnitude) const;
+
+	/** Returns the DataName associated with this magnitude if it is set by caller */
+	bool GetSetByCallerDataNameIfPossible(FName& OutDataName) const;
+
 #if WITH_EDITOR
-	GAMEPLAYABILITIES_API FText GetValueForEditorDisplay() const;
+	FText GetValueForEditorDisplay() const;
 #endif
 
 protected:
@@ -519,11 +526,11 @@ public:
 
 #if WITH_EDITORONLY_DATA
 	/** Template to derive starting values and editing customization from */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Template)
+	UPROPERTY()
 	UGameplayEffectTemplate*	Template;
 
 	/** When false, show a limited set of properties for editing, based on the template we are derived from */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Template)
+	UPROPERTY()
 	bool ShowAllProperties;
 #endif
 
@@ -674,6 +681,13 @@ public:
 	/** Policy for how the effect period should be reset (or not) while stacking */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Stacking)
 	EGameplayEffectStackingPeriodPolicy StackPeriodResetPolicy;
+
+	// ----------------------------------------------------------------------
+	//	Granted abilities
+	// ----------------------------------------------------------------------
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Granted Abilities")
+	TArray<FGameplayAbilitySpecDef>	GrantedAbilities;
 };
 
 /** Holds evaluated magnitude from a GameplayEffect modifier */
@@ -1026,6 +1040,7 @@ public:
 	UPROPERTY()
 	const UGameplayEffect* Def;
 	
+	/** A list of attributes that were modified during the application of this spec */
 	UPROPERTY()
 	TArray<FGameplayEffectModifiedAttribute> ModifiedAttributes;
 	
@@ -1081,6 +1096,9 @@ public:
 	UPROPERTY(NotReplicated)
 	uint32 bDurationLocked : 1;
 
+	UPROPERTY()
+	TArray<FGameplayAbilitySpecDef> GrantedAbilitySpecs;
+
 private:
 
 	/** Map of set by caller magnitudes */
@@ -1092,6 +1110,49 @@ private:
 	UPROPERTY()
 	float Level;	
 };
+
+
+/** This is a cut down version of the gameplay effect spec used for RPCs. */
+USTRUCT()
+struct GAMEPLAYABILITIES_API FGameplayEffectSpecForRPC
+{
+	GENERATED_USTRUCT_BODY()
+
+	FGameplayEffectSpecForRPC();
+
+	FGameplayEffectSpecForRPC(const FGameplayEffectSpec& InSpec);
+
+	/** GameplayEfect definition. The static data that this spec points to. */
+	UPROPERTY()
+	const UGameplayEffect* Def;
+
+	UPROPERTY()
+	TArray<FGameplayEffectModifiedAttribute> ModifiedAttributes;
+
+	UPROPERTY()
+	FGameplayEffectContextHandle EffectContext; // This tells us how we got here (who / what applied us)
+
+	UPROPERTY()
+	float Level;
+
+	FGameplayEffectContextHandle GetContext() const
+	{
+		return EffectContext;
+	}
+
+	float GetLevel() const
+	{
+		return Level;
+	}
+
+	FString ToSimpleString() const
+	{
+		return FString::Printf(TEXT("%s"), *Def->GetName());
+	}
+
+	const FGameplayEffectModifiedAttribute* GetModifiedAttribute(const FGameplayAttribute& Attribute) const;
+};
+
 
 /**
  * Active GameplayEffect instance
@@ -1269,7 +1330,7 @@ struct FActiveGameplayEffectQuery
  *
  */
 USTRUCT()
-struct FActiveGameplayEffectsContainer : public FFastArraySerializer
+struct GAMEPLAYABILITIES_API FActiveGameplayEffectsContainer : public FFastArraySerializer
 {
 	GENERATED_USTRUCT_BODY();
 
@@ -1288,26 +1349,32 @@ struct FActiveGameplayEffectsContainer : public FFastArraySerializer
 
 	UAbilitySystemComponent* Owner;
 
-#if ENABLE_VISUAL_LOG
+	FOnActiveGameplayEffectRemoved	OnActiveGameplayEffectRemovedDelegate;
+
 	struct DebugExecutedGameplayEffectData
 	{
 		FString GameplayEffectName;
 		FString ActivationState;
 		FGameplayAttribute Attribute;
+		TEnumAsByte<EGameplayModOp::Type> ModifierOp;
 		float Magnitude;
+		int32 StackCount;
 	};
-
+#if ENABLE_VISUAL_LOG
 	// Stores a record of gameplay effects that have executed and their results. Useful for debugging.
 	TArray<DebugExecutedGameplayEffectData> DebugExecutedGameplayEffects;
 
-	GAMEPLAYABILITIES_API void GrabDebugSnapshot(FVisualLogEntry* Snapshot) const;
+	void GrabDebugSnapshot(FVisualLogEntry* Snapshot) const;
 #endif // ENABLE_VISUAL_LOG
+
+	void GetActiveGameplayEffectDataByAttribute(TMultiMap<FGameplayAttribute, FActiveGameplayEffectsContainer::DebugExecutedGameplayEffectData>& EffectMap) const;
 
 	void RegisterWithOwner(UAbilitySystemComponent* Owner);	
 	
 	FActiveGameplayEffect* ApplyGameplayEffectSpec(const FGameplayEffectSpec& Spec, FPredictionKey InPredictionKey);
 
 	FActiveGameplayEffect* GetActiveGameplayEffect(const FActiveGameplayEffectHandle Handle);
+
 	const FActiveGameplayEffect* GetActiveGameplayEffect(const FActiveGameplayEffectHandle Handle) const;
 		
 	void ExecuteActiveEffectsFrom(FGameplayEffectSpec &Spec, FPredictionKey PredictionKey = FPredictionKey() );

@@ -326,12 +326,6 @@ void FKismetCompilerContext::ValidatePin(const UEdGraphPin* Pin) const
 		return;
 	}
 
-	if (Pin->PinType.PinCategory == Schema->PC_Wildcard)
-	{
-		// Wildcard pins should never be seen by the compiler; they should always be forced into a particular type by wiring.
-		MessageLog.Error(*LOCTEXT("UndeterminedPinType_Error", "The type of @@ is undetermined.  Connect something to @@ to imply a specific type.").ToString(), Pin, OwningNodeUnchecked);
-	}
-
 	if (Pin->LinkedTo.Num() > 1)
 	{
 		if (Pin->Direction == EGPD_Output)
@@ -429,26 +423,34 @@ bool FKismetCompilerContext::IsNodePure(const UEdGraphNode* Node) const
 
 void FKismetCompilerContext::ValidateVariableNames()
 {
-	TSharedPtr<FKismetNameValidator> ParentBPNameValidator;
-	if( Blueprint->ParentClass != NULL )
+	UClass* ParentClass = Blueprint->ParentClass;
+	if (ParentClass != nullptr)
 	{
-		UBlueprint* ParentBP = Cast<UBlueprint>(Blueprint->ParentClass->ClassGeneratedBy);
-		if( ParentBP != NULL )
+		TSharedPtr<FKismetNameValidator> ParentBPNameValidator;
+		if (UBlueprint* ParentBP = Cast<UBlueprint>(Blueprint->ParentClass->ClassGeneratedBy))
 		{
 			ParentBPNameValidator = MakeShareable(new FKismetNameValidator(ParentBP));
 		}
-	}
 
-	if(ParentBPNameValidator.IsValid())
-	{
-		for (int32 VariableIndex=0; VariableIndex < Blueprint->NewVariables.Num(); ++VariableIndex)
+		for (FBPVariableDescription& VarDesc : Blueprint->NewVariables)
 		{
-			FBPVariableDescription& Variable = Blueprint->NewVariables[VariableIndex];
-			if( ParentBPNameValidator->IsValid(Variable.VarName.ToString()) != EValidatorResult::Ok )
+			FName OldVarName = VarDesc.VarName;
+			FName NewVarName = OldVarName;
+
+			FString VarNameStr = OldVarName.ToString();
+			if (ParentBPNameValidator.IsValid() && (ParentBPNameValidator->IsValid(VarNameStr) != EValidatorResult::Ok))
 			{
-				FName NewVariableName = FBlueprintEditorUtils::FindUniqueKismetName(Blueprint, Variable.VarName.ToString());
-				MessageLog.Warning(*FString::Printf(*LOCTEXT("MemberVariableConflictWarning", "Found a member variable with a conflicting name (%s) - changed to %s.").ToString(), *Variable.VarName.ToString(), *NewVariableName.ToString()));
-				FBlueprintEditorUtils::RenameMemberVariable(Blueprint, Variable.VarName, NewVariableName);
+				NewVarName = FBlueprintEditorUtils::FindUniqueKismetName(Blueprint, VarNameStr);
+			}
+			else if (ParentClass->HasAnyFlags(RF_Native) && FindObject<UObject>(ParentClass, *VarNameStr, /*ExactClass =*/false))
+			{
+				NewVarName = FBlueprintEditorUtils::FindUniqueKismetName(Blueprint, VarNameStr);
+			}
+
+			if (OldVarName != NewVarName)
+			{
+				MessageLog.Warning(*FString::Printf(*LOCTEXT("MemberVariableConflictWarning", "Found a member variable with a conflicting name (%s) - changed to %s.").ToString(), *VarNameStr, *NewVarName.ToString()));
+				FBlueprintEditorUtils::RenameMemberVariable(Blueprint, OldVarName, NewVarName);
 			}
 		}
 	}
@@ -1111,6 +1113,27 @@ void FKismetCompilerContext::ValidateSelfPinsInGraph(const UEdGraph* SourceGraph
 	}
 }
 
+void FKismetCompilerContext::ValidateNoWildcardPinsInGraph(const UEdGraph* SourceGraph)
+{
+	for (int32 NodeIndex = 0; NodeIndex < SourceGraph->Nodes.Num(); ++NodeIndex)
+	{
+		if (const UEdGraphNode* Node = SourceGraph->Nodes[NodeIndex])
+		{
+			for (int32 PinIndex = 0; PinIndex < Node->Pins.Num(); ++PinIndex)
+			{
+				if (const UEdGraphPin* Pin = Node->Pins[PinIndex])
+				{
+					if (Pin->PinType.PinCategory == Schema->PC_Wildcard)
+					{
+						// Wildcard pins should never be seen by the compiler; they should always be forced into a particular type by wiring.
+						MessageLog.Error(*LOCTEXT("UndeterminedPinType_Error", "The type of @@ is undetermined.  Connect something to @@ to imply a specific type.").ToString(), Pin, Pin->GetOwningNodeUnchecked());
+					}
+				}
+			}
+		}
+	}
+}
+
 /**
  * First phase of compiling a function graph
  *   - Prunes the 'graph' to only included the connected portion that contains the function entry point 
@@ -1147,8 +1170,9 @@ void FKismetCompilerContext::PrecompileFunction(FKismetFunctionContext& Context)
 
 		if (bIsFullCompile)
 		{
-			// Check if self pins are connected after PruneIsolatedNodes, to avoid errors from isolated nodes.
+			// Check if self pins are connected and types are resolved after PruneIsolatedNodes, to avoid errors from isolated nodes.
 			ValidateSelfPinsInGraph(Context.SourceGraph);
+			ValidateNoWildcardPinsInGraph(Context.SourceGraph);
 
 			// Transforms
 			TransformNodes(Context);
@@ -3579,7 +3603,7 @@ void FKismetCompilerContext::Compile()
 
 		CopyTermDefaultsToDefaultObject(NewCDO);
 		SetCanEverTick();
-		SetWantsInitialize();
+		SetWantsBeginPlay();
 		FKismetCompilerUtilities::ValidateEnumProperties(NewCDO, MessageLog);
 	}
 
@@ -3724,12 +3748,50 @@ void FKismetCompilerContext::Compile()
 		// TODO What do we do if validation fails?
 	}
 
-	static const FBoolConfigValueHelper ChangeDefaultValueWithoutReinstancing(TEXT("Kismet"), TEXT("bChangeDefaultValueWithoutReinstancing"), GEngineIni);
-	if (bIsFullCompile && !ChangeDefaultValueWithoutReinstancing)
+	if (bIsFullCompile)
 	{
 		BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_ChecksumCDO);
+
+		static const FBoolConfigValueHelper ChangeDefaultValueWithoutReinstancing(TEXT("Kismet"), TEXT("bChangeDefaultValueWithoutReinstancing"), GEngineIni);
+		// CRC is usually calculated for all Properties. If the bChangeDefaultValueWithoutReinstancing optimization is enabled, then only specific properties are considered (in fact we should consider only . See UE-9883.
+		// Some native properties (bCanEverTick) may be implicitly changed by KismetCompiler during compilation, so they always need to be compared.
+		// Some properties with a custom Property Editor Widget may not propagate changes among instances. They may be also compared.
+
+		class FSpecializedArchiveCrc32 : public FArchiveObjectCrc32
+		{
+		public:
+			bool bAllProperties;
+
+			FSpecializedArchiveCrc32(bool bInAllProperties)
+				: FArchiveObjectCrc32()
+				, bAllProperties(bInAllProperties)
+			{}
+
+			static bool PropertyCanBeImplicitlyChanged(const UProperty* InProperty)
+			{
+				check(InProperty);
+
+				auto PropertyOwnerClass = InProperty->GetOwnerClass();
+				const bool bOwnerIsNativeClass = PropertyOwnerClass && PropertyOwnerClass->HasAnyClassFlags(CLASS_Native);
+
+				auto PropertyOwnerStruct = InProperty->GetOwnerStruct();
+				const bool bOwnerIsNativeStruct = !PropertyOwnerClass && (!PropertyOwnerStruct || !PropertyOwnerStruct->IsA<UUserDefinedStruct>());
+
+				return InProperty->IsA<UStructProperty>()
+					|| bOwnerIsNativeClass || bOwnerIsNativeStruct;
+			}
+
+			// Begin FArchive Interface
+			virtual bool ShouldSkipProperty(const UProperty* InProperty) const override
+			{
+				return FArchiveObjectCrc32::ShouldSkipProperty(InProperty) 
+					|| (!bAllProperties && !PropertyCanBeImplicitlyChanged(InProperty));
+			}
+			// End FArchive Interface
+		};
+
 		UObject* NewCDO = NewClass->GetDefaultObject(false);
-		FArchiveObjectCrc32 CrcArchive;
+		FSpecializedArchiveCrc32 CrcArchive(!ChangeDefaultValueWithoutReinstancing);
 		Blueprint->CrcPreviousCompiledCDO = NewCDO ? CrcArchive.Crc32(NewCDO) : 0;
 	}
 }
@@ -3851,7 +3913,7 @@ void FKismetCompilerContext::SetCanEverTick() const
 	}
 }
 
-void FKismetCompilerContext::SetWantsInitialize() const
+void FKismetCompilerContext::SetWantsBeginPlay() const
 {
 	UActorComponent* CDComponent = Cast<UActorComponent>(NewClass->GetDefaultObject());
 
@@ -3860,26 +3922,26 @@ void FKismetCompilerContext::SetWantsInitialize() const
 		return;
 	}
 
-	const bool bOldFlag = CDComponent->bWantsInitializeComponent;
+	const bool bOldFlag = CDComponent->bWantsBeginPlay;
 
-	CDComponent->bWantsInitializeComponent = NewClass->GetSuperClass()->GetDefaultObject<UActorComponent>()->bWantsInitializeComponent;
+	CDComponent->bWantsBeginPlay = NewClass->GetSuperClass()->GetDefaultObject<UActorComponent>()->bWantsBeginPlay;
 
-	if (!CDComponent->bWantsInitializeComponent)
+	if (!CDComponent->bWantsBeginPlay)
 	{
-		static FName ReceiveInitializeComponentName(GET_FUNCTION_NAME_CHECKED(UActorComponent, ReceiveInitializeComponent));
-		static FName ReceiveUninitializeComponentName(GET_FUNCTION_NAME_CHECKED(UActorComponent, ReceiveUninitializeComponent));
-		const UFunction* ReciveInitializeComponentEvent = FKismetCompilerUtilities::FindOverriddenImplementableEvent(ReceiveInitializeComponentName, NewClass);
-		const UFunction* ReciveUninitializeComponentEvent = FKismetCompilerUtilities::FindOverriddenImplementableEvent(ReceiveUninitializeComponentName, NewClass);
-		if (ReciveInitializeComponentEvent || ReciveUninitializeComponentEvent)
+		static FName ReceiveBeginPlayName(GET_FUNCTION_NAME_CHECKED(UActorComponent, ReceiveBeginPlay));
+		static FName ReceiveEndPlayName(GET_FUNCTION_NAME_CHECKED(UActorComponent, ReceiveEndPlay));
+		const UFunction* ReciveBeginPlayEvent = FKismetCompilerUtilities::FindOverriddenImplementableEvent(ReceiveBeginPlayName, NewClass);
+		const UFunction* ReciveEndPlayEvent = FKismetCompilerUtilities::FindOverriddenImplementableEvent(ReceiveEndPlayName, NewClass);
+		if (ReciveBeginPlayEvent || ReciveEndPlayEvent)
 		{
-			CDComponent->bWantsInitializeComponent = true;
+			CDComponent->bWantsBeginPlay = true;
 		}
 	}
 
-	if(CDComponent->bWantsInitializeComponent != bOldFlag)
+	if(CDComponent->bWantsBeginPlay != bOldFlag)
 	{
-		UE_LOG(LogK2Compiler, Verbose, TEXT("Overridden flag for class '%s': bWantsInitializeComponent %s "), *NewClass->GetName(),
-			CDComponent->bWantsInitializeComponent ? *(GTrue.ToString()) : *(GFalse.ToString()) );
+		UE_LOG(LogK2Compiler, Verbose, TEXT("Overridden flag for class '%s': bWantsBeginPlay %s "), *NewClass->GetName(),
+			CDComponent->bWantsBeginPlay ? *(GTrue.ToString()) : *(GFalse.ToString()) );
 	}
 }
 

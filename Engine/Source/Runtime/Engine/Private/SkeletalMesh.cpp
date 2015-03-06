@@ -128,10 +128,9 @@ FSkeletalMeshVertexBuffer::FSkeletalMeshVertexBuffer()
 :	bInfluencesByteSwapped(false)
 ,	bUseFullPrecisionUVs(false)
 ,	bNeedsCPUAccess(false)
-,	bProcessedPackedPositions(false)
 ,	bExtraBoneInfluences(false)
-,	VertexData(NULL)
-,	Data(NULL)
+,	VertexData(nullptr)
+,	Data(nullptr)
 ,	Stride(0)
 ,	NumVertices(0)
 ,	MeshOrigin(FVector::ZeroVector)
@@ -166,7 +165,6 @@ FSkeletalMeshVertexBuffer::FSkeletalMeshVertexBuffer(const FSkeletalMeshVertexBu
 :	bInfluencesByteSwapped(false)
 ,	bUseFullPrecisionUVs(Other.bUseFullPrecisionUVs)
 ,	bNeedsCPUAccess(Other.bNeedsCPUAccess)
-,	bProcessedPackedPositions(Other.bProcessedPackedPositions)
 ,	bExtraBoneInfluences(Other.bExtraBoneInfluences)
 ,	VertexData(NULL)
 ,	Data(NULL)
@@ -357,27 +355,21 @@ void FSkeletalMeshVertexBuffer::SetVertexFast(uint32 VertexIndex,const FSoftSkin
 	FMemory::Memcpy(VertBase->InfluenceWeights,SrcVertex.InfluenceWeights, TGPUSkinVertexBase<bExtraBoneInfluencesT>::NumInfluences);
 	if( !bUseFullPrecisionUVs )
 	{
-#if !WITH_EDITORONLY_DATA // I don't expect this to happen on console. If so this won't work with PackedPosition. Having check just in case.
-		check (false);
-#else
-		((TGPUSkinVertexFloat16Uvs<MAX_TEXCOORDS, bExtraBoneInfluencesT>*)(VertBase))->Position = SrcVertex.Position;
+		auto* Vertex = (TGPUSkinVertexFloat16Uvs<MAX_TEXCOORDS, bExtraBoneInfluencesT>*)VertBase;
+		Vertex->Position = SrcVertex.Position;
 		for( uint32 UVIndex = 0; UVIndex < NumTexCoords; ++UVIndex )
 		{
-			((TGPUSkinVertexFloat16Uvs<MAX_TEXCOORDS, bExtraBoneInfluencesT>*)(VertBase))->UVs[UVIndex] = FVector2DHalf( SrcVertex.UVs[UVIndex] );
+			Vertex->UVs[UVIndex] = FVector2DHalf( SrcVertex.UVs[UVIndex] );
 		}
-#endif
 	}
 	else
 	{
-#if !WITH_EDITORONLY_DATA // I don't expect this to happen on console. If so this won't work with PackedPosition. Having check just in case.
-		check (false);
-#else
-		((TGPUSkinVertexFloat32Uvs<MAX_TEXCOORDS, bExtraBoneInfluencesT>*)(VertBase))->Position = SrcVertex.Position;
+		auto* Vertex = (TGPUSkinVertexFloat32Uvs<MAX_TEXCOORDS, bExtraBoneInfluencesT>*)VertBase;
+		Vertex->Position = SrcVertex.Position;
 		for( uint32 UVIndex = 0; UVIndex < NumTexCoords; ++UVIndex )
 		{
-			((TGPUSkinVertexFloat32Uvs<MAX_TEXCOORDS, bExtraBoneInfluencesT>*)(VertBase))->UVs[UVIndex] = FVector2D( SrcVertex.UVs[UVIndex] );
+			Vertex->UVs[UVIndex] = FVector2D( SrcVertex.UVs[UVIndex] );
 		}
-#endif
 	}
 }
 
@@ -3068,6 +3060,41 @@ FArchive& operator<<( FArchive& Ar, FSkeletalMaterial& Elem )
 	return Ar;
 }
 
+TArray<USkeletalMeshSocket*> USkeletalMesh::GetActiveSocketList() const
+{
+	TArray<USkeletalMeshSocket*> ActiveSockets = Sockets;
+
+	// Then the skeleton sockets that aren't in the mesh
+	if (Skeleton)
+	{
+		for (auto SkeletonSocketIt = Skeleton->Sockets.CreateConstIterator(); SkeletonSocketIt; ++SkeletonSocketIt)
+		{
+			USkeletalMeshSocket* Socket = *(SkeletonSocketIt);
+
+			if (!IsSocketOnMesh(Socket->SocketName))
+			{
+				ActiveSockets.Add(Socket);
+			}
+		}
+	}
+	return ActiveSockets;
+}
+
+bool USkeletalMesh::IsSocketOnMesh(const FName& InSocketName) const
+{
+	for(int32 SocketIdx=0; SocketIdx < Sockets.Num(); SocketIdx++)
+	{
+		USkeletalMeshSocket* Socket = Sockets[SocketIdx];
+
+		if(Socket != NULL && Socket->SocketName == InSocketName)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
 #if WITH_EDITOR
 
 
@@ -3092,45 +3119,6 @@ FStaticLODModel& USkeletalMesh::PreModifyMesh()
 	}
 	check( SkelSourceData.IsInitialized() );
 	return GetSourceModel();
-}
-
-const TArray<USkeletalMeshSocket*>& USkeletalMesh::GetActiveSocketList() const
-{
-	// Static so we can return by reference - really don't want to go down the road of passing this array around by value!
-	static TArray<USkeletalMeshSocket*> ActiveSocketList;
-	
-	ActiveSocketList = Sockets;
-
-	// Then the skeleton sockets that aren't in the mesh
-	if ( Skeleton )
-	{
-		for ( auto SkeletonSocketIt = Skeleton->Sockets.CreateConstIterator(); SkeletonSocketIt; ++SkeletonSocketIt )
-		{
-			USkeletalMeshSocket* Socket = *(SkeletonSocketIt);
-
-			if ( !IsSocketOnMesh( Socket->SocketName ) )
-			{
-				ActiveSocketList.Add( Socket );
-			}
-		}
-	}
-
-	return ActiveSocketList;
-}
-
-bool USkeletalMesh::IsSocketOnMesh( const FName& InSocketName ) const
-{
-	for( int32 SocketIdx=0; SocketIdx < Sockets.Num(); SocketIdx++ )
-	{
-		USkeletalMeshSocket* Socket = Sockets[SocketIdx];
-
-		if ( Socket != NULL && Socket->SocketName == InSocketName )
-		{
-			return true;
-		}
-	}
-
-	return false;
 }
 
 int32 USkeletalMesh::ValidatePreviewAttachedObjects()
@@ -3507,6 +3495,7 @@ USkeletalMeshSocket
 -----------------------------------------------------------------------------*/
 USkeletalMeshSocket::USkeletalMeshSocket(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
+	, bForceAlwaysAnimated(true)
 {
 	RelativeScale = FVector(1.0f, 1.0f, 1.0f);
 }
@@ -3670,9 +3659,9 @@ void ASkeletalMeshActor::PreviewBeginAnimControl(UInterpGroup* InInterpGroup)
 		UAnimInstance* AnimInst = SkeletalMeshComponent->GetAnimInstance();
 		if (!AnimInst)
 		{
-			SkeletalMeshComponent->SetAnimationMode(EAnimationMode::Type::AnimationSingleNode);
-		}
+		SkeletalMeshComponent->SetAnimationMode(EAnimationMode::Type::AnimationSingleNode);
 	}
+}
 }
 
 
@@ -3690,13 +3679,11 @@ void ASkeletalMeshActor::PreviewFinishAnimControl(UInterpGroup* InInterpGroup)
 				AnimInst->Montage_Stop(0.f);
 				AnimInst->UpdateAnimation(0.f);
 			}
-
 		}
-		
 		// Update space bases to reset it back to ref pose
 		SkeletalMeshComponent->RefreshBoneTransforms();
 		SkeletalMeshComponent->RefreshSlaveComponents();
-		SkeletalMeshComponent->UpdateComponentToWorld();		
+		SkeletalMeshComponent->UpdateComponentToWorld();
 	}
 }
 
@@ -3742,9 +3729,14 @@ void ASkeletalMeshActor::PreviewSetAnimPosition(FName SlotName, int32 ChannelInd
 			if (AnimMontageInst)
 			{
 				AnimMontageInst->Weight = 1.f;
-				//AnimInst->Montage_Set(bLooping);
+
+				float OldMontagePosition = AnimInst->Montage_GetPosition(CurrentlyPlayingMontage.Get());
 				AnimInst->Montage_SetPosition(CurrentlyPlayingMontage.Get(), InPosition);
 				AnimInst->UpdateAnimation(DeltaTime);
+
+				// since we don't advance montage in the tick, we manually have to handle notifies
+				AnimMontageInst->HandleEvents(OldMontagePosition, InPosition, NULL);
+				AnimInst->TriggerAnimNotifies(DeltaTime);
 			}
 			else
 			{
@@ -3888,9 +3880,9 @@ void ASkeletalMeshActor::BeginAnimControl(UInterpGroup* InInterpGroup)
 		UAnimInstance* AnimInst = SkeletalMeshComponent->GetAnimInstance();
 		if (!AnimInst)
 		{
-			SkeletalMeshComponent->SetAnimationMode(EAnimationMode::Type::AnimationSingleNode);
-		}
+		SkeletalMeshComponent->SetAnimationMode(EAnimationMode::Type::AnimationSingleNode);
 	}
+}
 }
 
 bool ASkeletalMeshActor::CanPlayAnimation(class UAnimSequenceBase* AnimAssetBase/*=NULL*/) const
@@ -3899,7 +3891,6 @@ bool ASkeletalMeshActor::CanPlayAnimation(class UAnimSequenceBase* AnimAssetBase
 		(!AnimAssetBase || SkeletalMeshComponent->SkeletalMesh->Skeleton->IsCompatible(AnimAssetBase->GetSkeleton())));
 }
 
-// @todo ps4 clang bug: this works around a PS4/clang compiler bug (optimizations)
 void SetAnimPositionInner(FName SlotName, USkeletalMeshComponent* SkeletalMeshComponent, UAnimSequence* InAnimSequence, TWeakObjectPtr<UAnimMontage>& CurrentlyPlayingMontage, float InPosition, bool bLooping)
 {
 	UAnimInstance* AnimInst = SkeletalMeshComponent->GetAnimInstance();
@@ -3949,7 +3940,13 @@ void SetAnimPositionInner(FName SlotName, USkeletalMeshComponent* SkeletalMeshCo
 			if(AnimMontageInst)
 			{
 				AnimMontageInst->Weight = 1.f;
+
+				float OldMontagePosition = AnimInst->Montage_GetPosition(CurrentlyPlayingMontage.Get());
 				AnimInst->Montage_SetPosition(CurrentlyPlayingMontage.Get(), InPosition);
+
+				// since we don't advance montage in the tick, we manually have to handle notifies
+				AnimMontageInst->HandleEvents(OldMontagePosition, InPosition, NULL);
+				AnimInst->TriggerAnimNotifies(0.f);
 			}
 			else
 			{
@@ -3958,9 +3955,6 @@ void SetAnimPositionInner(FName SlotName, USkeletalMeshComponent* SkeletalMeshCo
 		}
 	}
 }
-
-// @todo ps4 clang bug: this works around a PS4/clang compiler bug (optimizations)
-#if !PLATFORM_PS4
 void ASkeletalMeshActor::SetAnimPosition(FName SlotName, int32 ChannelIndex, UAnimSequence* InAnimSequence, float InPosition, bool bFireNotifies, bool bLooping)
 {
 	if (CanPlayAnimation(InAnimSequence))
@@ -3968,7 +3962,6 @@ void ASkeletalMeshActor::SetAnimPosition(FName SlotName, int32 ChannelIndex, UAn
 		SetAnimPositionInner(SlotName, SkeletalMeshComponent, InAnimSequence, CurrentlyPlayingMontage, InPosition, bLooping);
 	}
 }
-#endif
 
 void ASkeletalMeshActor::FinishAnimControl(UInterpGroup* InInterpGroup)
 {
@@ -3976,7 +3969,7 @@ void ASkeletalMeshActor::FinishAnimControl(UInterpGroup* InInterpGroup)
 	{
 		UAnimInstance* AnimInst = SkeletalMeshComponent->GetAnimInstance();
 		if(AnimInst)
-		{
+	{
 			AnimInst->Montage_Stop(0.f);
 			AnimInst->UpdateAnimation(0.f);
 		}
@@ -4680,6 +4673,8 @@ USkinnedMeshComponent::USkinnedMeshComponent(const FObjectInitializer& ObjectIni
 	CurrentEditableSpaceBases = 0;
 	CurrentReadSpaceBases = 1;
 	bNeedToFlipSpaceBaseBuffers = false;
+
+	bCanEverAffectNavigation = false;
 }
 
 
@@ -4802,3 +4797,16 @@ FPrimitiveSceneProxy* USkinnedMeshComponent::CreateSceneProxy()
 
 /** Returns SkeletalMeshComponent subobject **/
 USkeletalMeshComponent* ASkeletalMeshActor::GetSkeletalMeshComponent() { return SkeletalMeshComponent; }
+
+
+#if WITH_EDITOR
+void USkeletalMeshSocket::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	if (PropertyChangedEvent.Property)
+	{
+		ChangedEvent.Broadcast(this, PropertyChangedEvent.MemberProperty);
+	}
+}
+#endif

@@ -8,6 +8,8 @@
 #include "ChartCreation.h"
 #include "Database.h"
 #include "RenderCore.h"
+#include "Scalability.h"
+#include "GameFramework/GameUserSettings.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogChartCreation, Log, All);
 
@@ -181,40 +183,55 @@ void UEngine::TickFPSChart( float DeltaSeconds )
 			GFPSChart[ STAT_FPSChart_25_30 - STAT_FPSChartFirstStat ].Count++;
 			GFPSChart[ STAT_FPSChart_25_30 - STAT_FPSChartFirstStat ].CummulativeTime += DeltaSeconds;
 		}
-		else if( CurrentFPS < 35 )
-		{
-			GFPSChart[ STAT_FPSChart_30_35 - STAT_FPSChartFirstStat ].Count++;
-			GFPSChart[ STAT_FPSChart_30_35 - STAT_FPSChartFirstStat ].CummulativeTime += DeltaSeconds;
-		}
 		else if( CurrentFPS < 40 )
 		{
-			GFPSChart[ STAT_FPSChart_35_40 - STAT_FPSChartFirstStat ].Count++;
-			GFPSChart[ STAT_FPSChart_35_40 - STAT_FPSChartFirstStat ].CummulativeTime += DeltaSeconds;
-		}
-		else if( CurrentFPS < 45 )
-		{
-			GFPSChart[ STAT_FPSChart_40_45 - STAT_FPSChartFirstStat ].Count++;
-			GFPSChart[ STAT_FPSChart_40_45 - STAT_FPSChartFirstStat ].CummulativeTime += DeltaSeconds;
+			GFPSChart[ STAT_FPSChart_30_40 - STAT_FPSChartFirstStat ].Count++;
+			GFPSChart[ STAT_FPSChart_30_40 - STAT_FPSChartFirstStat ].CummulativeTime += DeltaSeconds;
 		}
 		else if( CurrentFPS < 50 )
 		{
-			GFPSChart[ STAT_FPSChart_45_50 - STAT_FPSChartFirstStat ].Count++;
-			GFPSChart[ STAT_FPSChart_45_50 - STAT_FPSChartFirstStat ].CummulativeTime += DeltaSeconds;
-		}
-		else if( CurrentFPS < 55 )
-		{
-			GFPSChart[ STAT_FPSChart_50_55 - STAT_FPSChartFirstStat ].Count++;
-			GFPSChart[ STAT_FPSChart_50_55 - STAT_FPSChartFirstStat ].CummulativeTime += DeltaSeconds;
+			GFPSChart[ STAT_FPSChart_40_50 - STAT_FPSChartFirstStat ].Count++;
+			GFPSChart[ STAT_FPSChart_40_50 - STAT_FPSChartFirstStat ].CummulativeTime += DeltaSeconds;
 		}
 		else if( CurrentFPS < 60 )
 		{
-			GFPSChart[ STAT_FPSChart_55_60 - STAT_FPSChartFirstStat ].Count++;
-			GFPSChart[ STAT_FPSChart_55_60 - STAT_FPSChartFirstStat ].CummulativeTime += DeltaSeconds;
+			GFPSChart[ STAT_FPSChart_50_60 - STAT_FPSChartFirstStat ].Count++;
+			GFPSChart[ STAT_FPSChart_50_60 - STAT_FPSChartFirstStat ].CummulativeTime += DeltaSeconds;
+		}
+		else if (CurrentFPS < 70)
+		{
+			GFPSChart[STAT_FPSChart_60_70 - STAT_FPSChartFirstStat].Count++;
+			GFPSChart[STAT_FPSChart_60_70 - STAT_FPSChartFirstStat].CummulativeTime += DeltaSeconds;
+		}
+		else if (CurrentFPS < 80)
+		{
+			GFPSChart[STAT_FPSChart_70_80 - STAT_FPSChartFirstStat].Count++;
+			GFPSChart[STAT_FPSChart_70_80 - STAT_FPSChartFirstStat].CummulativeTime += DeltaSeconds;
+		}
+		else if (CurrentFPS < 90)
+		{
+			GFPSChart[STAT_FPSChart_80_90 - STAT_FPSChartFirstStat].Count++;
+			GFPSChart[STAT_FPSChart_80_90 - STAT_FPSChartFirstStat].CummulativeTime += DeltaSeconds;
+		}
+		else if (CurrentFPS < 100)
+		{
+			GFPSChart[STAT_FPSChart_90_100 - STAT_FPSChartFirstStat].Count++;
+			GFPSChart[STAT_FPSChart_90_100 - STAT_FPSChartFirstStat].CummulativeTime += DeltaSeconds;
+		}
+		else if (CurrentFPS < 110)
+		{
+			GFPSChart[STAT_FPSChart_100_110 - STAT_FPSChartFirstStat].Count++;
+			GFPSChart[STAT_FPSChart_100_110 - STAT_FPSChartFirstStat].CummulativeTime += DeltaSeconds;
+		}
+		else if (CurrentFPS < 120)
+		{
+			GFPSChart[STAT_FPSChart_110_120 - STAT_FPSChartFirstStat].Count++;
+			GFPSChart[STAT_FPSChart_110_120 - STAT_FPSChartFirstStat].CummulativeTime += DeltaSeconds;
 		}
 		else
 		{
-			GFPSChart[ STAT_FPSChart_60_INF - STAT_FPSChartFirstStat ].Count++;
-			GFPSChart[ STAT_FPSChart_60_INF - STAT_FPSChartFirstStat ].CummulativeTime += DeltaSeconds;
+			GFPSChart[ STAT_FPSChart_120_INF - STAT_FPSChartFirstStat ].Count++;
+			GFPSChart[ STAT_FPSChart_120_INF - STAT_FPSChartFirstStat ].CummulativeTime += DeltaSeconds;
 		}
 
 		GTotalGPUTime += FPlatformTime::ToSeconds(LocalGPUFrameTime);
@@ -402,12 +419,26 @@ void UEngine::DumpFPSChartToLog( float TotalTime, float DeltaTime, int32 NumFram
 		const float BucketTimePercentage  = 100.f * GFPSChart[BucketIndex].CummulativeTime / TotalTime;
 		const float BucketFramePercentage = 100.f * GFPSChart[BucketIndex].Count / NumFrames;
 
-		// Figure out bucket range.
-		const int32 StartFPS	= BucketIndex * 5;
-		int32 EndFPS		= StartFPS + 5;
-		if( BucketIndex + STAT_FPSChartFirstStat == STAT_FPSChart_60_INF )
+		// Figure out bucket range. Buckets start at 5 frame intervals then change to 10.
+		int32 StartFPS = 0;
+		int32 EndFPS = 0;
+		if ( BucketIndex < STAT_FPSChart_30_40 )
 		{
-			EndFPS = 99;
+			// Still incrementing by 5
+			StartFPS = BucketIndex * 5;
+			EndFPS = StartFPS + 5;
+		}
+		else
+		{
+			// Now incrementing by 10
+			StartFPS = STAT_FPSChart_30_40 * 5;
+			StartFPS += (BucketIndex - STAT_FPSChart_30_40) * 10;
+			EndFPS = StartFPS + 10;
+		}
+		
+		if( BucketIndex + STAT_FPSChartFirstStat == STAT_FPSChart_120_INF )
+		{
+			EndFPS = 999;
 		}
 
 		// Keep track of time spent at 30+ FPS.
@@ -628,6 +659,26 @@ void UEngine::DumpFPSChartToStatsLog( float TotalTime, float DeltaTime, int32 Nu
 	{
 		OutputFile->Logf(TEXT("Dumping FPS chart at %s using build %s built from changelist %i"), *FDateTime::Now().ToString(), *GEngineVersion.ToString(), GetChangeListNumberForPerfTesting() );
 
+		// Get OS info
+		FString OSMajor;
+		FString OSMinor;
+		FPlatformMisc::GetOSVersions(OSMajor, OSMinor);
+
+		// Get settings info
+		const Scalability::FQualityLevels& Quality = GEngine->GetGameUserSettings()->ScalabilityQuality;
+
+		OutputFile->Logf(TEXT("Machine info:"));
+		OutputFile->Logf(TEXT("\tOS: %s %s"), *OSMajor, *OSMinor);
+		OutputFile->Logf(TEXT("\tCPU: %s %s"), *FPlatformMisc::GetCPUVendor(), *FPlatformMisc::GetCPUBrand());
+		OutputFile->Logf(TEXT("\tGPU: %s"), *FPlatformMisc::GetPrimaryGPUBrand());
+		OutputFile->Logf(TEXT("\tResolution Quality: %d"), Quality.ResolutionQuality);
+		OutputFile->Logf(TEXT("\tView Distance Quality: %d"), Quality.ViewDistanceQuality);
+		OutputFile->Logf(TEXT("\tAnti-Aliasing Quality: %d"), Quality.AntiAliasingQuality);
+		OutputFile->Logf(TEXT("\tShadow Quality: %d"), Quality.ShadowQuality);
+		OutputFile->Logf(TEXT("\tPost-Process Quality: %d"), Quality.PostProcessQuality);
+		OutputFile->Logf(TEXT("\tTexture Quality: %d"), Quality.TextureQuality);
+		OutputFile->Logf(TEXT("\tEffects Quality: %d"), Quality.EffectsQuality);
+
 		int32 NumFramesBelow30 = 0; // keep track of the number of frames below 30 FPS
 		float PctTimeAbove30 = 0; // Keep track of percentage of time at 30+ FPS.
 
@@ -638,12 +689,26 @@ void UEngine::DumpFPSChartToStatsLog( float TotalTime, float DeltaTime, int32 Nu
 			const float BucketTimePercentage  = 100.f * GFPSChart[BucketIndex].CummulativeTime / TotalTime;
 			const float BucketFramePercentage = 100.f * GFPSChart[BucketIndex].Count / NumFrames;
 
-			// Figure out bucket range.
-			const int32 StartFPS	= BucketIndex * 5;
-			int32 EndFPS		= StartFPS + 5;
-			if( BucketIndex + STAT_FPSChartFirstStat == STAT_FPSChart_60_INF )
+			// Figure out bucket range. Buckets start at 5 frame intervals then change to 10.
+			int32 StartFPS = 0;
+			int32 EndFPS = 0;
+			if (BucketIndex < STAT_FPSChart_30_40)
 			{
-				EndFPS = 99;
+				// Still incrementing by 5
+				StartFPS = BucketIndex * 5;
+				EndFPS = StartFPS + 5;
+			}
+			else
+			{
+				// Now incrementing by 10
+				StartFPS = STAT_FPSChart_30_40 * 5;
+				StartFPS += (BucketIndex - STAT_FPSChart_30_40) * 10;
+				EndFPS = StartFPS + 10;
+			}
+
+			if( BucketIndex + STAT_FPSChartFirstStat == STAT_FPSChart_120_INF )
+			{
+				EndFPS = 999;
 			}
 
 			// Keep track of time spent at 30+ FPS.
@@ -760,12 +825,26 @@ void UEngine::DumpFPSChartToHTML( float TotalTime, float DeltaTime, int32 NumFra
 			const float BucketTimePercentage  = 100.f * GFPSChart[BucketIndex].CummulativeTime / TotalTime;
 			const float BucketFramePercentage = 100.f * GFPSChart[BucketIndex].Count / NumFrames;
 
-			// Figure out bucket range.
-			const int32 StartFPS	= BucketIndex * 5;
-			int32 EndFPS		= StartFPS + 5;
-			if( BucketIndex + STAT_FPSChartFirstStat == STAT_FPSChart_60_INF )
+			// Figure out bucket range. Buckets start at 5 frame intervals then change to 10.
+			int32 StartFPS = 0;
+			int32 EndFPS = 0;
+			if (BucketIndex < STAT_FPSChart_30_40)
 			{
-				EndFPS = 99;
+				// Still incrementing by 5
+				StartFPS = BucketIndex * 5;
+				EndFPS = StartFPS + 5;
+			}
+			else
+			{
+				// Now incrementing by 10
+				StartFPS = STAT_FPSChart_30_40 * 5;
+				StartFPS += (BucketIndex - STAT_FPSChart_30_40) * 10;
+				EndFPS = StartFPS + 10;
+			}
+
+			if( BucketIndex + STAT_FPSChartFirstStat == STAT_FPSChart_120_INF )
+			{
+				EndFPS = 999;
 			}
 
 			// Keep track of time spent at 30+ FPS.
@@ -819,11 +898,29 @@ void UEngine::DumpFPSChartToHTML( float TotalTime, float DeltaTime, int32 NumFra
 			FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_HITCH_GPU_BOUND_COUNT"), *FString::Printf(TEXT("%i"), TotalGPUBoundHitches), ESearchCase::CaseSensitive );
 		}
 
+		// Get OS info
+		FString OSMajor;
+		FString OSMinor;
+		FPlatformMisc::GetOSVersions(OSMajor, OSMinor);
+
+		// Get settings info
+		const Scalability::FQualityLevels& Quality = GEngine->GetGameUserSettings()->ScalabilityQuality;
 
 		// Update non- bucket stats.
 		FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_MAPNAME"),		    *FString::Printf(TEXT("%s"), *InMapName ), ESearchCase::CaseSensitive );
 		FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_CHANGELIST"),		*FString::Printf(TEXT("%i"), GetChangeListNumberForPerfTesting() ), ESearchCase::CaseSensitive );
 		FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_DATESTAMP"),         *FString::Printf(TEXT("%s"), *FDateTime::Now().ToString() ), ESearchCase::CaseSensitive );
+
+		FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_OS"),			    *FString::Printf(TEXT("%s %s"), *OSMajor, *OSMinor ), ESearchCase::CaseSensitive );
+		FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_CPU"),			    *FString::Printf(TEXT("%s %s"), *FPlatformMisc::GetCPUVendor(), *FPlatformMisc::GetCPUBrand() ), ESearchCase::CaseSensitive );
+		FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_GPU"),			    *FString::Printf(TEXT("%s"), *FPlatformMisc::GetPrimaryGPUBrand() ), ESearchCase::CaseSensitive );
+		FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_SETTINGS_RES"),	    *FString::Printf(TEXT("%d"), Quality.ResolutionQuality ), ESearchCase::CaseSensitive );
+		FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_SETTINGS_VD"),	    *FString::Printf(TEXT("%d"), Quality.ViewDistanceQuality ), ESearchCase::CaseSensitive );
+		FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_SETTINGS_AA"),	    *FString::Printf(TEXT("%d"), Quality.AntiAliasingQuality ), ESearchCase::CaseSensitive );
+		FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_SETTINGS_SHADOW"),   *FString::Printf(TEXT("%d"), Quality.ShadowQuality ), ESearchCase::CaseSensitive );
+		FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_SETTINGS_PP"),	    *FString::Printf(TEXT("%d"), Quality.PostProcessQuality ), ESearchCase::CaseSensitive );
+		FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_SETTINGS_TEX"),	    *FString::Printf(TEXT("%d"), Quality.TextureQuality ), ESearchCase::CaseSensitive );
+		FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_SETTINGS_FX"),	    *FString::Printf(TEXT("%d"), Quality.EffectsQuality ), ESearchCase::CaseSensitive );
 
 		FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_AVG_FPS"),			*FString::Printf(TEXT("%4.2f"), NumFrames / TotalTime), ESearchCase::CaseSensitive );
 		FPSChartRow = FPSChartRow.Replace( TEXT("TOKEN_PCT_ABOVE_30"),		*FString::Printf(TEXT("%4.2f"), PctTimeAbove30), ESearchCase::CaseSensitive );

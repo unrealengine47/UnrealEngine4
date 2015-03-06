@@ -243,9 +243,9 @@ protected:
 
 	/** 
 	 * Function works only if subclass UActorComponent.
-	 * If InitializeComponent or UninitializeComponent event is defined, force bWantsInitializeComponent.
+	 * If BeginPlay or EndPlay event is defined on the Component, force bWantsBeginPlay.
 	 */
-	void SetWantsInitialize() const;
+	void SetWantsBeginPlay() const;
 
 	/** Scan FunctionList and return Entry point, for matching one  */
 	const UK2Node_FunctionEntry* FindLocalEntryPoint(const UFunction* Function) const;
@@ -369,6 +369,11 @@ protected:
 	 * Checks if self pins are connected.
 	 */
 	void ValidateSelfPinsInGraph(const UEdGraph* SourceGraph);
+
+	/**
+	* Checks if pin types are unresolved (e.g. still wildcards).
+	*/
+	void ValidateNoWildcardPinsInGraph(const UEdGraph* SourceGraph);
 
 	/** Ensures that all variables have valid names for compilation/replication */
 	void ValidateVariableNames();

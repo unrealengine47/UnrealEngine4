@@ -221,17 +221,7 @@ FEventReply UUserWidget::OnFocusReceived_Implementation(FGeometry MyGeometry, FF
 	return UWidgetBlueprintLibrary::Unhandled();
 }
 
-FEventReply UUserWidget::OnKeyboardFocusReceived_Implementation(FGeometry MyGeometry, FKeyboardFocusEvent InKeyboardFocusEvent)
-{
-	return UWidgetBlueprintLibrary::Unhandled();
-}
-
 void UUserWidget::OnFocusLost_Implementation(FFocusEvent InFocusEvent)
-{
-
-}
-
-void UUserWidget::OnKeyboardFocusLost_Implementation(FKeyboardFocusEvent InKeyboardFocusEvent)
 {
 
 }
@@ -371,12 +361,17 @@ FEventReply UUserWidget::OnMotionDetected_Implementation(FGeometry MyGeometry, F
 	return UWidgetBlueprintLibrary::Unhandled();
 }
 
+void UUserWidget::OnAnimationStarted_Implementation( const UWidgetAnimation* Animation )
+{
+
+}
+
 void UUserWidget::OnAnimationFinished_Implementation( const UWidgetAnimation* Animation )
 {
 	
 }
 
-void UUserWidget::PlayAnimation(const UWidgetAnimation* InAnimation, float StartAtTime, int32 NumberOfLoops)
+void UUserWidget::PlayAnimation( const UWidgetAnimation* InAnimation, float StartAtTime, int32 NumberOfLoops, EUMGSequencePlayMode::Type PlayMode)
 {
 	if( InAnimation )
 	{
@@ -392,12 +387,14 @@ void UUserWidget::PlayAnimation(const UWidgetAnimation* InAnimation, float Start
 
 			NewPlayer->InitSequencePlayer( *InAnimation, *this );
 
-			NewPlayer->Play( StartAtTime, NumberOfLoops );
+			NewPlayer->Play( StartAtTime, NumberOfLoops, PlayMode );
 		}
 		else
 		{
-			( *FoundPlayer )->Play( StartAtTime, NumberOfLoops );
+			( *FoundPlayer )->Play( StartAtTime, NumberOfLoops, PlayMode );
 		}
+
+		OnAnimationStarted( InAnimation );
 	}
 }
 

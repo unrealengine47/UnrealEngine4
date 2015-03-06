@@ -1760,8 +1760,6 @@ FCursorReply SAnimNotifyTrack::OnCursorQuery(const FGeometry& MyGeometry, const 
 
 void SAnimNotifyTrack::FillNewNotifyStateMenu(FMenuBuilder& MenuBuilder)
 {
-	const static FText Description = LOCTEXT("AddsAnExistingAnimNotify", "Add an existing notify");
-
 	// Run the native query first to update the allowed classes for blueprints.
 	TArray<UClass*> NotifyStateClasses;
 	OnGetNotifyStateNativeClasses.ExecuteIfBound(NotifyStateClasses);
@@ -1782,6 +1780,7 @@ void SAnimNotifyTrack::FillNewNotifyStateMenu(FMenuBuilder& MenuBuilder)
 			NotifyData.NotifyName,
 			NotifyData.BlueprintPath);
 
+		const static FText Description = LOCTEXT("AddsAnExistingAnimNotify", "Add an existing notify");
 		MenuBuilder.AddMenuEntry(LabelText, Description, FSlateIcon(), UIAction);
 	}
 
@@ -1807,8 +1806,6 @@ void SAnimNotifyTrack::FillNewNotifyStateMenu(FMenuBuilder& MenuBuilder)
 
 void SAnimNotifyTrack::FillNewNotifyMenu(FMenuBuilder& MenuBuilder)
 {
-	const static FText Description = LOCTEXT("NewNotifySubMenu_ToolTip", "Add an existing notify");
-
 	TArray<UClass*> NativeNotifyClasses;
 	OnGetNotifyNativeClasses.ExecuteIfBound(NativeNotifyClasses);
 
@@ -1827,6 +1824,7 @@ void SAnimNotifyTrack::FillNewNotifyMenu(FMenuBuilder& MenuBuilder)
 			NotifyData.NotifyName,
 			NotifyData.BlueprintPath);
 		
+		const static FText Description = LOCTEXT("NewNotifySubMenu_ToolTip", "Add an existing notify");
 		MenuBuilder.AddMenuEntry(LabelText, Description, FSlateIcon(), UIAction);
 	}
 
@@ -3177,7 +3175,7 @@ void SAnimNotifyPanel::DeleteNotify(FAnimNotifyEvent* Notify)
 {
 	for (int32 I=0; I<Sequence->Notifies.Num(); ++I)
 	{
-		if (*Notify == Sequence->Notifies[I])
+		if (Notify == &(Sequence->Notifies[I]))
 		{
 			Sequence->Notifies.RemoveAt(I);
 			Sequence->MarkPackageDirty();
@@ -3634,10 +3632,11 @@ FReply SAnimNotifyPanel::OnMouseButtonUp(const FGeometry& MyGeometry, const FPoi
 	if(Marquee.bActive)
 	{
 		OnTrackSelectionChanged();
+		Marquee = FNotifyMarqueeOperation();
+		return FReply::Handled().ReleaseMouseCapture();
 	}
-	Marquee = FNotifyMarqueeOperation();
 
-	return FReply::Handled().ReleaseMouseCapture();
+	return SAnimTrackPanel::OnMouseButtonUp(MyGeometry, MouseEvent);
 }
 
 FReply SAnimNotifyPanel::OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
@@ -3655,7 +3654,7 @@ FReply SAnimNotifyPanel::OnMouseMove(const FGeometry& MyGeometry, const FPointer
 		return FReply::Handled();
 	}
 
-	return FReply::Unhandled();
+	return BaseReply;
 }
 
 int32 SAnimNotifyPanel::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyClippingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const

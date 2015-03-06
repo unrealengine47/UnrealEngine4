@@ -50,7 +50,35 @@ static UPackage*			GObjTransientPkg								= NULL;
 UObject::UObject( EStaticConstructor, EObjectFlags InFlags )
 : UObjectBaseUtility(InFlags | RF_Native | RF_RootSet)
 {
+#if WITH_HOT_RELOAD_CTORS
+	EnsureNotRetrievingVTablePtr();
+#endif // WITH_HOT_RELOAD_CTORS
 }
+
+#if WITH_HOT_RELOAD_CTORS
+UObject::UObject(FVTableHelper& Helper)
+{
+	EnsureRetrievingVTablePtr();
+
+	static struct FUseVTableConstructorsCache
+	{
+		FUseVTableConstructorsCache()
+		{
+			bUseVTableConstructors = false;
+			GConfig->GetBool(TEXT("Core.System"), TEXT("UseVTableConstructors"), bUseVTableConstructors, GEngineIni);
+		}
+
+		bool bUseVTableConstructors;
+	} UseVTableConstructorsCache;
+
+	UE_CLOG(!UseVTableConstructorsCache.bUseVTableConstructors, LogCore, Fatal, TEXT("This constructor is disabled."));
+}
+
+void UObject::EnsureNotRetrievingVTablePtr() const
+{
+	UE_CLOG(GIsRetrievingVTablePtr, LogCore, Fatal, TEXT("We are currently retrieving VTable ptr. Please use FVTableHelper constructor instead."));
+}
+#endif // WITH_HOT_RELOAD_CTORS
 
 UObject* UObject::CreateDefaultSubobject(FName SubobjectFName, UClass* ReturnType, UClass* ClassToCreateByDefault, bool bIsRequired, bool bAbstract, bool bIsTransient)
 {
@@ -492,7 +520,7 @@ void UObject::FinishDestroy()
 FString UObject::GetDetailedInfo() const
 {
 	FString Result;  
-	if( this )
+	if( this != nullptr )
 	{
 		Result = GetDetailedInfoInternal();
 	}
@@ -828,11 +856,11 @@ void UObject::Serialize( FArchive& Ar )
 	}
 
 	// Serialize object properties which are defined in the class.
-		// Handle derived UClass objects (exact UClass objects are native only and shouldn't be touched)
-		if (Class != UClass::StaticClass())
-		{
-				SerializeScriptProperties(Ar);
-			}
+	// Handle derived UClass objects (exact UClass objects are native only and shouldn't be touched)
+	if (Class != UClass::StaticClass())
+	{
+		SerializeScriptProperties(Ar);
+	}
 
 	// Keep track of pending kill
 	if( Ar.IsTransacting() )
@@ -1005,7 +1033,7 @@ bool UObject::CanCheckDefaultSubObjects(bool bForceCheck, bool& bResult)
 {
 	bool bCanCheck = true;
 	bResult = true;
-	if (!this)
+	if (this == nullptr)
 	{
 		bResult = false; // these aren't in a suitable spot in their lifetime for testing
 		bCanCheck = false;
@@ -1169,7 +1197,7 @@ void UObject::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const
 	SIZE_T ResourceSize = const_cast<UObject*>(this)->GetResourceSize(EResourceSizeMode::Exclusive);
 	if ( ResourceSize != RESOURCE_SIZE_NONE )
 	{
-		OutTags.Add( FAssetRegistryTag("ResourceSize", FString::Printf(TEXT("%0.2f"), ResourceSize / 1024.f), FAssetRegistryTag::TT_Numerical) );
+		OutTags.Add( FAssetRegistryTag("ResourceSize", FString::Printf(TEXT("%d"), (ResourceSize + 512) / 1024), FAssetRegistryTag::TT_Numerical) );
 	}
 	FAssetRegistryTag::GetAssetRegistryTagsFromSearchableProperties(this, OutTags);
 }
@@ -2861,13 +2889,7 @@ bool StaticExec( UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar )
 	}
 	else if( FParse::Command(&Str,TEXT("OBJ")) )
 	{
-		if( FParse::Command(&Str,TEXT("GARBAGE")) || FParse::Command(&Str,TEXT("GC")) )
-		{
-			// Purge unclaimed objects.
-			CollectGarbage( GARBAGE_COLLECTION_KEEPFLAGS );
-			return true;
-		}
-		else if( FParse::Command(&Str,TEXT("CYCLES")) )
+		if( FParse::Command(&Str,TEXT("CYCLES")) )
 		{
 			// find all cycles in the reference graph
 
@@ -3613,9 +3635,9 @@ void StaticExit()
 		UObject* Obj = *It;
 		if (Obj && !Obj->IsA<UField>()) // Skip Structures, properties, etc.. They could be still necessary while GC.
 		{
-		// Mark as unreachable so purge phase will kill it.
+			// Mark as unreachable so purge phase will kill it.
 			It->SetFlags(RF_Unreachable);
-	}
+		}
 	}
 
 	// Fully purge all objects, not using time limit.

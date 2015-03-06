@@ -8,6 +8,7 @@
 
 #include "BoundShaderStateCache.h"
 #include "OpenGLShaderResources.h"
+#include "ShaderCache.h"
 
 extern void OnVertexBufferDeletion( GLuint VertexBufferResource );
 extern void OnIndexBufferDeletion( GLuint IndexBufferResource );
@@ -79,14 +80,9 @@ class TOpenGLBuffer : public BaseType
 
 	GLenum GetAccess()
 	{
-		GLenum Access = GL_STATIC_DRAW;
-
-		if (Type != GL_ARRAY_BUFFER || !OpenGLConsoleVariables::bUseStagingBuffer)
-		{
-			Access = bStreamDraw ? GL_STREAM_DRAW : (IsDynamic() ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW);
-		}
-		
-		return Access;
+		// Previously there was special-case logic to always use GL_STATIC_DRAW for vertex buffers allocated from staging buffer.
+		// However it seems to be incorrect as NVidia drivers complain (via debug output callback) about VIDEO->HOST copying for buffers with such hints
+		return bStreamDraw ? GL_STREAM_DRAW : (IsDynamic() ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW);
 	}
 public:
 
@@ -863,6 +859,55 @@ public:
 		PixelBuffers.AddZeroed(this->GetNumMips() * (bCubemap ? 6 : 1) * GetEffectiveSizeZ());
 		bAllocatedStorage.Init(bInAllocatedStorage, this->GetNumMips() * (bCubemap ? 6 : 1));
 		ClientStorageBuffers.AddZeroed(this->GetNumMips() * (bCubemap ? 6 : 1) * GetEffectiveSizeZ());
+	
+		FShaderCache* ShaderCache = FShaderCache::GetShaderCache();
+		if ( ShaderCache )
+		{
+			FShaderTextureKey Tex;
+			Tex.Format = (EPixelFormat)InFormat;
+			Tex.Flags = InFlags;
+			Tex.MipLevels = InNumMips;
+			Tex.Samples = InNumSamples;
+			Tex.X = InSizeX;
+			Tex.Y = InSizeY;
+			Tex.Z = InSizeZ;
+			switch(InTarget)
+			{
+				case GL_TEXTURE_2D:
+				case GL_TEXTURE_2D_MULTISAMPLE:
+				{
+					Tex.Type = SCTT_Texture2D;
+					break;
+				}
+				case GL_TEXTURE_3D:
+				{
+					Tex.Type = SCTT_Texture3D;
+					break;
+				}
+				case GL_TEXTURE_CUBE_MAP:
+				{
+					Tex.Type = SCTT_TextureCube;
+					break;
+				}
+				case GL_TEXTURE_2D_ARRAY:
+				{
+					Tex.Type = SCTT_Texture2DArray;
+					break;
+				}
+				case GL_TEXTURE_CUBE_MAP_ARRAY:
+				{
+					Tex.Type = SCTT_TextureCubeArray;
+					Tex.Z = InArraySize;
+					break;
+				}
+				default:
+				{
+					check(false);
+				}
+			}
+		
+			FShaderCache::LogTexture(Tex, this);
+		}
 	}
 
 	virtual ~TOpenGLTexture();

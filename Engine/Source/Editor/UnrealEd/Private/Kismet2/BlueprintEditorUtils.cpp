@@ -18,6 +18,7 @@
 #include "AnimationGraph.h"
 #include "AnimationGraphSchema.h"
 #include "AnimationStateMachineGraph.h"
+#include "AnimationTransitionGraph.h"
 #include "AnimStateConduitNode.h"
 #include "AnimGraphNode_StateMachine.h"
 #include "Editor/UnrealEd/Public/Kismet2/KismetEditorUtilities.h"
@@ -2262,7 +2263,7 @@ UK2Node_Event* FBlueprintEditorUtils::FindOverrideForFunction(const UBlueprint* 
 	return NULL;
 }
 
-void FBlueprintEditorUtils::GatherDependencies(const UBlueprint* Blueprint, TSet<TWeakObjectPtr<UBlueprint>>& Dependencies)
+void FBlueprintEditorUtils::GatherDependencies(const UBlueprint* InBlueprint, TSet<TWeakObjectPtr<UBlueprint>>& Dependencies)
 {
 	struct FGatherDependenciesHelper
 	{
@@ -2278,14 +2279,14 @@ void FBlueprintEditorUtils::GatherDependencies(const UBlueprint* Blueprint, TSet
 			return UBlueprint::GetBlueprintFromClass(BPGC);
 		}
 
-		static void ProcessHierarchy(const UStruct* Struct, TSet<TWeakObjectPtr<UBlueprint>>& Dependencies)
+		static void ProcessHierarchy(const UStruct* Struct, TSet<TWeakObjectPtr<UBlueprint>>& InDependencies)
 		{
 			for (UBlueprint* Blueprint = GetGeneratingBlueprint(Struct);
 				Blueprint;
 				Blueprint = UBlueprint::GetBlueprintFromClass(Cast<UBlueprintGeneratedClass>(Blueprint->ParentClass)))
 			{
 				bool bAlreadyProcessed = false;
-				Dependencies.Add(Blueprint, &bAlreadyProcessed);
+				InDependencies.Add(Blueprint, &bAlreadyProcessed);
 				if (bAlreadyProcessed)
 				{
 					return;
@@ -2294,9 +2295,9 @@ void FBlueprintEditorUtils::GatherDependencies(const UBlueprint* Blueprint, TSet
 		}
 	};
 
-	check(Blueprint);
+	check(InBlueprint);
 	Dependencies.Empty();
-	for (const auto& InterfaceDesc : Blueprint->ImplementedInterfaces)
+	for (const auto& InterfaceDesc : InBlueprint->ImplementedInterfaces)
 	{
 		UBlueprint* InterfaceBP = InterfaceDesc.Interface ? Cast<UBlueprint>(InterfaceDesc.Interface->ClassGeneratedBy) : NULL;
 		if (InterfaceBP)
@@ -2306,7 +2307,7 @@ void FBlueprintEditorUtils::GatherDependencies(const UBlueprint* Blueprint, TSet
 	}
 
 	TArray<UEdGraph*> Graphs;
-	Blueprint->GetAllGraphs(Graphs);
+	InBlueprint->GetAllGraphs(Graphs);
 	for (auto Graph : Graphs)
 	{
 		if (Graph && !FBlueprintEditorUtils::IsGraphIntermediate(Graph))
@@ -2478,8 +2479,13 @@ bool FBlueprintEditorUtils::IsBlueprintConst(const UBlueprint* Blueprint)
 
 bool FBlueprintEditorUtils::IsBlutility(const UBlueprint* Blueprint)
 {
-	IBlutilityModule& BlutilityModule = FModuleManager::GetModuleChecked<IBlutilityModule>("Blutility");
-	return BlutilityModule.IsBlutility( Blueprint );
+	IBlutilityModule* BlutilityModule = FModuleManager::GetModulePtr<IBlutilityModule>("Blutility");
+
+	if (BlutilityModule)
+	{
+		return BlutilityModule->IsBlutility( Blueprint );
+	}
+	return false;
 }
 
 bool FBlueprintEditorUtils::IsActorBased(const UBlueprint* Blueprint)
@@ -2646,6 +2652,18 @@ bool FBlueprintEditorUtils::DoesSupportDefaults(UBlueprint const* Blueprint)
 {
 	return Blueprint->BlueprintType != BPTYPE_MacroLibrary
 		&& Blueprint->BlueprintType != BPTYPE_FunctionLibrary;
+}
+
+bool FBlueprintEditorUtils::DoesSupportLocalVariables(UEdGraph const* InGraph)
+{
+	if(InGraph)
+	{
+		UBlueprint* Blueprint = FBlueprintEditorUtils::FindBlueprintForGraph(InGraph);
+		return Blueprint->BlueprintType != BPTYPE_Interface
+			&& InGraph->GetSchema()->GetGraphType(InGraph) == EGraphType::GT_Function
+			&& !InGraph->IsA(UAnimationTransitionGraph::StaticClass());
+	}
+	return false;
 }
 
 // Returns a descriptive name of the type of blueprint passed in
@@ -3408,22 +3426,22 @@ void FBlueprintEditorUtils::GetNewVariablesOfType( const UBlueprint* Blueprint, 
 
 void FBlueprintEditorUtils::GetLocalVariablesOfType( const UEdGraph* Graph, const FEdGraphPinType& Type, TArray<FName>& OutVars)
 {
-	if ((Graph != nullptr) && (Graph->GetSchema()->GetGraphType(Graph) == GT_Function))
+	if (DoesSupportLocalVariables(Graph))
 	{
+		// Grab the function graph, so we can find the function entry node for local variables
+		UEdGraph* FunctionGraph = FBlueprintEditorUtils::GetTopLevelGraph(Graph);
+
 		TArray<UK2Node_FunctionEntry*> GraphNodes;
-		Graph->GetNodesOfClass<UK2Node_FunctionEntry>(GraphNodes);
+		FunctionGraph->GetNodesOfClass<UK2Node_FunctionEntry>(GraphNodes);
 
-		if (GraphNodes.Num() > 0)
+		// There should only be one entry node
+		check(GraphNodes.Num() == 1);
+
+		for (const FBPVariableDescription& LocalVar : GraphNodes[0]->LocalVariables)
 		{
-			// If there is an entry node, there should only be one
-			check(GraphNodes.Num() == 1);
-
-			for (const FBPVariableDescription& LocalVar : GraphNodes[0]->LocalVariables)
+			if (LocalVar.VarType == Type)
 			{
-				if (LocalVar.VarType == Type)
-				{
-					OutVars.Add(LocalVar.VarName);
-				}
+				OutVars.Add(LocalVar.VarName);
 			}
 		}
 	}
@@ -3966,6 +3984,7 @@ FBPVariableDescription FBlueprintEditorUtils::DuplicateVariableDescription(UBlue
 	// Now create new variable
 	FBPVariableDescription NewVar = InVariableDescription;
 	NewVar.VarName = DuplicatedVariableName;
+	NewVar.FriendlyName = FName::NameToDisplayString( NewVar.VarName.ToString(), NewVar.VarType.PinCategory == GetDefault<UEdGraphSchema_K2>()->PC_Boolean);
 	NewVar.VarGuid = FGuid::NewGuid();
 
 	return NewVar;
@@ -4136,10 +4155,11 @@ FBPVariableDescription* FBlueprintEditorUtils::FindLocalVariable(UBlueprint* InB
 FBPVariableDescription* FBlueprintEditorUtils::FindLocalVariable(const UBlueprint* InBlueprint, const UEdGraph* InScopeGraph, const FName& InVariableName, class UK2Node_FunctionEntry** OutFunctionEntry)
 {
 	FBPVariableDescription* ReturnVariable = NULL;
-	if(InScopeGraph)
+	if(DoesSupportLocalVariables(InScopeGraph))
 	{
+		UEdGraph* FunctionGraph = GetTopLevelGraph(InScopeGraph);
 		TArray<UK2Node_FunctionEntry*> GraphNodes;
-		InScopeGraph->GetNodesOfClass<UK2Node_FunctionEntry>(GraphNodes);
+		FunctionGraph->GetNodesOfClass<UK2Node_FunctionEntry>(GraphNodes);
 
 		bool bFoundLocalVariable = false;
 
@@ -6294,7 +6314,7 @@ TSharedRef<SWidget> FBlueprintEditorUtils::ConstructBlueprintInterfaceClassPicke
 			FString const& ProhibitedList = Blueprint->ParentClass->GetMetaData(FBlueprintMetadata::MD_ProhibitedInterfaces);
 
 			TArray<FString> ProhibitedInterfaceNames;
-			ProhibitedList.ParseIntoArray(&ProhibitedInterfaceNames, TEXT(","), true);
+			ProhibitedList.ParseIntoArray(ProhibitedInterfaceNames, TEXT(","), true);
 
 			// loop over all the prohibited interfaces
 			for (int32 ExclusionIndex = 0; ExclusionIndex < ProhibitedInterfaceNames.Num(); ++ExclusionIndex)
@@ -7104,11 +7124,11 @@ bool FBlueprintEditorUtils::CheckIfGraphHasLatentFunctions(UEdGraph* InGraph)
 {
 	struct Local
 	{
-		static bool CheckIfGraphHasLatentFunctions(UEdGraph* InGraph, TArray<UEdGraph*>& InspectedGraphList)
+		static bool CheckIfGraphHasLatentFunctions(UEdGraph* InGraphToCheck, TArray<UEdGraph*>& InspectedGraphList)
 		{
 			TWeakObjectPtr<UK2Node_EditablePinBase> EntryNode;
 			TWeakObjectPtr<UK2Node_EditablePinBase> ResultNode;
-			GetEntryAndResultNodes(InGraph, EntryNode, ResultNode);
+			GetEntryAndResultNodes(InGraphToCheck, EntryNode, ResultNode);
 
 			UK2Node_Tunnel* TunnelNode = ExactCast<UK2Node_Tunnel>(EntryNode.Get());
 			if(!TunnelNode)
@@ -7124,9 +7144,9 @@ bool FBlueprintEditorUtils::CheckIfGraphHasLatentFunctions(UEdGraph* InGraph)
 			else
 			{
 				// Add all graphs to the list of already inspected, this prevents circular inclusion issues.
-				InspectedGraphList.Add(InGraph);
+				InspectedGraphList.Add(InGraphToCheck);
 
-				for( const UEdGraphNode* Node : InGraph->Nodes )
+				for( const UEdGraphNode* Node : InGraphToCheck->Nodes )
 				{
 					if(const UK2Node_CallFunction* CallFunctionNode = Cast<UK2Node_CallFunction>(Node))
 					{

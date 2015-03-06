@@ -623,7 +623,7 @@ static void OverrideFromCommandline(FConfigFile* File, const FString& Filename)
 	{
 		// break apart on the commas
 		TArray<FString> SettingPairs;
-		Settings.ParseIntoArray(&SettingPairs, &CommandlineOverrideSpecifiers::PropertySeperator, true);
+		Settings.ParseIntoArray(SettingPairs, &CommandlineOverrideSpecifiers::PropertySeperator, true);
 		for (int32 Index = 0; Index < SettingPairs.Num(); Index++)
 		{
 			// set each one, by splitting on the =
@@ -1333,6 +1333,13 @@ FConfigCacheIni::FConfigCacheIni(EConfigCacheType InType)
 	, Type(InType)
 {
 }
+
+#if WITH_HOT_RELOAD_CTORS
+FConfigCacheIni::FConfigCacheIni()
+{
+	EnsureRetrievingVTablePtr();
+}
+#endif // WITH_HOT_RELOAD_CTORS
 
 FConfigCacheIni::~FConfigCacheIni()
 {

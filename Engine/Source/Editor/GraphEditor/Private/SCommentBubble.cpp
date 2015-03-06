@@ -77,7 +77,7 @@ void SCommentBubble::Tick( const FGeometry& AllottedGeometry, const double InCur
 
 	if( bTitleBarBubbleVisible || IsBubbleVisible() )
 	{
-		const FLinearColor BubbleColor = ColorAndOpacity.Get().GetSpecifiedColor() * SCommentBubbleDefs::LuminanceCoEff;
+		const FLinearColor BubbleColor = GetBubbleColor().GetSpecifiedColor() * SCommentBubbleDefs::LuminanceCoEff;
 		const float BubbleLuminance = BubbleColor.R + BubbleColor.G + BubbleColor.B;
 		ForegroundColor = BubbleLuminance < 0.5f ? SCommentBubbleDefs::DarkForegroundClr : SCommentBubbleDefs::LightForegroundClr;
 	}
@@ -120,9 +120,9 @@ void SCommentBubble::UpdateBubble()
 	if( GraphNode->bCommentBubbleVisible )
 	{
 		const FSlateBrush* CommentCalloutArrowBrush = FEditorStyle::GetBrush(TEXT("Graph.Node.CommentArrow"));
-		const FMargin BubblePadding = FEditorStyle::GetMargin(TEXT("Graph.Node.Comment.BubbleWidgetMargin"));
-		const FMargin PinIconPadding = FEditorStyle::GetMargin(TEXT("Graph.Node.Comment.PinIconPadding"));
-		const FMargin BubbleOffset = FEditorStyle::GetMargin(TEXT("Graph.Node.Comment.BubbleOffset"));
+		const FMargin BubblePadding = FEditorStyle::GetMargin( TEXT("Graph.Node.Comment.BubbleWidgetMargin"));
+		const FMargin PinIconPadding = FEditorStyle::GetMargin( TEXT("Graph.Node.Comment.PinIconPadding"));
+		const FMargin BubbleOffset = FEditorStyle::GetMargin( TEXT("Graph.Node.Comment.BubbleOffset"));
 		// Conditionally create bubble controls
 		TSharedPtr<SWidget> BubbleControls = SNullWidget::NullWidget;
 
@@ -238,7 +238,7 @@ void SCommentBubble::UpdateBubble()
 				[
 					SNew(SImage)
 					.Image( CommentCalloutArrowBrush )
-					.ColorAndOpacity( ColorAndOpacity )
+					.ColorAndOpacity( this, &SCommentBubble::GetBubbleColor )
 				]
 			]
 		];
@@ -280,8 +280,8 @@ FVector2D SCommentBubble::GetOffset() const
 {
 	if( GraphNode->bCommentBubbleVisible || OpacityValue > 0.f )
 	{
-		return FVector2D( 0.f, -GetDesiredSize().Y );
-	}
+	return FVector2D( 0.f, -GetDesiredSize().Y );
+}
 	return FVector2D::ZeroVector;
 }
 
@@ -337,7 +337,19 @@ FSlateColor SCommentBubble::GetToggleButtonColor() const
 
 FSlateColor SCommentBubble::GetBubbleColor() const
 {
-	FLinearColor ReturnColor = ColorAndOpacity.Get().GetSpecifiedColor();
+	bool bColorCommentBubble = true;
+
+	// For comment nodes, check if the color is enabled
+	if (UEdGraphNode_Comment* CommentBubble = Cast<UEdGraphNode_Comment>(GraphNode))
+	{
+		bColorCommentBubble = CommentBubble->bColorCommentBubble;
+	}
+
+	FLinearColor ReturnColor = FLinearColor::White;
+	if (bColorCommentBubble)
+	{
+		ReturnColor = ColorAndOpacity.Get().GetSpecifiedColor();
+	}
 
 	if(!GraphNode->bIsNodeEnabled)
 	{

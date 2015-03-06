@@ -5,6 +5,7 @@
 #include "DynamicCastHandler.h"
 #include "EditorCategoryUtils.h"
 #include "BlueprintEditorSettings.h"
+#include "ScopedTransaction.h"
 
 #define LOCTEXT_NAMESPACE "K2Node_DynamicCast"
 
@@ -109,9 +110,9 @@ void UK2Node_DynamicCast::GetContextMenuActions(const FGraphNodeContextMenuBuild
 		FText MenuEntryTooltip = LOCTEXT("MakePureTooltip", "Removes the execution pins to make the node more versitile (NOTE: the cast could still, resulting in an invalid output).");
 
 		bool bCanTogglePurity = true;
-		auto CanExecutePurityToggle = [](bool const bCanTogglePurity)->bool
+		auto CanExecutePurityToggle = [](bool const bInCanTogglePurity)->bool
 		{
-			return bCanTogglePurity;
+			return bInCanTogglePurity;
 		};
 
 		if (bIsPureCast)
@@ -226,6 +227,18 @@ void UK2Node_DynamicCast::SetPurity(bool bNewPurity)
 
 void UK2Node_DynamicCast::TogglePurity()
 {
+	FText TransactionTitle;
+	if(bIsPureCast)
+	{
+		TransactionTitle = LOCTEXT("TogglePure", "Convert to Pure Cast");
+	}
+	else
+	{
+		TransactionTitle = LOCTEXT("ToggleImpure", "Convert to Impure Cast");
+	}
+	const FScopedTransaction Transaction( TransactionTitle );
+	Modify();
+
 	SetPurity(!bIsPureCast);
 }
 

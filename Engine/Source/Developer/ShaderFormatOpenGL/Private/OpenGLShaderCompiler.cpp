@@ -494,6 +494,23 @@ void ParseGlslError(TArray<FShaderCompilerError>& OutErrors, const FString& InLi
 	}
 }
 
+static TArray<ANSICHAR> ParseIdentifierANSI(const ANSICHAR* &Str)
+{
+	TArray<ANSICHAR> Result;
+	
+	while ((*Str >= 'A' && *Str <= 'Z')
+		   || (*Str >= 'a' && *Str <= 'z')
+		   || (*Str >= '0' && *Str <= '9')
+		   || *Str == '_')
+	{
+		Result.Add(FChar::ToLower(*Str));
+		++Str;
+	}
+	Result.Add('\0');
+	
+	return Result;
+}
+
 static FString ParseIdentifier(const ANSICHAR* &Str)
 {
 	FString Result;
@@ -630,7 +647,7 @@ static void BuildShaderOutput(
             {
                 FOpenGLShaderVarying Var;
                 Var.Location = Location;
-                Var.Varying = ParseIdentifier(ShaderSource);
+                Var.Varying = ParseIdentifierANSI(ShaderSource);
                 Header.Bindings.InputVaryings.Add(Var);
             }
 
@@ -647,6 +664,27 @@ static void BuildShaderOutput(
 
             verify(Match(ShaderSource, ','));
         }
+	}
+
+	// Generate vertex attribute remapping table.
+	// This is used on devices where GL_MAX_VERTEX_ATTRIBS < 16
+	if (Frequency == SF_Vertex)
+	{
+		uint32 AttributeMask = Header.Bindings.InOutMask;
+		int32 NextAttributeSlot = 0;
+		Header.Bindings.VertexRemappedMask = 0;
+		for (int32 AttributeIndex = 0; AttributeIndex<16; AttributeIndex++, AttributeMask >>= 1)
+		{
+			if (AttributeMask & 0x1)
+			{
+				Header.Bindings.VertexRemappedMask |= (1 << NextAttributeSlot);
+				Header.Bindings.VertexAttributeRemap[AttributeIndex] = NextAttributeSlot++;
+			}
+			else
+			{
+				Header.Bindings.VertexAttributeRemap[AttributeIndex] = -1;
+			}
+		}
 	}
 
 	// Then the list of outputs.
@@ -683,7 +721,7 @@ static void BuildShaderOutput(
             {
                 FOpenGLShaderVarying Var;
                 Var.Location = Location;
-                Var.Varying = ParseIdentifier(ShaderSource);
+                Var.Varying = ParseIdentifierANSI(ShaderSource);
                 Header.Bindings.OutputVaryings.Add(Var);
             }
 
@@ -1378,7 +1416,7 @@ static void PrecompileShader(FShaderCompilerOutput& ShaderOutput, const FShaderC
 					RawCompileLog.AddZeroed(LogLength);
 					glGetShaderInfoLog(Shader, LogLength, /*OutLength=*/ NULL, RawCompileLog.GetData());
 					CompileLog = ANSI_TO_TCHAR(RawCompileLog.GetData());
-					CompileLog.ParseIntoArray(&LogLines, TEXT("\n"), true);
+					CompileLog.ParseIntoArray(LogLines, TEXT("\n"), true);
 
 					for (int32 Line = 0; Line < LogLines.Num(); ++Line)
 					{
@@ -1735,7 +1773,7 @@ void CompileShader_Windows_OGL(const FShaderCompilerInput& Input,FShaderCompiler
 
 			FString Tmp = ANSI_TO_TCHAR(ErrorLog);
 			TArray<FString> ErrorLines;
-			Tmp.ParseIntoArray(&ErrorLines, TEXT("\n"), true);
+			Tmp.ParseIntoArray(ErrorLines, TEXT("\n"), true);
 			for (int32 LineIndex = 0; LineIndex < ErrorLines.Num(); ++LineIndex)
 			{
 				const FString& Line = ErrorLines[LineIndex];

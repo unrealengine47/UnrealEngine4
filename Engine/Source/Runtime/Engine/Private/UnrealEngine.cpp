@@ -773,7 +773,7 @@ void UEngine::Init(IEngineLoop* InEngineLoop)
 	if( FParse::Value(FCommandLine::Get(), TEXT("ExecCmds="), ExecCmds, false) )
 	{
 		TArray<FString> CommandArray;
-		ExecCmds.ParseIntoArray( &CommandArray, TEXT(","), true );
+		ExecCmds.ParseIntoArray( CommandArray, TEXT(","), true );
 
 		for( int32 Cx = 0; Cx < CommandArray.Num(); ++Cx )
 		{
@@ -953,6 +953,7 @@ void UEngine::PreExit()
 
 void UEngine::TickDeferredCommands()
 {
+	QUICK_SCOPE_CYCLE_COUNTER(STAT_UEngine_TickDeferredCommands);
 	// Execute all currently queued deferred commands (allows commands to be queued up for next frame).
 	const int32 DeferredCommandsCount = DeferredCommands.Num();
 	for( int32 DeferredCommandsIndex=0; DeferredCommandsIndex<DeferredCommandsCount; DeferredCommandsIndex++ )
@@ -1908,6 +1909,7 @@ struct FSortedTexture
 	int32		OrigSizeY;
 	int32		CookedSizeX;
 	int32		CookedSizeY;
+	EPixelFormat Format;
 	int32		CurSizeX;
 	int32		CurSizeY;
 	int32		LODBias;
@@ -1919,11 +1921,12 @@ struct FSortedTexture
 	int32		UsageCount;
 
 	/** Constructor, initializing every member variable with passed in values. */
-	FSortedTexture(	int32 InOrigSizeX, int32 InOrigSizeY, int32 InCookedSizeX, int32 InCookedSizeY, int32 InCurSizeX, int32 InCurSizeY, int32 InLODBias, int32 InMaxSize, int32 InCurrentSize, const FString& InName, int32 InLODGroup, bool bInIsStreaming, int32 InUsageCount )
+	FSortedTexture(	int32 InOrigSizeX, int32 InOrigSizeY, int32 InCookedSizeX, int32 InCookedSizeY, EPixelFormat InFormat, int32 InCurSizeX, int32 InCurSizeY, int32 InLODBias, int32 InMaxSize, int32 InCurrentSize, const FString& InName, int32 InLODGroup, bool bInIsStreaming, int32 InUsageCount )
 	:	OrigSizeX( InOrigSizeX )
 	,	OrigSizeY( InOrigSizeY )
 	,	CookedSizeX( InCookedSizeX )
 	,	CookedSizeY( InCookedSizeY )
+	,	Format( InFormat )
 	,	CurSizeX( InCurSizeX )
 	,	CurSizeY( InCurSizeY )
 	,	LODBias( InLODBias )
@@ -1943,7 +1946,7 @@ struct FCompareFSortedTexture
 	{}
 	FORCEINLINE bool operator()( const FSortedTexture& A, const FSortedTexture& B ) const
 	{
-		return bAlphaSort ? ( A.Name < B.Name ) : ( B.MaxSize < A.MaxSize );
+		return bAlphaSort ? ( A.Name < B.Name ) : ( B.CurrentSize < A.CurrentSize );
 	}
 };
 
@@ -3246,6 +3249,7 @@ bool UEngine::HandleListTexturesCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 		int32				OrigSizeY			= Texture->GetSizeY();
 		int32				CookedSizeX			= Texture->GetSizeX() >> LODBias;
 		int32				CookedSizeY			= Texture->GetSizeY() >> LODBias;
+		EPixelFormat		Format				= Texture->GetPixelFormat();
 		int32				DroppedMips			= Texture->GetNumMips() - Texture->ResidentMips;
 		int32				CurSizeX			= Texture->GetSizeX() >> DroppedMips;
 		int32				CurSizeY			= Texture->GetSizeY() >> DroppedMips;
@@ -3263,6 +3267,7 @@ bool UEngine::HandleListTexturesCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 				OrigSizeY, 
 				CookedSizeX,
 				CookedSizeY,
+				Format,
 				CurSizeX,
 				CurSizeY,
 				LODBias, 
@@ -3284,15 +3289,16 @@ bool UEngine::HandleListTexturesCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 	// Display.
 	int32 TotalMaxSize		= 0;
 	int32 TotalCurrentSize	= 0;
-	Ar.Logf( TEXT(",Authored Width,Authored Height,Cooked Width,Cooked Height,Current Width,Current Height,Max Size,Current Size,LODBias,LODGroup,Name,Streaming,Usage Count") );
+	Ar.Logf( TEXT(",Authored Width,Authored Height,Cooked Width,Cooked Height,Format,Current Width,Current Height,Max Size,Current Size,LODBias,LODGroup,Name,Streaming,Usage Count") );
 	for( int32 TextureIndex=0; TextureIndex<SortedTextures.Num(); TextureIndex++ )
 	{
 		const FSortedTexture& SortedTexture = SortedTextures[TextureIndex];
-		Ar.Logf( TEXT(",%i,%i,%i,%i,%i,%i,%i,%i,%i,%s,%s,%s,%i"),
+		Ar.Logf( TEXT(",%i,%i,%i,%i,%s,%i,%i,%i,%i,%i,%s,%s,%s,%i"),
 			SortedTexture.OrigSizeX,
 			SortedTexture.OrigSizeY,
 			SortedTexture.CookedSizeX,
 			SortedTexture.CookedSizeY,
+			GetPixelFormatString(SortedTexture.Format),
 			SortedTexture.CurSizeX,
 			SortedTexture.CurSizeY,
 			SortedTexture.MaxSize,
@@ -4602,7 +4608,19 @@ struct FHierarchy
 // @TODO yrx 2014-09-15 Move to ObjectCommads.cpp or ObjectExec.cpp
 bool UEngine::HandleObjCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 {
-	if (FParse::Command(&Cmd,TEXT("LIST2")))
+	if( FParse::Command(&Cmd,TEXT("GARBAGE")) || FParse::Command(&Cmd,TEXT("GC")) )
+	{
+		// Purge unclaimed objects.
+		Ar.Logf(TEXT("Collecting garbage and resetting GC timers on all worlds."));
+		CollectGarbage( GARBAGE_COLLECTION_KEEPFLAGS );
+		for (TObjectIterator<UWorld> It; It; ++It)
+		{
+			UWorld* CurrentWorld = *It;
+			CurrentWorld->TimeSinceLastPendingKillPurge = 0;
+		}
+		return true;
+	}
+	else if (FParse::Command(&Cmd,TEXT("LIST2")))
 	{			
 		UClass* ClassToCheck = NULL;
 		ParseObject<UClass>(Cmd, TEXT("CLASS="  ), ClassToCheck, ANY_PACKAGE );
@@ -5110,11 +5128,11 @@ bool UEngine::HandleObjCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 				//@todo: add support to FParse::Value() for specifying characters that should be ignored
 				if ( FParse::Value(Cmd, TEXT("HIDE="), Value/*, TEXT(",")*/) )
 				{
-					Value.ParseIntoArray(&HiddenCategories,TEXT(","),1);
+					Value.ParseIntoArray(HiddenCategories,TEXT(","),1);
 				}
 				else if ( FParse::Value(Cmd, TEXT("SHOW="), Value/*, TEXT(",")*/) )
 				{
-					Value.ParseIntoArray(&ShowingCategories,TEXT(","),1);
+					Value.ParseIntoArray(ShowingCategories,TEXT(","),1);
 				}
 #endif
 				UClass* LastOwnerClass = NULL;
@@ -7592,39 +7610,58 @@ UNetDriver* UEngine::FindNamedNetDriver(const UPendingNetGame* InPendingNetGame,
 	return FindNamedNetDriver_Local(GetWorldContextFromPendingNetGameChecked(InPendingNetGame).ActiveNetDrivers, NetDriverName);
 }
 
+UNetDriver* CreateNetDriver_Local(UEngine *Engine, FWorldContext &Context, FName NetDriverDefinition)
+{
+	UNetDriver* NetDriver = nullptr;
+	for (int32 Index = 0; Index < Engine->NetDriverDefinitions.Num(); Index++)
+	{
+		FNetDriverDefinition& NetDriverDef = Engine->NetDriverDefinitions[Index];
+		if (NetDriverDef.DefName == NetDriverDefinition)
+		{
+			// find the class to load
+			UClass* NetDriverClass = StaticLoadClass(UNetDriver::StaticClass(), NULL, *NetDriverDef.DriverClassName.ToString(), NULL, LOAD_Quiet, NULL);
+
+			// if it fails, then fall back to standard fallback
+			if (NetDriverClass == nullptr || !NetDriverClass->GetDefaultObject<UNetDriver>()->IsAvailable())
+			{
+				NetDriverClass = StaticLoadClass(UNetDriver::StaticClass(), NULL, *NetDriverDef.DriverClassNameFallback.ToString(), NULL, LOAD_None, NULL);
+			}
+
+			// Bail out if the net driver isn't available. The name may be incorrect or the class might not be built as part of the game configuration.
+			if (NetDriverClass == nullptr)
+			{
+				break;
+			}
+
+			// Try to create network driver.
+			NetDriver = NewObject<UNetDriver>(GetTransientPackage(), NetDriverClass);
+			check(NetDriver);
+			NetDriver->NetDriverName = NetDriver->GetFName();
+
+			new (Context.ActiveNetDrivers) FNamedNetDriver(NetDriver, &NetDriverDef);
+			return NetDriver;
+		}
+	}
+	
+	UE_LOG(LogNet, Log, TEXT("CreateNamedNetDriver failed to create driver from definition %s"), *NetDriverDefinition.ToString());
+	return nullptr;
+}
+
+UNetDriver* UEngine::CreateNetDriver(UWorld *InWorld, FName NetDriverDefinition)
+{
+	return CreateNetDriver_Local(this, GetWorldContextFromWorldChecked(InWorld), NetDriverDefinition);
+}
+
 bool CreateNamedNetDriver_Local(UEngine *Engine, FWorldContext &Context, FName NetDriverName, FName NetDriverDefinition)
 {
 	UNetDriver* NetDriver = FindNamedNetDriver_Local(Context.ActiveNetDrivers, NetDriverName);
-	if (NetDriver == NULL)
+	if (NetDriver == nullptr)
 	{
-		for (int32 Index = 0; Index < Engine->NetDriverDefinitions.Num(); Index++)
+		NetDriver = CreateNetDriver_Local(Engine, Context, NetDriverDefinition);
+		if (NetDriver)
 		{
-			FNetDriverDefinition& NetDriverDef = Engine->NetDriverDefinitions[Index];
-			if (NetDriverDef.DefName == NetDriverDefinition)
-			{
-				// find the class to load
-				UClass* NetDriverClass = StaticLoadClass(UNetDriver::StaticClass(), NULL, *NetDriverDef.DriverClassName.ToString(), NULL, LOAD_Quiet, NULL);
-
-				// if it fails, then fall back to standard fallback
-				if (NetDriverClass == NULL || !NetDriverClass->GetDefaultObject<UNetDriver>()->IsAvailable())
-				{
-					NetDriverClass = StaticLoadClass(UNetDriver::StaticClass(), NULL, *NetDriverDef.DriverClassNameFallback.ToString(), NULL, LOAD_None, NULL);
-				}
-
-				// Bail out if the net driver isn't available. The name may be incorrect or the class might not be built as part of the game configuration.
-				if(NetDriverClass == NULL)
-				{
-					break;
-				}
-
-				// Try to create network driver.
-				NetDriver = NewObject<UNetDriver>(GetTransientPackage(), NetDriverClass);
-				check(NetDriver);
-				NetDriver->NetDriverName = NetDriverName;
-				
-				new (Context.ActiveNetDrivers) FNamedNetDriver(NetDriver, &NetDriverDef);
-				return true;
-			}
+			NetDriver->NetDriverName = NetDriverName;
+			return true;
 		}
 	}
 
@@ -9080,7 +9117,7 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 	if (MutatorString)
 	{
 		TArray<FString> Mutators;
-		FString(MutatorString).ParseIntoArray(&Mutators, TEXT(","), true);
+		FString(MutatorString).ParseIntoArray(Mutators, TEXT(","), true);
 
 		for (int32 MutatorIndex = 0; MutatorIndex < Mutators.Num(); MutatorIndex++)
 		{
@@ -9156,12 +9193,15 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 	IStreamingManager::Get().RemoveStreamingViews( RemoveStreamingViews_All );
 	
 	// See if we need to record network demos
-	const TCHAR* DemoRecName = URL.GetOption( TEXT( "DemoRec=" ), NULL );
-
-	if ( DemoRecName != NULL )
+	if ( WorldContext.World()->GetAuthGameMode() == NULL || !WorldContext.World()->GetAuthGameMode()->IsHandlingReplays() )
 	{
-		// Play the demo
-		GEngine->Exec( WorldContext.World(), *FString::Printf( TEXT("DEMOREC %s"), DemoRecName ) );
+		const TCHAR* DemoRecName = URL.GetOption( TEXT( "DemoRec=" ), NULL );
+
+		if ( DemoRecName != NULL )
+		{
+			// Record the demo
+			GEngine->Exec( WorldContext.World(), *FString::Printf( TEXT("DEMOREC %s"), DemoRecName ) );
+		}
 	}
 
 	MALLOC_PROFILER( FMallocProfiler::SnapshotMemoryLoadMapEnd( URL.Map ); )
@@ -9172,6 +9212,8 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 
 void UEngine::BlockTillLevelStreamingCompleted(UWorld* InWorld)
 {
+	QUICK_SCOPE_CYCLE_COUNTER(STAT_UEngine_BlockTillLevelStreamingCompleted);
+
 	check(InWorld);
 	
 	// Update streaming levels state using streaming volumes

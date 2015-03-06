@@ -1606,7 +1606,7 @@ void FEditorFileUtils::OpenLevelPickingDialog(const FOnLevelsChosen& OnLevelsCho
 {
 	struct FLocal
 	{
-		static void OnLevelsSelected(const TArray<FAssetData>& SelectedLevels, FOnLevelsChosen OnLevelsChosen)
+		static void OnLevelsSelected(const TArray<FAssetData>& SelectedLevels, FOnLevelsChosen OnLevelsChosenDelegate)
 		{
 			if ( SelectedLevels.Num() > 0 )
 			{
@@ -1625,20 +1625,27 @@ void FEditorFileUtils::OpenLevelPickingDialog(const FOnLevelsChosen& OnLevelsCho
 
 				FEditorDirectories::Get().SetLastDirectory(ELastDirectory::LEVEL, FilesystemPath);
 
-				OnLevelsChosen.ExecuteIfBound(SelectedLevels);
+				OnLevelsChosenDelegate.ExecuteIfBound(SelectedLevels);
 			}
 		}
 
-		static void OnDialogCancelled(FOnLevelPickingCancelled OnLevelPickingCancelled)
+		static void OnDialogCancelled(FOnLevelPickingCancelled OnLevelPickingCancelledDelegate)
 		{
-			OnLevelPickingCancelled.ExecuteIfBound();
+			OnLevelPickingCancelledDelegate.ExecuteIfBound();
 		}
 	};
 
 	// Determine the starting path. Try to use the most recently used directory
 	FString DefaultPath;
 	{
-		const FString DefaultFilesystemDirectory = FEditorDirectories::Get().GetLastDirectory(ELastDirectory::LEVEL);
+		FString DefaultFilesystemDirectory = FEditorDirectories::Get().GetLastDirectory(ELastDirectory::LEVEL);
+
+		//ensure trailing "/" for directory name since TryConvertFilenameToLongPackageName expects one
+		if(!DefaultFilesystemDirectory.IsEmpty() && !DefaultFilesystemDirectory.EndsWith("/"))
+		{
+			DefaultFilesystemDirectory.AppendChar(TEXT('/'));
+		}
+
 		if (DefaultFilesystemDirectory.IsEmpty() || !FPackageName::TryConvertFilenameToLongPackageName(DefaultFilesystemDirectory, DefaultPath))
 		{
 			// No saved path, just use a reasonable default
@@ -1961,6 +1968,9 @@ void FEditorFileUtils::LoadMap(const FString& InFilename, bool LoadAsTemplate, b
 	{
 		return;
 	}
+
+	// Save last opened level name.
+	GConfig->SetString(TEXT("EditorStartup"), TEXT("LastLevel"), *LongMapPackageName, GEditorUserSettingsIni);
 
 	// Deactivate any editor modes when loading a new map
 	GLevelEditorModeTools().DeactivateAllModes();
@@ -2326,16 +2336,16 @@ static int32 InternalSavePackage( UPackage* PackageToSave, bool& bOutPackageLoca
 				FString DefaultPackagePath;
 				FPackageName::TryConvertFilenameToLongPackageName(DefaultLocation, DefaultPackagePath);
 
-				FString PackageName;
+				FString SaveAsPackageName;
 				bSaveFile = OpenLevelSaveAsDialog(
 					DefaultPackagePath,
 					FPaths::GetBaseFilename(FinalPackageFilename),
-					PackageName);
+					SaveAsPackageName);
 
 				if (bSaveFile)
 				{
 					// Leave out the extension. It will be added below.
-					FinalPackageFilename = FPackageName::LongPackageNameToFilename(PackageName);
+					FinalPackageFilename = FPackageName::LongPackageNameToFilename(SaveAsPackageName);
 				}
 			}
 			else
@@ -2515,7 +2525,7 @@ static void WarnUserAboutFailedSave( const TArray<UPackage*>& InFailedPackages )
 	}
 }
 
-static bool InternalSavePackages(TArray<UPackage*>& PackagesToSave, int32 NumPackagesNotIgnored, bool bPromptUserToSave, bool bFastSave, bool bNotifyNoPackagesSaved, bool* bOutPackagesNeededSaving)
+static bool InternalSavePackages(TArray<UPackage*>& PackagesToSave, int32 NumPackagesNotIgnored, bool bPromptUserToSave, bool bFastSave, bool bNotifyNoPackagesSaved, bool bCanBeDeclined, bool* bOutPackagesNeededSaving)
 {
 	bool bReturnCode = true;
 
@@ -2529,7 +2539,9 @@ static bool InternalSavePackages(TArray<UPackage*>& PackagesToSave, int32 NumPac
 
 		if (!bFastSave)
 		{
-			const FEditorFileUtils::EPromptReturnCode Return = FEditorFileUtils::PromptForCheckoutAndSave(PackagesToSave, true, bPromptUserToSave);
+			const bool bCheckDirty = true;
+			const bool bAlreadyCheckedOut = false;
+			const FEditorFileUtils::EPromptReturnCode Return = FEditorFileUtils::PromptForCheckoutAndSave(PackagesToSave, bCheckDirty, bPromptUserToSave, nullptr, bAlreadyCheckedOut, bCanBeDeclined);
 			if (Return == FEditorFileUtils::EPromptReturnCode::PR_Cancelled)
 			{
 				// Only cancel should return false and stop whatever we were doing before.(like closing the editor)
@@ -2609,7 +2621,7 @@ static bool InternalSavePackages(TArray<UPackage*>& PackagesToSave, int32 NumPac
 	return bReturnCode;
 }
 
-bool FEditorFileUtils::SaveDirtyPackages(const bool bPromptUserToSave, const bool bSaveMapPackages, const bool bSaveContentPackages, const bool bFastSave, const bool bNotifyNoPackagesSaved,  bool* bOutPackagesNeededSaving )
+bool FEditorFileUtils::SaveDirtyPackages(const bool bPromptUserToSave, const bool bSaveMapPackages, const bool bSaveContentPackages, const bool bFastSave, const bool bNotifyNoPackagesSaved, const bool bCanBeDeclined, bool* bOutPackagesNeededSaving )
 {
 	if (bOutPackagesNeededSaving != NULL)
 	{
@@ -2644,10 +2656,10 @@ bool FEditorFileUtils::SaveDirtyPackages(const bool bPromptUserToSave, const boo
 		NumPackagesNotIgnored += (PackagesNotSavedDuringSaveAll.Find(Package->GetName()) == NULL) ? 1 : 0;
 	}
 
-	return InternalSavePackages(PackagesToSave, NumPackagesNotIgnored, bPromptUserToSave, bFastSave, bNotifyNoPackagesSaved, bOutPackagesNeededSaving);
+	return InternalSavePackages(PackagesToSave, NumPackagesNotIgnored, bPromptUserToSave, bFastSave, bNotifyNoPackagesSaved, bCanBeDeclined, bOutPackagesNeededSaving);
 }
 
-bool FEditorFileUtils::SaveDirtyContentPackages(TArray<UClass*>& SaveContentClasses, const bool bPromptUserToSave, const bool bFastSave, const bool bNotifyNoPackagesSaved)
+bool FEditorFileUtils::SaveDirtyContentPackages(TArray<UClass*>& SaveContentClasses, const bool bPromptUserToSave, const bool bFastSave, const bool bNotifyNoPackagesSaved, const bool bCanBeDeclined)
 {
 	bool bReturnCode = true;
 
@@ -2702,7 +2714,7 @@ bool FEditorFileUtils::SaveDirtyContentPackages(TArray<UClass*>& SaveContentClas
 		}
 	}
 
-	return InternalSavePackages(PackagesToSave, PackagesToSave.Num(), bPromptUserToSave, bFastSave, bNotifyNoPackagesSaved, NULL);
+	return InternalSavePackages(PackagesToSave, PackagesToSave.Num(), bPromptUserToSave, bFastSave, bNotifyNoPackagesSaved, bCanBeDeclined, NULL);
 }
 
 /**
@@ -2736,6 +2748,7 @@ bool FEditorFileUtils::SaveCurrentLevel()
  * @param		bPromptToSave				If true the user will be prompted with a list of packages to save, otherwise all passed in packages are saved
  * @param		OutFailedPackages			[out] If specified, will be filled in with all of the packages that failed to save successfully
  * @param		bAlreadyCheckedOut			If true, the user will not be prompted with the source control dialog
+ * @param		bCanBeDeclined				If true, offer a "Don't Save" option in addition to "Cancel", which will not result in a cancellation return code.
  *
  * @return		An enum value signifying success, failure, user declined, or cancellation. If any packages at all failed to save during execution, the return code will be 
  *				failure, even if other packages successfully saved. If the user cancels at any point during any prompt, the return code will be cancellation, even though it
@@ -2743,7 +2756,7 @@ bool FEditorFileUtils::SaveCurrentLevel()
  *				Save" option on the dialog, the return code will indicate the user has declined out of the prompt. This way calling code can distinguish between a decline and a cancel
  *				and then proceed as planned, or abort its operation accordingly.
  */
-FEditorFileUtils::EPromptReturnCode FEditorFileUtils::PromptForCheckoutAndSave( const TArray<UPackage*>& InPackages, bool bCheckDirty, bool bPromptToSave, TArray<UPackage*>* OutFailedPackages, bool bAlreadyCheckedOut )
+FEditorFileUtils::EPromptReturnCode FEditorFileUtils::PromptForCheckoutAndSave( const TArray<UPackage*>& InPackages, bool bCheckDirty, bool bPromptToSave, TArray<UPackage*>* OutFailedPackages, bool bAlreadyCheckedOut, bool bCanBeDeclined )
 {
 	// Check for re-entrance into this function
 	if ( bIsPromptingForCheckoutAndSave )
@@ -2771,7 +2784,10 @@ FEditorFileUtils::EPromptReturnCode FEditorFileUtils::PromptForCheckoutAndSave( 
 		FPackagesDialogModule& PackagesDialogModule = FModuleManager::LoadModuleChecked<FPackagesDialogModule>( TEXT("PackagesDialog") );
 		PackagesDialogModule.CreatePackagesDialog(NSLOCTEXT("PackagesDialogModule", "PackagesDialogTitle", "Save Content"), NSLOCTEXT("PackagesDialogModule", "PackagesDialogMessage", "Select content to save."));
 		PackagesDialogModule.AddButton(DRT_Save, NSLOCTEXT("PackagesDialogModule", "SaveSelectedButton", "Save Selected"), NSLOCTEXT("PackagesDialogModule", "SaveSelectedButtonTip", "Attempt to save the selected content"));
-		PackagesDialogModule.AddButton(DRT_DontSave, NSLOCTEXT("PackagesDialogModule", "DontSaveSelectedButton", "Don't Save"), NSLOCTEXT("PackagesDialogModule", "DontSaveSelectedButtonTip", "Do not save any content"));
+		if (bCanBeDeclined)
+		{
+			PackagesDialogModule.AddButton(DRT_DontSave, NSLOCTEXT("PackagesDialogModule", "DontSaveSelectedButton", "Don't Save"), NSLOCTEXT("PackagesDialogModule", "DontSaveSelectedButtonTip", "Do not save any content"));
+		}
 		PackagesDialogModule.AddButton(DRT_Cancel, NSLOCTEXT("PackagesDialogModule", "CancelButton", "Cancel"), NSLOCTEXT("PackagesDialogModule", "CancelButtonTip", "Do not save any content and cancel the current operation"));
 
 		TArray<UPackage*> AddPackageItemsChecked;
@@ -3132,7 +3148,16 @@ bool FEditorFileUtils::IsFilenameValidForSaving( const FString& Filename, FText&
 
 void FEditorFileUtils::LoadDefaultMapAtStartup()
 {
-	FString EditorStartupMap = GetDefault<UGameMapsSettings>()->EditorStartupMap;
+	FString EditorStartupMap;
+	// Last opened map.
+	if (GetDefault<UEditorLoadingSavingSettings>()->LoadLevelAtStartup == ELoadLevelAtStartup::LastOpened)
+	{
+		GConfig->GetString(TEXT("EditorStartup"), TEXT("LastLevel"), EditorStartupMap, GEditorUserSettingsIni);
+	}
+	// Default project map.
+	if (EditorStartupMap.IsEmpty()) {
+		EditorStartupMap = GetDefault<UGameMapsSettings>()->EditorStartupMap;
+	}
 	
 	const bool bIncludeReadOnlyRoots = true;
 	if ( FPackageName::IsValidLongPackageName(EditorStartupMap, bIncludeReadOnlyRoots) )

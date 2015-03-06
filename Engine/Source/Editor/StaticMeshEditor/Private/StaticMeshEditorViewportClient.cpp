@@ -590,6 +590,15 @@ void FStaticMeshEditorViewportClient::Draw(const FSceneView* View,FPrimitiveDraw
 				}
 			}
 		}
+
+		// The simple nav geometry is only used by dynamic obstacles for now
+		if (StaticMesh->NavCollision && StaticMesh->NavCollision->bIsDynamicObstacle)
+		{
+			// Draw the static mesh's body setup (simple collision)
+			FTransform GeomTransform(StaticMeshComponent->ComponentToWorld);
+			FColor NavCollisionColor = FColor(118, 84, 255, 255);
+			StaticMesh->NavCollision->DrawSimpleGeom(PDI, GeomTransform, FColorList::LimeGreen);
+		}
 	}
 }
 
@@ -717,7 +726,7 @@ void FStaticMeshEditorViewportClient::DrawCanvas( FViewport& InViewport, FSceneV
 	int32 CurrentLODLevel = StaticMeshEditor->GetCurrentLODLevel();
 	if (CurrentLODLevel == 0)
 	{
-		CurrentLODLevel = ComputeStaticMeshLOD(StaticMesh->RenderData, StaticMeshComponent->Bounds.Origin, StaticMeshComponent->Bounds.SphereRadius, View);
+		CurrentLODLevel = ComputeStaticMeshLOD(StaticMesh->RenderData, StaticMeshComponent->Bounds.Origin, StaticMeshComponent->Bounds.SphereRadius, View, StaticMesh->MinLOD);
 	}
 	else
 	{

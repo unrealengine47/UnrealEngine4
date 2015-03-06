@@ -191,12 +191,12 @@ bool AActor::CheckActorComponents()
 
 void AActor::ResetOwnedComponents()
 {
-	TArray<UObject*> Children;
+	TArray<UObject*> ActorChildren;
 	OwnedComponents.Empty();
 	ReplicatedComponents.Empty();
-	GetObjectsWithOuter(this, Children, true, RF_PendingKill);
+	GetObjectsWithOuter(this, ActorChildren, true, RF_PendingKill);
 
-	for (UObject* Child : Children)
+	for (UObject* Child : ActorChildren)
 	{
 		UActorComponent* Component = Cast<UActorComponent>(Child);
 		if (Component)
@@ -941,11 +941,9 @@ void AActor::UpdateOverlaps(bool bDoNotifies)
 
 bool AActor::IsOverlappingActor(const AActor* Other) const
 {
-	// using a stack to walk this actor's attached component tree
-	TArray<USceneComponent*> ComponentStack;
-
+	// use a stack to walk this actor's attached component tree
+	TInlineComponentArray<USceneComponent*> ComponentStack;
 	USceneComponent const* CurrentComponent = GetRootComponent();
-
 	while (CurrentComponent)
 	{
 		// push children on the stack so they get tested later
@@ -958,22 +956,24 @@ bool AActor::IsOverlappingActor(const AActor* Other) const
 			return true;
 		}
 
-		CurrentComponent = (ComponentStack.Num() > 0) ? ComponentStack.Pop() : NULL;
+		// advance to next component
+		const bool bAllowShrinking = false;
+		CurrentComponent = (ComponentStack.Num() > 0) ? ComponentStack.Pop(bAllowShrinking) : nullptr;
 	}
 
 	return false;
 }
 
 
-void AActor::GetOverlappingActors(TArray<AActor*>& OverlappingActors, UClass* ClassFilter) const
+void AActor::GetOverlappingActors(TArray<AActor*>& OutOverlappingActors, UClass* ClassFilter) const
 {
 	// prepare output
-	OverlappingActors.Empty();
+	OutOverlappingActors.Reset();
+	TArray<AActor*> OverlappingActorsForCurrentComponent;
 
-	TArray<USceneComponent*> ComponentStack;
-
+	// use a stack to walk this actor's attached component tree
+	TInlineComponentArray<USceneComponent*> ComponentStack;
 	USceneComponent const* CurrentComponent = GetRootComponent();
-
 	while (CurrentComponent)
 	{
 		// push children on the stack so they get tested later
@@ -983,7 +983,6 @@ void AActor::GetOverlappingActors(TArray<AActor*>& OverlappingActors, UClass* Cl
 		UPrimitiveComponent const* const PrimComp = Cast<const UPrimitiveComponent>(CurrentComponent);
 		if (PrimComp)
 		{
-			TArray<AActor*> OverlappingActorsForCurrentComponent;
 			PrimComp->GetOverlappingActors(OverlappingActorsForCurrentComponent, ClassFilter);
 
 			// then merge it into our final list
@@ -992,24 +991,25 @@ void AActor::GetOverlappingActors(TArray<AActor*>& OverlappingActors, UClass* Cl
 				AActor* OverlappingActor = *CompIt;
 				if(OverlappingActor != this)
 				{
-					OverlappingActors.AddUnique(OverlappingActor);
+					OutOverlappingActors.AddUnique(OverlappingActor);
 				}
 			}
 		}
 
 		// advance to next component
-		CurrentComponent = (ComponentStack.Num() > 0) ? ComponentStack.Pop() : NULL;
+		const bool bAllowShrinking = false;
+		CurrentComponent = (ComponentStack.Num() > 0) ? ComponentStack.Pop(bAllowShrinking) : nullptr;
 	}
 }
 
 void AActor::GetOverlappingComponents(TArray<UPrimitiveComponent*>& OutOverlappingComponents) const
 {
-	OutOverlappingComponents.Empty();
+	OutOverlappingComponents.Reset();
+	TArray<UPrimitiveComponent*> OverlappingComponentsForCurrentComponent;
 
-	TArray<USceneComponent*> ComponentStack;
-
+	// use a stack to walk this actor's attached component tree
+	TInlineComponentArray<USceneComponent*> ComponentStack;
 	USceneComponent* CurrentComponent = GetRootComponent();
-
 	while (CurrentComponent)
 	{
 		// push children on the stack so they get tested later
@@ -1019,7 +1019,6 @@ void AActor::GetOverlappingComponents(TArray<UPrimitiveComponent*>& OutOverlappi
 		if (PrimComp)
 		{
 			// get list of components from the component
-			TArray<UPrimitiveComponent*> OverlappingComponentsForCurrentComponent;
 			PrimComp->GetOverlappingComponents(OverlappingComponentsForCurrentComponent);
 
 			// then merge it into our final list
@@ -1030,7 +1029,8 @@ void AActor::GetOverlappingComponents(TArray<UPrimitiveComponent*>& OutOverlappi
 		}
 
 		// advance to next component
-		CurrentComponent = (ComponentStack.Num() > 0) ? ComponentStack.Pop() : NULL;
+		const bool bAllowShrinking = false;
+		CurrentComponent = (ComponentStack.Num() > 0) ? ComponentStack.Pop(bAllowShrinking) : nullptr;
 	}
 }
 
@@ -1284,14 +1284,14 @@ FName AActor::GetAttachParentSocketName() const
 
 void AActor::GetAttachedActors(TArray<class AActor*>& OutActors) const
 {
-	OutActors.Empty();
+	OutActors.Reset();
 	if (RootComponent != NULL)
 	{
 		// Current set of components to check
-		TArray< USceneComponent*, TInlineAllocator<NumInlinedActorComponents> > CompsToCheck;
+		TInlineComponentArray<USceneComponent*> CompsToCheck;
 
 		// Set of all components we have checked
-		TArray< USceneComponent*, TInlineAllocator<NumInlinedActorComponents> > CheckedComps;
+		TInlineComponentArray<USceneComponent*> CheckedComps;
 
 		CompsToCheck.Push(RootComponent);
 
@@ -1299,7 +1299,8 @@ void AActor::GetAttachedActors(TArray<class AActor*>& OutActors) const
 		while(CompsToCheck.Num() > 0)
 		{
 			// Get the next off the queue
-			USceneComponent* SceneComp = CompsToCheck.Pop();
+			const bool bAllowShrinking = false;
+			USceneComponent* SceneComp = CompsToCheck.Pop(bAllowShrinking);
 
 			// Add it to the 'checked' set, should not already be there!
 			if (!CheckedComps.Contains(SceneComp))
@@ -1512,13 +1513,13 @@ void AActor::RouteEndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	if (bActorInitialized)
 	{
-		UninitializeComponents();
-
 		UWorld* World = GetWorld();
 		if (World && World->HasBegunPlay())
 		{
 			EndPlay(EndPlayReason);
 		}
+
+		UninitializeComponents();
 	}
 }
 
@@ -1531,6 +1532,17 @@ void AActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		// Dispatch the blueprint events
 		ReceiveEndPlay(EndPlayReason);
 		OnEndPlay.Broadcast(EndPlayReason);
+
+		TInlineComponentArray<UActorComponent*> Components;
+		GetComponents(Components);
+
+		for (UActorComponent* Component : Components)
+		{
+			if (Component->HasBegunPlay())
+			{
+				Component->EndPlay(EndPlayReason);
+			}
+		}
 	}
 
 	// Behaviors specific to an actor being unloaded due to a streaming level removal
@@ -1603,11 +1615,16 @@ FTransform AActor::GetTransform() const
 
 void AActor::Destroyed()
 {
-	RouteEndPlay(EEndPlayReason::ActorDestroyed);
+	RouteEndPlay(EEndPlayReason::Destroyed);
 
 	ReceiveDestroyed();
 	OnDestroyed.Broadcast();
-	GetWorld()->RemoveNetworkActor(this);
+	UWorld* ActorWorld = GetWorld();
+
+	if( ActorWorld )
+	{
+		ActorWorld->RemoveNetworkActor(this);
+	}
 }
 
 void AActor::TornOff() {}
@@ -2223,7 +2240,7 @@ static void DispatchOnComponentsCreated(AActor* NewActor)
 
 	for (UActorComponent* ActorComp : Components)
 	{
-		if (ActorComp && !ActorComp->bHasBeenCreated)
+		if (ActorComp && !ActorComp->HasBeenCreated())
 		{
 			ActorComp->OnComponentCreated();
 		}
@@ -2419,7 +2436,7 @@ void AActor::PostNetInit()
 	}
 	check(RemoteRole == ROLE_Authority);
 
-	if (GetWorld() && GetWorld()->HasBegunPlay())
+	if (!HasActorBegunPlay() && GetWorld() && GetWorld()->HasBegunPlay())
 	{
 		BeginPlay();
 	}
@@ -2443,6 +2460,14 @@ void AActor::BeginPlay()
 {
 	ensure(!bActorHasBegunPlay);
 	SetLifeSpan( InitialLifeSpan );
+
+	TInlineComponentArray<UActorComponent*> Components;
+	GetComponents(Components);
+
+	for (UActorComponent* Component : Components)
+	{
+		Component->BeginPlay();
+	}
 
 	ReceiveBeginPlay();
 
@@ -3236,6 +3261,9 @@ bool AActor::IncrementalRegisterComponents(int32 NumComponentsToRegister)
 	// Register RootComponent first so all other components can reliable use it (ie call GetLocation) when they register
 	if( RootComponent != NULL && !RootComponent->IsRegistered() )
 	{
+#if PERF_TRACK_DETAILED_ASYNC_STATS
+		FScopeCycleCounterUObject ContextScope(RootComponent);
+#endif
 		// An unregistered root component is bad news
 		check(RootComponent->bAutoRegister);
 
@@ -3266,6 +3294,9 @@ bool AActor::IncrementalRegisterComponents(int32 NumComponentsToRegister)
 				CompIdx--;
 				NumTotalRegisteredComponents--; // because we will try to register the parent again later...
 			}
+#if PERF_TRACK_DETAILED_ASYNC_STATS
+			FScopeCycleCounterUObject ContextScope(Component);
+#endif
 				
 			//Before we register our component, save it to our transaction buffer so if "undone" it will return to an unregistered state.
 			//This should prevent unwanted components hanging around when undoing a copy/paste or duplication action.
@@ -3282,6 +3313,9 @@ bool AActor::IncrementalRegisterComponents(int32 NumComponentsToRegister)
 	// See whether we are done
 	if (Components.Num() == NumTotalRegisteredComponents)
 	{
+#if PERF_TRACK_DETAILED_ASYNC_STATS
+		QUICK_SCOPE_CYCLE_COUNTER(STAT_AActor_IncrementalRegisterComponents_PostRegisterAllComponents);
+#endif
 		// Finally, call PostRegisterAllComponents
 		PostRegisterAllComponents();
 		return true;
@@ -3373,7 +3407,7 @@ void AActor::UninitializeComponents()
 
 	for (UActorComponent* ActorComp : Components)
 	{
-		if (ActorComp->bHasBeenInitialized)
+		if (ActorComp->HasBeenInitialized())
 		{
 			ActorComp->UninitializeComponent();
 		}

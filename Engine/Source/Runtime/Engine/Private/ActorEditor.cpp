@@ -37,9 +37,69 @@ void AActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 
 	if ( ReregisterComponentsWhenModified() )
 	{
-		ReregisterAllComponents();
+		// In the Undo case we have an annotation storing information about constructed components and we do not want
+		// to improperly apply out of date changes so we need to skip registration of all blueprint created components
+		// and defer instance components attached to them until after rerun
+		if (CurrentTransactionAnnotation.IsValid())
+		{
+			UnregisterAllComponents();
 
-		RerunConstructionScripts();
+			TInlineComponentArray<UActorComponent*> Components;
+			GetComponents(Components);
+
+			Components.Sort([](UActorComponent& A, UActorComponent& B)
+			{
+				if (&B == B.GetOwner()->GetRootComponent())
+				{
+					return false;
+				}
+				if (USceneComponent* ASC = Cast<USceneComponent>(&A))
+				{
+					if (ASC->AttachParent == &B)
+					{
+						return false;
+					}
+				}
+				return true;
+			});
+
+			bool bRequiresReregister = false;
+			for (UActorComponent* Component : Components)
+			{
+				if (Component->CreationMethod == EComponentCreationMethod::Native)
+				{
+					Component->RegisterComponent();
+				}
+				else if (Component->CreationMethod == EComponentCreationMethod::Instance)
+				{
+					USceneComponent* SC = Cast<USceneComponent>(Component);
+					if (SC == nullptr || SC == RootComponent || (SC->AttachParent && SC->AttachParent->IsRegistered()))
+					{
+						Component->RegisterComponent();
+					}
+					else
+					{
+						bRequiresReregister = true;
+					}
+				}
+				else
+				{
+					bRequiresReregister = true;
+				}
+			}
+
+			RerunConstructionScripts();
+
+			if (bRequiresReregister)
+			{
+				ReregisterAllComponents();
+			}
+		}
+		else
+		{
+			ReregisterAllComponents();
+			RerunConstructionScripts();
+		}
 	}
 
 	// Let other systems know that an actor was moved
@@ -203,23 +263,23 @@ void AActor::DebugShowOneComponentHierarchy( USceneComponent* SceneComp, int32& 
 AActor::FActorTransactionAnnotation::FActorTransactionAnnotation(const AActor* Actor)
 	: ComponentInstanceData(Actor)
 {
-	USceneComponent* RootComponent = Actor->GetRootComponent();
-	if (RootComponent && RootComponent->IsCreatedByConstructionScript())
+	USceneComponent* ActorRootComponent = Actor->GetRootComponent();
+	if (ActorRootComponent && ActorRootComponent->IsCreatedByConstructionScript())
 	{
 		bRootComponentDataCached = true;
-		RootComponentData.Transform = RootComponent->ComponentToWorld;
-		RootComponentData.Transform.SetTranslation(RootComponent->GetComponentLocation()); // take into account any custom location
+		RootComponentData.Transform = ActorRootComponent->ComponentToWorld;
+		RootComponentData.Transform.SetTranslation(ActorRootComponent->GetComponentLocation()); // take into account any custom location
 
-		if (RootComponent->AttachParent)
+		if (ActorRootComponent->AttachParent)
 		{
-			RootComponentData.AttachedParentInfo.Actor = RootComponent->AttachParent->GetOwner();
-			RootComponentData.AttachedParentInfo.AttachParent = RootComponent->AttachParent;
-			RootComponentData.AttachedParentInfo.AttachParentName = RootComponent->AttachParent->GetFName();
-			RootComponentData.AttachedParentInfo.SocketName = RootComponent->AttachSocketName;
-			RootComponentData.AttachedParentInfo.RelativeTransform = RootComponent->GetRelativeTransform();
+			RootComponentData.AttachedParentInfo.Actor = ActorRootComponent->AttachParent->GetOwner();
+			RootComponentData.AttachedParentInfo.AttachParent = ActorRootComponent->AttachParent;
+			RootComponentData.AttachedParentInfo.AttachParentName = ActorRootComponent->AttachParent->GetFName();
+			RootComponentData.AttachedParentInfo.SocketName = ActorRootComponent->AttachSocketName;
+			RootComponentData.AttachedParentInfo.RelativeTransform = ActorRootComponent->GetRelativeTransform();
 		}
 
-		for (USceneComponent* AttachChild : RootComponent->AttachChildren)
+		for (USceneComponent* AttachChild : ActorRootComponent->AttachChildren)
 		{
 			AActor* ChildOwner = (AttachChild ? AttachChild->GetOwner() : NULL);
 			if (ChildOwner && ChildOwner != Actor)

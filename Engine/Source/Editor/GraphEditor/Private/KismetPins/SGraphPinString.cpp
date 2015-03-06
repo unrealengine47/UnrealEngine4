@@ -14,6 +14,7 @@ TSharedRef<SWidget>	SGraphPinString::GetDefaultValueWidget()
 {
 	return SNew(SBox)
 		.MinDesiredWidth(18.0f)
+		.MaxDesiredHeight(200)
 		[
 			SNew(SMultiLineEditableTextBox)
 			.Style(FEditorStyle::Get(), "Graph.EditableTextBox")
@@ -23,6 +24,7 @@ TSharedRef<SWidget>	SGraphPinString::GetDefaultValueWidget()
 			.IsReadOnly(this, &SGraphPinString::GetDefaultValueIsReadOnly)
 			.OnTextCommitted(this, &SGraphPinString::SetTypeInValue)
 			.ForegroundColor(FSlateColor::UseForeground())
+			.WrapTextAt(400)
 			.ModiferKeyForNewLine(EModifierKey::Shift)
 		];
 }

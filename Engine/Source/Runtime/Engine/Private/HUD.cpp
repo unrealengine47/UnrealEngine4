@@ -18,6 +18,8 @@ DEFINE_LOG_CATEGORY_STATIC(LogHUD, Log, All);
 
 #define LOCTEXT_NAMESPACE "HUD"
 
+bool AHUD::bShowDebugForReticleTarget = false;
+
 AHUD::AHUD(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
@@ -302,6 +304,11 @@ void AHUD::ShowDebugToggleSubCategory(FName Category)
 	}
 }
 
+void AHUD::ShowDebugForReticleTargetToggle(TSubclassOf<AActor> DesiredClass)
+{
+	bShowDebugForReticleTarget = !bShowDebugForReticleTarget;
+	ShowDebugTargetDesiredClass = DesiredClass;
+}
 
 bool AHUD::ShouldDisplayDebug(const FName& DebugType) const
 {
@@ -312,14 +319,36 @@ void AHUD::ShowDebugInfo(float& YL, float& YPos)
 {
 	if (DebugCanvas != nullptr )
 	{
-		if (!DebugDisplay.Contains(TEXT("Bones")))
-		{
-			FLinearColor BackgroundColor(0.f, 0.f, 0.f, 0.5f);
-			DebugCanvas->Canvas->DrawTile(0, 0, DebugCanvas->ClipX, DebugCanvas->ClipY, 0.f, 0.f, 0.f, 0.f, BackgroundColor);
-		}
+		FLinearColor BackgroundColor(0.f, 0.f, 0.f, 0.2f);
+		DebugCanvas->Canvas->DrawTile(0, 0, DebugCanvas->ClipX, DebugCanvas->ClipY, 0.f, 0.f, 0.f, 0.f, BackgroundColor);
 
 		FDebugDisplayInfo DisplayInfo(DebugDisplay, ToggledDebugCategories);
-		PlayerOwner->PlayerCameraManager->ViewTarget.Target->DisplayDebug(DebugCanvas, DisplayInfo, YL, YPos);
+
+		if (bShowDebugForReticleTarget)
+		{
+			FRotator CamRot; FVector CamLoc; PlayerOwner->GetPlayerViewPoint(CamLoc, CamRot);
+
+			FCollisionQueryParams TraceParams(NAME_None, true, PlayerOwner->PlayerCameraManager->ViewTarget.Target);
+			FHitResult Hit;
+			bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, CamLoc, CamRot.Vector() * 100000.f + CamLoc, ECC_WorldDynamic, TraceParams);
+			if (bHit)
+			{
+				AActor* HitActor = Hit.Actor.Get();
+				if (HitActor && (ShowDebugTargetDesiredClass == NULL || HitActor->IsA(ShowDebugTargetDesiredClass)))
+				{
+					ShowDebugTargetActor = HitActor;
+				}
+			}
+		}
+		else
+		{
+			ShowDebugTargetActor = PlayerOwner->PlayerCameraManager->ViewTarget.Target;
+		}
+
+		if (ShowDebugTargetActor && !ShowDebugTargetActor->IsPendingKill())
+		{
+			ShowDebugTargetActor->DisplayDebug(DebugCanvas, DisplayInfo, YL, YPos);
+		}
 
 		if (ShouldDisplayDebug(NAME_Game))
 		{
@@ -552,7 +581,7 @@ void AHUD::GetTextSize(const FString& Text, float& OutWidth, float& OutHeight, c
 {
 	if (IsCanvasValid_WarnIfNot())
 	{
-		Canvas->TextSize(Font, Text, OutWidth, OutHeight, Scale, Scale);
+		Canvas->TextSize(Font ? Font : GEngine->GetMediumFont(), Text, OutWidth, OutHeight, Scale, Scale);
 	}
 }
 
@@ -631,6 +660,18 @@ void AHUD::DrawTextureSimple(UTexture* Texture, float ScreenX, float ScreenY, fl
 	}
 }
 
+void AHUD::DrawMaterialTriangle(UMaterialInterface* Material, FVector2D V0_Pos, FVector2D V1_Pos, FVector2D V2_Pos, FVector2D V0_UV, FVector2D V1_UV, FVector2D V2_UV, FLinearColor V0_Color, FLinearColor V1_Color, FLinearColor V2_Color)
+{
+	if (IsCanvasValid_WarnIfNot() && Material)
+	{
+		FCanvasTriangleItem TriangleItem(V0_Pos, V1_Pos, V2_Pos, V0_UV, V1_UV, V2_UV, NULL);
+		TriangleItem.TriangleList[0].V0_Color = V0_Color;
+		TriangleItem.TriangleList[0].V1_Color = V1_Color;
+		TriangleItem.TriangleList[0].V2_Color = V2_Color;
+		TriangleItem.MaterialRenderProxy = Material->GetRenderProxy(0);
+		Canvas->DrawItem(TriangleItem);
+	}
+}
 FVector AHUD::Project(FVector Location) const
 {
 	if (IsCanvasValid_WarnIfNot())

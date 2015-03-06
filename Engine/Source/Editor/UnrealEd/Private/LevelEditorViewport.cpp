@@ -1870,7 +1870,7 @@ void FLevelEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* HitPr
 		{
 			FHitResult CheckResult(ForceInit);
 			FCollisionQueryParams BoxParams(ProcessClickTrace, false, ((HGeomPolyProxy*)HitProxy)->GeomObject->ActualBrush);
-			bool bHit = GWorld->SweepSingle(CheckResult, Click.GetOrigin(), Click.GetOrigin() + Click.GetDirection() * HALF_WORLD_MAX, FQuat::Identity, FCollisionShape::MakeBox(FVector(1.f)), BoxParams, FCollisionObjectQueryParams(ECC_WorldStatic));
+			bool bHit = GWorld->SweepSingleByObjectType(CheckResult, Click.GetOrigin(), Click.GetOrigin() + Click.GetDirection() * HALF_WORLD_MAX, FQuat::Identity,FCollisionObjectQueryParams(ECC_WorldStatic), FCollisionShape::MakeBox(FVector(1.f)), BoxParams);
 
 			if( bHit )
 			{
@@ -2159,7 +2159,7 @@ void FLevelEditorViewportClient::ProjectActorsIntoWorld(const TArray<AActor*>& A
 	}
 }
 
-bool FLevelEditorViewportClient::InputWidgetDelta(FViewport* Viewport, EAxisList::Type CurrentAxis, FVector& Drag, FRotator& Rot, FVector& Scale)
+bool FLevelEditorViewportClient::InputWidgetDelta(FViewport* Viewport, EAxisList::Type InCurrentAxis, FVector& Drag, FRotator& Rot, FVector& Scale)
 {
 	if (GUnrealEd->ComponentVisManager.HandleInputDelta(this, Viewport, Drag, Rot, Scale))
 	{
@@ -2169,14 +2169,14 @@ bool FLevelEditorViewportClient::InputWidgetDelta(FViewport* Viewport, EAxisList
 	bool bHandled = false;
 
 	// Give the current editor mode a chance to use the input first.  If it does, don't apply it to anything else.
-	if (FEditorViewportClient::InputWidgetDelta(Viewport, CurrentAxis, Drag, Rot, Scale))
+	if (FEditorViewportClient::InputWidgetDelta(Viewport, InCurrentAxis, Drag, Rot, Scale))
 	{
 		bHandled = true;
 	}
 	else
 	{
 		//@TODO: MODETOOLS: Much of this needs to get pushed to Super, but not all of it can be...
-		if( CurrentAxis != EAxisList::None )
+		if( InCurrentAxis != EAxisList::None )
 		{
 			// Skip actors transformation routine in case if any of the selected actors locked
 			// but still pretend that we have handled the input
@@ -3006,9 +3006,9 @@ void FLevelEditorViewportClient::ApplyDeltaToActors(const FVector& InDrag,
 	TArray<AGroupActor*> ActorGroups;
 
 	// Apply the deltas to any selected actors.
-	for ( FSelectionIterator It( GEditor->GetSelectedActorIterator() ) ; It ; ++It )
+	for ( FSelectionIterator SelectedActorIt( GEditor->GetSelectedActorIterator() ) ; SelectedActorIt ; ++SelectedActorIt )
 	{
-		AActor* Actor = static_cast<AActor*>( *It );
+		AActor* Actor = static_cast<AActor*>( *SelectedActorIt );
 		checkSlow( Actor->IsA(AActor::StaticClass()) );
 
 		// Verify that the actor is in the same world as the viewport before moving it.
@@ -3032,17 +3032,17 @@ void FLevelEditorViewportClient::ApplyDeltaToActors(const FVector& InDrag,
 		{
 			if (GEditor->GetSelectedComponentCount() > 0)
 			{
-				auto ComponentSelection = GEditor->GetSelectedComponents();
+				USelection* ComponentSelection = GEditor->GetSelectedComponents();
 
 				// Only move the parent-most component(s) that are selected 
 				// Otherwise, if both a parent and child are selected and the delta is applied to both, the child will actually move 2x delta
 				TInlineComponentArray<USceneComponent*> ComponentsToMove;
-				for (FSelectedEditableComponentIterator It(GEditor->GetSelectedEditableComponentIterator()); It; ++It)
+				for (FSelectedEditableComponentIterator EditableComponentIt(GEditor->GetSelectedEditableComponentIterator()); EditableComponentIt; ++EditableComponentIt)
 				{
-					USceneComponent* SceneComponent = CastChecked<USceneComponent>(*It);
+					USceneComponent* SceneComponent = CastChecked<USceneComponent>(*EditableComponentIt);
 					if (SceneComponent)
 					{
-						auto SelectedComponent = Cast<USceneComponent>(*It);
+						USceneComponent* SelectedComponent = Cast<USceneComponent>(*EditableComponentIt);
 
 						// Check to see if any parent is selected
 						bool bParentAlsoSelected = false;
@@ -3133,7 +3133,7 @@ void FLevelEditorViewportClient::ApplyDeltaToComponent(USceneComponent* InCompon
 
 	// If necessary, transform the editor pivot location to be relative to the component's parent
 	const bool bIsRootComponent = InComponent->GetOwner()->GetRootComponent() == InComponent;
-	FVector RelativePivotLocation = bIsRootComponent ? EditorWorldPivotLocation : InComponent->GetAttachParent()->GetComponentToWorld().Inverse().TransformPosition(EditorWorldPivotLocation);
+	FVector RelativePivotLocation = bIsRootComponent || !InComponent->GetAttachParent() ? EditorWorldPivotLocation : InComponent->GetAttachParent()->GetComponentToWorld().Inverse().TransformPosition(EditorWorldPivotLocation);
 
 	GEditor->ApplyDeltaToComponent(
 		InComponent,

@@ -283,6 +283,10 @@ public:
 	UPROPERTY()
 	uint32 bDisplayBones:1;
 
+	/** Disable Morphtarget for this component. */
+	UPROPERTY()
+	uint32 bDisableMorphTarget:1;
+
 	/** Don't bother rendering the skin. */
 	UPROPERTY()
 	uint32 bHideSkin:1;
@@ -377,7 +381,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Components|SkinnedMesh")
 	FName GetBoneName(int32 BoneIndex) const;
 
-		/**
+	/**
 	 * Returns bone name linked to a given named socket on the skeletal mesh component.
 	 * If you're unsure to deal with sockets or bones names, you can use this function to filter through, and always return the bone name.
 	 *
@@ -445,6 +449,8 @@ protected:
 public:
 	// Begin USceneComponent interface
 	virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;
+	virtual FTransform GetSocketTransform(FName InSocketName, ERelativeTransformSpace TransformSpace = RTS_World) const override;
+	virtual bool DoesSocketExist(FName InSocketName) const override;
 	virtual bool HasAnySockets() const override;
 	virtual void QuerySupportedSockets(TArray<FComponentSocketDescription>& OutSockets) const override;
 	virtual void UpdateOverlaps(TArray<FOverlapInfo> const* PendingOverlaps=NULL, bool bDoNotifies=true, const TArray<FOverlapInfo>* OverlapsAtEndLocation=NULL) override;
@@ -668,24 +674,11 @@ public:
 	 */
 	void UpdateMasterBoneMap();
 
-	//
-	// Get all socket names.
-	//
-
-	virtual TArray<FName> GetAllSocketNames() const override;
-
-	//
-	// Bone Transform.
-	//
-
-	virtual FTransform GetSocketTransform(FName InSocketName, ERelativeTransformSpace TransformSpace = RTS_World) const override;
-
 	/**
 	 * @return SkeletalMeshSocket of named socket on the skeletal mesh component, or NULL if not found.
 	 */
 	class USkeletalMeshSocket const* GetSocketByName( FName InSocketName ) const;
 
-	virtual bool DoesSocketExist(FName InSocketName) const override;
 
 	/** 
 	 * Get Bone Matrix from index

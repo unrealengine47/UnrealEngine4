@@ -102,19 +102,19 @@ class UKismetMathLibrary : public UBlueprintFunctionLibrary
 
 	/* Division (A / B) */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "Byte / Byte", CompactNodeTitle = "/", Keywords = "/ divide division"), Category="Math|Byte")
-	static uint8 Divide_ByteByte(uint8 A, uint8 B);
+	static uint8 Divide_ByteByte(uint8 A, uint8 B = 1);
 
 	/* Modulo (A % B) */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "% (Byte)", CompactNodeTitle = "%", Keywords = "% modulus"), Category="Math|Byte")
-	static uint8 Percent_ByteByte(uint8 A, uint8 B);
+	static uint8 Percent_ByteByte(uint8 A, uint8 B = 1);
 
 	/* Addition (A + B) */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "Byte + Byte", CompactNodeTitle = "+", Keywords = "+ add plus", CommutativeAssociativeBinaryOperator = "true"), Category="Math|Byte")
-	static uint8 Add_ByteByte(uint8 A, uint8 B);
+	static uint8 Add_ByteByte(uint8 A, uint8 B = 1);
 
 	/* Subtraction (A - B) */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "Byte - Byte", CompactNodeTitle = "-", Keywords = "- subtract minus"), Category="Math|Byte")
-	static uint8 Subtract_ByteByte(uint8 A, uint8 B);
+	static uint8 Subtract_ByteByte(uint8 A, uint8 B = 1);
 
 	/* Returns true if A is less than B (A < B) */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "Byte < Byte", CompactNodeTitle = "<", Keywords = "< less"), Category="Math|Byte")
@@ -150,19 +150,19 @@ class UKismetMathLibrary : public UBlueprintFunctionLibrary
 
 	/* Division (A / B) */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "integer / integer", CompactNodeTitle = "/", Keywords = "/ divide division"), Category="Math|Integer")
-	static int32 Divide_IntInt(int32 A, int32 B);
+	static int32 Divide_IntInt(int32 A, int32 B = 1);
 
 	/* Modulo (A % B) */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "% (integer)", CompactNodeTitle = "%", Keywords = "% modulus"), Category="Math|Integer")
-	static int32 Percent_IntInt(int32 A, int32 B);
+	static int32 Percent_IntInt(int32 A, int32 B = 1);
 
 	/* Addition (A + B) */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "integer + integer", CompactNodeTitle = "+", Keywords = "+ add plus", CommutativeAssociativeBinaryOperator = "true"), Category="Math|Integer")
-	static int32 Add_IntInt(int32 A, int32 B);
+	static int32 Add_IntInt(int32 A, int32 B = 1);
 
 	/* Subtraction (A - B) */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "integer - integer", CompactNodeTitle = "-", Keywords = "- subtract minus"), Category="Math|Integer")
-	static int32 Subtract_IntInt(int32 A, int32 B);
+	static int32 Subtract_IntInt(int32 A, int32 B = 1);
 
 	/* Returns true if A is less than B (A < B) */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "integer < integer", CompactNodeTitle = "<", Keywords = "< less"), Category="Math|Integer")
@@ -201,7 +201,7 @@ class UKismetMathLibrary : public UBlueprintFunctionLibrary
 	static int32 Or_IntInt(int32 A, int32 B);
 
 	/* Sign (integer, returns -1 if A < 0, 0 if A is zero, and +1 if A > 0) */
-	UFUNCTION(BlueprintPure, meta=(FriendlyName = "Sign (integer)"), Category="Math|Integer")
+	UFUNCTION(BlueprintPure, meta=(FriendlyName = "Sign (int)"), Category="Math|Integer")
 	static int32 SignOfInteger(int32 A);
 
 	/* Returns a uniformly distributed random number between 0 and Max - 1 */
@@ -225,7 +225,7 @@ class UKismetMathLibrary : public UBlueprintFunctionLibrary
 	static int32 Clamp(int32 Value, int32 Min, int32 Max);
 
 	/* Returns the absolute (positive) value of A */
-	UFUNCTION(BlueprintPure, meta=(FriendlyName = "Absolute (int)"), Category="Math|Integer")
+	UFUNCTION(BlueprintPure, meta=(FriendlyName = "Absolute (int)", CompactNodeTitle = "ABS"), Category="Math|Integer")
 	static int32 Abs_Int(int32 A);
 
 
@@ -246,11 +246,11 @@ class UKismetMathLibrary : public UBlueprintFunctionLibrary
 
 	/* Division (A / B) */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "float / float", CompactNodeTitle = "/", Keywords = "/ divide division"), Category="Math|Float")
-	static float Divide_FloatFloat(float A, float B);
+	static float Divide_FloatFloat(float A, float B = 1.f);
 
 	/* Modulo (A % B) */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "% (float)", CompactNodeTitle = "%", Keywords = "% modulus"), Category="Math|Float")
-	static float Percent_FloatFloat(float A, float B);
+	static float Percent_FloatFloat(float A, float B = 1.f);
 
 	/** Returns the fractional part of a float. */
 	UFUNCTION(BlueprintPure, Category="Math|Float")
@@ -258,11 +258,11 @@ class UKismetMathLibrary : public UBlueprintFunctionLibrary
 
 	/* Addition (A + B) */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "float + float", CompactNodeTitle = "+", Keywords = "+ add plus", CommutativeAssociativeBinaryOperator = "true"), Category="Math|Float")
-	static float Add_FloatFloat(float A, float B);
+	static float Add_FloatFloat(float A, float B = 1.f);
 
 	/* Subtraction (A - B) */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "float - float", CompactNodeTitle = "-", Keywords = "- subtract minus"), Category="Math|Float")
-	static float Subtract_FloatFloat(float A, float B);
+	static float Subtract_FloatFloat(float A, float B = 1.f);
 
 	/*Returns true if A is Less than B (A < B) */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "float < float", CompactNodeTitle = "<", Keywords = "< less"), Category="Math|Float")
@@ -441,6 +441,19 @@ class UKismetMathLibrary : public UBlueprintFunctionLibrary
 	/* Linearly interpolates between A and B based on Alpha (100% of A when Alpha=0 and 100% of B when Alpha=1) */
 	UFUNCTION(BlueprintPure, Category="Math|Float")
 	static float Lerp(float A, float B, float Alpha);
+	
+	/**
+	* Returns the percentage of the range B-A that corresponds to Value. E.g.,
+	*	A = 0, B = 8, Value = 3 : return value = 3/8, indicating Value is 3/8 from A to B 
+	*	A = 8, B = 0, Value = 3 : return value = 5/8, indicating Value is 5/8 from A to B
+	* Named InverseLerp because Lerp( A, B, InverseLerp(A, B, Value) ) == Value
+	* @param A The "from" value this float could be, usually but not necessarily a minimum. Returned as 0.
+	* @param B The "to" value this float could be, usually but not necessarily a maximum. Returned as 1.
+	* @param Value A value intended to be normalized relative to B-A
+	* @return A normalized value considering A and B.
+	*/
+	UFUNCTION(BlueprintPure, meta = (Keywords = "percentage normalize range"), Category = "Math|Float")
+	static float InverseLerp(float A, float B, float Value);
 
 	/* Easeing  between A and B using a specified easing function */
 	UFUNCTION(BlueprintPure, meta = (FriendlyName = "Ease", BlueprintInternalUseOnly = "true"), Category = "Math|Interpolation")
@@ -513,11 +526,11 @@ class UKismetMathLibrary : public UBlueprintFunctionLibrary
 
 	/* Vector divide by a float */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "vector / float", CompactNodeTitle = "/", Keywords = "/ divide division"), Category="Math|Vector")
-	static FVector Divide_VectorFloat(FVector A, float B);
+	static FVector Divide_VectorFloat(FVector A, float B = 1.f);
 
 	/* Vector divide by vector */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "vector / vector", CompactNodeTitle = "/", Keywords = "/ divide division"), Category="Math|Vector")
-	static FVector Divide_VectorVector(FVector A, FVector B);
+	static FVector Divide_VectorVector(FVector A, FVector B = FVector(1.f,1.f,1.f));
 
 	/* Vector addition */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "vector + vector", CompactNodeTitle = "+", Keywords = "+ add plus", CommutativeAssociativeBinaryOperator = "true"), Category="Math|Vector")
@@ -558,7 +571,7 @@ class UKismetMathLibrary : public UBlueprintFunctionLibrary
 	static float Dot_VectorVector(FVector A, FVector B);
 
 	/* Returns the cross product of two 3d vectors */
-	UFUNCTION(BlueprintPure, meta=(FriendlyName = "Cross Product", CompactNodeTitle = ""), Category="Math|Vector" )
+	UFUNCTION(BlueprintPure, meta=(FriendlyName = "Cross Product", CompactNodeTitle = "x"), Category="Math|Vector" )
 	static FVector Cross_VectorVector(FVector A, FVector B);
 
 	/* Returns the dot product of two 2d vectors */
@@ -1350,7 +1363,7 @@ class UKismetMathLibrary : public UBlueprintFunctionLibrary
 
 	/** Returns Vector A divided by B */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "vector2d / float", CompactNodeTitle = "/", Keywords = "/ divide division"), Category="Math|Vector2D")
-	static FVector2D Divide_Vector2DFloat(FVector2D A, float B);
+	static FVector2D Divide_Vector2DFloat(FVector2D A, float B = 1.f);
 
 	/** Returns Vector A added by B */
 	UFUNCTION(BlueprintPure, meta=(FriendlyName = "vector2d + float", CompactNodeTitle = "+", Keywords = "+ add plus"), Category="Math|Vector2D")

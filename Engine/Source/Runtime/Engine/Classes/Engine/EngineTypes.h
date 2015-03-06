@@ -10,23 +10,11 @@
 #include "GameFramework/DamageType.h"
 #include "EngineTypes.generated.h"
 
-
 /**
  * Default number of components to expect in TInlineAllocators used with AActor component arrays.
  * Used by engine code to try to avoid allocations in AActor::GetComponents(), among others.
  */
 enum { NumInlinedActorComponents = 24 };
-
-
-/**
- * TInlineComponentArray is simply a TArray that reserves a fixed amount of space on the stack
- * to try to avoid heap allocation when there are fewer than a specified number of elements expected in the result.
- */
-template<class T, uint32 NumElements = NumInlinedActorComponents>
-class TInlineComponentArray : public TArray<T, TInlineAllocator<NumElements>>
-{
-};
-
 
 UENUM()
 enum EAspectRatioAxisConstraint
@@ -284,7 +272,11 @@ enum EMovementMode
 	/** Walking on a surface. */
 	MOVE_Walking	UMETA(DisplayName="Walking"),
 
-	/** Simplified walking on navigation data (e.g. navmesh) */
+	/** 
+	 * Simplified walking on navigation data (e.g. navmesh). 
+	 * If bGenerateOverlapEvents is true, then we will perform sweeps with each navmesh move.
+	 * If bGenerateOverlapEvents is false then movement is cheaper but characters can overlap other objects without some extra process to repel/resolve their collisions.
+	 */
 	MOVE_NavWalking	UMETA(DisplayName="Navmesh Walking"),
 
 	/** Falling under the effects of gravity, such as after jumping or walking off the edge of a surface. */
@@ -2361,11 +2353,11 @@ namespace EEndPlayReason
 {
 	enum Type
 	{
-		ActorDestroyed,		// When the Actor is explicitly destroyed
+		Destroyed,			// When the Actor or Component is explicitly destroyed
 		LevelTransition,	// When the world is being unloaded for a level transition
 		EndPlayInEditor,	// When the world is being unloaded because PIE is ending
 		RemovedFromWorld,	// When the level it is a member of is streamed out
-		Quit,			// When the application is being exited
+		Quit,				// When the application is being exited
 	};
 
 }
@@ -2894,7 +2886,7 @@ enum EAngularConstraintMotion
 /**
  * Structure for file paths that are displayed in the UI.
  */
-USTRUCT()
+USTRUCT(BlueprintType)
 struct FFilePath
 {
 	GENERATED_USTRUCT_BODY()
@@ -2902,7 +2894,7 @@ struct FFilePath
 	/**
 	 * The path to the file.
 	 */
-	UPROPERTY(EditAnywhere, Category=FilePath)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=FilePath)
 	FString FilePath;
 };
 
@@ -2910,7 +2902,7 @@ struct FFilePath
 /**
  * Structure for directory paths that are displayed in the UI.
  */
-USTRUCT()
+USTRUCT(BlueprintType)
 struct FDirectoryPath
 {
 	GENERATED_USTRUCT_BODY()
@@ -2918,7 +2910,7 @@ struct FDirectoryPath
 	/**
 	 * The path to the directory.
 	 */
-	UPROPERTY(EditAnywhere, Category=Path)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Path)
 	FString Path;
 };
 

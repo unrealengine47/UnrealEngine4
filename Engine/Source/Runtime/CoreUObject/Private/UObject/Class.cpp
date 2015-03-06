@@ -8,6 +8,7 @@
 #include "PropertyTag.h"
 #include "HotReloadInterface.h"
 #include "LinkerPlaceholderClass.h"
+#include "LinkerPlaceholderFunction.h"
 #include "StructScriptLoader.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(LogScriptSerialization, Log, All);
@@ -799,6 +800,16 @@ void UStruct::SerializeTaggedProperties(FArchive& Ar, uint8* Data, UStruct* Defa
 				break;
 			}
 
+			auto CanSerializeFromStructWithDifferentName = [](const FArchive& InAr, const FPropertyTag& PropertyTag, const UStructProperty* StructProperty)
+			{
+				if (InAr.UE4Ver() < VER_UE4_STRUCT_GUID_IN_PROPERTY_TAG)
+				{
+					// Old Implementation
+					return !StructProperty->UseBinaryOrNativeSerialization(InAr);
+				}
+				return PropertyTag.StructGuid.IsValid() && StructProperty && StructProperty->Struct && (PropertyTag.StructGuid == StructProperty->Struct->GetCustomGuid());
+			};
+
 			// Move to the next property to be serialized
 			if( AdvanceProperty && --RemainingArrayDim <= 0 )
 			{
@@ -1137,7 +1148,7 @@ void UStruct::SerializeTaggedProperties(FArchive& Ar, uint8* Data, UStruct* Defa
 				}
 			}
 			else if( Tag.Type==NAME_StructProperty && Tag.StructName!=CastChecked<UStructProperty>(Property)->Struct->GetFName() 
-				&& CastChecked<UStructProperty>(Property)->UseBinaryOrNativeSerialization(Ar) )
+				&& !CanSerializeFromStructWithDifferentName(Ar, Tag, CastChecked<UStructProperty>(Property)))
 			{
 				UE_LOG(LogClass, Warning, TEXT("Property %s of %s struct type mismatch %s/%s for package:  %s. If that property got renamed, add an ActiveStructRedirect."), *Tag.Name.ToString(), *GetName(), *Tag.StructName.ToString(), *CastChecked<UStructProperty>(Property)->Struct->GetName(), *Ar.GetArchiveName() );
 			}
@@ -1478,9 +1489,13 @@ bool UStruct::GetStringMetaDataHierarchical(const FName& Key, FString* OutValue)
 	static void HandlePlaceholderScriptRef(ScriptPointerType& ScriptPtr)
 	{
 		UObject*& ExprPtrRef = (UObject*&)ScriptPtr;
-		if (ULinkerPlaceholderClass* PlaceholderObj = Cast<ULinkerPlaceholderClass>(ExprPtrRef)) \
+		if (ULinkerPlaceholderClass* PlaceholderObj = Cast<ULinkerPlaceholderClass>(ExprPtrRef))
 		{
 			PlaceholderObj->AddReferencingScriptExpr((ULinkerPlaceholderClass**)(&ExprPtrRef));
+		}
+		else if (ULinkerPlaceholderFunction* PlaceholderFunc = Cast<ULinkerPlaceholderFunction>(ExprPtrRef))
+		{
+			PlaceholderFunc->AddReferencingScriptExpr((ULinkerPlaceholderFunction**)(&ExprPtrRef));
 		}
 	}
 
@@ -2301,6 +2316,11 @@ void UScriptStruct::DestroyStruct(void* Dest, int32 ArrayDim) const
 
 void UScriptStruct::RecursivelyPreload() {}
 
+FGuid UScriptStruct::GetCustomGuid() const
+{
+	return FGuid();
+}
+
 IMPLEMENT_CORE_INTRINSIC_CLASS(UScriptStruct, UStruct,
 	{
 	}
@@ -2404,9 +2424,13 @@ class FRestoreClassInfo: public FRestoreForUObjectOverwrite
 	/** Saved ClassCastFlags **/
 	EClassCastFlags	CastFlags;
 	/** Saved ClassConstructor **/
-	void			(*Constructor)(const FObjectInitializer&);
+	UClass::ClassConstructorType Constructor;
+#if WITH_HOT_RELOAD_CTORS
+	/** Saved ClassVTableHelperCtorCaller **/
+	UClass::ClassVTableHelperCtorCallerType ClassVTableHelperCtorCaller;
+#endif // WITH_HOT_RELOAD_CTORS
 	/** Saved ClassConstructor **/
-	void			(*AddReferencedObjects)(UObject*, FReferenceCollector&);
+	UClass::ClassAddReferencedObjectsType AddReferencedObjects;
 	/** Saved NativeFunctionLookupTable. */
 	TArray<FNativeFunctionLookup> NativeFunctionLookupTable;
 public:
@@ -2424,6 +2448,9 @@ public:
 		Flags(Save->ClassFlags & CLASS_Abstract),
 		CastFlags(Save->ClassCastFlags),
 		Constructor(Save->ClassConstructor),
+#if WITH_HOT_RELOAD_CTORS
+		ClassVTableHelperCtorCaller(Save->ClassVTableHelperCtorCaller),
+#endif // WITH_HOT_RELOAD_CTORS
 		AddReferencedObjects(Save->ClassAddReferencedObjects),
 		NativeFunctionLookupTable(Save->NativeFunctionLookupTable)
 	{
@@ -2438,6 +2465,9 @@ public:
 		Target->ClassFlags |= Flags;
 		Target->ClassCastFlags |= CastFlags;
 		Target->ClassConstructor = Constructor;
+#if WITH_HOT_RELOAD_CTORS
+		Target->ClassVTableHelperCtorCaller = ClassVTableHelperCtorCaller;
+#endif // WITH_HOT_RELOAD_CTORS
 		Target->ClassAddReferencedObjects = AddReferencedObjects;
 		Target->NativeFunctionLookupTable = NativeFunctionLookupTable;
 	}
@@ -2645,7 +2675,11 @@ void UClass::Bind()
 	}
 
 	UClass* SuperClass = GetSuperClass();
-	if (SuperClass && (ClassConstructor == NULL || ClassAddReferencedObjects == NULL))
+	if (SuperClass && (ClassConstructor == nullptr || ClassAddReferencedObjects == nullptr
+#if WITH_HOT_RELOAD_CTORS
+		|| ClassVTableHelperCtorCaller == nullptr
+#endif // WITH_HOT_RELOAD_CTORS
+		))
 	{
 		// Chase down constructor in parent class.
 		SuperClass->Bind();
@@ -2653,6 +2687,12 @@ void UClass::Bind()
 		{
 			ClassConstructor = SuperClass->ClassConstructor;
 		}
+#if WITH_HOT_RELOAD_CTORS
+		if (!ClassVTableHelperCtorCaller)
+		{
+			ClassVTableHelperCtorCaller = SuperClass->ClassVTableHelperCtorCaller;
+		}
+#endif // WITH_HOT_RELOAD_CTORS
 		if (!ClassAddReferencedObjects)
 		{
 			ClassAddReferencedObjects = SuperClass->ClassAddReferencedObjects;
@@ -3150,7 +3190,10 @@ FArchive& operator<<(FArchive& Ar, FImplementedInterface& A)
 
 void UClass::PurgeClass(bool bRecompilingOnLoad)
 {
-	ClassConstructor = NULL;
+	ClassConstructor = nullptr;
+#if WITH_HOT_RELOAD_CTORS
+	ClassVTableHelperCtorCaller = nullptr;
+#endif // WITH_HOT_RELOAD_CTORS
 	ClassFlags = 0;
 	ClassCastFlags = 0;
 	ClassUnique = 0;
@@ -3301,11 +3344,17 @@ UClass::UClass
 	EClassCastFlags	InClassCastFlags,
 	const TCHAR*    InConfigName,
 	EObjectFlags	InFlags,
-	void			(*InClassConstructor)(const FObjectInitializer&),
-	void			(*InClassAddReferencedObjects)(UObject*, class FReferenceCollector&)
+	ClassConstructorType InClassConstructor,
+#if WITH_HOT_RELOAD_CTORS
+	ClassVTableHelperCtorCallerType InClassVTableHelperCtorCaller,
+#endif // WITH_HOT_RELOAD_CTORS
+	ClassAddReferencedObjectsType InClassAddReferencedObjects
 )
 :	UStruct					( EC_StaticConstructor, InSize, InFlags )
 ,	ClassConstructor		( InClassConstructor )
+#if WITH_HOT_RELOAD_CTORS
+,	ClassVTableHelperCtorCaller(InClassVTableHelperCtorCaller)
+#endif // WITH_HOT_RELOAD_CTORS
 ,	ClassAddReferencedObjects( InClassAddReferencedObjects )
 ,	ClassFlags				( InClassFlags | CLASS_Native )
 ,	ClassCastFlags			( InClassCastFlags )
@@ -3328,8 +3377,11 @@ bool UClass::HotReloadPrivateStaticClass(
 	uint32			InClassFlags,
 	EClassCastFlags	InClassCastFlags,
 	const TCHAR*    InConfigName,
-	void			(*InClassConstructor)(const FObjectInitializer&),
-	void			(*InAddReferencedObjects)(UObject*, class FReferenceCollector&),
+	ClassConstructorType InClassConstructor,
+#if WITH_HOT_RELOAD_CTORS
+	ClassVTableHelperCtorCallerType InClassVTableHelperCtorCaller,
+#endif // WITH_HOT_RELOAD_CTORS
+	ClassAddReferencedObjectsType InClassAddReferencedObjects,
 	class UClass* TClass_Super_StaticClass,
 	class UClass* TClass_WithinClass_StaticClass
 	)
@@ -3347,9 +3399,12 @@ bool UClass::HotReloadPrivateStaticClass(
 	//@todo safe? ClassFlags = InClassFlags | CLASS_Native;
 	//@todo safe? ClassCastFlags = InClassCastFlags;
 	//@todo safe? ClassConfigName = InConfigName;
-	void(*OldClassConstructor)(const FObjectInitializer&) = ClassConstructor;
+	ClassConstructorType OldClassConstructor = ClassConstructor;
 	ClassConstructor = InClassConstructor;
-	ClassAddReferencedObjects = InAddReferencedObjects;
+#if WITH_HOT_RELOAD_CTORS
+	ClassVTableHelperCtorCaller = InClassVTableHelperCtorCaller;
+#endif // WITH_HOT_RELOAD_CTORS
+	ClassAddReferencedObjects = InClassAddReferencedObjects;
 	/* No recursive ::StaticClass calls allowed. Setup extras. */
 	/* @todo safe? 
 	if (TClass_Super_StaticClass != this)
@@ -3365,7 +3420,33 @@ bool UClass::HotReloadPrivateStaticClass(
 
 	UE_LOG(LogClass, Verbose, TEXT("Attempting to change VTable for class %s."),*GetName());
 	ClassWithin = UPackage::StaticClass();  // We are just avoiding error checks with this...we don't care about this temp object other than to get the vtable.
+
+#if WITH_HOT_RELOAD_CTORS
+	static struct FUseVTableConstructorsCache
+	{
+		FUseVTableConstructorsCache()
+		{
+			bUseVTableConstructors = false;
+			GConfig->GetBool(TEXT("Core.System"), TEXT("UseVTableConstructors"), bUseVTableConstructors, GEngineIni);
+		}
+
+		bool bUseVTableConstructors;
+	} UseVTableConstructorsCache;
+
+	UObject* TempObjectForVTable = nullptr;
+	if (UseVTableConstructorsCache.bUseVTableConstructors)
+	{
+		TGuardValue<bool> Guard(GIsRetrievingVTablePtr, true);
+		auto Helper = FVTableHelper();
+		TempObjectForVTable = ClassVTableHelperCtorCaller(Helper);
+	}
+	else
+	{
+		TempObjectForVTable = StaticConstructObject_Internal(this, GetTransientPackage(), NAME_None, RF_NeedLoad | RF_ClassDefaultObject | RF_TagGarbageTemp);
+	}
+#else // WITH_HOT_RELOAD_CTORS
 	UObject* TempObjectForVTable = StaticConstructObject_Internal(this, GetTransientPackage(), NAME_None, RF_NeedLoad | RF_ClassDefaultObject | RF_TagGarbageTemp);
+#endif // WITH_HOT_RELOAD_CTORS
 
 	if( !TempObjectForVTable->IsRooted() )
 	{
@@ -3397,6 +3478,9 @@ bool UClass::HotReloadPrivateStaticClass(
 				if (Class->ClassConstructor == OldClassConstructor)
 				{
 					Class->ClassConstructor = ClassConstructor;
+#if WITH_HOT_RELOAD_CTORS
+					Class->ClassVTableHelperCtorCaller = ClassVTableHelperCtorCaller;
+#endif // WITH_HOT_RELOAD_CTORS
 					Class->ClassAddReferencedObjects = ClassAddReferencedObjects;
 					CountClass++;
 				}
@@ -3523,7 +3607,7 @@ void UClass::GetHideFunctions(TArray<FString>& OutHideFunctions) const
 	if (HasMetaData(NAME_HideFunctions))
 	{
 		const FString& HideFunctions = GetMetaData(NAME_HideFunctions);
-		HideFunctions.ParseIntoArray(&OutHideFunctions, TEXT(" "), true);
+		HideFunctions.ParseIntoArray(OutHideFunctions, TEXT(" "), true);
 	}
 }
 
@@ -3544,7 +3628,7 @@ void UClass::GetAutoExpandCategories(TArray<FString>& OutAutoExpandCategories) c
 	if (HasMetaData(NAME_AutoExpandCategories))
 	{
 		const FString& AutoExpandCategories = GetMetaData(NAME_AutoExpandCategories);
-		AutoExpandCategories.ParseIntoArray(&OutAutoExpandCategories, TEXT(" "), true);
+		AutoExpandCategories.ParseIntoArray(OutAutoExpandCategories, TEXT(" "), true);
 	}
 }
 
@@ -3565,7 +3649,7 @@ void UClass::GetAutoCollapseCategories(TArray<FString>& OutAutoCollapseCategorie
 	if (HasMetaData(NAME_AutoCollapseCategories))
 	{
 		const FString& AutoCollapseCategories = GetMetaData(NAME_AutoCollapseCategories);
-		AutoCollapseCategories.ParseIntoArray(&OutAutoCollapseCategories, TEXT(" "), true);
+		AutoCollapseCategories.ParseIntoArray(OutAutoCollapseCategories, TEXT(" "), true);
 	}
 }
 
@@ -3586,7 +3670,7 @@ void UClass::GetClassGroupNames(TArray<FString>& OutClassGroupNames) const
 	if (HasMetaData(NAME_ClassGroupNames))
 	{
 		const FString& ClassGroupNames = GetMetaData(NAME_ClassGroupNames);
-		ClassGroupNames.ParseIntoArray(&OutClassGroupNames, TEXT(" "), true);
+		ClassGroupNames.ParseIntoArray(OutClassGroupNames, TEXT(" "), true);
 	}
 }
 

@@ -828,8 +828,12 @@ void USkeletalMeshComponent::InitArticulated(FPhysScene* PhysScene)
 	{
 		// Get the scene type from the SkeletalMeshComponent's BodyInstance
 		const uint32 SceneType = BodyInstance.UseAsyncScene() ? PST_Async : PST_Sync;
-		PhysScene->GetPhysXScene(SceneType)->addAggregate(*Aggregate);
-
+		{
+			PxScene* PScene = PhysScene->GetPhysXScene(SceneType);
+			SCOPED_SCENE_WRITE_LOCK(PScene);
+			PScene->addAggregate(*Aggregate);
+		}
+		
 		// If we've used an aggregate, InitBody would not be able to set awake status as we *must* have a scene
 		// to do that, so we reconcile this here.
 		AActor* Owner = GetOwner();
@@ -1747,9 +1751,46 @@ FVector USkeletalMeshComponent::GetSkinnedVertexPosition(int32 VertexIndex) cons
 
 extern float DebugLineLifetime;
 
+float USkeletalMeshComponent::GetDistanceToCollision(const FVector& Point, FVector& ClosestPointOnCollision) const
+{
+	ClosestPointOnCollision = Point;
+	float ClosestPointDistance = -1.f;
+	bool bHasResult = false;
+
+	for (int32 BodyIdx = 0; BodyIdx < Bodies.Num(); ++BodyIdx)
+	{
+		FBodyInstance* BodyInstance = Bodies[BodyIdx];
+		if (BodyInstance && BodyInstance->IsValidBodyInstance() && (BodyInstance->GetCollisionEnabled() != ECollisionEnabled::NoCollision))
+		{
+			FVector ClosestPoint;
+			const float Distance = Bodies[BodyIdx]->GetDistanceToBody(Point, ClosestPoint);
+
+			if (Distance < 0.f)
+			{
+				// Invalid result, impossible to be better than ClosestPointDistance
+				continue;
+			}
+
+			if (!bHasResult || (Distance < ClosestPointDistance))
+			{
+				bHasResult = true;
+				ClosestPointDistance = Distance;
+				ClosestPointOnCollision = ClosestPoint;
+
+				// If we're inside collision, we're not going to find anything better, so abort search we've got our best find.
+				if (Distance <= KINDA_SMALL_NUMBER)
+				{
+					break;
+				}
+			}
+		}
+	}
+
+	return ClosestPointDistance;
+}
+
 bool USkeletalMeshComponent::LineTraceComponent(struct FHitResult& OutHit, const FVector Start, const FVector End, const struct FCollisionQueryParams& Params)
 {
-	UPhysicsAsset* const PhysicsAsset = GetPhysicsAsset();
 	UWorld* const World = GetWorld();
 	bool bHaveHit = false;
 
@@ -2265,9 +2306,13 @@ void USkeletalMeshComponent::ApplyWindForCloth(FClothingActor& ClothingActor)
 		{
 			FVector Position = ComponentToWorld.GetTranslation();
 
-			FVector4 WindParam = World->Scene->GetWindParameters(Position);
+			FVector WindDirection;
+			float WindSpeed;
+			float WindMinGust;
+			float WindMaxGust;
+			World->Scene->GetWindParameters(Position, WindDirection, WindSpeed, WindMinGust, WindMaxGust);
 
-			physx::PxVec3 WindVelocity(WindParam.X, WindParam.Y, WindParam.Z);
+			physx::PxVec3 WindVelocity(WindDirection.X, WindDirection.Y, WindDirection.Z);
 
 			WindVelocity *= WindUnitAmout;
 			float WindAdaption = rand()%20 * 0.1f; // make range from 0 to 2
@@ -3036,7 +3081,7 @@ void USkeletalMeshComponent::ProcessClothCollisionWithEnvironment()
 	static FName ClothOverlapComponentsName(TEXT("ClothOverlapComponents"));
 	FCollisionQueryParams Params(ClothOverlapComponentsName, false);
 
-	GetWorld()->OverlapMulti(Overlaps, Bounds.Origin, FQuat::Identity, FCollisionShape::MakeBox(Bounds.BoxExtent), Params, ObjectParams);
+	GetWorld()->OverlapMultiByObjectType(Overlaps, Bounds.Origin, FQuat::Identity, ObjectParams, FCollisionShape::MakeBox(Bounds.BoxExtent), Params);
 
 	for (int32 OverlapIdx=0; OverlapIdx<Overlaps.Num(); ++OverlapIdx)
 	{

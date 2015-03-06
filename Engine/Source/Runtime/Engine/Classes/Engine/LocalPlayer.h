@@ -5,6 +5,8 @@
 //=============================================================================
 
 #pragma once
+#include "SlateCore.h"
+#include "Reply.h"
 #include "Player.h"
 #include "LocalPlayer.generated.h"
 
@@ -138,6 +140,11 @@ class ENGINE_API ULocalPlayer : public UPlayer
 {
 	GENERATED_UCLASS_BODY()
 
+#if WITH_HOT_RELOAD_CTORS
+	/** DO NOT USE. This constructor is for internal usage only for hot-reload purposes. */
+	ULocalPlayer(FVTableHelper& Helper) : Super(Helper), SlateOperations(FReply::Unhandled()) {}
+#endif // WITH_HOT_RELOAD_CTORS
+
 	/** The FUniqueNetId which this player is associated with. */
 	TSharedPtr<class FUniqueNetId> CachedUniqueNetId;
 
@@ -233,7 +240,16 @@ protected:
 	 */
 	void HandleControllerConnectionChange(bool bConnected, int32 InUserId, int32 InControllerId);
 
+	/** FReply used to defer some slate operations. */
+	FReply SlateOperations;
+
 public:
+
+	/**
+	 *  Getter for slate operations.
+	 */
+	FReply& GetSlateOperations() { return SlateOperations; }
+	const FReply& GetSlateOperations() const { return SlateOperations; }
 
 	/**
 	 * Get the world the players actor belongs to

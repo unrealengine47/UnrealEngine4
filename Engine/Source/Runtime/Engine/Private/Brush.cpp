@@ -13,6 +13,8 @@
 #include "Components/BrushComponent.h"
 
 #if WITH_EDITOR
+#include "Editor.h"
+
 /** Define static delegate */
 ABrush::FOnBrushRegistered ABrush::OnBrushRegistered;
 
@@ -58,6 +60,11 @@ void ABrush::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 
 	if(IsStaticBrush() && !GIsTransacting)
 	{
+		if(PropertyChangedEvent.ChangeType != EPropertyChangeType::Interactive)
+		{
+			GEditor->RebuildAlteredBSP();
+		}
+
 		// Trigger a csg rebuild if we're in the editor.
 		SetNeedRebuild(GetLevel());
 	}
@@ -133,7 +140,6 @@ void ABrush::SetIsTemporarilyHiddenInEditor( bool bIsHidden )
 
 			if (bAnySurfaceWasFound)
 			{
-				auto* Level = GetLevel();
 				Level->UpdateModelComponents();
 				Level->InvalidateModelSurface();
 			}

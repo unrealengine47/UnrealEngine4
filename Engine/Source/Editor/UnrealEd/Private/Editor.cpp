@@ -676,10 +676,10 @@ void UEditorEngine::Init(IEngineLoop* InEngineLoop)
 			TEXT("LocalizationDashboard")
 		};
 
-		FScopedSlowTask SlowTask(ARRAY_COUNT(ModuleNames));
+		FScopedSlowTask ModuleSlowTask(ARRAY_COUNT(ModuleNames));
 		for (const TCHAR* ModuleName : ModuleNames)
 		{
-			SlowTask.EnterProgressFrame(1);
+			ModuleSlowTask.EnterProgressFrame(1);
 			FModuleManager::Get().LoadModule(ModuleName);
 		}
 
@@ -3052,7 +3052,7 @@ void UEditorEngine::ParseMapSectionIni(const TCHAR* InCmdParams, TArray<FString>
 		if (SectionStr.Contains(TEXT("+")))
 		{
 			TArray<FString> Sections;
-			SectionStr.ParseIntoArray(&Sections,TEXT("+"),true);
+			SectionStr.ParseIntoArray(Sections,TEXT("+"),true);
 			for (int32 Index = 0; Index < Sections.Num(); Index++)
 			{
 				LoadMapListFromIni(Sections[Index], OutMapList);
@@ -6371,7 +6371,7 @@ void UEditorEngine::UpdatePreviewMesh()
 		static FName UpdatePreviewMeshTrace = FName(TEXT("UpdatePreviewMeshTrace"));
 		FCollisionQueryParams LineParams(UpdatePreviewMeshTrace, true);
 		LineParams.bTraceComplex = false;
-		if ( GWorld->LineTraceSingle(Hit, LineCheckStart, LineCheckEnd, LineParams, FCollisionObjectQueryParams(ECC_WorldStatic)) ) 
+		if ( GWorld->LineTraceSingleByObjectType(Hit, LineCheckStart, LineCheckEnd, FCollisionObjectQueryParams(ECC_WorldStatic), LineParams) ) 
 		{
 			// Dirty the transform so UpdateComponent will actually update the transforms. 
 			PreviewMeshComp->SetRelativeLocation(Hit.Location);
@@ -6588,7 +6588,7 @@ void UEditorEngine::UpdateAutoLoadProject()
 		FPlatformMisc::GetOSVersions(OSVersion, OSSubVersion);
 		
 		TArray<FString> Components;
-		OSVersion.ParseIntoArray(&Components, TEXT("."), true);
+		OSVersion.ParseIntoArray(Components, TEXT("."), true);
 		uint8 ComponentValues[3] = {0};
 		
 		for(uint32 i = 0; i < Components.Num() && i < 3; i++)
@@ -6945,6 +6945,19 @@ FWorldContext& UEditorEngine::GetEditorWorldContext(bool bEnsureIsGWorld)
 	return CreateNewWorldContext(EWorldType::Editor);
 }
 
+FWorldContext* UEditorEngine::GetPIEWorldContext()
+{
+	for(auto& WorldContext : WorldList)
+	{
+		if(WorldContext.WorldType == EWorldType::PIE)
+		{
+			return &WorldContext;
+		}
+	}
+
+	return nullptr;
+}
+
 namespace EditorUtilities
 {
 	AActor* GetEditorWorldCounterpartActor( AActor* Actor )
@@ -7049,7 +7062,6 @@ namespace EditorUtilities
 					else
 					{
 						// If we found a match, update the target component and adjust the target index to the matching position
-						UActorComponent* FindTargetComponent = TargetComponents[ FindTargetComponentIndex ];
 						if( FindTargetComponent != NULL && SourceComponent->GetFName() == FindTargetComponent->GetFName() )
 						{
 							TargetComponent = FindTargetComponent;

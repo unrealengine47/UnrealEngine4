@@ -139,95 +139,12 @@ FMacApplication::FMacApplication()
 
 	AppActivationObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationDidBecomeActiveNotification object:[NSApplication sharedApplication] queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification* Notification)
 							{
-								for (int32 Index = 0; Index < SavedWindowsOrder.Num(); Index++)
-								{
-									const FSavedWindowOrderInfo& SavedWindowLevel = SavedWindowsOrder[Index];
-									NSWindow* Window = [NSApp windowWithWindowNumber:SavedWindowLevel.WindowNumber];
-									if (Window)
-									{
-										[Window setLevel:SavedWindowLevel.Level];
-									}
-								}
-
-								if (SavedWindowsOrder.Num() > 0)
-								{
-									[[NSApp windowWithWindowNumber:SavedWindowsOrder[0].WindowNumber] orderWindow:NSWindowAbove relativeTo:0];
-									for (int32 Index = 1; Index < SavedWindowsOrder.Num(); Index++)
-									{
-										const FSavedWindowOrderInfo& SavedWindowLevel = SavedWindowsOrder[Index];
-										NSWindow* Window = [NSApp windowWithWindowNumber:SavedWindowLevel.WindowNumber];
-										if (Window)
-										{
-											[Window orderWindow:NSWindowBelow relativeTo:SavedWindowsOrder[Index - 1].WindowNumber];
-										}
-									}
-								}
-
-								// If editor thread doesn't have the focus, don't suck up too much CPU time.
-								if (GIsEditor && !IsRunningCommandlet())
-								{
-									// Boost our priority back to normal.
-									struct sched_param Sched;
-									FMemory::Memzero(&Sched, sizeof(struct sched_param));
-									Sched.sched_priority = 15;
-									pthread_setschedparam(pthread_self(), SCHED_RR, &Sched);
-								}
-
-								// app is active, allow sound
-								FApp::SetVolumeMultiplier( 1.0f );
-
-								GameThreadCall(^{
-									MessageHandler->OnApplicationActivationChanged(true);
-								}, @[ NSDefaultRunLoopMode ], false);
+								OnApplicationDidBecomeActive();
 							 }];
 
 	AppDeactivationObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationWillResignActiveNotification object:[NSApplication sharedApplication] queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification* Notification)
 							{
-								SavedWindowsOrder.Empty();
-
-								NSArray* OrderedWindows = [NSApp orderedWindows];
-								for (NSWindow* Window in OrderedWindows)
-								{
-									if ([Window isKindOfClass:[FCocoaWindow class]] && [Window isVisible] && ![Window hidesOnDeactivate])
-									{
-										SavedWindowsOrder.Add(FSavedWindowOrderInfo([Window windowNumber], [Window level]));
-										[Window setLevel:NSNormalWindowLevel];
-									}
-								}
-
-								if (SavedWindowsOrder.Num() > 0)
-								{
-									[[NSApp windowWithWindowNumber:SavedWindowsOrder[0].WindowNumber] orderWindow:NSWindowAbove relativeTo:0];
-									for (int32 Index = 1; Index < SavedWindowsOrder.Num(); Index++)
-									{
-										const FSavedWindowOrderInfo& SavedWindowLevel = SavedWindowsOrder[Index];
-										NSWindow* Window = [NSApp windowWithWindowNumber:SavedWindowLevel.WindowNumber];
-										if (Window)
-										{
-											[Window orderWindow:NSWindowBelow relativeTo:SavedWindowsOrder[Index - 1].WindowNumber];
-										}
-									}
-								}
-
-								// If editor thread doesn't have the focus, don't suck up too much CPU time.
-								if (GIsEditor && !IsRunningCommandlet())
-								{
-									// Drop our priority to speed up whatever is in the foreground.
-									struct sched_param Sched;
-									FMemory::Memzero(&Sched, sizeof(struct sched_param));
-									Sched.sched_priority = 5;
-									pthread_setschedparam(pthread_self(), SCHED_RR, &Sched);
-
-									// Sleep for a bit to not eat up all CPU time.
-									FPlatformProcess::Sleep(0.005f);
-								}
-
-								// app is inactive, apply multiplier
-								FApp::SetVolumeMultiplier(FApp::GetUnfocusedVolumeMultiplier());
-
-								GameThreadCall(^{
-									MessageHandler->OnApplicationActivationChanged(false);
-								}, @[ NSDefaultRunLoopMode ], false);
+								OnApplicationWillResignActive();
 							}];
 
 	WorkspaceActivationObserver = [[[NSWorkspace sharedWorkspace] notificationCenter] addObserverForName:NSWorkspaceSessionDidBecomeActiveNotification object:[NSWorkspace sharedWorkspace] queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification* Notification){
@@ -368,13 +285,13 @@ void FMacApplication::ProcessEvent(FMacEvent const* const Event)
 			{
 				MacApplication->OnWindowDidResize(CocoaWindow);
 			}
-			else if (NotificationName == NSWindowDidBecomeKeyNotification)
+			else if (NotificationName == NSWindowDidBecomeMainNotification)
 			{
-				MacApplication->OnWindowDidBecomeKey(CocoaWindow);
+				MacApplication->OnWindowDidBecomeMain(CocoaWindow);
 			}
-			else if (NotificationName == NSWindowDidResignKeyNotification)
+			else if (NotificationName == NSWindowDidResignMainNotification)
 			{
-				MacApplication->OnWindowDidResignKey(CocoaWindow);
+				MacApplication->OnWindowDidResignMain(CocoaWindow);
 			}
 			else if (NotificationName == NSWindowWillMoveNotification)
 			{
@@ -679,18 +596,21 @@ void FMacApplication::ProcessNSEvent(NSEvent* const Event)
 					MacCursor->UpdateCurrentPosition(CurrentPosition);
 				}
 
-				// Cocoa does not update NSWindow's frame until user stops dragging the window, so while window is being dragged, we calculate
-				// its position based on mouse move delta
-				if (CurrentEventWindow.IsValid() && DraggedWindow && DraggedWindow == NativeWindow)
+				if (CurrentEventWindow.IsValid())
 				{
-					const int32 X = FMath::TruncToInt(CurrentEventWindow->PositionX + MouseDelta.X);
-					const int32 Y = FMath::TruncToInt(CurrentEventWindow->PositionY + MouseDelta.Y);
-					MessageHandler->OnMovedWindow(CurrentEventWindow.ToSharedRef(), X, Y);
-					CurrentEventWindow->PositionX = X;
-					CurrentEventWindow->PositionY = Y;
-				}
+					// Cocoa does not update NSWindow's frame until user stops dragging the window, so while window is being dragged, we calculate
+					// its position based on mouse move delta
+					if (DraggedWindow && DraggedWindow == NativeWindow)
+					{
+						const int32 X = FMath::TruncToInt(CurrentEventWindow->PositionX + MouseDelta.X);
+						const int32 Y = FMath::TruncToInt(CurrentEventWindow->PositionY + MouseDelta.Y);
+						MessageHandler->OnMovedWindow(CurrentEventWindow.ToSharedRef(), X, Y);
+						CurrentEventWindow->PositionX = X;
+						CurrentEventWindow->PositionY = Y;
+					}
 
-				MessageHandler->OnMouseMove();
+					MessageHandler->OnMouseMove();
+				}
 			}
 
 			if (CurrentEventWindow.IsValid() && !DraggedWindow && !GetCapture())
@@ -1029,6 +949,122 @@ TSharedPtr<FMacWindow> FMacApplication::LocateWindowUnderCursor( const NSPoint P
 	return NULL;
 }
 
+void FMacApplication::OnApplicationDidBecomeActive()
+{
+	for (int32 Index = 0; Index < SavedWindowsOrder.Num(); Index++)
+	{
+		const FSavedWindowOrderInfo& Info = SavedWindowsOrder[Index];
+		NSWindow* Window = [NSApp windowWithWindowNumber:Info.WindowNumber];
+		if (Window)
+		{
+			[Window setLevel:Info.Level];
+		}
+	}
+
+	if (SavedWindowsOrder.Num() > 0)
+	{
+		[[NSApp windowWithWindowNumber:SavedWindowsOrder[0].WindowNumber] orderWindow:NSWindowAbove relativeTo:0];
+		for (int32 Index = 1; Index < SavedWindowsOrder.Num(); Index++)
+		{
+			const FSavedWindowOrderInfo& Info = SavedWindowsOrder[Index];
+			NSWindow* Window = [NSApp windowWithWindowNumber:Info.WindowNumber];
+			if (Window)
+			{
+				[Window orderWindow:NSWindowBelow relativeTo:SavedWindowsOrder[Index - 1].WindowNumber];
+			}
+		}
+	}
+
+	// If editor thread doesn't have the focus, don't suck up too much CPU time.
+	if (GIsEditor && !IsRunningCommandlet())
+	{
+		// Boost our priority back to normal.
+		struct sched_param Sched;
+		FMemory::Memzero(&Sched, sizeof(struct sched_param));
+		Sched.sched_priority = 15;
+		pthread_setschedparam(pthread_self(), SCHED_RR, &Sched);
+	}
+
+	// app is active, allow sound
+	FApp::SetVolumeMultiplier(1.0f);
+
+	GameThreadCall(^{
+		MessageHandler->OnApplicationActivationChanged(true);
+	}, @[ NSDefaultRunLoopMode ], false);
+}
+
+void FMacApplication::OnApplicationWillResignActive()
+{
+	OnWindowsReordered(true);
+
+	if (SavedWindowsOrder.Num() > 0)
+	{
+		[[NSApp windowWithWindowNumber:SavedWindowsOrder[0].WindowNumber] orderWindow:NSWindowAbove relativeTo:0];
+		for (int32 Index = 1; Index < SavedWindowsOrder.Num(); Index++)
+		{
+			const FSavedWindowOrderInfo& Info = SavedWindowsOrder[Index];
+			NSWindow* Window = [NSApp windowWithWindowNumber:Info.WindowNumber];
+			if (Window)
+			{
+				if (SavedWindowsOrder[Index - 1].Level == Info.Level)
+				{
+					[Window orderWindow:NSWindowBelow relativeTo:SavedWindowsOrder[Index - 1].WindowNumber];
+				}
+				else
+				{
+					[Window orderWindow:NSWindowAbove relativeTo:0];
+				}
+			}
+		}
+	}
+
+	// If editor thread doesn't have the focus, don't suck up too much CPU time.
+	if (GIsEditor && !IsRunningCommandlet())
+	{
+		// Drop our priority to speed up whatever is in the foreground.
+		struct sched_param Sched;
+		FMemory::Memzero(&Sched, sizeof(struct sched_param));
+		Sched.sched_priority = 5;
+		pthread_setschedparam(pthread_self(), SCHED_RR, &Sched);
+
+		// Sleep for a bit to not eat up all CPU time.
+		FPlatformProcess::Sleep(0.005f);
+	}
+
+	// app is inactive, apply multiplier
+	FApp::SetVolumeMultiplier(FApp::GetUnfocusedVolumeMultiplier());
+
+	GameThreadCall(^{
+		MessageHandler->OnApplicationActivationChanged(false);
+	}, @[ NSDefaultRunLoopMode ], false);
+}
+
+void FMacApplication::OnWindowsReordered(bool bIsAppInBackground)
+{
+	if (bIsAppInBackground)
+	{
+		TMap<int32, int32> Levels;
+
+		for (int32 Index = 0; Index < SavedWindowsOrder.Num(); Index++)
+		{
+			const FSavedWindowOrderInfo& Info = SavedWindowsOrder[Index];
+			Levels.Add(Info.WindowNumber, Info.Level);
+		}
+
+		SavedWindowsOrder.Empty();
+
+		NSArray* OrderedWindows = [NSApp orderedWindows];
+		for (NSWindow* Window in OrderedWindows)
+		{
+			if ([Window isKindOfClass:[FCocoaWindow class]] && [Window isVisible] && ![Window hidesOnDeactivate])
+			{
+				SavedWindowsOrder.Add(FSavedWindowOrderInfo([Window windowNumber], Levels.Contains([Window windowNumber]) ? Levels[[Window windowNumber]] : [Window level]));
+				[Window setLevel:NSNormalWindowLevel];
+			}
+		}
+	}
+}
+
 void FMacApplication::PollGameDeviceState( const float TimeDelta )
 {
 	// Poll game device state and send new events
@@ -1198,22 +1234,26 @@ void FMacApplication::OnDragDrop( FCocoaWindow* Window )
 	}
 }
 
-void FMacApplication::OnWindowDidBecomeKey( FCocoaWindow* Window )
+void FMacApplication::OnWindowDidBecomeMain( FCocoaWindow* Window )
 {
 	TSharedPtr< FMacWindow > EventWindow = FindWindowByNSWindow( Windows, &WindowsMutex, Window );
 	if (EventWindow.IsValid())
 	{
 		MessageHandler->OnWindowActivationChanged( EventWindow.ToSharedRef(), EWindowActivation::Activate );
 	}
+
+	OnWindowsReordered(![NSApp isActive]);
 }
 
-void FMacApplication::OnWindowDidResignKey( FCocoaWindow* Window )
+void FMacApplication::OnWindowDidResignMain( FCocoaWindow* Window )
 {
 	TSharedPtr< FMacWindow > EventWindow = FindWindowByNSWindow( Windows, &WindowsMutex, Window );
 	if (EventWindow.IsValid())
 	{
 		MessageHandler->OnWindowActivationChanged( EventWindow.ToSharedRef(), EWindowActivation::Deactivate );
 	}
+
+	OnWindowsReordered(![NSApp isActive]);
 }
 
 void FMacApplication::OnWindowWillMove( FCocoaWindow* Window )

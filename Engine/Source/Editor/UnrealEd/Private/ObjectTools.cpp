@@ -828,7 +828,6 @@ namespace ObjectTools
 					RedirectorToObjectNameMap.Add(Redirector, CurObjName);
 
 					// If consolidating blueprints, make sure redirectors are created for the consolidated blueprint class and CDO
-					UBlueprint* BlueprintToConsolidate = Cast<UBlueprint>(CurObjToConsolidate);
 					if ( BlueprintToConsolidateTo != NULL && BlueprintToConsolidate != NULL )
 					{
 						// One redirector for the class
@@ -1899,7 +1898,10 @@ namespace ObjectTools
 
 					// Destroy the Actor instance. This is similar to edactDeleteSelected(), but we don't request user confirmation here.
 					GEditor->Layers->DisassociateActorFromLayers( CurActor );
-					GEditor->GetEditorWorldContext().World()->EditorDestroyActor( CurActor, false );
+					if( CurActor->GetWorld() )
+					{
+						CurActor->GetWorld()->EditorDestroyActor( CurActor, false );
+					}
 
 					bNeedsGarbageCollection = true;
 				}
@@ -2721,7 +2723,7 @@ namespace ObjectTools
 
 			// Parse the format into its extension and description parts
 			TArray<FString> FormatComponents;
-			CurFormat.ParseIntoArray( &FormatComponents, TEXT(";"), false );
+			CurFormat.ParseIntoArray( FormatComponents, TEXT(";"), false );
 
 			for ( int32 ComponentIndex = 0; ComponentIndex < FormatComponents.Num(); ComponentIndex += 2 )
 			{

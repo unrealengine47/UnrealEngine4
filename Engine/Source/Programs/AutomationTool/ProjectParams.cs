@@ -1335,7 +1335,7 @@ namespace AutomationTool
 				ProjectGameExePath = null;
 			}
 
-			var Properties = ProjectUtils.GetProjectProperties(RawProjectPath);
+			var Properties = ProjectUtils.GetProjectProperties(RawProjectPath, ClientTargetPlatforms);
 
 			bUsesSteam = Properties.bUsesSteam;
 			bUsesCEF3 = Properties.bUsesCEF3;
@@ -1491,7 +1491,14 @@ namespace AutomationTool
 
 			if (String.IsNullOrEmpty(EditorTarget) && ProjectType != TargetRules.TargetType.Program && CommandUtils.IsNullOrEmpty(EditorTargetsList) && !Rocket)
 			{
-				throw new AutomationException("Editor target not found!");
+				if (Properties.bWasGenerated)
+				{
+					EditorTarget = "UE4Editor";
+				}
+				else
+				{
+					throw new AutomationException("Editor target not found!");
+				}
 			}
 			if (String.IsNullOrEmpty(GameTarget) && Run && !NoClient && (Cook || CookOnTheFly) && CommandUtils.IsNullOrEmpty(ClientCookedTargetsList) && !Rocket)
 			{
@@ -1500,7 +1507,7 @@ namespace AutomationTool
 
 			if (EditorTargetsList == null)
 			{
-				if (!GlobalCommandLine.NoCompile && !GlobalCommandLine.NoCompileEditor && (ProjectType != TargetRules.TargetType.Program))
+				if (!GlobalCommandLine.NoCompile && !GlobalCommandLine.NoCompileEditor && (ProjectType != TargetRules.TargetType.Program) && !String.IsNullOrEmpty(EditorTarget))
 				{
 					EditorTargetsList = new ParamList<string>(EditorTarget);
 				}
@@ -1667,18 +1674,7 @@ namespace AutomationTool
 			get { return ProjectUtils.GetShortProjectName(RawProjectPath); }
 		}
 
-        /// <summary>
-        /// Get a directory pre-fix for the game's deploy location. Defaults to UE4Game is not supplied
-        /// </summary>
-
-        public string ProjectDirPrefix
-        {
-            get { return String.IsNullOrEmpty(ProjectDirPrefixValue) ? "UE4Game" : ProjectDirPrefixValue;  }
-            set { ProjectDirPrefixValue = value; }
-        }
-        private string ProjectDirPrefixValue;
-
-		/// <summary>
+  		/// <summary>
 		/// True if this project contains source code.
 		/// </summary>	
 		public bool IsCodeBasedProject

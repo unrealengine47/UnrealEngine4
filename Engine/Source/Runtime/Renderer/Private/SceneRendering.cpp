@@ -321,6 +321,7 @@ void FViewInfo::SetupSkyIrradianceEnvironmentMapConstants(FVector4* OutSkyIrradi
 TUniformBufferRef<FViewUniformShaderParameters> FViewInfo::CreateUniformBuffer(
 	const TArray<FProjectedShadowInfo*, SceneRenderingAllocator>* DirectionalLightShadowInfo,	
 	const FMatrix& EffectiveTranslatedViewMatrix, 
+	const FMatrix& EffectiveViewToTranslatedWorld, 
 	FBox* OutTranslucentCascadeBoundsArray, 
 	int32 NumTranslucentCascades) const
 {
@@ -373,7 +374,7 @@ TUniformBufferRef<FViewUniformShaderParameters> FViewInfo::CreateUniformBuffer(
 	ViewUniformShaderParameters.TranslatedWorldToClip = ViewMatrices.TranslatedViewProjectionMatrix;
 	ViewUniformShaderParameters.WorldToClip = ViewProjectionMatrix;
 	ViewUniformShaderParameters.TranslatedWorldToView = EffectiveTranslatedViewMatrix;
-	ViewUniformShaderParameters.ViewToTranslatedWorld = InvViewMatrix * FTranslationMatrix(ViewMatrices.PreViewTranslation);
+	ViewUniformShaderParameters.ViewToTranslatedWorld = EffectiveViewToTranslatedWorld;
 	ViewUniformShaderParameters.ViewToClip = ViewMatrices.ProjMatrix;
 	ViewUniformShaderParameters.ClipToView = ViewMatrices.GetInvProjMatrix();
 	ViewUniformShaderParameters.ClipToTranslatedWorld = ViewMatrices.InvTranslatedViewProjectionMatrix;
@@ -568,6 +569,7 @@ TUniformBufferRef<FViewUniformShaderParameters> FViewInfo::CreateUniformBuffer(
 	static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.DiffuseFromCaptures"));
 	const bool bUseLightmaps = CVar->GetInt() == 0;
 
+	ViewUniformShaderParameters.CameraCut = bCameraCut ? 1 : 0;
 	ViewUniformShaderParameters.UseLightmaps = bUseLightmaps ? 1 : 0;
 
 	if(State)
@@ -701,8 +703,12 @@ void FViewInfo::CreateForwardLightDataUniformBuffer(FForwardLightData &OutForwar
 
 	FScene* Scene = (FScene*)(Family->Scene);
 
-	if(Scene)
+	// Reflection override skips direct specular because it tends to be blindingly bright with a perfectly smooth surface
+	if(Scene && !Family->EngineShowFlags.ReflectionOverride)
 	{
+		// we test after adding each light so we need at least space for one element
+		check(GMaxNumForwardLights > 0);
+
 		// Build a list of visible lights.
 		for (TSparseArray<FLightSceneInfoCompact>::TConstIterator LightIt(Scene->Lights); LightIt; ++LightIt)
 		{
@@ -711,27 +717,67 @@ void FViewInfo::CreateForwardLightDataUniformBuffer(FForwardLightData &OutForwar
 
 			if(!LightSceneInfoCompact.Color.IsAlmostBlack()
 				// Only render lights with dynamic lighting or unbuilt static lights
-				&& (!LightSceneInfo->Proxy->HasStaticLighting() || !LightSceneInfo->bPrecomputedLightingIsValid)
-				// Reflection override skips direct specular because it tends to be blindingly bright with a perfectly smooth surface
-				&& !Family->EngineShowFlags.ReflectionOverride
-				&& LightSceneInfoCompact.LightType == LightType_Point)		// for now we only handle point lights
+				&& (!LightSceneInfo->Proxy->HasStaticLighting() || !LightSceneInfo->bPrecomputedLightingIsValid))
 			{
+				const ELightComponentType LightType = (const ELightComponentType)LightSceneInfoCompact.LightType;
+
+				FVector NormalizedLightDirection;
+				FVector2D SpotAngles;
+				float SourceRadius;
+				float SourceLength;
+				float MinRoughness;
+
+				// Get the light parameters
+				LightSceneInfo->Proxy->GetParameters(
+					OutForwardLightData.LightPositionAndInvRadius[LightIndex],
+					OutForwardLightData.LightColorAndFalloffExponent[LightIndex],
+					NormalizedLightDirection,
+					SpotAngles,
+					SourceRadius,
+					SourceLength,
+					MinRoughness);
+
 				// Check if the light is visible in this view.
-				if(LightSceneInfo->ShouldRenderLight(*this))
+				if(!LightSceneInfo->ShouldRenderLight(*this))
 				{
-					FVector4 BoundingSphereVector = *(FVector4*)&LightSceneInfoCompact.BoundingSphereVector;
+					continue;
+				}
 
-					float InvRadius = 1.0f / BoundingSphereVector.W;
+				FVector4 BoundingSphereVector = *(FVector4*)&LightSceneInfoCompact.BoundingSphereVector;
 
-					OutForwardLightData.LightPositionAndInvRadius[LightIndex] = FVector4(FVector(BoundingSphereVector), InvRadius);
-					OutForwardLightData.LightColorAndFalloffExponent[LightIndex] = LightSceneInfoCompact.Color;
-					++LightIndex;
+				float InvRadius = 1.0f / BoundingSphereVector.W;
 
-					if(LightIndex >= GMaxNumForwardLights)
-					{
-						// we cannot handle more lights this way
-						break;
-					}
+				OutForwardLightData.LightPositionAndInvRadius[LightIndex] = FVector4(FVector(BoundingSphereVector), InvRadius);
+
+				// SpotlightMaskAndMinRoughness, >0:Spotlight, MinRoughness = abs();
+				float W = FMath::Max(0.0001f, MinRoughness) * ((LightType == LightType_Spot) ? 1 : -1);
+
+				OutForwardLightData.LightDirectionAndSpotlightMaskAndMinRoughness[LightIndex] = FVector4(NormalizedLightDirection, W);
+				OutForwardLightData.SpotAnglesAndSourceRadiusAndDir[LightIndex] = FVector4(SpotAngles.X, SpotAngles.Y, SourceRadius, LightType == LightType_Directional);
+
+				if(LightSceneInfo->Proxy->IsInverseSquared())
+				{
+					// Correction for lumen units
+					OutForwardLightData.LightColorAndFalloffExponent[LightIndex].X *= 16.0f;
+					OutForwardLightData.LightColorAndFalloffExponent[LightIndex].Y *= 16.0f;
+					OutForwardLightData.LightColorAndFalloffExponent[LightIndex].Z *= 16.0f;
+					OutForwardLightData.LightColorAndFalloffExponent[LightIndex].W = 0;
+				}
+
+				{
+					// SpotlightMaskAndMinRoughness, >0:Spotlight, MinRoughness = abs();
+					float W = FMath::Max(0.0001f, MinRoughness) * ((LightSceneInfo->Proxy->GetLightType() == LightType_Spot) ? 1 : -1);
+
+					OutForwardLightData.LightDirectionAndSpotlightMaskAndMinRoughness[LightIndex] = FVector4(NormalizedLightDirection, W);
+				}
+
+				// we want to add one light
+				++LightIndex;
+
+				if(LightIndex >= GMaxNumForwardLights)
+				{
+					// we cannot handle more lights this way
+					break;
 				}
 			}
 		}
@@ -806,6 +852,7 @@ void FViewInfo::InitRHIResources(const TArray<FProjectedShadowInfo*, SceneRender
 	UniformBuffer = CreateUniformBuffer(
 		DirectionalLightShadowInfo,
 		TranslatedViewMatrix,
+		InvViewMatrix * FTranslationMatrix(ViewMatrices.PreViewTranslation),
 		VolumeBounds,
 		TVC_MAX);
 
@@ -1301,27 +1348,34 @@ static void RenderViewFamily_RenderThread(FRHICommandListImmediate& RHICmdList, 
 		}
 
 #if STATS
-		// Update scene memory stats that couldn't be tracked continuously
-		SET_MEMORY_STAT(STAT_StaticDrawListMemory, FStaticMeshDrawListBase::TotalBytesUsed);
-		SET_MEMORY_STAT(STAT_RenderingSceneMemory, SceneRenderer->Scene->GetSizeBytes());
-
-		SIZE_T ViewStateMemory = 0;
-		for (int32 ViewIndex = 0; ViewIndex < SceneRenderer->Views.Num(); ViewIndex++)
 		{
-			if (SceneRenderer->Views[ViewIndex].State)
+			QUICK_SCOPE_CYCLE_COUNTER(STAT_RenderViewFamily_RenderThread_MemStats);
+
+			// Update scene memory stats that couldn't be tracked continuously
+			SET_MEMORY_STAT(STAT_StaticDrawListMemory, FStaticMeshDrawListBase::TotalBytesUsed);
+			SET_MEMORY_STAT(STAT_RenderingSceneMemory, SceneRenderer->Scene->GetSizeBytes());
+
+			SIZE_T ViewStateMemory = 0;
+			for (int32 ViewIndex = 0; ViewIndex < SceneRenderer->Views.Num(); ViewIndex++)
 			{
-				ViewStateMemory += SceneRenderer->Views[ViewIndex].State->GetSizeBytes();
+				if (SceneRenderer->Views[ViewIndex].State)
+				{
+					ViewStateMemory += SceneRenderer->Views[ViewIndex].State->GetSizeBytes();
+				}
 			}
+			SET_MEMORY_STAT(STAT_ViewStateMemory, ViewStateMemory);
+			SET_MEMORY_STAT(STAT_RenderingMemStackMemory, FMemStack::Get().GetByteCount());
+			SET_MEMORY_STAT(STAT_LightInteractionMemory, FLightPrimitiveInteraction::GetMemoryPoolSize());
 		}
-		SET_MEMORY_STAT(STAT_ViewStateMemory, ViewStateMemory);
-		SET_MEMORY_STAT(STAT_RenderingMemStackMemory, FMemStack::Get().GetByteCount());
-		SET_MEMORY_STAT(STAT_LightInteractionMemory, FLightPrimitiveInteraction::GetMemoryPoolSize());
 #endif
 
 		GRenderTargetPool.SetEventRecordingActive(false);
 
 		// Delete the scene renderer.
-		delete SceneRenderer;
+		{
+			QUICK_SCOPE_CYCLE_COUNTER(STAT_DeleteSceneRenderer);
+			delete SceneRenderer;
+		}
 		{
 			QUICK_SCOPE_CYCLE_COUNTER(STAT_DeleteSceneRenderer_Dispatch);
 			FRHICommandListExecutor::GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::DispatchToRHIThread); // we want to make sure this all gets to the GPU this frame and doesn't hang around
@@ -1329,6 +1383,7 @@ static void RenderViewFamily_RenderThread(FRHICommandListImmediate& RHICmdList, 
 	}
 
 #if STATS
+	QUICK_SCOPE_CYCLE_COUNTER(STAT_RenderViewFamily_RenderThread_RHIGetGPUFrameCycles);
 	if (FPlatformProperties::SupportsWindowedMode() == false)
 	{
 		/** Update STATS with the total GPU time taken to render the last frame. */

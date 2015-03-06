@@ -187,6 +187,24 @@ public:
 	 */
 	virtual void GetDynamicMeshElements(const TArray<const FSceneView*>& Views, const FSceneViewFamily& ViewFamily, uint32 VisibilityMap, class FMeshElementCollector& Collector) const {}
 
+	/** 
+	 * Gets the boxes for sub occlusion queries
+	 * @param View - the view the occlusion results are for
+	 * @return pointer to the boxes, must remain valid until the queries are built
+	 */
+	virtual const TArray<FBoxSphereBounds>* GetOcclusionQueries(const FSceneView* View) const 
+	{
+		return nullptr;
+	}
+
+	/** 
+	 * Gives the primitive the results of sub-occlusion-queries
+	 * @param View - the view the occlusion results are for
+	 * @param Results - visibility results, allocated from the scene allocator, so valid until the end of the frame
+	 * @param NumResults - number of visibility bools
+	 */
+	virtual void AcceptOcclusionResults(const FSceneView* View, const bool* Results, int32 NumResults) {}
+
 	/**
 	 * Determines the relevance of this primitive's elements to the given view.
 	 * Called in the rendering thread.
@@ -277,6 +295,14 @@ public:
 	virtual bool CanBeOccluded() const
 	{
 		return true;
+	}
+
+	/**
+	* @return true if the proxy has custom occlusion queries
+	*/
+	virtual bool HasSubprimitiveOcclusionQueries() const
+	{
+		return false;
 	}
 
 	virtual bool ShowInBSPSplitViewmode() const
@@ -371,6 +397,7 @@ public:
 	inline bool CastsShadowAsTwoSided() const { return bCastShadowAsTwoSided; }
 	inline bool CastsSelfShadowOnly() const { return bSelfShadowOnly; }
 	inline bool CastsInsetShadow() const { return bCastInsetShadow; }
+	inline bool CastsCinematicShadow() const { return bCastCinematicShadow; }
 	inline bool CastsFarShadow() const { return bCastFarShadow; }
 	inline bool LightAttachmentsAsGroup() const { return bLightAttachmentsAsGroup; }
 	inline bool StaticElementsAlwaysUseProxyPrimitiveUniformBuffer() const { return bStaticElementsAlwaysUseProxyPrimitiveUniformBuffer; }
@@ -559,6 +586,12 @@ protected:
 
 	/** Whether this component should create a per-object shadow that gives higher effective shadow resolution. true if bSelfShadowOnly is true. */
 	uint32 bCastInsetShadow : 1;
+
+	/** 
+	 * Whether this component should create a per-object shadow that gives higher effective shadow resolution. 
+	 * Useful for cinematic character shadowing. Assumed to be enabled if bSelfShadowOnly is enabled.
+	 */
+	uint32 bCastCinematicShadow : 1;
 
 	/* When enabled, the component will be rendering into the distant shadow cascades (only for directional lights). */
 	uint32 bCastFarShadow : 1;

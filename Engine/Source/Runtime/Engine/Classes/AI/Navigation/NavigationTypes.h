@@ -1,6 +1,8 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
+
+#include "Containers/BitArray.h"
 #include "NavigationTypes.generated.h"
 
 #define INVALID_NAVNODEREF (0)
@@ -167,6 +169,22 @@ struct FNavigationDirtyElement
 	{
 		return GetTypeHash(Info.Owner);
 	}
+};
+
+UENUM()
+enum class ENavDataGatheringMode : uint8
+{
+	Default,
+	Instant,
+	Lazy
+};
+
+UENUM()
+enum class ENavDataGatheringModeConfig : uint8
+{
+	Invalid UMETA(Hidden),
+	Instant,
+	Lazy
 };
 
 //
@@ -347,8 +365,12 @@ struct ENGINE_API FNavAgentProperties : public FMovementProperties
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = MovementProperties)
 	float AgentStepHeight;
 
+	/** Scale factor to apply to height of bounds when searching for navmesh to project to when nav walking */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = MovementProperties)
+	float NavWalkingSearchHeightScale;
+
 	FNavAgentProperties(float Radius = -1.f, float Height = -1.f)
-		: AgentRadius(Radius), AgentHeight(Height), AgentStepHeight(-1)
+		: AgentRadius(Radius), AgentHeight(Height), AgentStepHeight(-1), NavWalkingSearchHeightScale(0.5f)
 	{
 	}
 
@@ -465,6 +487,7 @@ struct ENGINE_API FPathFindingQuery
 	explicit FPathFindingQuery(FNavPathSharedRef PathToRecalculate, const ANavigationData* NavDataOverride = NULL);
 
 	FPathFindingQuery& SetPathInstanceToUpdate(FNavPathSharedPtr InPathInstanceToFill) { PathInstanceToFill = InPathInstanceToFill; return *this; }
+	FPathFindingQuery& SetAllowPartialPaths(bool bAllow) { bAllowPartialPaths = bAllow; return *this; }
 };
 
 namespace EPathFindingMode
@@ -660,4 +683,17 @@ struct FNavigationInvoker
 
 	FNavigationInvoker();
 	FNavigationInvoker(AActor& InActor, float InGenerationRadius, float InRemovalRadius);
+};
+
+//----------------------------------------------------------------------//
+// generic "landscape" support
+//----------------------------------------------------------------------//
+struct ENGINE_API FNavHeightfieldSamples
+{
+	TNavStatArray<int16> Heights;
+	TBitArray<> Holes;
+
+	FNavHeightfieldSamples();
+
+	FORCEINLINE bool IsEmpty() const { return Heights.Num() == 0; }
 };

@@ -449,11 +449,6 @@ public:
 	FLevelSimplificationDetails LevelSimplification[WORLDTILE_LOD_MAX_INDEX];
 #endif //WITH_EDITORONLY_DATA
 
-#if PERF_TRACK_DETAILED_ASYNC_STATS
-	/** Mapping of how long each actor class takes to have UpdateComponents called on it */
-	TMap<const UClass*,struct FMapTimeEntry>		UpdateComponentsTimePerActorClass;
-#endif // PERF_TRACK_DETAILED_ASYNC_STATS
-
 	/** Actor which defines level logical bounding box				*/
 	TWeakObjectPtr<ALevelBounds>				LevelBoundsActor;
 
@@ -495,6 +490,15 @@ public:
 	// Constructor.
 	ENGINE_API void Initialize(const FURL& InURL);
 	ULevel(const FObjectInitializer& ObjectInitializer);
+
+#if WITH_HOT_RELOAD_CTORS
+	/** DO NOT USE. This constructor is for internal usage only for hot-reload purposes. */
+	ULevel(FVTableHelper& Helper)
+		: Super(Helper)
+		, Actors(this)
+	{}
+#endif // WITH_HOT_RELOAD_CTORS
+
 	~ULevel();
 
 	// Begin UObject interface.

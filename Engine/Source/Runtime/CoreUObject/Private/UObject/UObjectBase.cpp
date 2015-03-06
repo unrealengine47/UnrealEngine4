@@ -47,57 +47,6 @@ struct FPendingRegistrant
 static FPendingRegistrant* GFirstPendingRegistrant = NULL;
 static FPendingRegistrant* GLastPendingRegistrant = NULL;
 
-#if EXTERNAL_OBJECT_NAMES
-
-/**
- * Annotation for FNames
- */
-struct FNameAnnotation
-{
-	/**
-	 * default constructor
-	 * Default constructor must be the default item
-	 */
-	FNameAnnotation() :
-		Name(NAME_None)
-	{
-	}
-	/**
-	 * Determine if this Name is the default...which is NAME_None
-	 * @return true is this is NAME_None
-	 */
-	FORCEINLINE bool IsDefault()
-	{
-		return Name == NAME_None;
-	}
-
-	/**
-	 * Constructor 
-	 * @param InName name to assign
-	 */
-	FNameAnnotation(FName InName) :
-		Name(InName)
-	{
-	}
-
-	/**
-	 * Name for this object
-	 */
-	FName				Name; 
-
-};
-
-template <> struct TIsPODType<FNameAnnotation> { enum { Value = true }; };
-
-
-/**
- * Annotation to relate names to uobjects
- *
- */
-static FUObjectAnnotationDense<FNameAnnotation,false> NameAnnotation;
-
-#endif
-
 /**
  * Constructor used for bootstrapping
  * @param	InClass			possibly NULL, this gives the class of the new object, if known at this time
@@ -148,11 +97,7 @@ UObjectBase::~UObjectBase()
 
 const FName UObjectBase::GetFName() const
 {
-#if EXTERNAL_OBJECT_NAMES
-	return NameAnnotation.GetAnnotation(InternalIndex).Name;
-#else
 	return Name;
-#endif
 }
 
 
@@ -218,11 +163,7 @@ void UObjectBase::DeferredRegister(UClass *UClassStaticClass,const TCHAR* Packag
  */
 void UObjectBase::AddObject(FName InName)
 {
-#if EXTERNAL_OBJECT_NAMES
-	NameAnnotation.AddAnnotation(InternalIndex,InName);
-#else
 	Name = InName;
-#endif
 	GUObjectArray.AllocateUObjectIndex(this);
 	check(InName != NAME_None && InternalIndex >= 0);
 	HashObject(this);
@@ -240,11 +181,7 @@ void UObjectBase::LowLevelRename(FName NewName,UObject *NewOuter)
 	STAT(StatID = TStatId();) // reset the stat id since this thing now has a different name
 	UnhashObject(this);
 	check(InternalIndex >= 0);
-#if EXTERNAL_OBJECT_NAMES
-	NameAnnotation.AddAnnotation(InternalIndex,NewName);
-#else
 	Name = NewName;
-#endif
 	if (NewOuter)
 	{
 		Outer = NewOuter;
@@ -274,7 +211,7 @@ void UObjectBase::SetClass(UClass* NewClass)
  */
 bool UObjectBase::IsValidLowLevel() const
 {
-	if( !this )
+	if( this == nullptr )
 	{
 		UE_LOG(LogUObjectBase, Warning, TEXT("NULL object") );
 		return false;
@@ -293,7 +230,7 @@ bool UObjectBase::IsValidLowLevelFast(bool bRecursive /*= true*/) const
 	const int32 AlignmentCheck = MIN_ALIGNMENT - 1;
 
 	// Check 'this' pointer before trying to access any of the Object's members
-	if (!this || (UPTRINT)this < 0x100)
+	if ((this == nullptr) || (UPTRINT)this < 0x100)
 	{
 		UE_LOG(LogUObjectBase, Error, TEXT("\'this\' pointer is invalid."));
 		return false;

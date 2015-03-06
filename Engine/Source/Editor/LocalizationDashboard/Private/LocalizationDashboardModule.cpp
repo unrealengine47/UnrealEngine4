@@ -1,12 +1,14 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "LocalizationDashboardPrivatePCH.h"
 #include "ILocalizationDashboardModule.h"
 #include "LocalizationDashboard.h"
-#include "ProjectLocalizationSettings.h"
+#include "LocalizationTarget.h"
 #include "SDockTab.h"
 #include "Features/IModularFeatures.h"
 #include "ILocalizationServiceProvider.h"
+#include "LocalizationTargetSetDetailCustomization.h"
+#include "LocalizationTargetDetailCustomization.h"
 
 #define LOCTEXT_NAMESPACE "LocalizationDashboard"
 
@@ -15,7 +17,7 @@ class FLocalizationDashboardModule
 {
 public:
 	FLocalizationDashboardModule()
-		: Settings(GetMutableDefault<UProjectLocalizationSettings>(UProjectLocalizationSettings::StaticClass()))
+		: Settings(GetMutableDefault<ULocalizationTargetSet>(ULocalizationTargetSet::StaticClass()))
 	{
 		
 		for (ULocalizationTarget*& Target : Settings->TargetObjects)
@@ -28,15 +30,33 @@ public:
 	// Begin IModuleInterface interface
 	virtual void StartupModule() override
 	{
-		FLocalizationDashboard::Initialize();
-
 		ServiceProviders = IModularFeatures::Get().GetModularFeatureImplementations<ILocalizationServiceProvider>("LocalizationService");
 		ServiceProviders.Insert(nullptr, 0); // "None"
+
+		FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
+		PropertyModule.RegisterCustomClassLayout("LocalizationTargetSet", FOnGetDetailCustomizationInstance::CreateLambda(
+			[]() -> TSharedRef<IDetailCustomization>
+			{
+				return MakeShareable( new FLocalizationTargetSetDetailCustomization());
+			})
+		);
+		PropertyModule.RegisterCustomClassLayout("LocalizationTarget", FOnGetDetailCustomizationInstance::CreateLambda(
+			[]() -> TSharedRef<IDetailCustomization>
+			{
+				return MakeShareable( new FLocalizationTargetDetailCustomization());
+			})
+		);
+
+		FLocalizationDashboard::Initialize();
 	}
 
 	virtual void ShutdownModule() override
 	{
 		FLocalizationDashboard::Terminate();
+
+		FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
+		PropertyModule.UnregisterCustomClassLayout("LocalizationTarget");
+		PropertyModule.UnregisterCustomClassLayout("LocalizationTargetSet");
 	}
 	// End IModuleInterface interface
 
@@ -56,22 +76,23 @@ public:
 
 	virtual ILocalizationServiceProvider* GetCurrentLocalizationServiceProvider() const
 	{
-		if(Settings->LocalizationServiceProvider == NAME_None)
+		if(CurrentServiceProviderName == NAME_None)
 		{
 			return nullptr;
 		}
 
-		auto ServiceProviderNameComparator = [&](ILocalizationServiceProvider* const LSP) -> bool
+		auto ServiceProviderNameComparator = [this](ILocalizationServiceProvider* const LSP) -> bool
 		{
-			return LSP ? LSP->GetName() == Settings->LocalizationServiceProvider : false;
+			return LSP ? LSP->GetName() == CurrentServiceProviderName : false;
 		};
 		ILocalizationServiceProvider* const * LSP = ServiceProviders.FindByPredicate(ServiceProviderNameComparator);
 		return LSP ? *LSP : nullptr;
 	}
 
 private:
-	TWeakObjectPtr<UProjectLocalizationSettings> Settings;
+	TWeakObjectPtr<ULocalizationTargetSet> Settings;
 	TArray<ILocalizationServiceProvider*> ServiceProviders;
+	FName CurrentServiceProviderName;
 };
 
 IMPLEMENT_MODULE(FLocalizationDashboardModule, "LocalizationDashboard");

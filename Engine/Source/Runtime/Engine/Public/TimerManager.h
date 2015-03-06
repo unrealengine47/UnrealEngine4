@@ -788,4 +788,3 @@ private:
 	/** Set this to GFrameCounter when Timer is ticked. To figure out if Timer has been already ticked or not this frame. */
 	uint64 LastTickedFrame;
 };
-

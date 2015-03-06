@@ -191,13 +191,31 @@ void UModel::Serialize( FArchive& Ar )
 	}
 
 #if WITH_EDITOR
-	Ar << Polys;
-	LeafHulls.BulkSerialize( Ar );
-	Leaves.BulkSerialize( Ar );
-#else
-	if(Ar.IsLoading())
+	bool bHasEditorOnlyData = !Ar.IsFilterEditorOnly();
+	
+	if ( Ar.UE4Ver() < VER_UE4_REMOVE_UNUSED_UPOLYS_FROM_UMODEL )
 	{
-		UPolys* DummyPolys;
+		bHasEditorOnlyData = true;
+	}
+
+	// if we are cooking then don't save this stuff out
+	if ( bHasEditorOnlyData )
+	{
+		Ar << Polys;
+		LeafHulls.BulkSerialize( Ar );
+		Leaves.BulkSerialize( Ar );
+	}
+#else
+	bool bHasEditorOnlyData = !Ar.IsFilterEditorOnly();
+	
+	if ( Ar.UE4Ver() < VER_UE4_REMOVE_UNUSED_UPOLYS_FROM_UMODEL )
+	{
+		bHasEditorOnlyData = true;
+	}
+
+	if((Ar.IsLoading() || Ar.IsSaving()) && bHasEditorOnlyData)
+	{
+		UPolys* DummyPolys = NULL;
 		Ar << DummyPolys;
 
 		TArray<int32> DummyLeafHulls;
@@ -513,6 +531,20 @@ UModel::UModel(const FObjectInitializer& ObjectInitializer)
 {
 
 }
+
+#if WITH_HOT_RELOAD_CTORS
+UModel::UModel(FVTableHelper& Helper)
+	: Super(Helper)
+	, Nodes(this)
+	, Verts(this)
+	, Vectors(this)
+	, Points(this)
+	, Surfs(this)
+	, VertexBuffer(this)
+{
+
+}
+#endif // WITH_HOT_RELOAD_CTORS
 
 void UModel::Initialize(ABrush* Owner, bool InRootOutside)
 {

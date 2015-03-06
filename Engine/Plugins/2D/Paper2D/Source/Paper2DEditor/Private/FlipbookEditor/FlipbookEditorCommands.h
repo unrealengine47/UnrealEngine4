@@ -28,9 +28,15 @@ public:
 
 	// View Menu Commands
 	TSharedPtr<FUICommandInfo> SetShowPivot;
+	TSharedPtr<FUICommandInfo> SetShowSockets;
 
 	// Timeline commands
 	TSharedPtr<FUICommandInfo> AddNewFrame;
 	TSharedPtr<FUICommandInfo> AddNewFrameBefore;
 	TSharedPtr<FUICommandInfo> AddNewFrameAfter;
+
+	// Asset commands
+	TSharedPtr<FUICommandInfo> PickNewSpriteFrame;
+	TSharedPtr<FUICommandInfo> EditSpriteFrame;
+	TSharedPtr<FUICommandInfo> ShowInContentBrowser;
 };

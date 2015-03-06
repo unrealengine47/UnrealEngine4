@@ -212,10 +212,10 @@ class AIMODULE_API UPathFollowingComponent : public UActorComponent, public IAIR
 	FORCEINLINE FAIRequestID GetCurrentRequestId() const { return CurrentRequestId; }
 	FORCEINLINE uint32 GetCurrentPathIndex() const { return MoveSegmentStartIndex; }
 	FORCEINLINE uint32 GetNextPathIndex() const { return MoveSegmentEndIndex; }
-	FORCEINLINE FVector GetCurrentTargetLocation() const { return *CurrentDestination; }
-	FORCEINLINE FVector GetCurrentDirection() const { return MoveSegmentDirection; }
-	FORCEINLINE FBasedPosition GetCurrentTargetLocationBased() const { return CurrentDestination; }
 	FORCEINLINE UObject* GetCurrentCustomLinkOb() const { return CurrentCustomLinkOb.Get(); }
+	FORCEINLINE FVector GetCurrentTargetLocation() const { return *CurrentDestination; }
+	FORCEINLINE FBasedPosition GetCurrentTargetLocationBased() const { return CurrentDestination; }
+	FVector GetCurrentDirection() const;
 
 	/** will be deprecated soon, please use AIController.GetMoveStatus instead! */
 	UFUNCTION(BlueprintCallable, Category="AI|Components|PathFollowing")
@@ -275,6 +275,9 @@ class AIMODULE_API UPathFollowingComponent : public UActorComponent, public IAIR
 
 	void OnPathEvent(FNavigationPath* InvalidatedPath, ENavPathEvent::Type Event);
 
+	/** helper function for sending a path for visual log */
+	static void LogPathHelper(const AActor* LogOwner, FNavPathSharedPtr LogPath, const AActor* LogGoalActor);
+	static void LogPathHelper(const AActor* LogOwner, FNavigationPath* LogPath, const AActor* LogGoalActor);
 
 protected:
 
@@ -414,7 +417,9 @@ protected:
 	bool HasReachedCurrentTarget(const FVector& CurrentLocation) const;
 
 	/** check if moving agent has reached goal defined by cylinder */
+	DEPRECATED(4.8, "Please use override with AgentRadiusMultiplier instead of this.")
 	bool HasReachedInternal(const FVector& GoalLocation, float GoalRadius, float GoalHalfHeight, const FVector& AgentLocation, float RadiusThreshold, bool bSuccessOnRadiusOverlap) const;
+	bool HasReachedInternal(const FVector& GoalLocation, float GoalRadius, float GoalHalfHeight, const FVector& AgentLocation, float RadiusThreshold, float AgentRadiusMultiplier) const;
 
 	/** check if agent is on path */
 	virtual bool IsOnPath() const;

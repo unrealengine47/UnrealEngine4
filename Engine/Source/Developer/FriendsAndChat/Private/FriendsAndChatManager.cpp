@@ -786,26 +786,26 @@ bool FFriendsAndChatManager::IsInJoinableGameSession() const
 	bool bIsJoinable = false;
 
 	if (OnlineSub != nullptr &&
-		OnlineSub->GetIdentityInterface().IsValid())
+		OnlineIdentity.IsValid())
 	{
 		IOnlineSessionPtr SessionInt = OnlineSub->GetSessionInterface();
 		if (SessionInt.IsValid())
-	{
+		{
 			FNamedOnlineSession* Session = SessionInt->GetNamedSession(GameSessionName);
 			if (Session)
-		{
+			{
 				bool bPublicJoinable = false;
 				bool bFriendJoinable = false;
 				bool bInviteOnly = false;
 				if (Session->GetJoinability(bPublicJoinable, bFriendJoinable, bInviteOnly))
-			{
+				{
 					// User's game is joinable in some way if any of this is true (context needs to be handled outside this function)
 					bIsJoinable = bPublicJoinable || bFriendJoinable || bInviteOnly;
 				}
 			}
 		}
 	}
-
+		
 	return bIsJoinable;
 }
 
@@ -817,10 +817,14 @@ bool FFriendsAndChatManager::JoinGameAllowed(FString ClientID)
 	}
 	else
 	{
-		TSharedPtr<IFriendsApplicationViewModel> FriendsApplicationViewModel = *ApplicationViewModels.Find(ClientID);
-		if (FriendsApplicationViewModel.IsValid())
-	{
-			return FriendsApplicationViewModel->IsAppJoinable();
+		TSharedPtr<IFriendsApplicationViewModel>* FriendsApplicationViewModelRawPtr = ApplicationViewModels.Find(ClientID);
+		if (FriendsApplicationViewModelRawPtr != nullptr)
+		{
+			TSharedPtr<IFriendsApplicationViewModel> FriendsApplicationViewModel = *FriendsApplicationViewModelRawPtr;
+			if (FriendsApplicationViewModel.IsValid())
+			{
+				return FriendsApplicationViewModel->IsAppJoinable();
+			}
 		}
 	}
 	return false;
@@ -1735,11 +1739,16 @@ void FFriendsAndChatManager::AcceptGameInvite(const TSharedPtr<IFriendItem>& Fri
 	// notify for further processing of join game request 
 	OnFriendsJoinGame().Broadcast(*FriendItem->GetUniqueID(), FriendItem->GetGameSessionId());
 
-	TSharedPtr<IFriendsApplicationViewModel> FriendsApplicationViewModel = *ApplicationViewModels.Find(FriendItem->GetClientId());
-	if (FriendsApplicationViewModel.IsValid())
+	TSharedPtr<IFriendsApplicationViewModel>* FriendsApplicationViewModelRawPtr = ApplicationViewModels.Find(FriendItem->GetClientId());
+	if (FriendsApplicationViewModelRawPtr != nullptr)
 	{
-		const FString AdditionalCommandline = TEXT("-invitesession=") + FriendItem->GetGameSessionId() + TEXT(" -invitefrom=") + FriendItem->GetUniqueID()->ToString();
-		FriendsApplicationViewModel->LaunchFriendApp(AdditionalCommandline);
+		TSharedPtr<IFriendsApplicationViewModel> FriendsApplicationViewModel = *FriendsApplicationViewModelRawPtr;
+		if (FriendsApplicationViewModel.IsValid())
+		{
+			const FString AdditionalCommandline = TEXT("-invitesession=") + FriendItem->GetGameSessionId() + TEXT(" -invitefrom=") + FriendItem->GetUniqueID()->ToString();
+			FriendsApplicationViewModel->LaunchFriendApp(AdditionalCommandline);
+		}
+
 	}
 
 	Analytics.RecordGameInvite(*FriendItem->GetUniqueID(), TEXT("Social.GameInvite.Accept"));

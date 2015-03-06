@@ -16,6 +16,7 @@ public class SymbolDebuggerTarget : TargetRules
     public override bool GetSupportedPlatforms(ref List<UnrealTargetPlatform> OutPlatforms)
     {
         OutPlatforms.Add(UnrealTargetPlatform.Win64);
+        OutPlatforms.Add(UnrealTargetPlatform.Mac);
         return true;
     }
 
@@ -53,7 +54,7 @@ public class SymbolDebuggerTarget : TargetRules
 
 		// SymbolDebugger doesn't ever compile with the engine linked in
 		UEBuildConfiguration.bCompileAgainstEngine = false;
-		UEBuildConfiguration.bCompileAgainstCoreUObject = false;
+		UEBuildConfiguration.bCompileAgainstCoreUObject = true;
 
 		UEBuildConfiguration.bIncludeADO = true;
 

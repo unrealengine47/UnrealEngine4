@@ -875,7 +875,7 @@ bool FVisualStudioSourceCodeAccessor::AddSourceFiles(const TArray<FString>& Abso
 						{
 							const FString ProjectRelativeSourceFilePath = SourceFile.Mid(ModuleNewSourceFiles.ModuleNameAndPath.ModulePath.Len());
 							TArray<FString> SourceFileParts;
-							ProjectRelativeSourceFilePath.ParseIntoArray(&SourceFileParts, TEXT("/"), true);
+							ProjectRelativeSourceFilePath.ParseIntoArray(SourceFileParts, TEXT("/"), true);
 					
 							if (SourceFileParts.Num() == 0)
 							{
@@ -930,6 +930,13 @@ bool FVisualStudioSourceCodeAccessor::AddSourceFiles(const TArray<FString>& Abso
 							{
 								bSuccess &= true;
 							}
+						}
+
+						// Save the updated project to avoid a message when closing VS
+						CComPtr<EnvDTE::Project> Project;
+						if (SUCCEEDED(ModuleProjectFolder->get_ContainingProject(&Project)) && Project)
+						{
+							Project->Save(nullptr);
 						}
 					}
 					else

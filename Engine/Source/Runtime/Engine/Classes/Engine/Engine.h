@@ -1309,10 +1309,6 @@ public:
 	UPROPERTY(config)
 	float MaxOcclusionPixelsFraction;
 
-	/** Do not use Ageia PhysX hardware */
-	UPROPERTY(globalconfig)
-	uint32 bDisablePhysXHardwareSupport:1;
-
 	/** Whether to pause the game if focus is lost. */
 	UPROPERTY(config)
 	uint32 bPauseOnLossOfFocus:1;
@@ -1915,6 +1911,14 @@ public:
 	}
 
 	/**
+	 * @return true if level streaming should prefer to stream levels from disk instead of duplicating them from editor world
+	 */
+	virtual bool PreferToStreamLevelsInPIE() const
+	{
+		return false;
+	}
+
+	/**
 	 * Enables or disables the ScreenSaver (PC only)
 	 *
 	 * @param bEnable	If true the enable the screen saver, if false disable it.
@@ -2328,14 +2332,35 @@ public:
 	ENetMode GetNetMode(const UWorld *World) const;
 
 	/**
+	 * Creates a UNetDriver with an engine assigned name
+	 *
+	 * @param InWorld the world context
+	 * @param NetDriverDefinition The name of the definition to use
+	 *
+	 * @return new netdriver if successful, nullptr otherwise
+	 */
+	UNetDriver* CreateNetDriver(UWorld *InWorld, FName NetDriverDefinition);
+
+	/**
 	 * Creates a UNetDriver and associates a name with it.
 	 *
+	 * @param InWorld the world context
 	 * @param NetDriverName The name to associate with the driver.
 	 * @param NetDriverDefinition The name of the definition to use
 	 *
 	 * @return True if the driver was created successfully, false if there was an error.
 	 */
 	bool CreateNamedNetDriver(UWorld *InWorld, FName NetDriverName, FName NetDriverDefinition);
+
+	/**
+	 * Creates a UNetDriver and associates a name with it.
+	 *
+	 * @param PendingNetGame the pending net game context
+	 * @param NetDriverName The name to associate with the driver.
+	 * @param NetDriverDefinition The name of the definition to use
+	 *
+	 * @return True if the driver was created successfully, false if there was an error.
+	 */
 	bool CreateNamedNetDriver(UPendingNetGame *PendingNetGame, FName NetDriverName, FName NetDriverDefinition);
 	
 	/**

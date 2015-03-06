@@ -29,7 +29,10 @@ UCameraComponent::UCameraComponent(const FObjectInitializer& ObjectInitializer)
 	FieldOfView = 90.0f;
 	AspectRatio = 1.777778f;
 	OrthoWidth = 512.0f;
+	OrthoNearClipPlane = 0.0f;
+	OrthoFarClipPlane = WORLD_MAX;
 	bConstrainAspectRatio = false;
+	bUseFieldOfViewForLOD = true;
 	PostProcessBlendWeight = 1.0f;
 	bUseControllerViewRotation_DEPRECATED = true; // the previous default value before bUsePawnControlRotation replaced this var.
 	bUsePawnControlRotation = false;
@@ -138,9 +141,19 @@ void UCameraComponent::RefreshVisualRepresentation()
 {
 	if (DrawFrustum != NULL)
 	{
-		DrawFrustum->FrustumAngle = (ProjectionMode == ECameraProjectionMode::Perspective) ? FieldOfView : 0.0f;
-		DrawFrustum->FrustumStartDist = 10.f;
-		DrawFrustum->FrustumEndDist = 1000.f;
+		const float FrustumDrawDistance = 1000.0f;
+		if (ProjectionMode == ECameraProjectionMode::Perspective)
+		{
+			DrawFrustum->FrustumAngle = FieldOfView;
+			DrawFrustum->FrustumStartDist = 10.f;
+			DrawFrustum->FrustumEndDist = DrawFrustum->FrustumStartDist + FrustumDrawDistance;
+		}
+		else
+		{
+			DrawFrustum->FrustumAngle = -OrthoWidth;
+			DrawFrustum->FrustumStartDist = OrthoNearClipPlane;
+			DrawFrustum->FrustumEndDist = FMath::Min(OrthoFarClipPlane - OrthoNearClipPlane, FrustumDrawDistance);
+		}
 		DrawFrustum->FrustumAspectRatio = AspectRatio;
 		DrawFrustum->MarkRenderStateDirty();
 	}
@@ -198,8 +211,11 @@ void UCameraComponent::GetCameraView(float DeltaTime, FMinimalViewInfo& DesiredV
 	DesiredView.FOV = FieldOfView;
 	DesiredView.AspectRatio = AspectRatio;
 	DesiredView.bConstrainAspectRatio = bConstrainAspectRatio;
+	DesiredView.bUseFieldOfViewForLOD = bUseFieldOfViewForLOD;
 	DesiredView.ProjectionMode = ProjectionMode;
 	DesiredView.OrthoWidth = OrthoWidth;
+	DesiredView.OrthoNearClipPlane = OrthoNearClipPlane;
+	DesiredView.OrthoFarClipPlane = OrthoFarClipPlane;
 
 	// See if the CameraActor wants to override the PostProcess settings used.
 	DesiredView.PostProcessBlendWeight = PostProcessBlendWeight;

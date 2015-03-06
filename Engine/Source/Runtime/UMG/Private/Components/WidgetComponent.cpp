@@ -375,56 +375,57 @@ void UWidgetComponent::OnRegister()
 	Super::OnRegister();
 
 #if !UE_SERVER
-
-	if ( Space != EWidgetSpace::Screen )
+	if ( !IsRunningDedicatedServer() )
 	{
-		if ( GetWorld()->IsGameWorld() )
+		if ( Space != EWidgetSpace::Screen )
 		{
-			TSharedPtr<SViewport> GameViewportWidget = GEngine->GetGameViewportWidget();
-
-			if ( GameViewportWidget.IsValid() )
+			if ( GetWorld()->IsGameWorld() )
 			{
-				TSharedPtr<ICustomHitTestPath> CustomHitTestPath = GameViewportWidget->GetCustomHitTestPath();
-				if ( !CustomHitTestPath.IsValid() )
+				TSharedPtr<SViewport> GameViewportWidget = GEngine->GetGameViewportWidget();
+
+				if ( GameViewportWidget.IsValid() )
 				{
-					CustomHitTestPath = MakeShareable(new FWidget3DHitTester(GetWorld()));
-					GameViewportWidget->SetCustomHitTestPath(CustomHitTestPath);
+					TSharedPtr<ICustomHitTestPath> CustomHitTestPath = GameViewportWidget->GetCustomHitTestPath();
+					if ( !CustomHitTestPath.IsValid() )
+					{
+						CustomHitTestPath = MakeShareable(new FWidget3DHitTester(GetWorld()));
+						GameViewportWidget->SetCustomHitTestPath(CustomHitTestPath);
+					}
+
+					TSharedPtr<FWidget3DHitTester> Widget3DHitTester = StaticCastSharedPtr<FWidget3DHitTester>(CustomHitTestPath);
+					if ( Widget3DHitTester->GetWorld() == GetWorld() )
+					{
+						Widget3DHitTester->RegisterWidgetComponent(this);
+					}
+				}
+			}
+
+			if ( !MaterialInstance )
+			{
+				UMaterialInterface* Parent = nullptr;
+				if ( bIsOpaque )
+				{
+					Parent = bIsTwoSided ? OpaqueMaterial : OpaqueMaterial_OneSided;
+				}
+				else
+				{
+					Parent = bIsTwoSided ? TranslucentMaterial : TranslucentMaterial_OneSided;
 				}
 
-				TSharedPtr<FWidget3DHitTester> WidgetHitTester = StaticCastSharedPtr<FWidget3DHitTester>(CustomHitTestPath);
-				if ( WidgetHitTester->GetWorld() == GetWorld() )
-				{
-					WidgetHitTester->RegisterWidgetComponent(this);
-				}
+				MaterialInstance = UMaterialInstanceDynamic::Create(Parent, this);
 			}
 		}
 
-		if ( !MaterialInstance )
-		{
-			UMaterialInterface* Parent = nullptr;
-			if ( bIsOpaque )
-			{
-				Parent = bIsTwoSided ? OpaqueMaterial : OpaqueMaterial_OneSided;
-			}
-			else
-			{
-				Parent = bIsTwoSided ? TranslucentMaterial : TranslucentMaterial_OneSided;
-			}
+		InitWidget();
 
-			MaterialInstance = UMaterialInstanceDynamic::Create(Parent, this);
+		if ( Space != EWidgetSpace::Screen )
+		{
+			if ( !Renderer.IsValid() )
+			{
+				Renderer = FModuleManager::Get().LoadModuleChecked<ISlateRHIRendererModule>("SlateRHIRenderer").CreateSlate3DRenderer();
+			}
 		}
 	}
-
-	InitWidget();
-
-	if ( Space != EWidgetSpace::Screen )
-	{
-		if ( !Renderer.IsValid() )
-		{
-			Renderer = FModuleManager::Get().GetModuleChecked<ISlateRHIRendererModule>("SlateRHIRenderer").CreateSlate3DRenderer();
-		}
-	}
-
 #endif // !UE_SERVER
 }
 
@@ -839,9 +840,9 @@ TArray<FWidgetAndPointer> UWidgetComponent::GetHitWidgetPath( const FHitResult& 
 
 	TArray<FWidgetAndPointer> ArrangedWidgets = HitTestGrid->GetBubblePath( LocalHitLocation, 0.0f, bIgnoreEnabledStatus );
 
-	for( FWidgetAndPointer& Widget : ArrangedWidgets )
+	for( FWidgetAndPointer& ArrangedWidget : ArrangedWidgets )
 	{
-		Widget.PointerPosition = VirtualMouseCoordinate;
+		ArrangedWidget.PointerPosition = VirtualMouseCoordinate;
 	}
 
 	return ArrangedWidgets;

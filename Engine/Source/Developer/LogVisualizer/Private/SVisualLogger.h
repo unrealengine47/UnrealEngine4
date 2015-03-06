@@ -118,12 +118,16 @@ protected:
 
 	TWeakObjectPtr<class AVisualLoggerCameraController> CameraController;
 	TSharedPtr<struct FVisualLoggerCanvasRenderer> VisualLoggerCanvasRenderer;
-	TSharedPtr<IVisualLoggerInterface> VisualLoggerInterface;
 
 	mutable TSharedPtr<SVisualLoggerFilters> VisualLoggerFilters;
 	mutable TSharedPtr<SVisualLoggerView> MainView;
 	mutable TSharedPtr<SVisualLoggerLogsList> LogsList;
 	mutable TSharedPtr<SVisualLoggerStatusView> StatusView;
+
+	bool bPausedLogger;
+	TArray<FVisualLogDevice::FVisualLogEntryItem> OnPauseCacheForEntries;
+
+	bool bGotHistogramData;
 
 	FDelegateHandle DrawOnCanvasDelegateHandle;
 };

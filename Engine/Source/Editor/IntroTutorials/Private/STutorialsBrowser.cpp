@@ -638,7 +638,7 @@ TSharedPtr<FTutorialListEntry_Category> STutorialsBrowser::RebuildCategories()
 		// We're expecting the category string to be in the "A.B.C" format.  We'll split up the string here and form
 		// a proper hierarchy in the UI
 		TArray< FString > SplitCategories;
-		CategoryPath.ParseIntoArray( &SplitCategories, TEXT( "." ), true /* bCullEmpty */ );
+		CategoryPath.ParseIntoArray( SplitCategories, TEXT( "." ), true /* bCullEmpty */ );
 
 		FString CurrentCategoryPath;
 
@@ -697,12 +697,6 @@ void STutorialsBrowser::RebuildTutorials(TSharedPtr<FTutorialListEntry_Category>
 
 	//Ensure that tutorials are loaded into the asset registry before making a list of them.
 	FAssetRegistryModule& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
-	bool IsStillLoading = AssetRegistry.Get().IsLoadingAssets();
-	if (IsStillLoading)
-	{
-		//This can happen if you close the editor with the tutorials browser open, then restart the editor so that the browser opens immediately.
-		return;
-	}
 
 	// rebuild tutorials
 	FARFilter Filter;
@@ -736,7 +730,7 @@ void STutorialsBrowser::RebuildTutorials(TSharedPtr<FTutorialListEntry_Category>
 		// We're expecting the category string to be in the "A.B.C" format.  We'll split up the string here and form
 		// a proper hierarchy in the UI
 		TArray< FString > SplitCategories;
-		CategoryPath.ParseIntoArray( &SplitCategories, TEXT( "." ), true /* bCullEmpty */ );
+		CategoryPath.ParseIntoArray( SplitCategories, TEXT( "." ), true /* bCullEmpty */ );
 
 		FString CurrentCategoryPath;
 

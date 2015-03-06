@@ -235,6 +235,17 @@ void FSceneRenderTargets::Allocate(const FSceneViewFamily& ViewFamily)
 
 	int32 MaxShadowResolution = GetCachedScalabilityCVars().MaxShadowResolution;
 
+	if (ViewFamily.Scene->ShouldUseDeferredRenderer() == false)
+	{
+		// ensure there is always enough space for forward renderer's tiled shadow maps
+		// by reducing the shadow map resolution.
+		int32 MaxShadowDepthBufferDim = FMath::Max(GMaxShadowDepthBufferSizeX, GMaxShadowDepthBufferSizeY);
+		if (MaxShadowResolution * 2 >  MaxShadowDepthBufferDim)
+		{
+			MaxShadowResolution = MaxShadowDepthBufferDim / 2;
+		}
+	}
+
 	int32 TranslucencyLightingVolumeDim = GTranslucencyLightingVolumeDim;
 
 	uint32 Mobile32bpp = !IsMobileHDR() || IsMobileHDR32bpp();
@@ -1196,7 +1207,7 @@ static TAutoConsoleVariable<int32> CVarSetSeperateTranslucencyEnabled(
 	TEXT("Allows to disable the separate translucency feature (all translucency is rendered in separate RT and composited\n")
 	TEXT("after DOF, if not specified otherwise in the material).\n")
 	TEXT(" 0: off (translucency is affected by depth of field)\n")
-	TEXT(" 1: on costs GPU performance and memory but keeps translucency unaffected by Depth of Fieled. (default)"),
+	TEXT(" 1: on costs GPU performance and memory but keeps translucency unaffected by Depth of Field. (default)"),
 	ECVF_RenderThreadSafe);
 
 bool FSceneRenderTargets::IsSeparateTranslucencyActive(const FViewInfo& View) const

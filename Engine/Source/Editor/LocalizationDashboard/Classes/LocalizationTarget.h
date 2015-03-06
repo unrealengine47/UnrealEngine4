@@ -1,4 +1,4 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -62,10 +62,10 @@ struct FLocalizationTargetSettings
 	bool DeleteFiles(const FString* const Culture = nullptr) const;
 };
 
-UCLASS(Within=ProjectLocalizationSettings)
+UCLASS(Within=LocalizationTargetSet)
 class ULocalizationTarget : public UObject
 {
-	GENERATED_UCLASS_BODY()
+	GENERATED_BODY()
 
 public:
 	UPROPERTY(EditAnywhere, Category = "Target")
@@ -73,6 +73,26 @@ public:
 
 public:
 #if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+};
+
+UCLASS(Config=Game, defaultconfig)
+class ULocalizationTargetSet : public UObject
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditAnywhere, Category = "Targets")
+	TArray<ULocalizationTarget*> TargetObjects;
+
+private:
+	UPROPERTY(config)
+	TArray<FLocalizationTargetSettings> Targets;
+
+public:
+#if WITH_EDITOR
+	virtual void PostInitProperties() override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 };

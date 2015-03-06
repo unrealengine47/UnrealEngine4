@@ -141,17 +141,21 @@ public:
 				]
 			]
 			+ SVerticalBox::Slot()
-			.HAlign(HAlign_Center)
 			.AutoHeight()
 			[
 				SNew(SBorder)
 				.Padding(FriendStyle.BorderPadding)
 				.BorderImage(&FriendStyle.FriendsContainerBackground)
-				.Visibility(FFriendsAndChatManager::Get()->HasPermission(TEXT("fortnite:play")) ? EVisibility::Visible : EVisibility::Collapsed)
+				.Visibility(this, &SFriendsContainerImpl::GetGlobalChatButtonVisibility)
 				[
-					SNew(SButton)
-					.ButtonStyle(&FriendStyle.GlobalChatButtonStyle)
-					.OnClicked(this, &SFriendsContainerImpl::OnGlobalChatButtonClicked)
+					SNew(SVerticalBox)
+					+ SVerticalBox::Slot()
+					.HAlign(HAlign_Center)
+					[
+						SNew(SButton)
+						.ButtonStyle(&FriendStyle.GlobalChatButtonStyle)
+						.OnClicked(this, &SFriendsContainerImpl::OnGlobalChatButtonClicked)
+					]
 				]
 			]
 			+ SVerticalBox::Slot()
@@ -267,6 +271,11 @@ private:
 			}
 		}
 		return EVisibility::Visible;
+	}
+	
+	EVisibility GetGlobalChatButtonVisibility() const
+	{
+		return FFriendsAndChatManager::Get()->GetChatViewModel()->IsGlobalChatEnabled() ? EVisibility::Visible : EVisibility::Collapsed;
 	}
 
 	FReply OnGlobalChatButtonClicked()

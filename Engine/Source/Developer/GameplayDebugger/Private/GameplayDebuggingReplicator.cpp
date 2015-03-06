@@ -23,13 +23,14 @@ AGameplayDebuggingReplicator::AGameplayDebuggingReplicator(const FObjectInitiali
 	, LastDrawAtFrame(0)
 	, PlayerControllersUpdateDelay(0)
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	// Structure to hold one-time initialization
 	struct FConstructorStatics
 	{
 		ConstructorHelpers::FObjectFinderOptional<UTexture2D> RedIcon;
 		ConstructorHelpers::FObjectFinderOptional<UTexture2D> GreenIcon;
 
-		// both icons are needed to debug AI with Behavior Trees in Fortnite
+		// both icons are needed to debug AI
 		FConstructorStatics()
 			: RedIcon(TEXT("/Engine/EngineResources/AICON-Red.AICON-Red"))
 			, GreenIcon(TEXT("/Engine/EngineResources/AICON-Green.AICON-Green"))
@@ -37,6 +38,9 @@ AGameplayDebuggingReplicator::AGameplayDebuggingReplicator(const FObjectInitiali
 		}
 	};
 	static FConstructorStatics ConstructorStatics;
+
+	DefaultTexture_Red = ConstructorStatics.RedIcon.Get();
+	DefaultTexture_Green = ConstructorStatics.GreenIcon.Get();
 
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = false;
@@ -84,6 +88,7 @@ AGameplayDebuggingReplicator::AGameplayDebuggingReplicator(const FObjectInitiali
 
 		AGameplayDebuggingReplicator::OnSelectionChangedDelegate.AddUObject(this, &AGameplayDebuggingReplicator::ServerSetActorToDebug);
 	}
+#endif //!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 }
 
 void AGameplayDebuggingReplicator::GetLifetimeReplicatedProps(TArray< FLifetimeProperty > & OutLifetimeProps) const
@@ -98,7 +103,7 @@ void AGameplayDebuggingReplicator::GetLifetimeReplicatedProps(TArray< FLifetimeP
 #endif
 }
 
-bool AGameplayDebuggingReplicator::IsNetRelevantFor(const APlayerController* RealViewer, const AActor* Viewer, const FVector& SrcLocation) const
+bool AGameplayDebuggingReplicator::IsNetRelevantFor(const APlayerController* RealViewer, const AActor* ViewTarget, const FVector& SrcLocation) const
 {
 	return LocalPlayerOwner == RealViewer;
 }
@@ -106,7 +111,9 @@ bool AGameplayDebuggingReplicator::IsNetRelevantFor(const APlayerController* Rea
 void AGameplayDebuggingReplicator::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	SetActorTickEnabled(true);
+#endif
 }
 
 #if WITH_EDITOR
@@ -114,6 +121,7 @@ void AGameplayDebuggingReplicator::PostEditChangeProperty(FPropertyChangedEvent&
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	if (!PropertyChangedEvent.Property)
 	{
 		return;
@@ -152,15 +160,17 @@ void AGameplayDebuggingReplicator::PostEditChangeProperty(FPropertyChangedEvent&
 		GetDebugComponent()->SetEQSIndex(ActiveEQSIndex);
 	}
 #endif // WITH_EQS
-
 #undef CHECK_AND_UPDATE_FLAGS
+
+#endif //!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 }
-#endif
+#endif //WITH_EDITOR
 
 void AGameplayDebuggingReplicator::BeginPlay()
 {
 	Super::BeginPlay();
 
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	if (Role == ROLE_Authority)
 	{
 		bReplicates = false;
@@ -257,38 +267,72 @@ void AGameplayDebuggingReplicator::BeginPlay()
 			}
 		}
 	}
+
+	if (bAutoActivate)
+	{
+		OnRep_AutoActivate();
+	}
+
+#endif //!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 }
 
-void AGameplayDebuggingReplicator::OnRep_AutoActivate()
+void AGameplayDebuggingReplicator::PostNetInit()
 {
+	Super::PostNetInit();
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+	if (bAutoActivate)
+	{
+		OnRep_AutoActivate();
+	}
+#endif
+}
+
+void AGameplayDebuggingReplicator::ClientAutoActivate_Implementation()
+{
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	// we are already replicated so let's activate tool
 	if (GetWorld() && GetNetMode() == ENetMode::NM_Client && !IsToolCreated() && !IsGlobalInWorld())
 	{
 		CreateTool();
 		EnableTool();
 	}
+#endif
+}
+
+void AGameplayDebuggingReplicator::OnRep_AutoActivate()
+{
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+	// we are already replicated so let's activate tool
+	if (GetWorld() && GetNetMode() == ENetMode::NM_Client && !IsToolCreated() && !IsGlobalInWorld())
+	{
+		CreateTool();
+		EnableTool();
+	}
+#endif
 }
 
 UGameplayDebuggingComponent* AGameplayDebuggingReplicator::GetDebugComponent()
 {
-	if (!DebugComponent && DebugComponentClass.IsValid() && GetNetMode() < ENetMode::NM_Client)
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+	if (IsPendingKill() == false && !DebugComponent && DebugComponentClass.IsValid() && GetNetMode() < ENetMode::NM_Client)
 	{
 		DebugComponent = NewObject<UGameplayDebuggingComponent>(this, DebugComponentClass.Get());
 		DebugComponent->SetIsReplicated(true);
 		DebugComponent->RegisterComponent();
 		DebugComponent->Activate();
 	}
-
+#endif
 	return DebugComponent;
 }
 
 class UNetConnection* AGameplayDebuggingReplicator::GetNetConnection()
 {
-	if (LocalPlayerOwner)
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+	if (LocalPlayerOwner && LocalPlayerOwner->IsPendingKill() == false && IsPendingKill() == false)
 	{
 		return LocalPlayerOwner->GetNetConnection();
 	}
-
+#endif
 	return NULL;
 }
 
@@ -299,10 +343,12 @@ bool AGameplayDebuggingReplicator::ClientEnableTargetSelection_Validate(bool, AP
 
 void AGameplayDebuggingReplicator::ClientEnableTargetSelection_Implementation(bool bEnable, APlayerController* Context)
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	if (GetDebugComponent())
 	{
 		GetDebugComponent()->ClientEnableTargetSelection(bEnable);
 	}
+#endif
 }
 
 bool AGameplayDebuggingReplicator::ClientReplicateMessage_Validate(class AActor* Actor, uint32 InMessage, uint32 DataView)
@@ -338,11 +384,16 @@ void AGameplayDebuggingReplicator::ServerReplicateMessage_Implementation(class  
 
 bool AGameplayDebuggingReplicator::IsDrawEnabled()
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	return bEnabledDraw && GetWorld() && GetNetMode() != ENetMode::NM_DedicatedServer;
+#else
+	return false;
+#endif
 }
 
 void AGameplayDebuggingReplicator::EnableDraw(bool bEnable)
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	bEnabledDraw = bEnable;
 
 	if (AHUD* const GameHUD = LocalPlayerOwner ? LocalPlayerOwner->GetHUD() : NULL)
@@ -357,6 +408,7 @@ void AGameplayDebuggingReplicator::EnableDraw(bool bEnable)
 		DebugComponent->EnableClientEQSSceneProxy(bEnable && bEnabledEQSView ? true : false);
 		DebugComponent->MarkRenderStateDirty();
 	}
+#endif
 }
 
 bool AGameplayDebuggingReplicator::IsToolCreated()
@@ -367,6 +419,7 @@ bool AGameplayDebuggingReplicator::IsToolCreated()
 
 void AGameplayDebuggingReplicator::CreateTool()
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	if (GetWorld() && GetNetMode() != ENetMode::NM_DedicatedServer)
 	{
 		UGameplayDebuggingControllerComponent*  GDC = FindComponentByClass<UGameplayDebuggingControllerComponent>();
@@ -382,10 +435,12 @@ void AGameplayDebuggingReplicator::CreateTool()
 			GDC->RegisterComponent();
 		}
 	}
+#endif
 }
 
 void AGameplayDebuggingReplicator::EnableTool()
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	if (GetWorld() && GetNetMode() != ENetMode::NM_DedicatedServer)
 	{
 		UGameplayDebuggingControllerComponent*  GDC = FindComponentByClass<UGameplayDebuggingControllerComponent>();
@@ -396,12 +451,14 @@ void AGameplayDebuggingReplicator::EnableTool()
 			GDC->OnActivationKeyReleased();
 		}
 	}
+#endif
 }
 
 void AGameplayDebuggingReplicator::TickActor(float DeltaTime, enum ELevelTick TickType, FActorTickFunction& ThisTickFunction)
 {
 	Super::TickActor(DeltaTime, TickType, ThisTickFunction);
 
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	UWorld* World = GetWorld();
 	if (!IsGlobalInWorld() || !World || GetNetMode() == ENetMode::NM_Client || !IGameplayDebugger::IsAvailable())
 	{
@@ -429,6 +486,7 @@ void AGameplayDebuggingReplicator::TickActor(float DeltaTime, enum ELevelTick Ti
 		}
 		PlayerControllersUpdateDelay = 5;
 	}
+#endif
 }
 
 bool AGameplayDebuggingReplicator::ServerSetActorToDebug_Validate(AActor* InActor)
@@ -438,6 +496,7 @@ bool AGameplayDebuggingReplicator::ServerSetActorToDebug_Validate(AActor* InActo
 
 void AGameplayDebuggingReplicator::ServerSetActorToDebug_Implementation(AActor* InActor)
 { 
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	if (LastSelectedActorToDebug != InActor)
 	{
 		LastSelectedActorToDebug = InActor;
@@ -449,15 +508,16 @@ void AGameplayDebuggingReplicator::ServerSetActorToDebug_Implementation(AActor* 
 		}
 	}
 
-	if (UGameplayDebuggingComponent* DebugComponent = GetDebugComponent())
+	if (UGameplayDebuggingComponent* DebuggingComponent = GetDebugComponent())
 	{
-		DebugComponent->SetActorToDebug(InActor);
+		DebuggingComponent->SetActorToDebug(InActor);
 	}
+#endif
 }
 
 void AGameplayDebuggingReplicator::OnDebugAIDelegate(class UCanvas* Canvas, class APlayerController* PC)
 {
-#if WITH_EDITOR
+#if WITH_EDITOR && !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	if (!GIsEditor)
 	{
 		return;
@@ -488,18 +548,16 @@ void AGameplayDebuggingReplicator::OnDebugAIDelegate(class UCanvas* Canvas, clas
 
 	EnableDraw(true);
 	UWorld* World = GetWorld();
-	if (World && GetDebugComponent() && GetDebugComponent()->GetOwnerRole() == ROLE_Authority)
+	UGameplayDebuggingComponent* DebuggingComponent = GetDebugComponent();
+	if (World && DebuggingComponent && DebuggingComponent->GetOwnerRole() == ROLE_Authority)
 	{
 		UGameplayDebuggingControllerComponent*  GDC = FindComponentByClass<UGameplayDebuggingControllerComponent>();
 		TArray<int32> OryginalReplicateViewDataCounters;
 
-		if (UGameplayDebuggingComponent* DebugComponent = GetDebugComponent())
+		OryginalReplicateViewDataCounters = DebuggingComponent->ReplicateViewDataCounters;
+		for (uint32 Index = 0; Index < EAIDebugDrawDataView::MAX; ++Index)
 		{
-			OryginalReplicateViewDataCounters = DebugComponent->ReplicateViewDataCounters;
-			for (uint32 Index = 0; Index < EAIDebugDrawDataView::MAX; ++Index)
-			{
-				DebugComponent->ReplicateViewDataCounters[Index] = GameplayDebuggerSettings(this).CheckFlag((EAIDebugDrawDataView::Type)Index) ? 1 : 0;
-			}
+			DebuggingComponent->ReplicateViewDataCounters[Index] = GameplayDebuggerSettings(this).CheckFlag((EAIDebugDrawDataView::Type)Index) ? 1 : 0;
 		}
 
 		// looks like Simulate in UE4 Editor - let's find selected Pawn to debug
@@ -515,8 +573,8 @@ void AGameplayDebuggingReplicator::OnDebugAIDelegate(class UCanvas* Canvas, clas
 			}
 
 			//We needs to collect data manually in Simulate
-			GetDebugComponent()->SetActorToDebug(NewTarget);
-			GetDebugComponent()->CollectDataToReplicate(NewTarget->IsSelected());
+			DebuggingComponent->SetActorToDebug(NewTarget);
+			DebuggingComponent->CollectDataToReplicate(NewTarget->IsSelected());
 			DrawDebugData(Canvas, PC);
 		}
 
@@ -524,20 +582,17 @@ void AGameplayDebuggingReplicator::OnDebugAIDelegate(class UCanvas* Canvas, clas
 		ServerSetActorToDebug(FullSelectedTarget);
 		if (FullSelectedTarget)
 		{
-			GetDebugComponent()->CollectDataToReplicate(true);
-			GetDebugComponent()->SetEQSIndex(ActiveEQSIndex);
+			DebuggingComponent->CollectDataToReplicate(true);
+			DebuggingComponent->SetEQSIndex(ActiveEQSIndex);
 			DrawDebugData(Canvas, PC);
 		}
 
 		if (GetSelectedActorToDebug() != OldActor)
 		{
-			GetDebugComponent()->MarkRenderStateDirty();
+			DebuggingComponent->MarkRenderStateDirty();
 		}
 
-		if (UGameplayDebuggingComponent* DebugComponent = GetDebugComponent())
-		{
-			DebugComponent->ReplicateViewDataCounters = OryginalReplicateViewDataCounters;
-		}
+		DebuggingComponent->ReplicateViewDataCounters = OryginalReplicateViewDataCounters;
 
 	}
 #endif
@@ -589,10 +644,12 @@ void AGameplayDebuggingReplicator::DrawDebugDataDelegate(class UCanvas* Canvas, 
 	}
 
 	DrawDebugData(Canvas, PC);
+#endif
 }
 
 void AGameplayDebuggingReplicator::DrawDebugData(class UCanvas* Canvas, class APlayerController* PC)
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	if (!LocalPlayerOwner)
 	{
 		return;
@@ -628,6 +685,7 @@ void AGameplayDebuggingReplicator::DrawDebugData(class UCanvas* Canvas, class AP
 
 void AGameplayDebuggingReplicator::DebugNextPawn(UClass* CompareClass, APawn* CurrentPawn)
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	APawn* LastSeen = nullptr;
 	APawn* FirstSeen = nullptr;
 	// Search through the list looking for the next one of this type
@@ -653,10 +711,12 @@ void AGameplayDebuggingReplicator::DebugNextPawn(UClass* CompareClass, APawn* Cu
 	{
 		ServerSetActorToDebug(FirstSeen);
 	}
+#endif
 }
 
 void AGameplayDebuggingReplicator::DebugPrevPawn(UClass* CompareClass, APawn* CurrentPawn)
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	APawn* LastSeen = nullptr;
 	APawn* PrevSeen = nullptr;
 	APawn* FirstSeen = nullptr;
@@ -694,4 +754,5 @@ void AGameplayDebuggingReplicator::DebugPrevPawn(UClass* CompareClass, APawn* Cu
 	{
 		ServerSetActorToDebug(PrevSeen);
 	}
+#endif
 }

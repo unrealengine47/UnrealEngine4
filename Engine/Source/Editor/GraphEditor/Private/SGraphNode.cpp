@@ -69,7 +69,7 @@ void SNodeTitle::RebuildWidget()
 	// Break the title into lines
 	TArray<FString> Lines;
 	const FString CachedTitleString = CachedTitle.ToString().Replace(TEXT("\r"), TEXT(""));
-	CachedTitleString.ParseIntoArray(&Lines, TEXT("\n"), false);
+	CachedTitleString.ParseIntoArray(Lines, TEXT("\n"), false);
 
 	if (Lines.Num())
 	{
@@ -1363,6 +1363,7 @@ TSharedRef<SWidget> SGraphNode::AddPinButtonContent(FText PinText, FText PinTool
 	.ContentPadding(0.0f)
 	.ButtonStyle( FEditorStyle::Get(), "NoBorder" )
 	.OnClicked( this, &SGraphNode::OnAddPin )
+	.IsEnabled( this, &SGraphNode::IsNodeEditable )
 	.ToolTipText(PinTooltipText)
 	.ToolTip(Tooltip)
 	.Visibility(this, &SGraphNode::IsAddPinButtonVisible)

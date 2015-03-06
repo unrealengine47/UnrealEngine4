@@ -920,6 +920,11 @@ void FEdModeFoliage::RemoveInstancesForBrush(UWorld* InWorld, const UFoliageType
 		}
 		
 		int32 InstancesToRemove = FMath::RoundToInt((float)(PotentialInstancesToRemove.Num() - DesiredInstanceCount) * Pressure);
+		if (InstancesToRemove <= 0)
+		{
+			continue;
+		}
+		
 		int32 InstancesToKeep = PotentialInstancesToRemove.Num() - InstancesToRemove;
 		if (InstancesToKeep > 0)
 		{
@@ -979,6 +984,11 @@ void FEdModeFoliage::SelectInstancesForBrush(UWorld* InWorld, const UFoliageType
 
 		MeshInfo->SelectInstances(IFA, bSelect, Instances);
 	}
+}
+
+void FEdModeFoliage::SelectInstances(const UFoliageType* Settings, bool bSelect)
+{
+	SelectInstances(GetWorld(), Settings, bSelect);
 }
 
 void FEdModeFoliage::SelectInstances(UWorld* InWorld, bool bSelect)
@@ -2632,7 +2642,7 @@ void FFoliageUISettings::Load()
 	if (GConfig->GetString(TEXT("FoliageEdit"), TEXT("WindowPosition"), WindowPositionString, GEditorUserSettingsIni))
 	{
 		TArray<FString> PositionValues;
-		if (WindowPositionString.ParseIntoArray(&PositionValues, TEXT(","), true) == 4)
+		if (WindowPositionString.ParseIntoArray(PositionValues, TEXT(","), true) == 4)
 		{
 			WindowX = FCString::Atoi(*PositionValues[0]);
 			WindowY = FCString::Atoi(*PositionValues[1]);

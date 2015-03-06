@@ -1810,6 +1810,13 @@ public:
 	void MoveSelectedActorsToLevel( ULevel* InLevel );
 
 	/**
+	 * Moves selected foliage instances to the target level.
+	 *
+	 * @param	InLevel		The target level.
+	 */
+	void MoveSelectedFoliageToLevel( ULevel* InTargetLevel );
+
+	/**
 	 * Checks to see whether it's possible to perform a copy operation on the selected actors.
 	 *
 	 * @param InWorld		World to get the selected actors from
@@ -2255,6 +2262,9 @@ public:
 	 */
 	FWorldContext &GetEditorWorldContext(bool bEnsureIsGWorld = false);
 
+	/** Returns the WorldContext for the PIE world.
+	*/
+	FWorldContext* GetPIEWorldContext();
 
 	/** 
 	 * mostly done to check if PIE is being set up, go GWorld is going to change, and it's not really _the_G_World_
@@ -2765,8 +2775,7 @@ private:
 	/** Gets the init values for worlds opened via Map_Load in the editor */
 	UWorld::InitializationValues GetEditorWorldInitializationValues() const;
 
-	FDelegateHandle OnLoginPIECompleteDelegateHandle;
-
+	/** Mapping of delegate handles for each online Login() call while in flight */
 	TMap<FName, FDelegateHandle> OnLoginPIECompleteDelegateHandlesForPIEInstances;
 
 public:

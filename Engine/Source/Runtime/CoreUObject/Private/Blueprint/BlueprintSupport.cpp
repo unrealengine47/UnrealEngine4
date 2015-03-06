@@ -3,6 +3,7 @@
 #include "CoreUObjectPrivate.h"
 #include "UObject/LinkerPlaceholderClass.h"
 #include "UObject/LinkerPlaceholderExportObject.h"
+#include "UObject/LinkerPlaceholderFunction.h"
 #include "Linker.h"
 #include "PropertyTag.h"
 #include "UObject/StructScriptLoader.h"
@@ -357,6 +358,34 @@ bool ULinkerLoad::DeferPotentialCircularImport(const int32 Index)
 
 					Import.XObject = Placeholder;
 				}
+				else if (ImportClass->IsChildOf<UFunction>())
+				{		
+					UObject* OuterObject = nullptr;
+					if (Import.OuterIndex.IsImport())
+					{
+						const int32 OuterImportIndex = Import.OuterIndex.ToImport();
+						FObjectImport& OuterImport = ImportMap[OuterImportIndex];
+						if (nullptr == OuterImport.XObject)
+						{
+							DeferPotentialCircularImport(OuterImportIndex);
+						}
+						OuterObject = OuterImport.XObject;
+					}
+					const bool bOuterPlaceholderExists = OuterObject && OuterObject->IsA<ULinkerPlaceholderClass>();
+					if (bOuterPlaceholderExists && (nullptr == Import.XObject))
+					{
+						UClass*   PlaceholderType = ULinkerPlaceholderFunction::StaticClass();
+
+						FName PlaceholderName(*FString::Printf(TEXT("PLACEHOLDER-FUNCTION_%s"), *Import.ObjectName.ToString()));
+						PlaceholderName = MakeUniqueObjectName(OuterObject, PlaceholderType, PlaceholderName);
+
+						ULinkerPlaceholderFunction* Placeholder = NewObject<ULinkerPlaceholderFunction>(OuterObject, PlaceholderType, PlaceholderName, RF_Public | RF_Transient);
+						Placeholder->ImportIndex = Index;
+						Placeholder->Bind();
+						Placeholder->StaticLink(/*bRelinkExistingProperties =*/true);
+						Import.XObject = Placeholder;
+					}
+				}
 			}
 		}
 
@@ -698,6 +727,29 @@ void ULinkerLoad::ResolveDeferredDependencies(UStruct* LoadStruct)
 				//       to the same function (for the same placeholder)
 				ResolveDependencyPlaceholder(PlaceholderClass, Cast<UClass>(LoadStruct));
 			}
+			else if (ULinkerPlaceholderFunction* PlaceholderFunction = Cast<ULinkerPlaceholderFunction>(Import.XObject))
+			{
+				DEFERRED_DEPENDENCY_CHECK(PlaceholderFunction->ImportIndex == ImportIndex);
+
+				auto OwnerClass = PlaceholderFunction->GetOwnerClass();
+				ResolveDependencyPlaceholder(OwnerClass, Cast<UClass>(LoadStruct));
+
+				UFunction* RealFuncObj = nullptr;
+				if ((Import.XObject != nullptr) && (Import.XObject != PlaceholderFunction))
+				{
+					RealFuncObj = CastChecked<UFunction>(Import.XObject);
+				}
+				else
+				{
+					Import.XObject = nullptr;
+					RealFuncObj = CastChecked<UFunction>(CreateImport(ImportIndex), ECastCheckedType::NullAllowed);
+				}
+				ensure(RealFuncObj != PlaceholderFunction);
+				if (RealFuncObj)
+				{
+					PlaceholderFunction->ReplaceTrackedReferences(RealFuncObj);
+				}
+			}
 			else if (UScriptStruct* StructObj = Cast<UScriptStruct>(Import.XObject))
 			{
 				// in case this is a user defined struct, we have to resolve any 
@@ -746,7 +798,7 @@ void ULinkerLoad::ResolveDeferredDependencies(UStruct* LoadStruct)
 		{
 			// there shouldn't be any deferred dependencies (belonging to this 
 			// linker) that need to be resolved by this point
-			DEFERRED_DEPENDENCY_CHECK(!PlaceholderClass->HasReferences() && PlaceholderClass->IsPendingKill());
+			DEFERRED_DEPENDENCY_CHECK(!PlaceholderClass->HasReferences());
 		}
 	}
 #endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
@@ -836,7 +888,7 @@ int32 ULinkerLoad::ResolveDependencyPlaceholder(UClass* PlaceholderIn, UClass* R
 	DEFERRED_DEPENDENCY_CHECK( (ReplacementCount > 0) || PlaceholderClass->HasReferences() || PlaceholderClass->HasBeenResolved() );
 
 	ReplacementCount += PlaceholderClass->ReplaceTrackedReferences(RealClassObj);
-	PlaceholderClass->MarkPendingKill(); // @TODO: ensure these are properly GC'd
+	// PlaceholderClass->MarkPendingKill(); // @TODO: ensure these are properly GC'd
 
 #if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 	UObject* PlaceholderObj = PlaceholderClass;
@@ -1115,6 +1167,24 @@ void ULinkerLoad::ResolveDeferredExports(UClass* LoadClass)
 			BlueprintCDO->SetLinker(this, DeferredCDOIndex, /*bShouldDetatchExisting =*/false);
 			BlueprintCDO->SetFlags(OldFlags);
 		}
+
+		// Here we could make sure we're up to date with our parent. Alternatively we could guaranatee that
+		// SerializeDefaultObjects was called before we construct other default objects, but that is not easy to
+		// do. Simply moving the call to SerializeDefaultObject next to the call to create the CDO means
+		// the stream order changes...
+		DEFERRED_DEPENDENCY_CHECK(BlueprintCDO->GetClass() == LoadClass);
+		if (BlueprintCDO->HasAnyFlags(RF_NeedLoad) &&
+			!LoadClass->GetSuperClass()->HasAnyFlags(RF_Native))
+		{
+			for (UProperty* P = LoadClass->PropertyLink; P; P = P->PropertyLinkNext)
+			{
+				if (P->IsInContainer(LoadClass->GetSuperClass()))
+				{
+					P->CopyCompleteValue_InContainer(BlueprintCDO, LoadClass->GetSuperClass()->GetDefaultObject(false));
+				}
+			}
+		}
+
 		// should load the CDO (ensuring that it has been serialized in by the 
 		// time we get to class regeneration)
 		//

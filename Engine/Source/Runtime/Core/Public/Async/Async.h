@@ -23,6 +23,27 @@ enum class EAsyncExecution
 
 
 /**
+ * Template for setting a promise's value from a function.
+ */
+template<typename ResultType>
+inline void SetPromise(TPromise<ResultType>& Promise, TFunction<ResultType()> Function)
+{
+	Promise.SetValue(Function());
+}
+
+
+/**
+ * Template for setting a promise's value from a function (specialization for void results).
+ */
+template<>
+inline void SetPromise(TPromise<void>& Promise, TFunction<void()> Function)
+{
+	Function();
+	Promise.SetValue();
+}
+
+
+/**
  * Base class for asynchronous functions that are executed in the Task Graph system.
  */
 class FAsyncTaskBase
@@ -91,7 +112,7 @@ public:
 	 */
 	void DoTask(ENamedThreads::Type CurrentThread, const FGraphEventRef& MyCompletionGraphEvent)
 	{
-		Promise.SetValue(Function());
+		SetPromise(Promise, Function);
 	}
 
 	/**
@@ -140,17 +161,7 @@ public:
 
 	// FRunnable interface
 
-	virtual uint32 Run() override
-	{
-		Promise.SetValue(Function());
-
-		FRunnableThread* Thread = ThreadFuture.Get();
-
-		delete Thread;
-		delete this;
-
-		return 0;
-	}
+	virtual uint32 Run() override;
 
 private:
 
@@ -191,7 +202,7 @@ public:
 
 	virtual void DoThreadedWork() override
 	{
-		Promise.SetValue(Function());
+		SetPromise(Promise, Function);
 		delete this;
 	}
 
@@ -209,6 +220,15 @@ private:
 	TPromise<ResultType> Promise;
 };
 
+/** Helper struct used to generate unique ids for the stats. */
+struct FAsyncIndex
+{
+	CORE_API static int32 GetNext()
+	{
+		static FThreadSafeCounter TAsyncThreadIndex;
+		return TAsyncThreadIndex.Add( 1 );
+	}
+};
 
 /**
  * Executes a given function asynchronously.
@@ -266,9 +286,8 @@ TFuture<ResultType> Async(EAsyncExecution Execution, TFunction<ResultType()> Fun
 		{
 			TPromise<FRunnableThread*> ThreadPromise;
 			TAsyncRunnable<ResultType>* Runnable = new TAsyncRunnable<ResultType>(MoveTemp(Function), MoveTemp(Promise), ThreadPromise.GetFuture());
-
-			static FThreadSafeCounter TAsyncThreadIndex;
-			const FString TAsyncThreadName = FString::Printf( TEXT( "TAsync %d" ), TAsyncThreadIndex.Add(1) );
+			
+			const FString TAsyncThreadName = FString::Printf( TEXT( "TAsync %d" ), FAsyncIndex::GetNext() );
 			FRunnableThread* RunnableThread = FRunnableThread::Create(Runnable, *TAsyncThreadName);
 
 			check(RunnableThread != nullptr);
@@ -288,4 +307,21 @@ TFuture<ResultType> Async(EAsyncExecution Execution, TFunction<ResultType()> Fun
 	}
 
 	return MoveTemp(Future);
+}
+
+
+template<typename ResultType> uint32 TAsyncRunnable<ResultType>::Run()
+{
+	SetPromise(Promise, Function);
+
+	FRunnableThread* Thread = ThreadFuture.Get();
+
+	// Enqueue deletion of the thread to a different thread.
+	Async<void>( EAsyncExecution::TaskGraph, [=]()
+	{
+		delete Thread;
+		delete this;
+	} );
+
+	return 0;
 }

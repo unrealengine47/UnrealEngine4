@@ -198,9 +198,9 @@ protected:
 	uint32 bUsesTransformVector : 1;
 	// True if the current property requires last frame's information
 	uint32 bCompilingPreviousFrame : 1;
-	uint32 bUsesPixelDepthOffset : 1;
 	/** True if material will output accurate velocities during base pass rendering. */
 	uint32 bOutputsBasePassVelocities : 1;
+	uint32 bUsesPixelDepthOffset : 1;
 	/** Tracks the number of texture coordinates used by this material. */
 	uint32 NumUserTexCoords;
 	/** Tracks the number of texture coordinates used by the vertex shader in this material. */
@@ -243,8 +243,8 @@ public:
 	,	bUsesParticleColor(false)
 	,	bUsesTransformVector(false)
 	,	bCompilingPreviousFrame(false)
-	,	bUsesPixelDepthOffset(false)
 	,	bOutputsBasePassVelocities(true)
+	,	bUsesPixelDepthOffset(false)
 	,	NumUserTexCoords(0)
 	,	NumUserVertexTexCoords(0)
 	{}
@@ -337,18 +337,21 @@ public:
 				Chunk[CompiledMP_PrevWorldPositionOffset] = Material->CompilePropertyAndSetMaterialProperty(MP_WorldPositionOffset, this, SF_Vertex, true);
 			}
 
+			Chunk[MP_PixelDepthOffset] = Material->CompilePropertyAndSetMaterialProperty(MP_PixelDepthOffset,this);
+
+			// No more calls to non-vertex shader CompilePropertyAndSetMaterialProperty beyond this point
+			const uint32 SavedNumUserTexCoords = NumUserTexCoords;
+
 			for (uint32 CustomUVIndex = MP_CustomizedUVs0; CustomUVIndex <= MP_CustomizedUVs7; CustomUVIndex++)
 			{
 				// Only compile custom UV inputs for UV channels requested by the pixel shader inputs
 				// Any unconnected inputs will have a texcoord generated for them in Material->CompileProperty, which will pass through the vertex (uncustomized) texture coordinates
 				// Note: this is using NumUserTexCoords, which is set by translating all the pixel properties above
-				if (CustomUVIndex - MP_CustomizedUVs0 < NumUserTexCoords)
+				if (CustomUVIndex - MP_CustomizedUVs0 < SavedNumUserTexCoords)
 				{
 					Chunk[CustomUVIndex] = Material->CompilePropertyAndSetMaterialProperty((EMaterialProperty)CustomUVIndex, this);
 				}
 			}
-
-			Chunk[MP_PixelDepthOffset] = Material->CompilePropertyAndSetMaterialProperty(MP_PixelDepthOffset,this);
 
 			bUsesPixelDepthOffset = IsMaterialPropertyUsed(MP_PixelDepthOffset, Chunk[MP_PixelDepthOffset], FLinearColor(0, 0, 0, 0), 1);
 			const bool bUsesWorldPositionOffset = IsMaterialPropertyUsed(MP_WorldPositionOffset, Chunk[MP_WorldPositionOffset], FLinearColor(0, 0, 0, 0), 3);
@@ -415,6 +418,9 @@ public:
 					}
 				}
 			}
+
+			// Catch any modifications to NumUserTexCoords that will not seen by customized UVs
+			check(SavedNumUserTexCoords == NumUserTexCoords);
 
 			ResourcesString = TEXT("");
 

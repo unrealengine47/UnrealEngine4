@@ -95,8 +95,8 @@ public:
 	void OnDragOut(FCocoaWindow* Window);
 	void OnDragDrop(FCocoaWindow* Window);
 
-	void OnWindowDidBecomeKey(FCocoaWindow* Window);
-	void OnWindowDidResignKey(FCocoaWindow* Window);
+	void OnWindowDidBecomeMain(FCocoaWindow* Window);
+	void OnWindowDidResignMain(FCocoaWindow* Window);
 	void OnWindowWillMove(FCocoaWindow* Window);
 	void OnWindowDidMove(FCocoaWindow* Window);
 	void OnWindowWillStartLiveResize(FCocoaWindow* Window);
@@ -122,7 +122,9 @@ public:
 
 	/** Invalidates all queued windows requiring text layout changes */
 	void InvalidateTextLayouts();
+
 private:
+
 	enum FMacApplicationEventTypes
 	{
 		ResentEvent = 0x0f00
@@ -140,6 +142,10 @@ private:
 	void ResendEvent( NSEvent* Event );
 	FCocoaWindow* FindEventWindow( NSEvent* CocoaEvent );
 	TSharedPtr<FMacWindow> LocateWindowUnderCursor( const NSPoint Position );
+
+	void OnApplicationWillResignActive();
+	void OnApplicationDidBecomeActive();
+	void OnWindowsReordered(bool bIsAppInBackground);
 
 	NSScreen* FindScreenByPoint( int32 X, int32 Y ) const;
 

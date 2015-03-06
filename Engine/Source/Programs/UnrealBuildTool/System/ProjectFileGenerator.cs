@@ -284,14 +284,17 @@ namespace UnrealBuildTool
 
 				if (!Directory.Exists(MasterProjectRelativePath + "/Source"))
 				{
-					if (BuildHostPlatform.Current.Platform == UnrealTargetPlatform.Mac)
+					if (!Directory.Exists(MasterProjectRelativePath + "/Intermediate/Source"))
 					{
-						MasterProjectRelativePath = Path.GetFullPath(Path.Combine (Utils.GetExecutingAssemblyDirectory (), "..", "..", "..", "Engine"));
-						GameProjectName = "UE4Game";
-					}
-					if (!Directory.Exists(MasterProjectRelativePath + "/Source"))
-					{
-						throw new BuildException ("Directory '{0}' is missing 'Source' folder.", MasterProjectRelativePath);
+						if (BuildHostPlatform.Current.Platform == UnrealTargetPlatform.Mac)
+						{
+							MasterProjectRelativePath = Path.GetFullPath(Path.Combine(Utils.GetExecutingAssemblyDirectory(), "..", "..", "..", "Engine"));
+							GameProjectName = "UE4Game";
+						}
+						if (!Directory.Exists(MasterProjectRelativePath + "/Source"))
+						{
+							throw new BuildException("Directory '{0}' is missing 'Source' folder.", MasterProjectRelativePath);
+						}
 					}
 				}
 				IntermediateProjectFilesPath = Path.Combine(MasterProjectRelativePath, "Intermediate", "ProjectFiles");
@@ -313,7 +316,10 @@ namespace UnrealBuildTool
 
 				if (!Directory.Exists(MasterProjectRelativePath + "/Source"))
 				{
-					throw new BuildException("Directory '{0}' is missing 'Source' folder.", MasterProjectRelativePath);
+					if (!Directory.Exists(MasterProjectRelativePath + "/Intermediate/Source"))
+					{
+						throw new BuildException("Directory '{0}' is missing 'Source' folder.", MasterProjectRelativePath);
+					}
 				}
 			}
 
@@ -505,7 +511,7 @@ namespace UnrealBuildTool
 					ProgramsFolder.ChildProjects.Add(AddSimpleCSharpProject("DotNETCommon/DotNETUtilities", bShouldBuildForAllSolutionTargets: true, bForceDevelopmentConfiguration: true));
 
 					// Add the Git dependencies project
-					ProgramsFolder.ChildProjects.Add(AddSimpleCSharpProject("GitDependencies", bShouldBuildForAllSolutionTargets: true, bForceDevelopmentConfiguration: true));
+					ProgramsFolder.ChildProjects.Add(AddSimpleCSharpProject("GitDependencies", bForceDevelopmentConfiguration: true, bShouldBuildByDefaultForSolutionTargets: false));
 
 					// Add all of the IOS C# projects
 					AddIOSProjects( ProgramsFolder );
@@ -1157,7 +1163,7 @@ namespace UnrealBuildTool
 		/// </summary>
 		/// <param name="ProjectName">Name of project file to add</param>
 		/// <returns>ProjectFile if the operation was successful, otherwise null.</returns>
-		private VCSharpProjectFile AddSimpleCSharpProject(string ProjectName, bool bShouldBuildForAllSolutionTargets = false, bool bForceDevelopmentConfiguration = false)
+		private VCSharpProjectFile AddSimpleCSharpProject(string ProjectName, bool bShouldBuildForAllSolutionTargets = false, bool bForceDevelopmentConfiguration = false, bool bShouldBuildByDefaultForSolutionTargets = true)
 		{
 			VCSharpProjectFile Project = null;
 
@@ -1168,6 +1174,7 @@ namespace UnrealBuildTool
 				var FileNameRelativeToMasterProject = Utils.MakePathRelativeTo( ProjectFileName, MasterProjectRelativePath );
 				Project = new VCSharpProjectFile(FileNameRelativeToMasterProject);
 				Project.ShouldBuildForAllSolutionTargets = bShouldBuildForAllSolutionTargets;
+				Project.ShouldBuildByDefaultForSolutionTargets = bShouldBuildByDefaultForSolutionTargets;
 				AddExistingProjectFile(Project, bForceDevelopmentConfiguration: bForceDevelopmentConfiguration);
 			}
 			else

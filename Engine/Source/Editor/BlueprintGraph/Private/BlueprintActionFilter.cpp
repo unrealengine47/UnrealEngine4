@@ -328,6 +328,15 @@ namespace BlueprintActionFilterImpl
 	 * @return 
 	 */
 	static bool IsExtraneousInterfaceCall(FBlueprintActionFilter const& Filter, FBlueprintActionInfo& BlueprintAction);
+
+	/**
+	 * Rejection test that checks if a macro instance is incompatible with the current graph context
+	 * 
+	 * @param  Filter			Holds the graph context for this test.
+	 * @param  BlueprintAction	The action you wish to query.
+	 * @return true if the macro instance is incompatible with the current graph context
+	 */
+	static bool IsIncompatibleMacroInstance(FBlueprintActionFilter const& Filter, FBlueprintActionInfo& BlueprintAction);
 };
 
 //------------------------------------------------------------------------------
@@ -715,12 +724,14 @@ static bool BlueprintActionFilterImpl::IsNonTargetMember(FBlueprintActionFilter 
 		bool const bSkip = (bPermitNonTargetGlobals && IsGloballyAccessible(ClassField)) || BlueprintAction.GetNodeClass()->IsChildOf<UK2Node_Message>();
 		if (!bSkip)
 		{
+			bIsFilteredOut = Filter.TargetClasses.Num() > 0;
+
 			for (UClass const* Class : Filter.TargetClasses)
 			{
 				bool const bIsTargetOwnedField = IsClassOfType(Class, ActionClass);
-				if (!bIsTargetOwnedField)
+				if (bIsTargetOwnedField)
 				{
-					bIsFilteredOut = true;
+					bIsFilteredOut = false;
 					break;
 				}
 			}
@@ -740,29 +751,31 @@ static bool BlueprintActionFilterImpl::IsFieldCategoryHidden(FBlueprintActionFil
 
 	if (UFunction const* Function = BlueprintAction.GetAssociatedFunction())
 	{
-		auto IsFunctionHiddenLambda = [](UClass* Class, UFunction const* Function)->bool
+		auto IsFunctionHiddenLambda = [](UClass* Class, UFunction const* InFunction)->bool
 		{
 			// Only hide functions that are not static
-			return !Function->HasAnyFunctionFlags(FUNC_Static) && FObjectEditorUtils::IsFunctionHiddenFromClass(Function, Class->GetAuthoritativeClass());
+			return !InFunction->HasAnyFunctionFlags(FUNC_Static) && FObjectEditorUtils::IsFunctionHiddenFromClass(InFunction, Class->GetAuthoritativeClass());
 		};
 		IsFieldHiddenDelegate = FIsFieldHiddenDelegate::CreateStatic(IsFunctionHiddenLambda, Function);
 	}
 	else if (UProperty const* Property = BlueprintAction.GetAssociatedProperty())
 	{
-		auto IsPropertyHiddenLambda = [](UClass* Class, UProperty const* Property)->bool
+		auto IsPropertyHiddenLambda = [](UClass* Class, UProperty const* InProperty)->bool
 		{
-			return FObjectEditorUtils::IsVariableCategoryHiddenFromClass(Property, Class->GetAuthoritativeClass());
+			return FObjectEditorUtils::IsVariableCategoryHiddenFromClass(InProperty, Class->GetAuthoritativeClass());
 		};
 		IsFieldHiddenDelegate = FIsFieldHiddenDelegate::CreateStatic(IsPropertyHiddenLambda, Property);
 	}
 
 	if (IsFieldHiddenDelegate.IsBound())
 	{
+		bIsFilteredOut = Filter.TargetClasses.Num() > 0;
+
 		for (UClass* TargetClass : Filter.TargetClasses)
 		{
-			if (IsFieldHiddenDelegate.Execute(TargetClass))
+			if (!IsFieldHiddenDelegate.Execute(TargetClass))
 			{
-				bIsFilteredOut = true;
+				bIsFilteredOut = false;
 				break;
 			}
 		}
@@ -1368,6 +1381,32 @@ static bool BlueprintActionFilterImpl::IsExtraneousInterfaceCall(FBlueprintActio
 	return bIsFilteredOut;
 }
 
+//------------------------------------------------------------------------------
+static bool BlueprintActionFilterImpl::IsIncompatibleMacroInstance(FBlueprintActionFilter const& Filter, FBlueprintActionInfo& BlueprintAction)
+{
+	bool bIsFilteredOut = false;
+
+	if(BlueprintAction.GetNodeClass()->IsChildOf<UK2Node_MacroInstance>())
+	{
+		if(const UBlueprint* MacroBP = Cast<const UBlueprint>(BlueprintAction.GetActionOwner()))
+		{
+			check(MacroBP->ParentClass != nullptr);
+
+			for(auto BlueprintIt = Filter.Context.Blueprints.CreateConstIterator(); BlueprintIt && !bIsFilteredOut; ++BlueprintIt)
+			{
+				const UBlueprint* Blueprint = *BlueprintIt;
+				check(Blueprint != nullptr && Blueprint->ParentClass != nullptr)
+
+				bIsFilteredOut = (Blueprint != MacroBP) && (MacroBP->BlueprintType != BPTYPE_MacroLibrary || !Blueprint->ParentClass->IsChildOf(MacroBP->ParentClass));
+			}
+
+			// Note: The rest is handled by IsNodeTemplateSelfFiltered() - the check above is a "fast path" in that we don't have to instance the node template (see UK2Node_MacroInstance::IsActionFilteredOut())
+		}
+	}
+
+	return bIsFilteredOut;
+}
+
 /*******************************************************************************
  * FBlueprintActionInfo
  ******************************************************************************/
@@ -1555,6 +1594,7 @@ FBlueprintActionFilter::FBlueprintActionFilter(uint32 Flags/*= 0x00*/)
 	AddRejectionTest(FRejectionTestDelegate::CreateStatic(IsIncompatibleWithGraphType));
 	AddRejectionTest(FRejectionTestDelegate::CreateStatic(IsSchemaIncompatible));
 	AddRejectionTest(FRejectionTestDelegate::CreateStatic(IsExtraneousInterfaceCall));
+	AddRejectionTest(FRejectionTestDelegate::CreateStatic(IsIncompatibleMacroInstance));
 
 	if (!(Flags & BPFILTER_PermitDeprecated))
 	{

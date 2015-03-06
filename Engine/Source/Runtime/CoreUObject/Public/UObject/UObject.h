@@ -37,6 +37,12 @@ class COREUOBJECT_API UObject : public UObjectBaseUtility
 	// Declarations.
 	DECLARE_CLASS(UObject,UObject,CLASS_Abstract|CLASS_NoExport,CASTCLASS_None,CoreUObject,NO_API)
 	DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(UObject)
+#if WITH_HOT_RELOAD_CTORS
+	static UObject* __VTableCtorCaller(FVTableHelper& Helper)
+	{
+		return new (EC_InternalUseOnlyConstructor, (UObject*)GetTransientPackage(), NAME_None, RF_NeedLoad | RF_ClassDefaultObject | RF_TagGarbageTemp) UObject(Helper);
+	}
+#endif // WITH_HOT_RELOAD_CTORS
 
 	typedef UObject WithinClass;
 	static const TCHAR* StaticConfigName() {return TEXT("Engine");}
@@ -45,6 +51,10 @@ class COREUOBJECT_API UObject : public UObjectBaseUtility
 	UObject();
 	UObject(const FObjectInitializer& ObjectInitializer);
 	UObject( EStaticConstructor, EObjectFlags InFlags );
+#if WITH_HOT_RELOAD_CTORS
+	/** DO NOT USE. This constructor is for internal usage only for hot-reload purposes. */
+	UObject(FVTableHelper& Helper);
+#endif // WITH_HOT_RELOAD_CTORS
 
 	static void StaticRegisterNativesUObject() 
 	{
@@ -181,11 +191,6 @@ public:
 	virtual bool Modify( bool bAlwaysMarkDirty=true );
 
 #if WITH_EDITOR
-	/**
-	 * The cooker (or DDC commandlet) have dealt with this object and will never deal with it again.
-	 * The object should try to free memory
-	 */
-	virtual void CookerWillNeverCookAgain() {}
 	/** 
 	 * Called when the object was loaded from another class via active class redirects.
 	 */
@@ -682,7 +687,7 @@ public:
 	 *								subobjects and components for a subobject root.
 	 */
 	void ConditionalPostLoadSubobjects( struct FObjectInstancingGraph* OuterInstanceGraph=NULL );
-
+#if WITH_EDITOR
 	/**
 	 * Starts caching of platform specific data for the target platform
 	 * Called when cooking before serialization so that object can prepare platform specific data
@@ -691,6 +696,18 @@ public:
 	 * @param	TargetPlatform	target platform to cache platform specific data for
 	 */
 	virtual void BeginCacheForCookedPlatformData( const ITargetPlatform* TargetPlatform ) {  }
+	
+	/**
+	 * Have we finished loading all the cooked platform data for the target platforms requested in BeginCacheForCookedPlatformData
+	 * 
+	 * @param	TargetPlatform target platform to check for cooked platform data
+	 */
+	virtual bool IsCachedCookedPlatformDataLoaded( const ITargetPlatform* TargetPlatform ) { return true; }
+
+	/**
+	 * All caching has finished for this object (all IsCachedCookedPlatformDataLoaded functions have finished for all platforms)
+	 */
+	virtual void WillNeverCacheCookedPlatformDataAgain() { }
 
 	/**
 	 * Clears cached cooked platform data for specific platform
@@ -705,15 +722,7 @@ public:
 	 * @param	TargetPlatform	target platform to cache platform specific data for
 	 */
 	virtual void ClearAllCachedCookedPlatformData() { }
-
-	/**
-	 * Have we finished loading all the cooked platform data for the target platforms requested in BeginCacheForCookedPlatformData
-	 * 
-	 * @param	TargetPlatform target platform to check for cooked platform data
-	 */
-	virtual bool IsCachedCookedPlatformDataLoaded( const ITargetPlatform* TargetPlatform ) { return true; }
-
-
+#endif
 	/**
 	 * Determine if this object has SomeObject in its archetype chain.
 	 */
@@ -761,6 +770,15 @@ private:
 	 * Saves just the section(s) for this class into the given ini file for the class (with just the changes from base)
 	 */
 	void UpdateSingleSectionOfConfigFile(const FString& ConfigIniName);
+
+#if WITH_HOT_RELOAD_CTORS
+	/**
+	 * Ensures that current thread is NOT during vtable ptr retrieval process
+	 * of some UClass.
+	 */
+	void EnsureNotRetrievingVTablePtr() const;
+#endif // WITH_HOT_RELOAD_CTORS
+
 public:
 	
 	/**

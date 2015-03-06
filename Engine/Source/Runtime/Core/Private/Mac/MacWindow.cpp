@@ -94,8 +94,7 @@ void FMacWindow::Initialize( FMacApplication* const Application, const TSharedRe
 			// @todo: We really need a window type in tab manager to know what window level to use and whether or not a window should hide on deactivate
 			if (Definition->IsModalWindow)
 			{
-				NSInteger Level = [NSApp isActive] ? NSModalPanelWindowLevel : NSNormalWindowLevel;
-				[WindowHandle setLevel: Level];
+				[WindowHandle setLevel: NSModalPanelWindowLevel];
 			}
 			else if (Definition->IsRegularWindow)
 			{
@@ -115,7 +114,6 @@ void FMacWindow::Initialize( FMacApplication* const Application, const TSharedRe
 			else
 			{
 				[WindowHandle setLevel: NSModalPanelWindowLevel];
-				[WindowHandle setHidesOnDeactivate: YES];
 			}
 			
 			if( !Definition->HasOSWindowBorder )
@@ -429,7 +427,7 @@ EWindowMode::Type FMacWindow::GetWindowMode() const
 
 bool FMacWindow::IsMaximized() const
 {
-	return WindowHandle->bZoomed;
+	return WindowHandle && WindowHandle->bZoomed;
 }
 
 bool FMacWindow::IsMinimized() const
@@ -472,14 +470,6 @@ void FMacWindow::SetOpacity( const float InOpacity )
 	MainThreadCall(^{
 		SCOPED_AUTORELEASE_POOL;
 		[WindowHandle setAlphaValue:InOpacity];
-	}, UE4NilEventMode, true);
-}
-
-void FMacWindow::Enable( bool bEnable )
-{
-	MainThreadCall(^{
-		SCOPED_AUTORELEASE_POOL;
-		[WindowHandle setIgnoresMouseEvents: !bEnable];
 	}, UE4NilEventMode, true);
 }
 
@@ -532,7 +522,7 @@ int32 FMacWindow::GetWindowBorderSize() const
 bool FMacWindow::IsForegroundWindow() const
 {
 	SCOPED_AUTORELEASE_POOL;
-	return [WindowHandle isMainWindow];
+	return [WindowHandle isKeyWindow];
 }
 
 void FMacWindow::SetText(const TCHAR* const Text)

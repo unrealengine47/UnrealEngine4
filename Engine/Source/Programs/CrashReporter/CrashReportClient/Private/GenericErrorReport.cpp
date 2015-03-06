@@ -118,12 +118,6 @@ TArray<FString> FGenericErrorReport::GetFilesToUpload() const
 
 	for (const auto& Filename: ReportFilenames)
 	{
-		if (FRocketSupport::IsRocket() && Filename.EndsWith(TEXT(".log")))
-		{
-			// Temporarily side-step privacy concerns by not uploading UE4 release builds' logs
-			continue;
-		}
-
 		FilesToUpload.Push(ReportDirectory / Filename);
 	}
 	return FilesToUpload;
@@ -144,7 +138,7 @@ bool FGenericErrorReport::LoadWindowsReportXmlFile( FString& OutString ) const
 bool FGenericErrorReport::TryReadDiagnosticsFile(FText& OutReportDescription)
 {
 	FString FileContent;
-	if (!FFileHelper::LoadFileToString(FileContent, *(ReportDirectory / GDiagnosticsFilename)))
+	if (!FFileHelper::LoadFileToString(FileContent, *(ReportDirectory / FCrashReportClientConfig::Get().GetDiagnosticsFilename())))
 	{
 		// No diagnostics file
 		return false;

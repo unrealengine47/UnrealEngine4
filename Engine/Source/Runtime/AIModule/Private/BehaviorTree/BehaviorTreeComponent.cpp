@@ -31,6 +31,15 @@ UBehaviorTreeComponent::UBehaviorTreeComponent(const FObjectInitializer& ObjectI
 	bIsPaused = false;
 }
 
+#if WITH_HOT_RELOAD_CTORS
+UBehaviorTreeComponent::UBehaviorTreeComponent(FVTableHelper& Helper)
+	: Super(Helper)
+	, SearchData(*this)
+{
+
+}
+#endif // WITH_HOT_RELOAD_CTORS
+
 void UBehaviorTreeComponent::UninitializeComponent()
 {
 	UBehaviorTreeManager* BTManager = UBehaviorTreeManager::GetCurrent(GetWorld());
@@ -955,7 +964,7 @@ void UBehaviorTreeComponent::TickComponent(float DeltaTime, enum ELevelTick Tick
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	SCOPE_CYCLE_COUNTER(STAT_AI_BehaviorTree_Tick);
 
-	check(this && this->IsPendingKill() == false);
+	check(this != nullptr && this->IsPendingKill() == false);
 		
 	if (bRequestedFlowUpdate)
 	{
@@ -1058,10 +1067,8 @@ void UBehaviorTreeComponent::ProcessExecutionRequest()
 		if (!ExecutionRequest.bTryNextChild)
 		{
 			// mark all decorators less important than current search start node for removal
-			// (all from first node on branch with search start)
-			const int32 StartNodeIdx = ExecutionRequest.ExecuteNode->GetBranchExecutionIndex(ExecutionRequest.SearchStart.ExecutionIndex) - 1;
-			const FBTNodeIndex DeactivateIdx(ExecutionRequest.ExecuteInstanceIdx, FMath::Max(StartNodeIdx, 0));
-			UnregisterAuxNodesUpTo(DeactivateIdx);
+			const FBTNodeIndex DeactivateIdx(ExecutionRequest.SearchStart.InstanceIndex, ExecutionRequest.SearchStart.ExecutionIndex - 1);
+			UnregisterAuxNodesUpTo(ExecutionRequest.SearchStart.ExecutionIndex ? DeactivateIdx : ExecutionRequest.SearchStart);
 
 			// reactivate top search node, so it could use search range correctly
 			BT_SEARCHLOG(SearchData, Verbose, TEXT("Reactivate node: %s [restart]"), *UBehaviorTreeTypes::DescribeNodeHelper(TestNode));

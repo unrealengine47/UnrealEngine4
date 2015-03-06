@@ -51,6 +51,27 @@ struct FClusterNode
 	}
 };
 
+class FAsyncBuildInstanceBuffer : public FNonAbandonableTask
+{
+public:
+	class UHierarchicalInstancedStaticMeshComponent* Component;
+	class UWorld* World;
+
+	FAsyncBuildInstanceBuffer(class UHierarchicalInstancedStaticMeshComponent* InComponent, class UWorld* InWorld)
+		: Component(InComponent)
+		, World(InWorld)
+	{
+	}
+	void DoWork();
+	FORCEINLINE TStatId GetStatId() const
+	{
+		RETURN_QUICK_DECLARE_CYCLE_STAT(FAsyncBuildInstanceBuffer, STATGROUP_ThreadPoolAsyncTasks);
+	}
+	static const TCHAR *Name()
+	{
+		return TEXT("FAsyncBuildInstanceBuffer");
+	}
+};
 
 UCLASS(ClassGroup=Rendering, meta=(BlueprintSpawnableComponent))
 class ENGINE_API UHierarchicalInstancedStaticMeshComponent : public UInstancedStaticMeshComponent
@@ -61,6 +82,10 @@ class ENGINE_API UHierarchicalInstancedStaticMeshComponent : public UInstancedSt
 
 	TSharedPtr<TArray<FClusterNode>, ESPMode::ThreadSafe> ClusterTreePtr;
 
+	// Temp hack, long term we will load data in the right format directly
+	FAsyncTask<FAsyncBuildInstanceBuffer>* AsyncBuildInstanceBufferTask;
+
+	// Prebuilt instance buffer, used mostly for grass. Long term instances will be stored directly in the correct format.
 	FStaticMeshInstanceData WriteOncePrebuiltInstanceBuffer;
 	
 	// Table for remaping instances from cluster tree to PerInstanceSMData order
@@ -74,6 +99,10 @@ class ENGINE_API UHierarchicalInstancedStaticMeshComponent : public UInstancedSt
 	// Bounding box of any unbuilt instances
 	UPROPERTY()
 	FBox UnbuiltInstanceBounds;
+
+	// The number of nodes in the occlusion layer
+	UPROPERTY()
+	int32 OcclusionLayerNumNodes;
 
 	bool bIsAsyncBuilding;
 	bool bConcurrentRemoval;
@@ -89,8 +118,8 @@ public:
 	//Begin UObject Interface
 	virtual void Serialize(FArchive& Ar) override;
 	virtual SIZE_T GetResourceSize(EResourceSizeMode::Type Mode) override;
-
 	virtual FPrimitiveSceneProxy* CreateSceneProxy() override;
+	virtual void PostLoad() override;
 	virtual FBoxSphereBounds CalcBounds(const FTransform& BoundTransform) const override;
 
 	// UInstancedStaticMesh interface
@@ -117,14 +146,27 @@ public:
 		TArray<FClusterNode>& OutClusterTree,
 		TArray<int32>& OutSortedInstances,
 		TArray<int32>& OutInstanceReorderTable,
+		int32& OutOcclusionLayerNum,
 		int32 MaxInstancesPerLeaf
 		);
-	void AcceptPrebuiltTree(TArray<FClusterNode>& InClusterTree);
+	void AcceptPrebuiltTree(TArray<FClusterNode>& InClusterTree, int InOcclusionLayerNumNodes);
 	void BuildFlatTree(const TArray<int32>& LeafInstanceCounts);
 	bool IsAsyncBuilding() const { return bIsAsyncBuilding; }
 	bool IsTreeFullyBuilt() const { return NumBuiltInstances == PerInstanceSMData.Num() && RemovedInstances.Num() == 0; }
 
+	void FlushAsyncBuildInstanceBufferTask();
+
+	/** Heuristic for the number of leaves in the tree **/
+	int32 DesiredInstancesPerLeaf();
+
 protected:
+	/** Gets and approximate number of verts for each LOD to generate heuristics **/
+	int32 GetVertsForLOD(int32 LODIndex);
+	/** Average number of instances per leaf **/
+	float ActualInstancesPerLeaf();
+	/** For testing, prints some stats after any kind of build **/
+	void PostBuildStats();
+
 	virtual void GetNavigationPerInstanceTransforms(const FBox& AreaBox, TArray<FTransform>& InstanceData) const override;
 	virtual void PartialNavigationUpdate(int32 InstanceIdx) override;
 	void FlushAccumulatedNavigationUpdates();

@@ -44,6 +44,7 @@
 #include "Materials/MaterialParameterCollectionInstance.h"
 
 #if WITH_EDITOR
+	#include "DerivedDataCacheInterface.h"
 	#include "Editor/UnrealEd/Public/Kismet2/KismetEditorUtilities.h"
 	#include "Editor/UnrealEd/Public/Kismet2/BlueprintEditorUtils.h"
 	#include "Editor/UnrealEd/Classes/ThumbnailRendering/WorldThumbnailInfo.h"
@@ -120,6 +121,14 @@ UWorld::UWorld( const FObjectInitializer& ObjectInitializer )
 #endif // WITH_EDITOR
 
 	FWorldDelegates::OnPostWorldCreation.Broadcast(this);
+}
+
+UWorld::~UWorld()
+{
+	while (AsyncPreRegisterLevelStreamingTasks.GetValue())
+	{
+		FPlatformProcess::Sleep(0.0f);
+	}
 }
 
 void UWorld::Serialize( FArchive& Ar )
@@ -1229,7 +1238,7 @@ void UWorld::UpdateWorldComponents(bool bRerunConstructionScripts, bool bCurrent
 }
 
 
-void UWorld::UpdateCullDistanceVolumes()
+void UWorld::UpdateCullDistanceVolumes(AActor* ActorToUpdate, UPrimitiveComponent* ComponentToUpdate)
 {
 	// Map that will store new max draw distance for every primitive
 	TMap<UPrimitiveComponent*,float> CompToNewMaxDrawMap;
@@ -1242,26 +1251,61 @@ void UWorld::UpdateCullDistanceVolumes()
 		TArray<ACullDistanceVolume*> CullDistanceVolumes;
 
 		// Establish base line of LD specified cull distances.
-		for( FActorIterator It(this); It; ++It )
+		if (ActorToUpdate || ComponentToUpdate)
 		{
-			TInlineComponentArray<UPrimitiveComponent*> PrimitiveComponents;
-			It->GetComponents(PrimitiveComponents);
-			for (UPrimitiveComponent* PrimitiveComponent : PrimitiveComponents)
+			if (ComponentToUpdate)
 			{
-				CompToNewMaxDrawMap.Add(PrimitiveComponent, PrimitiveComponent->LDMaxDrawDistance);
+				check((ActorToUpdate == nullptr) || (ActorToUpdate == ComponentToUpdate->GetOwner()));
+				CompToNewMaxDrawMap.Add(ComponentToUpdate, ComponentToUpdate->LDMaxDrawDistance);
+			}
+			else
+			{
+				TInlineComponentArray<UPrimitiveComponent*> PrimitiveComponents(ActorToUpdate);
+				for (UPrimitiveComponent* PrimitiveComponent : PrimitiveComponents)
+				{
+					if (ACullDistanceVolume::CanBeAffectedByVolumes(PrimitiveComponent))
+					{
+						CompToNewMaxDrawMap.Add(PrimitiveComponent, PrimitiveComponent->LDMaxDrawDistance);
+					}
+				}
 			}
 
-			ACullDistanceVolume* CullDistanceVolume = Cast<ACullDistanceVolume>(*It);
-			if (CullDistanceVolume)
+			if (CompToNewMaxDrawMap.Num() > 0)
 			{
-				CullDistanceVolumes.Add(CullDistanceVolume);
+				for (TActorIterator<ACullDistanceVolume> It(this); It; ++It)
+				{
+					CullDistanceVolumes.Add(*It);
+				}
+			}
+		}
+		else
+		{
+			for( FActorIterator It(this); It; ++It )
+			{
+				TInlineComponentArray<UPrimitiveComponent*> PrimitiveComponents(*It);
+				for (UPrimitiveComponent* PrimitiveComponent : PrimitiveComponents)
+				{
+					if (ACullDistanceVolume::CanBeAffectedByVolumes(PrimitiveComponent))
+					{
+						CompToNewMaxDrawMap.Add(PrimitiveComponent, PrimitiveComponent->LDMaxDrawDistance);
+					}
+				}
+
+				ACullDistanceVolume* CullDistanceVolume = Cast<ACullDistanceVolume>(*It);
+				if (CullDistanceVolume)
+				{
+					CullDistanceVolumes.Add(CullDistanceVolume);
+				}
 			}
 		}
 
 		// Iterate over all cull distance volumes and get new cull distances.
-		for (ACullDistanceVolume* CullDistanceVolume : CullDistanceVolumes)
+		if (CompToNewMaxDrawMap.Num() > 0)
 		{
-			CullDistanceVolume->GetPrimitiveMaxDrawDistances(CompToNewMaxDrawMap);
+			for (ACullDistanceVolume* CullDistanceVolume : CullDistanceVolumes)
+			{
+				CullDistanceVolume->GetPrimitiveMaxDrawDistances(CompToNewMaxDrawMap);
+			}
 		}
 
 		// Finally, go over all primitives, and see if they need to change.
@@ -1269,13 +1313,9 @@ void UWorld::UpdateCullDistanceVolumes()
 		for ( TMap<UPrimitiveComponent*,float>::TIterator It(CompToNewMaxDrawMap); It; ++It )
 		{
 			UPrimitiveComponent* PrimComp = It.Key();
-			float NewMaxDrawDist = It.Value();
+			const float NewMaxDrawDist = It.Value();
 
-			if( !FMath::IsNearlyEqual(PrimComp->CachedMaxDrawDistance, NewMaxDrawDist) )
-			{
-				PrimComp->CachedMaxDrawDistance = NewMaxDrawDist;
-				PrimComp->RecreateRenderState_Concurrent();
-			}
+			PrimComp->SetCachedMaxDrawDistance(NewMaxDrawDist);
 		}
 	}
 
@@ -1495,7 +1535,7 @@ static bool IsTimeLimitExceeded( const TCHAR* CurrentTask, double StartTime, ULe
 			// Log if a single event took way too much time.
 			if( DeltaTime > 20 )
 			{
-				UE_LOG(LogStreaming, Log, TEXT("UWorld::AddToWorld: %s for %s took (less than) %5.2f ms"), CurrentTask, *Level->GetOutermost()->GetName(), DeltaTime );
+				UE_LOG(LogStreaming, Display, TEXT("UWorld::AddToWorld: %s for %s took (less than) %5.2f ms"), CurrentTask, *Level->GetOutermost()->GetName(), DeltaTime );
 			}
 			bIsTimeLimitExceed = true;
 		}
@@ -1504,7 +1544,6 @@ static bool IsTimeLimitExceeded( const TCHAR* CurrentTask, double StartTime, ULe
 }
 
 #if PERF_TRACK_DETAILED_ASYNC_STATS
-
 // Variables for tracking how long each part of the AddToWorld process takes
 double MoveActorTime = 0.0;
 double ShiftActorsTime = 0.0;
@@ -1556,6 +1595,8 @@ void UWorld::AddToWorld( ULevel* Level, const FTransform& LevelTransform )
 	check(Level);
 	check(!Level->IsPendingKill());
 	check(!Level->HasAnyFlags(RF_Unreachable));
+
+	FScopeCycleCounterUObject ContextScope(Level);
 
 	// Set flags to indicate that we are associating a level with the world to e.g. perform slower/ better octree insertion 
 	// and such, as opposed to the fast path taken for run-time/ gameplay objects.
@@ -1617,6 +1658,54 @@ void UWorld::AddToWorld( ULevel* Level, const FTransform& LevelTransform )
 		bExecuteNextStep = (!bConsiderTimeLimit || !IsTimeLimitExceeded( TEXT("shifting actors"), StartTime, Level ));
 	}
 
+	if (bExecuteNextStep && AsyncPreRegisterLevelStreamingTasks.GetValue())
+	{
+		if (!bConsiderTimeLimit)
+		{
+			QUICK_SCOPE_CYCLE_COUNTER(UWorld_AddToWorld_WaitFor_AsyncPreRegisterLevelStreamingTasks);
+			while (AsyncPreRegisterLevelStreamingTasks.GetValue())
+			{
+				FPlatformProcess::Sleep(0.001f);
+			}
+		}
+		else
+		{
+			bExecuteNextStep = false;
+		}
+	}
+
+	// Wait on any async DDC handles
+#if WITH_EDITOR
+	if (bExecuteNextStep && AsyncPreRegisterDDCRequests.Num())
+	{
+		if (!bConsiderTimeLimit)
+		{
+			QUICK_SCOPE_CYCLE_COUNTER(UWorld_AddToWorld_WaitFor_AsyncPreRegisterLevelStreamingTasks);
+
+			for (TSharedPtr<FAsyncPreRegisterDDCRequest>& Request : AsyncPreRegisterDDCRequests)
+			{
+				Request->WaitAsynchronousCompletion();
+			}
+			AsyncPreRegisterDDCRequests.Empty();
+		}
+		else
+		{
+			for (int32 Index = 0; Index < AsyncPreRegisterDDCRequests.Num(); Index++)
+			{
+				if (AsyncPreRegisterDDCRequests[Index]->PollAsynchronousCompletion())
+				{
+					AsyncPreRegisterDDCRequests.RemoveAtSwap(Index--);
+				}
+				else
+				{
+					bExecuteNextStep = false;
+					break;
+				}
+			}
+		}
+	}
+#endif
+
 	// Updates the level components (Actor components and UModelComponents).
 	if( bExecuteNextStep && !Level->bAlreadyUpdatedComponents )
 	{
@@ -1629,9 +1718,14 @@ void UWorld::AddToWorld( ULevel* Level, const FTransform& LevelTransform )
 			// Pretend here that we are loading package to avoid package dirtying during components registration
 		TGuardValue<bool> IsEditorLoadingPackage(GIsEditorLoadingPackage, (GIsEditor ? true : GIsEditorLoadingPackage));
 #endif
+
+		// Config bool that allows disabling all construction scripts during PIE level streaming.
+		bool bRerunConstructionDuringEditorStreaming = true;
+		GConfig->GetBool(TEXT("Kismet"), TEXT("bRerunConstructionDuringEditorStreaming"), /*out*/ bRerunConstructionDuringEditorStreaming, GEngineIni);
+
 		// We don't need to rerun construction scripts if we have cooked data or we are playing in editor unless the PIE world was loaded
 		// from disk rather than duplicated
-		const bool bRerunConstructionScript = !(FPlatformProperties::RequiresCookedData() || (IsPlayInEditor() && Level->bWasDuplicatedForPIE));
+		const bool bRerunConstructionScript = !(FPlatformProperties::RequiresCookedData() || (IsGameWorld() && (Level->bWasDuplicatedForPIE || !bRerunConstructionDuringEditorStreaming)));
 		
 		// Incrementally update components.
 		int32 NumComponentsToUpdate = GEngine->LevelStreamingComponentsRegistrationGranularity;
@@ -1639,11 +1733,11 @@ void UWorld::AddToWorld( ULevel* Level, const FTransform& LevelTransform )
 		{
 			Level->IncrementalUpdateComponents( (!IsGameWorld() || IsRunningCommandlet()) ? 0 : NumComponentsToUpdate, bRerunConstructionScript );
 		}
-		while( (!bConsiderTimeLimit || !IsTimeLimitExceeded( TEXT("updating components"), StartTime, Level )) && !Level->bAreComponentsCurrentlyRegistered );
+		while( !Level->bAreComponentsCurrentlyRegistered && (!bConsiderTimeLimit || !IsTimeLimitExceeded( TEXT("updating components"), StartTime, Level )));
 
 		// We are done once all components are attached.
 		Level->bAlreadyUpdatedComponents	= Level->bAreComponentsCurrentlyRegistered;
-		bExecuteNextStep					= Level->bAreComponentsCurrentlyRegistered;
+		bExecuteNextStep					= Level->bAreComponentsCurrentlyRegistered && (!bConsiderTimeLimit || !IsTimeLimitExceeded(TEXT("updating components"), StartTime, Level));
 	}
 
 	if( IsGameWorld() && AreActorsInitialized() )
@@ -1753,25 +1847,25 @@ void UWorld::AddToWorld( ULevel* Level, const FTransform& LevelTransform )
 			SortActorListTime + 
 			PerformLastStepTime;
 
-		UE_LOG(LogStreaming, Log, TEXT("Detailed AddToWorld stats for '%s' - Total %6.2fms"), *Level->GetOutermost()->GetName(), TotalTime * 1000 );
-		UE_LOG(LogStreaming, Log, TEXT("Move Actors             : %6.2f ms"), MoveActorTime * 1000 );
-		UE_LOG(LogStreaming, Log, TEXT("Shift Actors            : %6.2f ms"), ShiftActorsTime * 1000 );
-		UE_LOG(LogStreaming, Log, TEXT("Update Components       : %6.2f ms"), UpdateComponentsTime * 1000 );
-		UE_LOG(LogStreaming, Log, TEXT("Init BSP Phys           : %6.2f ms"), InitBSPPhysTime * 1000 );
-		UE_LOG(LogStreaming, Log, TEXT("Init Actor Phys         : %6.2f ms"), InitActorPhysTime * 1000 );
-		UE_LOG(LogStreaming, Log, TEXT("Init Actors             : %6.2f ms"), InitActorTime * 1000 );
-		UE_LOG(LogStreaming, Log, TEXT("Initialize              : %6.2f ms"), RouteActorInitializeTime * 1000 );
-		UE_LOG(LogStreaming, Log, TEXT("Cross Level Refs        : %6.2f ms"), CrossLevelRefsTime * 1000 );
-		UE_LOG(LogStreaming, Log, TEXT("Sort Actor List         : %6.2f ms"), SortActorListTime * 1000 );
-		UE_LOG(LogStreaming, Log, TEXT("Perform Last Step       : %6.2f ms"), SortActorListTime * 1000 );
+		UE_LOG(LogStreaming, Display, TEXT("Detailed AddToWorld stats for '%s' - Total %6.2fms"), *Level->GetOutermost()->GetName(), TotalTime * 1000 );
+		UE_LOG(LogStreaming, Display, TEXT("Move Actors             : %6.2f ms"), MoveActorTime * 1000 );
+		UE_LOG(LogStreaming, Display, TEXT("Shift Actors            : %6.2f ms"), ShiftActorsTime * 1000 );
+		UE_LOG(LogStreaming, Display, TEXT("Update Components       : %6.2f ms"), UpdateComponentsTime * 1000 );
+		UE_LOG(LogStreaming, Display, TEXT("Init BSP Phys           : %6.2f ms"), InitBSPPhysTime * 1000 );
+		UE_LOG(LogStreaming, Display, TEXT("Init Actor Phys         : %6.2f ms"), InitActorPhysTime * 1000 );
+		UE_LOG(LogStreaming, Display, TEXT("Init Actors             : %6.2f ms"), InitActorTime * 1000 );
+		UE_LOG(LogStreaming, Display, TEXT("Initialize              : %6.2f ms"), RouteActorInitializeTime * 1000 );
+		UE_LOG(LogStreaming, Display, TEXT("Cross Level Refs        : %6.2f ms"), CrossLevelRefsTime * 1000 );
+		UE_LOG(LogStreaming, Display, TEXT("Sort Actor List         : %6.2f ms"), SortActorListTime * 1000 );
+		UE_LOG(LogStreaming, Display, TEXT("Perform Last Step       : %6.2f ms"), SortActorListTime * 1000 );
 	}
 #endif // PERF_TRACK_DETAILED_ASYNC_STATS
 }
 
-
 void UWorld::RemoveFromWorld( ULevel* Level )
 {
 	SCOPE_CYCLE_COUNTER(STAT_RemoveFromWorldTime);
+	FScopeCycleCounterUObject Context(Level);
 	check(Level);
 	check(!Level->IsPendingKill());
 	check(!Level->HasAnyFlags(RF_Unreachable));
@@ -1838,19 +1932,6 @@ void UWorld::RemoveFromWorld( ULevel* Level )
 			}
 		}
 		
-		// Notify world composition: will place a level at original position
-		if (WorldComposition)
-		{
-			WorldComposition->OnLevelRemovedFromWorld(Level);
-		}
-
-		// Make sure level always has OwningWorld in the editor
-		if ( IsGameWorld() )
-		{
-			Levels.Remove(Level);
-			Level->OwningWorld = NULL;
-		}
-				
 		// Remove any actors in the network list
 		for ( int i = 0; i < Level->Actors.Num(); i++ )
 		{
@@ -1858,13 +1939,29 @@ void UWorld::RemoveFromWorld( ULevel* Level )
 		}
 
 		Level->bIsVisible = false;
-		UE_LOG(LogStreaming, Log, TEXT("UWorld::RemoveFromWorld for %s took %5.2f ms"), *Level->GetOutermost()->GetName(), (FPlatformTime::Seconds()-StartTime) * 1000.0 );
-			
+
+		// Notify world composition: will place a level at original position
+		if (WorldComposition)
+		{
+			WorldComposition->OnLevelRemovedFromWorld(Level);
+		}
+
+		// Make sure level always has OwningWorld in the editor
+		if (IsGameWorld())
+		{
+			Levels.Remove(Level);
+			Level->OwningWorld = NULL;
+		}
+				
 		// let the universe know we have removed a level
 		FWorldDelegates::LevelRemovedFromWorld.Broadcast(Level, this);
 		BroadcastLevelsChanged();
 
 		ULevelStreaming::BroadcastLevelVisibleStatus(this, Level->GetOutermost()->GetFName(), false);
+
+#if PERF_TRACK_DETAILED_ASYNC_STATS
+		UE_LOG(LogStreaming, Display, TEXT("UWorld::RemoveFromWorld for %s took %5.2f ms"), *Level->GetOutermost()->GetName(), (FPlatformTime::Seconds() - StartTime) * 1000.0);
+#endif // PERF_TRACK_DETAILED_ASYNC_STATS
 	}
 }
 
@@ -2080,6 +2177,9 @@ FString UWorld::BuildPIEPackagePrefix(int PIEInstanceID)
 
 UWorld* UWorld::DuplicateWorldForPIE(const FString& PackageName, UWorld* OwningWorld)
 {
+	QUICK_SCOPE_CYCLE_COUNTER(UWorld_DuplicateWorldForPIE);
+	FScopeCycleCounterUObject Context(OwningWorld);
+
 	// Find the original (non-PIE) level package
 	UPackage* EditorLevelPackage = FindObjectFast<UPackage>( NULL, FName(*PackageName));
 	if( !EditorLevelPackage )
@@ -2156,6 +2256,8 @@ UWorld* UWorld::DuplicateWorldForPIE(const FString& PackageName, UWorld* OwningW
 			&& PIELevel->Model == EditorLevel->Model
 			&& PIELevel->ModelComponents.Num() == EditorLevel->ModelComponents.Num() )
 		{
+			QUICK_SCOPE_CYCLE_COUNTER(UWorld_DuplicateWorldForPIE_UpdateModelComponents);
+
 			PIELevel->Model->ClearLocalMaterialIndexBuffersData();
 			for (int32 ComponentIndex = 0; ComponentIndex < PIELevel->ModelComponents.Num(); ++ComponentIndex)
 			{
@@ -2197,6 +2299,7 @@ void UWorld::UpdateLevelStreamingInner(ULevelStreaming* StreamingLevel)
 			return;
 		}
 	}
+	FScopeCycleCounterUObject ContextScope(StreamingLevel);
 
 	// Work performed to make a level visible is spread across several frames and we can't unload/ hide a level that is currently pending
 	// to be made visible, so we fulfill those requests first.
@@ -2263,6 +2366,7 @@ void UWorld::UpdateLevelStreamingInner(ULevelStreaming* StreamingLevel)
 
 					if (Scene)
 					{
+						QUICK_SCOPE_CYCLE_COUNTER(STAT_UpdateLevelStreamingInner_OnLevelAddedToWorld);
 						// Notify the new level has been added after the old has been discarded
 						Scene->OnLevelAddedToWorld(Level->GetOutermost()->GetFName());
 					}
@@ -2528,6 +2632,12 @@ bool UWorld::HandleLogActorCountsCommand( const TCHAR* Cmd, FOutputDevice& Ar, U
 
 bool UWorld::HandleDemoRecordCommand( const TCHAR* Cmd, FOutputDevice& Ar, UWorld* InWorld )
 {
+	if ( FParse::Param( FCommandLine::Get(),TEXT( "NOREPLAYS" ) ) )
+	{
+		UE_LOG( LogWorld, Warning, TEXT( "HandleDemoRecordCommand: Rejected due to -noreplays option" ) );
+		return true;
+	}
+
 	FURL DemoURL;
 	FString DemoName;
 
@@ -2815,10 +2925,14 @@ void UWorld::InitializeActorsForPlay(const FURL& InURL, bool bResetTime)
 		URL = InURL;
 	}
 
+	// Config bool that allows disabling all construction scripts during PIE level streaming.
+	bool bRerunConstructionDuringEditorStreaming = true;
+	GConfig->GetBool(TEXT("Kismet"), TEXT("bRerunConstructionDuringEditorStreaming"), /*out*/ bRerunConstructionDuringEditorStreaming, GEngineIni);
+
 	// Update world and the components of all levels.	
 	// We don't need to rerun construction scripts if we have cooked data or we are playing in editor unless the PIE world was loaded
 	// from disk rather than duplicated
-	const bool bRerunConstructionScript = !(FPlatformProperties::RequiresCookedData() || (IsPlayInEditor() && PersistentLevel->bWasDuplicatedForPIE));
+	const bool bRerunConstructionScript = !(FPlatformProperties::RequiresCookedData() || (IsGameWorld() && (PersistentLevel->bWasDuplicatedForPIE || !bRerunConstructionDuringEditorStreaming)));
 	UpdateWorldComponents( bRerunConstructionScript, true );
 
 	// Reset indices till we have a chance to rearrange actor list at the end of this function.
@@ -3275,7 +3389,9 @@ void UWorld::AddPhysicsVolume(APhysicsVolume* Volume)
 
 void UWorld::RemovePhysicsVolume(APhysicsVolume* Volume)
 {
-	NonDefaultPhysicsVolumeList.Remove(Volume);
+	NonDefaultPhysicsVolumeList.RemoveSwap(Volume);
+	// Also remove null entries that may accumulate as items become invalidated
+	NonDefaultPhysicsVolumeList.RemoveSwap(nullptr);
 }
 
 FConstPhysicsVolumeIterator UWorld::GetNonDefaultPhysicsVolumeIterator() const
@@ -5433,5 +5549,45 @@ static FAutoConsoleCommand DumpVisibleActorsCmd(
 	TEXT("Dump visible actors in current world."),
 	FConsoleCommandDelegate::CreateStatic(DumpVisibleActors)
 	);
+
+#if WITH_EDITOR
+FAsyncPreRegisterDDCRequest::~FAsyncPreRegisterDDCRequest()
+{
+	// Discard any results
+	if (Handle != 0)
+	{
+		WaitAsynchronousCompletion();
+		TArray<uint8> Junk;
+		GetAsynchronousResults(Junk);
+	}
+}
+
+bool FAsyncPreRegisterDDCRequest::PollAsynchronousCompletion()
+{
+	if (Handle != 0)
+	{
+		return GetDerivedDataCacheRef().PollAsynchronousCompletion(Handle);
+	}
+	return true;
+}
+
+void FAsyncPreRegisterDDCRequest::WaitAsynchronousCompletion()
+{
+	if (Handle != 0)
+	{
+		GetDerivedDataCacheRef().WaitAsynchronousCompletion(Handle);
+	}
+}
+
+bool FAsyncPreRegisterDDCRequest::GetAsynchronousResults(TArray<uint8>& OutData)
+{
+	check(Handle != 0);
+	bool bResult = GetDerivedDataCacheRef().GetAsynchronousResults(Handle, OutData);
+	// invalidate request after results received
+	Handle = 0;
+	DDCKey = TEXT("");
+	return bResult;
+}
+#endif
 
 #undef LOCTEXT_NAMESPACE 

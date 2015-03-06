@@ -18,6 +18,7 @@
 #include "Animation/VertexAnim/VertexAnimation.h"
 #include "Particles/ParticleSystemComponent.h"
 #include "Animation/AnimSingleNodeInstance.h"
+#include "Engine/SkeletalMeshSocket.h"
 #if WITH_EDITOR
 #include "ShowFlags.h"
 #include "Collision.h"
@@ -27,6 +28,9 @@
 #include "PhysicsEngine/PhysicsAsset.h"
 
 TAutoConsoleVariable<int32> CVarUseParallelAnimationEvaluation(TEXT("a.ParallelAnimEvaluation"), 1, TEXT("If 1, animation evaluation will be run across the task graph system. If 0, evaluation will run purely on the game thread"));
+
+DECLARE_CYCLE_STAT_EXTERN(TEXT("Anim Instance Spawn Time"), STAT_AnimSpawnTime, STATGROUP_Anim, );
+DEFINE_STAT(STAT_AnimSpawnTime);
 
 class FParallelAnimationEvaluationTask
 {
@@ -244,6 +248,7 @@ void USkeletalMeshComponent::InitializeAnimScriptInstance(bool bForceReinit)
 	{
 		if (NeedToSpawnAnimScriptInstance(bForceReinit))
 		{
+			SCOPE_CYCLE_COUNTER(STAT_AnimSpawnTime);
 			AnimScriptInstance = NewObject<UAnimInstance>(this, AnimBlueprintGeneratedClass);
 
 			if (AnimScriptInstance)
@@ -253,6 +258,8 @@ void USkeletalMeshComponent::InitializeAnimScriptInstance(bool bForceReinit)
 		}
 		else if (AnimationMode == EAnimationMode::AnimationSingleNode)
 		{
+			SCOPE_CYCLE_COUNTER(STAT_AnimSpawnTime);
+
 			UAnimSingleNodeInstance* OldInstance = NULL;
 			if (!bForceReinit)
 			{
@@ -363,6 +370,7 @@ void USkeletalMeshComponent::PostEditChangeProperty(FPropertyChangedEvent& Prope
 				{
 					if (NeedToSpawnAnimScriptInstance(false))
 					{
+						SCOPE_CYCLE_COUNTER(STAT_AnimSpawnTime);
 						AnimScriptInstance = NewObject<UAnimInstance>(this, AnimBlueprintGeneratedClass);
 						AnimScriptInstance->InitializeAnimation();
 					}
@@ -638,7 +646,7 @@ void USkeletalMeshComponent::FillSpaceBases(const USkeletalMesh* InSkeletalMesh,
 
 	// First bone is always root bone, and it doesn't have a parent.
 	{
-		check( RequiredBones[0] == 0 );
+		check(FillSpaceBasesRequiredBones[0] == 0);
 		DestSpaceBases[0] = SourceAtoms[0];
 
 #if (UE_BUILD_DEBUG || UE_BUILD_DEVELOPMENT)
@@ -647,9 +655,9 @@ void USkeletalMeshComponent::FillSpaceBases(const USkeletalMesh* InSkeletalMesh,
 #endif
 	}
 
-	for(int32 i=1; i<RequiredBones.Num(); i++)
+	for (int32 i = 1; i<FillSpaceBasesRequiredBones.Num(); i++)
 	{
-		const int32 BoneIndex = RequiredBones[i];
+		const int32 BoneIndex = FillSpaceBasesRequiredBones[i];
 		FTransform* SpaceBase = SpaceBasesData + BoneIndex;
 
 		FPlatformMisc::Prefetch(SpaceBase);
@@ -683,7 +691,8 @@ void USkeletalMeshComponent::FillSpaceBases(const USkeletalMesh* InSkeletalMesh,
 	FAnimationRuntime::NormalizeRotations(DestSpaceBases);
 }
 
-/** Takes sorted array Base and then adds any elements from sorted array Insert which is missing from it, preserving order. */
+/** Takes sorted array Base and then adds any elements from sorted array Insert which is missing from it, preserving order.
+ * this assumes both arrays are sorted and contain unique bone indices. */
 static void MergeInBoneIndexArrays(TArray<FBoneIndexType>& BaseArray, TArray<FBoneIndexType>& InsertArray)
 {
 	// Then we merge them into the array of required bones.
@@ -824,8 +833,49 @@ void USkeletalMeshComponent::RecalcRequiredBones(int32 LODIndex)
 		MergeInBoneIndexArrays(RequiredBones, MirroredDesiredBones);
 	}
 
+	TArray<FBoneIndexType> NeededBonesForFillSpaceBases;
+	{
+		TArray<FBoneIndexType> ForceAnimatedSocketBones;
+
+		for (const USkeletalMeshSocket* Socket : SkeletalMesh->GetActiveSocketList())
+		{
+			int32 BoneIndex = SkeletalMesh->RefSkeleton.FindBoneIndex(Socket->BoneName);
+			if (Socket->bForceAlwaysAnimated)
+			{
+				ForceAnimatedSocketBones.AddUnique(BoneIndex);
+			}
+			else
+			{
+				NeededBonesForFillSpaceBases.AddUnique(BoneIndex);
+			}
+		}
+
+		// Then sort array of required bones in hierarchy order
+		ForceAnimatedSocketBones.Sort();
+
+		// Make sure all of these are in RequiredBones.
+		MergeInBoneIndexArrays(RequiredBones, ForceAnimatedSocketBones);
+	}
+
+
 	// Ensure that we have a complete hierarchy down to those bones.
 	FAnimationRuntime::EnsureParentsPresent(RequiredBones, SkeletalMesh);
+
+	FillSpaceBasesRequiredBones.Empty(RequiredBones.Num() + NeededBonesForFillSpaceBases.Num());
+	FillSpaceBasesRequiredBones = RequiredBones;
+	
+	NeededBonesForFillSpaceBases.Sort();
+	MergeInBoneIndexArrays(FillSpaceBasesRequiredBones, NeededBonesForFillSpaceBases);
+	FAnimationRuntime::EnsureParentsPresent(FillSpaceBasesRequiredBones, SkeletalMesh);
+
+	// Sanitise bones that we aren't going to be updating
+	for (int32 BoneIndex = 0; BoneIndex < LocalAtoms.Num(); ++BoneIndex)
+	{
+		if (!RequiredBones.Contains(BoneIndex))
+		{
+			LocalAtoms[BoneIndex] = SkeletalMesh->RefSkeleton.GetRefBonePose()[BoneIndex];
+		}
+	}
 
 	// make sure animation requiredBone to mark as dirty
 	if (AnimScriptInstance)
@@ -980,7 +1030,7 @@ void USkeletalMeshComponent::RefreshBoneTransforms(FActorComponentTickFunction* 
 		CachedSpaceBases.Empty();
 	}
 
-	const bool bDoPAE = !!CVarUseParallelAnimationEvaluation.GetValueOnGameThread();
+	const bool bDoPAE = !!CVarUseParallelAnimationEvaluation.GetValueOnGameThread() && FApp::ShouldUseThreadingForPerformance();
 	if (AnimEvaluationContext.bDoEvaluation && TickFunction && bDoPAE)
 	{
 		if (SkeletalMesh->RefSkeleton.GetNum() != AnimEvaluationContext.LocalAtoms.Num())
@@ -1425,10 +1475,11 @@ void USkeletalMeshComponent::RenderAxisGizmo( const FTransform& Transform, UCanv
 	DrawDebugCanvasLine(Canvas, Origin, Origin + ZAxis * AxisLength, FLinearColor( 0.3f, 0.3f, 1.f));	
 }
 
-void USkeletalMeshComponent::SetMorphTarget(FName MorphTargetName, float Value)
+void USkeletalMeshComponent::SetMorphTarget(FName MorphTargetName, float Value, bool bRemoveZeroWeight)
 {
 	float *CurveValPtr = MorphTargetCurves.Find(MorphTargetName);
-	if ( FPlatformMath::Abs(Value) > ZERO_ANIMWEIGHT_THRESH )
+	bool bShouldAddToList = !bRemoveZeroWeight || FPlatformMath::Abs(Value) > ZERO_ANIMWEIGHT_THRESH;
+	if ( bShouldAddToList )
 	{
 		if ( CurveValPtr )
 		{
@@ -1954,7 +2005,15 @@ void USkeletalMeshComponent::ValidateAnimation()
 	{
 		if(AnimBlueprintGeneratedClass && SkeletalMesh && AnimBlueprintGeneratedClass->TargetSkeleton != SkeletalMesh->Skeleton)
 		{
-			UE_LOG(LogAnimation, Warning, TEXT("AnimBP %s is incompatible with skeleton %s, removing AnimBP from actor."), *AnimBlueprintGeneratedClass->GetName(), *SkeletalMesh->Skeleton->GetName());
+			if(SkeletalMesh->Skeleton == nullptr)
+			{
+				UE_LOG(LogAnimation, Warning, TEXT("AnimBP %s is incompatible because mesh %s has no skeleton, removing AnimBP from actor."), *AnimBlueprintGeneratedClass->GetName(), *SkeletalMesh->GetName());
+			}
+			else
+			{
+				UE_LOG(LogAnimation, Warning, TEXT("AnimBP %s is incompatible with skeleton %s, removing AnimBP from actor."), *AnimBlueprintGeneratedClass->GetName(), *SkeletalMesh->Skeleton->GetName());
+			}
+
 			AnimBlueprintGeneratedClass = NULL;
 		}
 	}

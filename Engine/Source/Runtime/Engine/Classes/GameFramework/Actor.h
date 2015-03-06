@@ -620,7 +620,7 @@ public:
 	/** 
 	 *	Move the Actor to the specified location.
 	 *	@param NewLocation	The new location to move the Actor to.
-	 *	@param bSweep		Should we sweep to the destination location, stopping short of the target if blocked by something.
+	 *	@param bSweep		Should we sweep to the destination location, stopping short of the target if blocked by something. Note:If the root component has no collision this will have no effect.
 	 *  @param SweepHitResult	The hit result from the move if swept.
 	 *	@return	Whether the location was successfully set (if not swept), or whether movement occurred at all (if swept).
 	 */
@@ -1474,17 +1474,22 @@ public:
 #endif		// WITH_EDITOR
 
 	/**
-	* @param ViewPos		Position of the viewer
-	* @param ViewDir		Vector direction of viewer
-	* @param Viewer			PlayerController owned by the client for whom net priority is being determined
-	* @param InChannel		Channel on which this actor is being replicated.
-	* @param Time			Time since actor was last replicated
-	* @param bLowBandwidth True if low bandwith of viewer
-	* @return				Priority of this actor for replication
+	 * @param ViewPos		Position of the viewer
+	 * @param ViewDir		Vector direction of viewer
+	 * @param Viewer		PlayerController owned by the client for whom net priority is being determined
+	 * @param ViewTarget	The actor that is currently being viewed/controlled by Viewer, usually a pawn
+	 * @param InChannel		Channel on which this actor is being replicated.
+	 * @param Time			Time since actor was last replicated
+	 * @param bLowBandwidth True if low bandwith of viewer
+	 * @return				Priority of this actor for replication
 	 */
+	virtual float GetNetPriority(const FVector& ViewPos, const FVector& ViewDir, class APlayerController* Viewer, AActor* ViewTarget, UActorChannel* InChannel, float Time, bool bLowBandwidth);
+
+	DEPRECATED(4.8, "GetNetPriority now takes a ViewTarget, please override that version.")
 	virtual float GetNetPriority(const FVector& ViewPos, const FVector& ViewDir, class APlayerController* Viewer, UActorChannel* InChannel, float Time, bool bLowBandwidth);
 
-	virtual bool GetNetDormancy(const FVector& ViewPos, const FVector& ViewDir, class APlayerController* Viewer, UActorChannel* InChannel, float Time, bool bLowBandwidth);
+	/** Returns true if the actor should be dormant for a specific net connection. Only checked for DORM_DormantPartial */
+	virtual bool GetNetDormancy(const FVector& ViewPos, const FVector& ViewDir, class APlayerController* Viewer, AActor* ViewTarget, UActorChannel* InChannel, float Time, bool bLowBandwidth);
 
 	/** 
 	 * Allows for a specific response from the actor when the actor channel is opened (client side)
@@ -1617,10 +1622,11 @@ public:
 	void UpdateOverlaps(bool bDoNotifies=true);
 	
 	/** 
-	 * Check to see if current Actor is overlapping specified Actor
-	 * @param Other the Actor to test for
-	 * Returns true if any component of this actor is overlapping any component of Other. 
+	 * Check whether any component of this Actor is overlapping any component of another Actor.
+	 * @param Other The other Actor to test against
+	 * @return Whether any component of this Actor is overlapping any component of another Actor.
 	 */
+	UFUNCTION(BlueprintCallable, Category="Collision", meta=(UnsafeDuringActorConstruction="true"))
 	bool IsOverlappingActor(const AActor* Other) const;
 
 	/** Returns whether a MatineeActor is currently controlling this Actor */
@@ -1657,12 +1663,12 @@ public:
 
 	/** 
 	  * @param RealViewer - is the PlayerController associated with the client for which network relevancy is being checked
-	  * @param Viewer - is the Actor being used as the point of view for the PlayerController
+	  * @param VieweTarget - is the Actor being used as the point of view for the PlayerController
 	  * @param SrcLocation - is the viewing location
 	  *
 	  * @return bool - true if this actor is network relevant to the client associated with RealViewer 
 	  */
-	virtual bool IsNetRelevantFor(const APlayerController* RealViewer, const AActor* Viewer, const FVector& SrcLocation) const;
+	virtual bool IsNetRelevantFor(const APlayerController* RealViewer, const AActor* ViewTarget, const FVector& SrcLocation) const;
 
 	/**
 	 * Check if this actor is the owner when doing relevancy checks for actors marked bOnlyRelevantToOwner
@@ -2181,8 +2187,7 @@ public:
 	 * It's recommended to use TArrays with a TInlineAllocator to potentially avoid memory allocation costs.
 	 * TInlineComponentArray is defined to make this easier, for example:
 	 * {
-	 * 	   TInlineComponentArray<UPrimitiveComponent*> PrimComponents;
-	 *     Actor->GetComponents(PrimComponents);
+	 * 	   TInlineComponentArray<UPrimitiveComponent*> PrimComponents(Actor);
 	 * }
 	 */
 	template<class T, class AllocatorType>
@@ -2370,6 +2375,26 @@ public:
 	/** Get the class of this Actor. */
 	UFUNCTION(BlueprintCallable, meta=(DeprecatedFunction, FriendlyName = "GetActorClass"), Category="Class")
 	class UClass* GetActorClass() const;
+};
+
+/**
+ * TInlineComponentArray is simply a TArray that reserves a fixed amount of space on the stack
+ * to try to avoid heap allocation when there are fewer than a specified number of elements expected in the result.
+ */
+template<class T, uint32 NumElements = NumInlinedActorComponents>
+class TInlineComponentArray : public TArray<T, TInlineAllocator<NumElements>>
+{
+	typedef TArray<T, TInlineAllocator<NumElements>> Super;
+
+public:
+	TInlineComponentArray() : Super() { }
+	TInlineComponentArray(class AActor* Actor) : Super()
+	{
+		if (Actor)
+		{
+			Actor->GetComponents(*this);
+		}
+	};
 };
 
 

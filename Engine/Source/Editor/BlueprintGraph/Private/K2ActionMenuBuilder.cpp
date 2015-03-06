@@ -1510,7 +1510,7 @@ void FK2ActionMenuBuilder::GetFuncNodesForClass(FGraphActionListBuilderBase& Lis
 				if(ObjProp->HasAllPropertyFlags(CPF_BlueprintVisible) && ExposeFuncCatsString.Len() > 0)
 				{
 					TArray<FString> ExposeFuncCats;
-					ExposeFuncCatsString.ParseIntoArray(&ExposeFuncCats, TEXT( "," ), true);
+					ExposeFuncCatsString.ParseIntoArray(ExposeFuncCats, TEXT( "," ), true);
 
 					// Look for functions in those categories
 					UClass* ObjClass = ObjProp->PropertyClass;
@@ -1581,7 +1581,9 @@ void FK2ActionMenuBuilder::GetAllActionsForClass(FBlueprintPaletteListBuilder& P
 					const FString PropertyCategory = FObjectEditorUtils::GetCategory(Property);
 
 					TSharedPtr<FEdGraphSchemaAction_K2Var> NewVarAction = TSharedPtr<FEdGraphSchemaAction_K2Var>(new FEdGraphSchemaAction_K2Var(PropertyCategory, FText::FromString(PropertyDesc), PropertyTooltip, 0));
-					NewVarAction->SetVariableInfo(Property->GetFName(), InClass);
+					const UArrayProperty* ArrayProperty = Cast<const UArrayProperty>(Property);
+					const UProperty* TestProperty = ArrayProperty ? ArrayProperty->Inner : Property;
+					NewVarAction->SetVariableInfo(Property->GetFName(), InClass, Cast<UBoolProperty>(TestProperty) != nullptr);
 
 					PaletteBuilder.AddAction(NewVarAction);
 				}
@@ -2054,7 +2056,7 @@ void FK2ActionMenuBuilder::GetEventsForBlueprint(FBlueprintPaletteListBuilder& A
 		if( Blueprint->ParentClass->HasMetaData(*ExclusionListKeyName) )
 		{
 			const FString ExcludedEventNameString = Blueprint->ParentClass->GetMetaData(*ExclusionListKeyName);
-			ExcludedEventNameString.ParseIntoArray(&ExcludedEventNames, TEXT(","), true);
+			ExcludedEventNameString.ParseIntoArray(ExcludedEventNames, TEXT(","), true);
 		}
 
 		// Start the name list by first adding all events already on the graph

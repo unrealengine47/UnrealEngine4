@@ -330,7 +330,9 @@ void UTexture::FinishDestroy()
 	}
 
 	CleanupCachedRunningPlatformData();
-	CleanupCachedCookedPlatformData();
+#if WITH_EDITOR
+	ClearAllCachedCookedPlatformData();
+#endif
 }
 
 void UTexture::PreSave()
@@ -462,6 +464,9 @@ bool UTexture::ForceUpdateTextureStreaming()
 FTextureSource::FTextureSource()
 	: LockedMipData(NULL)
 	, LockedMips(0)
+#if WITH_EDITOR
+	, bHasHadBulkDataCleared(false)
+#endif
 #if WITH_EDITORONLY_DATA
 	, SizeX(0)
 	, SizeY(0)
@@ -777,6 +782,16 @@ void FTextureSource::ForceGenerateGuid()
 	bGuidIsHash = false;
 }
 
+void FTextureSource::ReleaseSourceMemory()
+{
+	bHasHadBulkDataCleared = true;
+	if (BulkData.IsLocked())
+	{
+		BulkData.Unlock();
+	}
+	BulkData.RemoveBulkData();
+}
+
 void FTextureSource::RemoveSourceData()
 {
 	SizeX = 0;
@@ -824,6 +839,12 @@ void FTextureSource::UseHashAsGuid()
 		BulkData.Unlock();
 		Id = FGuid(Hash[0] ^ Hash[4], Hash[1], Hash[2], Hash[3]);
 	}
+}
+
+void FTextureSource::SetId(const FGuid& InId, bool bInGuidIsHash)
+{
+	Id = InId;
+	bGuidIsHash = bInGuidIsHash;
 }
 
 uint32 UTexture::GetMaximumDimension() const

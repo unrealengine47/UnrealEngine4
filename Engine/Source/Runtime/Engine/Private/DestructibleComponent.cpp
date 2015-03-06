@@ -96,6 +96,37 @@ FBoxSphereBounds UDestructibleComponent::CalcBounds(const FTransform& LocalToWor
 #endif	// #if WITH_APEX
 }
 
+bool IsImpactDamageEnabled(const UDestructibleMesh* TheDestructibleMesh, int32 Level)
+{
+	if(TheDestructibleMesh->DefaultDestructibleParameters.DamageParameters.ImpactDamage == 0.f)
+	{
+		return false;
+	}
+
+	bool bEnableImpactDamage = false;
+	const FDestructibleDepthParameters& DepthParams = TheDestructibleMesh->DefaultDestructibleParameters.DepthParameters[Level];
+	const EImpactDamageOverride LevelOverride = DepthParams.ImpactDamageOverride; 
+
+	switch(LevelOverride)
+	{
+		case EImpactDamageOverride::IDO_On:
+		{
+			return true;
+		}
+
+		case EImpactDamageOverride::IDO_Off:
+		{
+			return false;
+		}
+
+		default:
+		{
+			//return default if we're within the default level
+		    return TheDestructibleMesh->DefaultDestructibleParameters.DamageParameters.DefaultImpactDamageDepth >= Level ? TheDestructibleMesh->DefaultDestructibleParameters.DamageParameters.bEnableImpactDamage : false;
+		}
+	}
+}
+
 void UDestructibleComponent::OnUpdateTransform(bool bSkipPhysicsMove)
 {
 	// We are handling the physics move below, so don't handle it at higher levels
@@ -249,13 +280,8 @@ void UDestructibleComponent::CreatePhysicsState()
 		SmallChunkCollisionResponse.SetAllChannels(ECR_Ignore);
 	}
 
-	bool bEnableImpactDamage = TheDestructibleMesh->DefaultDestructibleParameters.DamageParameters.bEnableImpactDamage;
-	for (const FDestructibleDepthParameters& DepthParams : TheDestructibleMesh->DefaultDestructibleParameters.DepthParameters)
-	{
-		bEnableImpactDamage |= DepthParams.ImpactDamageOverride == EImpactDamageOverride::IDO_On;
-	}
-
-	bool bEnableContactModification = TheDestructibleMesh->DefaultDestructibleParameters.DamageParameters.bCustomImpactResistance && TheDestructibleMesh->DefaultDestructibleParameters.DamageParameters.ImpactResistance > 0.f;
+	const bool bEnableImpactDamage = IsImpactDamageEnabled(TheDestructibleMesh, 0);
+	const bool bEnableContactModification = TheDestructibleMesh->DefaultDestructibleParameters.DamageParameters.bCustomImpactResistance && TheDestructibleMesh->DefaultDestructibleParameters.DamageParameters.ImpactResistance > 0.f;
 
 	// Passing AssetInstanceID = 0 so we'll have self-collision
 	AActor* Owner = GetOwner();
@@ -314,6 +340,8 @@ void UDestructibleComponent::CreatePhysicsState()
 	// Enable hard sleeping if requested
 	verify( NxParameterized::setParamBool(*ActorParams,"useHardSleeping", bEnableHardSleeping) );
 
+	
+
 	// Destructibles are always dynamic or kinematic, and therefore only go into one of the scenes
 	const uint32 SceneType = BodyInstance.UseAsyncScene() ? PST_Async : PST_Sync;
 	NxApexScene* ApexScene = PhysScene->GetApexScene(SceneType);
@@ -342,7 +370,8 @@ void UDestructibleComponent::CreatePhysicsState()
 
 
 	//  Put to sleep or wake up only if the component is physics-simulated
-	if (PRootActor != NULL && BodyInstance.bSimulatePhysics)
+	//TODO: APEX 1.3.3 defers adding actors to scene which means this doesn't work. Waiting on flag from them so we can do this properly.
+	/*if (PRootActor != NULL && BodyInstance.bSimulatePhysics)
 	{
 		SCOPED_SCENE_WRITE_LOCK(PRootActor->getScene());
 
@@ -357,7 +386,7 @@ void UDestructibleComponent::CreatePhysicsState()
 		{
 			PRootActor->putToSleep();
 		}
-	}
+	}*/
 
 	UpdateBounds();
 #endif	// #if WITH_APEX
@@ -1032,7 +1061,7 @@ void UDestructibleComponent::ApplyRadiusDamage(float BaseDamage, const FVector& 
 #endif
 }
 
-bool UDestructibleComponent::DoCustomNavigableGeometryExport(FNavigableGeometryExport* GeomExport) const
+bool UDestructibleComponent::DoCustomNavigableGeometryExport(FNavigableGeometryExport& GeomExport) const
 {
 #if WITH_APEX
 	if (ApexDestructibleActor == NULL)
@@ -1086,7 +1115,7 @@ bool UDestructibleComponent::DoCustomNavigableGeometryExport(FNavigableGeometryE
 									++ShapesExportedCount;
 
 									// @todo address Geometry.scale not being used here
-									GeomExport->ExportPxConvexMesh(Geometry.convexMesh, LocalToWorld);
+									GeomExport.ExportPxConvexMesh(Geometry.convexMesh, LocalToWorld);
 								}
 							}
 							break;
@@ -1100,11 +1129,11 @@ bool UDestructibleComponent::DoCustomNavigableGeometryExport(FNavigableGeometryE
 
 									if ((Geometry.triangleMesh->getTriangleMeshFlags()) & PxTriangleMeshFlag::eHAS_16BIT_TRIANGLE_INDICES)
 									{
-										GeomExport->ExportPxTriMesh16Bit(Geometry.triangleMesh, LocalToWorld);
+										GeomExport.ExportPxTriMesh16Bit(Geometry.triangleMesh, LocalToWorld);
 									}
 									else
 									{
-										GeomExport->ExportPxTriMesh32Bit(Geometry.triangleMesh, LocalToWorld);
+										GeomExport.ExportPxTriMesh32Bit(Geometry.triangleMesh, LocalToWorld);
 									}
 								}
 							}
@@ -1302,11 +1331,15 @@ void UDestructibleComponent::SetCollisionResponseForActor(PxRigidDynamic* Actor,
 	uint8 MoveChannel = GetCollisionObjectType();
 	if(IsCollisionEnabled())
 	{
+		UDestructibleMesh* TheDestructibleMesh = GetDestructibleMesh();
 		AActor* Owner = GetOwner();
 		bool bLargeChunk = IsChunkLarge(ChunkIdx);
 		const FCollisionResponse& ColResponse = bLargeChunk ? LargeChunkCollisionResponse : SmallChunkCollisionResponse;
-		//TODO: we currently assume chunks will not have impact damage as it's very expensive. Should look into exposing this a bit more
-		CreateShapeFilterData(MoveChannel, GetUniqueID(), ColResponse.GetResponseContainer(), 0, ChunkIdxToBoneIdx(ChunkIdx), PQueryFilterData, PSimFilterData, BodyInstance.bUseCCD, false, false);
+#if WITH_APEX
+		physx::PxU32 SupportDepth = TheDestructibleMesh->ApexDestructibleAsset->getChunkDepth(ChunkIdx);
+
+		const bool bEnableImpactDamage = IsImpactDamageEnabled(TheDestructibleMesh, SupportDepth);
+		CreateShapeFilterData(MoveChannel, GetUniqueID(), ColResponse.GetResponseContainer(), 0, ChunkIdxToBoneIdx(ChunkIdx), PQueryFilterData, PSimFilterData, BodyInstance.bUseCCD, bEnableImpactDamage, false);
 		
 		PQueryFilterData.word3 |= EPDF_SimpleCollision | EPDF_ComplexCollision;
 
@@ -1327,6 +1360,7 @@ void UDestructibleComponent::SetCollisionResponseForActor(PxRigidDynamic* Actor,
 			Shape->setFlag(PxShapeFlag::eSIMULATION_SHAPE, true); 
 			Shape->setFlag(PxShapeFlag::eVISUALIZATION, true);
 		}
+#endif
 	}
 }
 

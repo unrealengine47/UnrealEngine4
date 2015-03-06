@@ -149,7 +149,6 @@ UGameplayDebuggingComponent::UGameplayDebuggingComponent(const FObjectInitialize
 	bEnableClientEQSSceneProxy = false;
 	NextTargrtSelectionTime = 0;
 	ReplicateViewDataCounters.Init(0, EAIDebugDrawDataView::MAX);
-#endif
 
 	AGameplayDebuggingReplicator* Replicator = Cast<AGameplayDebuggingReplicator>(GetOwner());
 	if (Replicator)
@@ -161,7 +160,7 @@ UGameplayDebuggingComponent::UGameplayDebuggingComponent(const FObjectInitialize
 			ReplicateViewDataCounters[Index] = Settings.CheckFlag(Index);
 		}
 	}
-
+#endif
 }
 
 void UGameplayDebuggingComponent::Activate(bool bReset)
@@ -425,6 +424,7 @@ void UGameplayDebuggingComponent::CollectBasicData()
 
 void UGameplayDebuggingComponent::CollectBasicMovementData(APawn* MyPawn)
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	UCharacterMovementComponent* CharMovement = Cast<UCharacterMovementComponent>(MyPawn->GetMovementComponent());
 	if (CharMovement)
 	{
@@ -439,10 +439,12 @@ void UGameplayDebuggingComponent::CollectBasicMovementData(APawn* MyPawn)
 		MovementBaseInfo = TEXT("");
 		MovementModeInfo = TEXT("");
 	}
+#endif //!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 }
 
 void UGameplayDebuggingComponent::CollectBasicPathData(APawn* MyPawn)
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(MyPawn->GetWorld());
 	AAIController* MyAIController = Cast<AAIController>(MyPawn->GetController());
 
@@ -495,10 +497,12 @@ void UGameplayDebuggingComponent::CollectBasicPathData(APawn* MyPawn)
 	{
 		PathFollowingInfo = TEXT("");
 	}
+#endif //!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 }
 
 void UGameplayDebuggingComponent::CollectBasicBehaviorData(APawn* MyPawn)
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	AAIController* MyAIController = Cast<AAIController>(MyPawn->GetController());
 	UBehaviorTreeComponent* BTC = MyAIController ? Cast<UBehaviorTreeComponent>(MyAIController->BrainComponent) : nullptr;
 	bIsUsingBehaviorTree = (BTC != nullptr);
@@ -515,10 +519,12 @@ void UGameplayDebuggingComponent::CollectBasicBehaviorData(APawn* MyPawn)
 		CurrentAIState = TEXT("");
 		CurrentAIAssets = TEXT("");
 	}
+#endif //!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 }
 
 void UGameplayDebuggingComponent::CollectBasicAbilityData(APawn* MyPawn)
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	UAbilitySystemComponent* AbilityComp = MyPawn->FindComponentByClass<UAbilitySystemComponent>();
 	bIsUsingAbilities = (AbilityComp != nullptr);
 
@@ -550,12 +556,15 @@ void UGameplayDebuggingComponent::CollectBasicAbilityData(APawn* MyPawn)
 	{
 		AbilityInfo = TEXT("None");
 	}
+#endif //!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 }
 
 void UGameplayDebuggingComponent::CollectBasicAnimationData(APawn* MyPawn)
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	ACharacter* MyChar = Cast<ACharacter>(MyPawn);
 	MontageInfo = MyChar ? GetNameSafe(MyChar->GetCurrentMontage()) : TEXT("");
+#endif //!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 }
 
 void UGameplayDebuggingComponent::CollectBehaviorTreeData()
@@ -645,11 +654,15 @@ void UGameplayDebuggingComponent::CollectPathData()
 				FVisualLogEntry Snapshot;
 				NewPath->DescribeSelfToVisLog(&Snapshot);
 				PathCorridorPolygons.Reset(Snapshot.ElementsToDraw.Num());
-				for (auto& CurrentShape : Snapshot.ElementsToDraw)
+				FPathCorridorPolygons Polygon;
+				for (FVisualLogShapeElement& CurrentShape : Snapshot.ElementsToDraw)
 				{
 					if (CurrentShape.GetType() == EVisualLoggerShapeElement::Polygon)
 					{
-						PathCorridorPolygons.Add(CurrentShape.Points);
+						Polygon.Color = CurrentShape.GetFColor();
+						Polygon.Points.Reset();
+						Polygon.Points.Append(CurrentShape.Points);
+						PathCorridorPolygons.Add(Polygon);
 					}
 				}
 
@@ -667,11 +680,13 @@ void UGameplayDebuggingComponent::CollectPathData()
 					FMemoryWriter ArWriter(HelpBuffer);
 					int32 NumPolygons = PathCorridorPolygons.Num();
 					ArWriter << NumPolygons;
-					for (const auto& CurrentPoly : PathCorridorPolygons)
+					for (const FPathCorridorPolygons& CurrentPoly : PathCorridorPolygons)
 					{
-						int32 NumVerts = CurrentPoly.Num();
+						FColor Color = CurrentPoly.Color;
+						ArWriter << Color;
+						int32 NumVerts = CurrentPoly.Points.Num();
 						ArWriter << NumVerts;
-						for (auto Vert : CurrentPoly)
+						for (auto Vert : CurrentPoly.Points)
 						{
 							ArWriter << Vert;
 						}
@@ -709,18 +724,21 @@ void UGameplayDebuggingComponent::OnRep_PathCorridorData()
 		PathCorridorPolygons.Reset(NumPolygons);
 		for (int32 PolyIndex = 0; PolyIndex < NumPolygons; ++PolyIndex)
 		{
-			TArray<FVector> CurrentPoly;
+			FPathCorridorPolygons Polygon;
+			FColor Color;
+			ArReader << Polygon.Color;
+
 			int32 NumVerts = 0;
 			ArReader << NumVerts;
 			for (int32 VertIndex = 0; VertIndex < NumVerts; ++VertIndex)
 			{
 				FVector CurrentVertex;
 				ArReader << CurrentVertex;
-				CurrentPoly.Add(CurrentVertex);
+				Polygon.Points.Add(CurrentVertex);
 			}
 			if (NumVerts > 2)
 			{
-				PathCorridorPolygons.Add(CurrentPoly);
+				PathCorridorPolygons.Add(Polygon);
 			}
 		}
 		UpdateBounds();
@@ -787,6 +805,7 @@ void UGameplayDebuggingComponent::ServerReplicateData(uint32 InMessage, uint32  
 //////////////////////////////////////////////////////////////////////////
 void UGameplayDebuggingComponent::OnChangeEQSQuery()
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	AGameplayDebuggingReplicator* Replicator = Cast<AGameplayDebuggingReplicator>(GetOwner());
 	if (++CurrentEQSIndex >= EQSLocalData.Num())
 	{
@@ -795,6 +814,7 @@ void UGameplayDebuggingComponent::OnChangeEQSQuery()
 
 	UpdateBounds();
 	MarkRenderStateDirty();
+#endif //!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 }
 
 const FEnvQueryResult* UGameplayDebuggingComponent::GetQueryResult() const
@@ -930,9 +950,11 @@ void UGameplayDebuggingComponent::CollectEQSData()
 //----------------------------------------------------------------------//
 void UGameplayDebuggingComponent::OnRep_UpdateNavmesh()
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	NavMeshBounds = FBox(FVector(-HALF_WORLD_MAX, -HALF_WORLD_MAX, -HALF_WORLD_MAX), FVector(HALF_WORLD_MAX, HALF_WORLD_MAX, HALF_WORLD_MAX));
 	UpdateBounds();
 	MarkRenderStateDirty();
+#endif //!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 }
 
 bool UGameplayDebuggingComponent::ServerCollectNavmeshData_Validate(FVector_NetQuantize10 TargetLocation)
@@ -1077,6 +1099,7 @@ FORCEINLINE bool LineInCorrectDistance(const FVector& PlayerLoc, const FVector& 
 #if WITH_RECAST
 ARecastNavMesh* UGameplayDebuggingComponent::GetNavData()
 {
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(GetWorld());
 	if (NavSys == NULL)
 	{
@@ -1093,6 +1116,9 @@ ARecastNavMesh* UGameplayDebuggingComponent::GetNavData()
 
 	// If it wasn't found, just get the main nav-mesh data.
 	return Cast<ARecastNavMesh>(NavSys->GetMainNavData(FNavigationSystem::DontCreate));
+#else
+	return NULL;
+#endif //!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 }
 #endif
 
@@ -1353,6 +1379,7 @@ public:
 		: FDebugRenderSceneProxy(InComponent)
 	{
 		DrawType = FDebugRenderSceneProxy::SolidAndWireMeshes;
+		DrawAlpha = 90;
 		ViewFlagName = InViewFlagName;
 		ViewFlagIndex = uint32(FEngineShowFlags::FindIndexByName(*ViewFlagName));
 	}
@@ -1372,6 +1399,7 @@ public:
 FPrimitiveSceneProxy* UGameplayDebuggingComponent::CreateSceneProxy()
 {
 	FDebugRenderSceneCompositeProxy* CompositeProxy = NULL;
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	AGameplayDebuggingReplicator* Replicator = Cast<AGameplayDebuggingReplicator>(GetOwner());
 	if (!World || World->GetNetMode() == NM_DedicatedServer)
 	{
@@ -1427,44 +1455,33 @@ FPrimitiveSceneProxy* UGameplayDebuggingComponent::CreateSceneProxy()
 
 		TArray<FDebugRenderSceneProxy::FMesh> Meshes;
 		TArray<FDebugRenderSceneProxy::FDebugLine> Lines;
-		for (auto& CurrentPoly : PathCorridorPolygons)
+		for (FPathCorridorPolygons& CurrentPoly : PathCorridorPolygons)
 		{
-#if WITH_EDITOR
-			FClipSMPolygon InPoly(CurrentPoly.Num());
-			for (int32 Index = 0; Index < CurrentPoly.Num(); Index++)
-			{
-				FClipSMVertex v1;
-				v1.Pos = CurrentPoly[Index];
-				InPoly.Vertices.Add(v1);
-			}
 
-			TArray<FClipSMTriangle> OutTris;
-			if (TriangulatePoly(OutTris, InPoly, false))
+			if (CurrentPoly.Points.Num() > 2)
 			{
 				int32 LastIndex = 0;
+				FVector FirstVertex = CurrentPoly.Points[0];
 				FDebugRenderSceneProxy::FMesh TestMesh;
-				TestMesh.Color = FColor::Green;
-
-				RemoveRedundantTriangles(OutTris);
-				for (const auto& CurrentTri : OutTris)
+				TestMesh.Color = CurrentPoly.Color;// FColor::Green;
+				for (int32 Index = 1; Index < CurrentPoly.Points.Num()-1; Index += 1)
 				{
-					TestMesh.Vertices.Add(FDynamicMeshVertex(CurrentTri.Vertices[0].Pos));
-					TestMesh.Vertices.Add(FDynamicMeshVertex(CurrentTri.Vertices[1].Pos));
-					TestMesh.Vertices.Add(FDynamicMeshVertex(CurrentTri.Vertices[2].Pos));
+					TestMesh.Vertices.Add(FDynamicMeshVertex(FirstVertex));
+					TestMesh.Vertices.Add(FDynamicMeshVertex(CurrentPoly.Points[Index + 0]));
+					TestMesh.Vertices.Add(FDynamicMeshVertex(CurrentPoly.Points[Index + 1]));
 					TestMesh.Indices.Add(LastIndex++);
 					TestMesh.Indices.Add(LastIndex++);
 					TestMesh.Indices.Add(LastIndex++);
 				}
 				Meshes.Add(TestMesh);
 			}
-#endif
 
-			for (int32 VIdx = 0; VIdx < CurrentPoly.Num(); VIdx++)
+			for (int32 VIdx = 0; VIdx < CurrentPoly.Points.Num(); VIdx++)
 			{
 				Lines.Add(FDebugRenderSceneProxy::FDebugLine(
-					CurrentPoly[VIdx],
-					CurrentPoly[(VIdx + 1) % CurrentPoly.Num()],
-					FColor::Cyan,
+					CurrentPoly.Points[VIdx],
+					CurrentPoly.Points[(VIdx + 1) % CurrentPoly.Points.Num()],
+					CurrentPoly.Color,
 					2)
 				);
 			}
@@ -1484,6 +1501,7 @@ FPrimitiveSceneProxy* UGameplayDebuggingComponent::CreateSceneProxy()
 		CompositeProxy->AddChild(DebugSceneProxy);
 	}
 
+#endif //!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	return CompositeProxy;
 }
 

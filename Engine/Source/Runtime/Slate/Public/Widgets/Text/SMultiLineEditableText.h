@@ -466,6 +466,9 @@ private:
 	/** Insert the given text at the current cursor position, correctly taking into account new line characters */
 	void InsertTextAtCursorImpl(const FString& InString);
 
+	/** Insert a new-line at the current cursor position */
+	void InsertNewLineAtCursorImpl();
+
 	/**
 	 * Given a location and a Direction to offset, return a new location.
 	 *
@@ -544,6 +547,12 @@ private:
 
 	void OnHScrollBarMoved(const float InScrollOffsetFraction);
 	void OnVScrollBarMoved(const float InScrollOffsetFraction);
+
+	/**
+	 * Ensure that we will get a Tick() soon (either due to having active focus, or something having changed progmatically and requiring an update)
+	 * Does nothing if the active tick timer is already enabled
+	 */
+	void EnsureActiveTick();
 
 private:
 
@@ -662,6 +671,9 @@ private:
 
 	/** The optional modifier key necessary to create a newline when typing into the editor. */
 	EModifierKey::Type ModiferKeyForNewLine;
+
+	/** The timer that is actively driving this widget to Tick() even when Slate is idle */
+	TWeakPtr<FActiveTimerHandle> ActiveTickTimer;
 };
 
 

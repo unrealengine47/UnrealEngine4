@@ -796,7 +796,7 @@ void UEdGraphSchema_K2::GetAutoEmitTermParameters(const UFunction* Function, TAr
 	if( Function->HasMetaData(FBlueprintMetadata::MD_AutoCreateRefTerm) )
 	{
 		FString MetaData = Function->GetMetaData(FBlueprintMetadata::MD_AutoCreateRefTerm);
-		MetaData.ParseIntoArray(&AutoEmitParameterNames, TEXT(","), true);
+		MetaData.ParseIntoArray(AutoEmitParameterNames, TEXT(","), true);
 	}
 }
 
@@ -1294,12 +1294,6 @@ void UEdGraphSchema_K2::GetContextMenuActions(const UEdGraph* CurrentGraph, cons
 					MenuBuilder->AddMenuEntry( FGraphEditorCommands::Get().ReconstructNodes );
 					MenuBuilder->AddMenuEntry( FGraphEditorCommands::Get().BreakNodeLinks );
 
-					// tunnel nodes have option to open function editor
-					if (InGraphNode->IsA(UK2Node_Tunnel::StaticClass()))
-					{
-						MenuBuilder->AddMenuEntry(FGraphEditorCommands::Get().EditTunnel );
-					}
-
 					// Conditionally add the action to add an execution pin, if this is an execution node
 					if( InGraphNode->IsA(UK2Node_ExecutionSequence::StaticClass()) || InGraphNode->IsA(UK2Node_Switch::StaticClass()) )
 					{
@@ -1459,7 +1453,8 @@ void UEdGraphSchema_K2::OnReplaceVariableForVariableNode( UK2Node_Variable* Vari
 		}
 		else
 		{
-			Variable->VariableReference.SetLocalMember( FName(*VariableName), Variable->GetGraph()->GetName(), FBlueprintEditorUtils::FindLocalVariableGuidByName(OwnerBlueprint, Variable->GetGraph(), *VariableName));
+			UEdGraph* FunctionGraph = FBlueprintEditorUtils::GetTopLevelGraph(Variable->GetGraph());
+			Variable->VariableReference.SetLocalMember( FName(*VariableName), FunctionGraph->GetName(), FBlueprintEditorUtils::FindLocalVariableGuidByName(OwnerBlueprint, FunctionGraph, *VariableName));
 		}
 		Pin->PinName = VariableName;
 		Variable->ReconstructNode();
@@ -2156,6 +2151,10 @@ bool UEdGraphSchema_K2::SearchForAutocastFunction(const UEdGraphPin* OutputPin, 
 			{
 				TargetFunction = TEXT("GetObjectClass");
 			}
+		}
+		else if (InputPin->PinType.PinCategory == PC_String)
+		{
+			TargetFunction = TEXT("GetDisplayName");
 		}
 	}
 
@@ -5476,7 +5475,7 @@ void UEdGraphSchema_K2::SplitPin(UEdGraphPin* Pin) const
 		if (   StructType == GetBaseStructure(TEXT("Vector"))
 			|| StructType == GetBaseStructure(TEXT("Rotator")))
 		{
-			Pin->DefaultValue.ParseIntoArray(&OriginalDefaults, TEXT(","), false);
+			Pin->DefaultValue.ParseIntoArray(OriginalDefaults, TEXT(","), false);
 			for (FString& Default : OriginalDefaults)
 			{
 				Default = FString::SanitizeFloat(FCString::Atof(*Default));

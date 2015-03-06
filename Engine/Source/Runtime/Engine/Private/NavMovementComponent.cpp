@@ -57,6 +57,13 @@ void UNavMovementComponent::UpdateNavAgent(const AActor& Owner)
 		return;
 	}
 
+	// initialize properties from navigation system
+	UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(GetWorld());
+	if (NavSys != nullptr)
+	{
+		NavAgentProps.NavWalkingSearchHeightScale = NavSys->GetDefaultSupportedAgentConfig().NavWalkingSearchHeightScale;
+	}
+
 	// Can't call GetSimpleCollisionCylinder(), because no components will be registered.
 	float BoundRadius, BoundHalfHeight;	
 	Owner.GetSimpleCollisionCylinder(BoundRadius, BoundHalfHeight);
@@ -69,6 +76,13 @@ void UNavMovementComponent::UpdateNavAgent(const UCapsuleComponent& CapsuleCompo
 	if (ShouldUpdateNavAgentWithOwnersCollision() == false)
 	{
 		return;
+	}
+
+	// initialize properties from navigation system
+	UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(GetWorld());
+	if (NavSys != nullptr)
+	{
+		NavAgentProps.NavWalkingSearchHeightScale = NavSys->GetDefaultSupportedAgentConfig().NavWalkingSearchHeightScale;
 	}
 
 	NavAgentProps.AgentRadius = CapsuleComponent.GetScaledCapsuleRadius();

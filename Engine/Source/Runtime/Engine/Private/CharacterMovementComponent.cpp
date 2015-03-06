@@ -23,6 +23,7 @@
 #include "Components/DestructibleComponent.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCharacterMovement, Log, All);
+DEFINE_LOG_CATEGORY_STATIC(LogNavMeshMovement, Log, All);
 
 /**
  * Character stats
@@ -38,6 +39,9 @@ DECLARE_CYCLE_STAT(TEXT("Char Update Acceleration"), STAT_CharUpdateAcceleration
 DECLARE_CYCLE_STAT(TEXT("Char MoveUpdateDelegate"), STAT_CharMoveUpdateDelegate, STATGROUP_Character);
 DECLARE_CYCLE_STAT(TEXT("PhysWalking"), STAT_CharPhysWalking, STATGROUP_Character);
 DECLARE_CYCLE_STAT(TEXT("PhysFalling"), STAT_CharPhysFalling, STATGROUP_Character);
+DECLARE_CYCLE_STAT(TEXT("PhysNavWalking"), STAT_CharPhysNavWalking, STATGROUP_Character);
+DECLARE_CYCLE_STAT(TEXT("NavProjectPoint"), STAT_CharNavProjectPoint, STATGROUP_Character);
+DECLARE_CYCLE_STAT(TEXT("NavProjectLocation"), STAT_CharNavProjectLocation, STATGROUP_Character);
 
 // MAGIC NUMBERS
 const float MAX_STEP_SIDE_Z = 0.08f;	// maximum z value for the normal on the vertical side of steps
@@ -281,6 +285,9 @@ UCharacterMovementComponent::UCharacterMovementComponent(const FObjectInitialize
 	OldBaseLocation = FVector::ZeroVector;
 
 	NavMeshProjectionInterval = 0.1f;
+	NavMeshProjectionInterpSpeed = 12.f;
+	NavMeshProjectionHeightScaleUp = 0.67f;
+	NavMeshProjectionHeightScaleDown = 1.0f;
 }
 
 void UCharacterMovementComponent::PostLoad()
@@ -362,7 +369,7 @@ void UCharacterMovementComponent::BeginDestroy()
 	Super::BeginDestroy();
 }
 
-void UCharacterMovementComponent::SetUpdatedComponent(UPrimitiveComponent* NewUpdatedComponent)
+void UCharacterMovementComponent::SetUpdatedComponent(USceneComponent* NewUpdatedComponent)
 {
 	if (NewUpdatedComponent)
 	{
@@ -391,9 +398,10 @@ void UCharacterMovementComponent::SetUpdatedComponent(UPrimitiveComponent* NewUp
 	bDeferUpdateMoveComponent = false;
 	DeferredUpdatedMoveComponent = NULL;
 
-	if (IsValid(UpdatedComponent) && UpdatedComponent->OnComponentBeginOverlap.IsBound())
+	UPrimitiveComponent* OldPrimitive = Cast<UPrimitiveComponent>(UpdatedComponent);
+	if (IsValid(OldPrimitive) && OldPrimitive->OnComponentBeginOverlap.IsBound())
 	{
-		UpdatedComponent->OnComponentBeginOverlap.RemoveDynamic(this, &UCharacterMovementComponent::CapsuleTouched);
+		OldPrimitive->OnComponentBeginOverlap.RemoveDynamic(this, &UCharacterMovementComponent::CapsuleTouched);
 	}
 	
 	Super::SetUpdatedComponent(NewUpdatedComponent);
@@ -404,9 +412,9 @@ void UCharacterMovementComponent::SetUpdatedComponent(UPrimitiveComponent* NewUp
 		StopActiveMovement();
 	}
 
-	if (IsValid(UpdatedComponent) && bEnablePhysicsInteraction)
+	if (IsValid(UpdatedPrimitive) && bEnablePhysicsInteraction)
 	{
-		UpdatedComponent->OnComponentBeginOverlap.AddUniqueDynamic(this, &UCharacterMovementComponent::CapsuleTouched);
+		UpdatedPrimitive->OnComponentBeginOverlap.AddUniqueDynamic(this, &UCharacterMovementComponent::CapsuleTouched);
 	}
 
 	if (bUseRVOAvoidance)
@@ -669,6 +677,8 @@ void UCharacterMovementComponent::OnMovementModeChanged(EMovementMode PreviousMo
 	{
 		SetNavWalkingPhysics(true);
 		GroundMovementMode = MovementMode;
+		// Walking uses only XY velocity
+		Velocity.Z = 0.f;
 	}
 	else if (PreviousMovementMode == MOVE_NavWalking)
 	{
@@ -995,7 +1005,6 @@ void UCharacterMovementComponent::SimulatedTick(float DeltaSeconds)
 		// Tick animations before physics.
 		if( CharacterOwner->GetMesh() )
 		{
-			SCOPE_CYCLE_COUNTER(STAT_CharacterMovement);
 			TickCharacterPose(DeltaSeconds);
 
 			// Make sure animation didn't trigger an event that destroyed us
@@ -1710,7 +1719,7 @@ void UCharacterMovementComponent::Crouch(bool bClientSimulation)
 			FCollisionQueryParams CapsuleParams(NAME_CrouchTrace, false, CharacterOwner);
 			FCollisionResponseParams ResponseParam;
 			InitCollisionParams(CapsuleParams, ResponseParam);
-			const bool bEncroached = GetWorld()->OverlapBlockingTest(CharacterOwner->GetActorLocation() - FVector(0.f,0.f,ScaledHalfHeightAdjust), FQuat::Identity,
+			const bool bEncroached = GetWorld()->OverlapBlockingTestByChannel(CharacterOwner->GetActorLocation() - FVector(0.f,0.f,ScaledHalfHeightAdjust), FQuat::Identity,
 				UpdatedComponent->GetCollisionObjectType(), GetPawnCapsuleCollisionShape(SHRINK_None), CapsuleParams, ResponseParam);
 
 			// If encroached, cancel
@@ -1786,7 +1795,7 @@ void UCharacterMovementComponent::UnCrouch(bool bClientSimulation)
 		if (!bCrouchMaintainsBaseLocation)
 		{
 			// Expand in place
-			bEncroached = GetWorld()->OverlapBlockingTest(PawnLocation, FQuat::Identity, CollisionChannel, StandingCapsuleShape, CapsuleParams, ResponseParam);
+			bEncroached = GetWorld()->OverlapBlockingTestByChannel(PawnLocation, FQuat::Identity, CollisionChannel, StandingCapsuleShape, CapsuleParams, ResponseParam);
 		
 			if (bEncroached)
 			{
@@ -1802,7 +1811,7 @@ void UCharacterMovementComponent::UnCrouch(bool bClientSimulation)
 
 					FHitResult Hit(1.f);
 					const FCollisionShape ShortCapsuleShape = GetPawnCapsuleCollisionShape(SHRINK_HeightCustom, ShrinkHalfHeight);
-					const bool bBlockingHit = GetWorld()->SweepSingle(Hit, PawnLocation, PawnLocation + Down, FQuat::Identity, CollisionChannel, ShortCapsuleShape, CapsuleParams);
+					const bool bBlockingHit = GetWorld()->SweepSingleByChannel(Hit, PawnLocation, PawnLocation + Down, FQuat::Identity, CollisionChannel, ShortCapsuleShape, CapsuleParams);
 					if (Hit.bStartPenetrating)
 					{
 						bEncroached = true;
@@ -1812,7 +1821,7 @@ void UCharacterMovementComponent::UnCrouch(bool bClientSimulation)
 						// Compute where the base of the sweep ended up, and see if we can stand there
 						const float DistanceToBase = (Hit.Time * TraceDist) + ShortCapsuleShape.Capsule.HalfHeight;
 						const FVector NewLoc = FVector(PawnLocation.X, PawnLocation.Y, PawnLocation.Z - DistanceToBase + PawnHalfHeight + SweepInflation + MIN_FLOOR_DIST / 2.f);
-						bEncroached = GetWorld()->OverlapBlockingTest(NewLoc, FQuat::Identity, CollisionChannel, StandingCapsuleShape, CapsuleParams, ResponseParam);
+						bEncroached = GetWorld()->OverlapBlockingTestByChannel(NewLoc, FQuat::Identity, CollisionChannel, StandingCapsuleShape, CapsuleParams, ResponseParam);
 						if (!bEncroached)
 						{
 							// Intentionally not using MoveUpdatedComponent, where a horizontal plane constraint would prevent the base of the capsule from staying at the same spot.
@@ -1826,7 +1835,7 @@ void UCharacterMovementComponent::UnCrouch(bool bClientSimulation)
 		{
 			// Expand while keeping base location the same.
 			FVector StandingLocation = PawnLocation + FVector(0.f, 0.f, StandingCapsuleShape.GetCapsuleHalfHeight() - CurrentCrouchedHalfHeight);
-			bEncroached = GetWorld()->OverlapBlockingTest(StandingLocation, FQuat::Identity, CollisionChannel, StandingCapsuleShape, CapsuleParams, ResponseParam);
+			bEncroached = GetWorld()->OverlapBlockingTestByChannel(StandingLocation, FQuat::Identity, CollisionChannel, StandingCapsuleShape, CapsuleParams, ResponseParam);
 
 			if (bEncroached)
 			{
@@ -1837,7 +1846,7 @@ void UCharacterMovementComponent::UnCrouch(bool bClientSimulation)
 					if (CurrentFloor.bBlockingHit && CurrentFloor.FloorDist > MinFloorDist)
 					{
 						StandingLocation.Z -= CurrentFloor.FloorDist - MinFloorDist;
-						bEncroached = GetWorld()->OverlapBlockingTest(StandingLocation, FQuat::Identity, CollisionChannel, StandingCapsuleShape, CapsuleParams, ResponseParam);
+						bEncroached = GetWorld()->OverlapBlockingTestByChannel(StandingLocation, FQuat::Identity, CollisionChannel, StandingCapsuleShape, CapsuleParams, ResponseParam);
 					}
 				}				
 			}
@@ -2886,7 +2895,7 @@ FVector UCharacterMovementComponent::FindWaterLine(FVector InWater, FVector Outo
 
 	TArray<FHitResult> Hits;
 	static const FName NAME_FindWaterLine = FName(TEXT("FindWaterLine"));
-	GetWorld()->LineTraceMulti(Hits, OutofWater, InWater, UpdatedComponent->GetCollisionObjectType(), FCollisionQueryParams(NAME_FindWaterLine, true, CharacterOwner));
+	GetWorld()->LineTraceMultiByChannel(Hits, OutofWater, InWater, UpdatedComponent->GetCollisionObjectType(), FCollisionQueryParams(NAME_FindWaterLine, true, CharacterOwner));
 
 	for( int32 HitIdx = 0; HitIdx < Hits.Num(); HitIdx++ )
 	{
@@ -3229,7 +3238,7 @@ bool UCharacterMovementComponent::FindAirControlImpact(float DeltaTime, float Ad
 		const FVector CapsuleLocation = UpdatedComponent->GetComponentLocation();
 		const FCollisionShape CapsuleShape = GetPawnCapsuleCollisionShape(SHRINK_None);
 		
-		if (GetWorld()->SweepSingle(OutHitResult, CapsuleLocation, CapsuleLocation + TestWalk, FQuat::Identity, UpdatedComponent->GetCollisionObjectType(), CapsuleShape, CapsuleQuery, ResponseParam))
+		if (GetWorld()->SweepSingleByChannel(OutHitResult, CapsuleLocation, CapsuleLocation + TestWalk, FQuat::Identity, UpdatedComponent->GetCollisionObjectType(), CapsuleShape, CapsuleQuery, ResponseParam))
 		{
 			return true;
 		}
@@ -3275,13 +3284,13 @@ bool UCharacterMovementComponent::CheckLedgeDirection(const FVector& OldLocation
 	FCollisionShape CapsuleShape = GetPawnCapsuleCollisionShape(SHRINK_None);
 	const ECollisionChannel CollisionChannel = UpdatedComponent->GetCollisionObjectType();
 	FHitResult Result(1.f);
-	GetWorld()->SweepSingle(Result, OldLocation, SideDest, FQuat::Identity, CollisionChannel, CapsuleShape, CapsuleParams, ResponseParam);
+	GetWorld()->SweepSingleByChannel(Result, OldLocation, SideDest, FQuat::Identity, CollisionChannel, CapsuleShape, CapsuleParams, ResponseParam);
 
 	if ( !Result.bBlockingHit || IsWalkable(Result) )
 	{
 		if ( !Result.bBlockingHit )
 		{
-			GetWorld()->SweepSingle(Result, SideDest, SideDest + GravDir * (MaxStepHeight + LedgeCheckThreshold), FQuat::Identity, CollisionChannel, CapsuleShape, CapsuleParams, ResponseParam);
+			GetWorld()->SweepSingleByChannel(Result, SideDest, SideDest + GravDir * (MaxStepHeight + LedgeCheckThreshold), FQuat::Identity, CollisionChannel, CapsuleShape, CapsuleParams, ResponseParam);
 		}
 		if ( (Result.Time < 1.f) && IsWalkable(Result) )
 		{
@@ -3470,10 +3479,16 @@ void UCharacterMovementComponent::MoveAlongFloor(const FVector& InVelocity, floa
 	
 	if (Hit.bStartPenetrating)
 	{
-		OnCharacterStuckInGeometry();
-	}
+		// Allow this hit to be used as an impact we can deflect off, otherwise we do nothing the rest of the update and appear to hitch.
+		HandleImpact(Hit);
+		SlideAlongSurface(Delta, 1.f, Hit.Normal, Hit, true);
 
-	if (Hit.IsValidBlockingHit())
+		if (Hit.bStartPenetrating)
+		{
+			OnCharacterStuckInGeometry();
+		}
+	}
+	else if (Hit.IsValidBlockingHit())
 	{
 		// We impacted something (most likely another ramp, but possibly a barrier).
 		float PercentTimeApplied = Hit.Time;
@@ -3750,40 +3765,10 @@ void UCharacterMovementComponent::PhysWalking(float deltaTime, int32 Iterations)
 
 void UCharacterMovementComponent::PhysNavWalking(float deltaTime, int32 Iterations)
 {
+	SCOPE_CYCLE_COUNTER(STAT_CharPhysNavWalking);
+
 	if (deltaTime < MIN_TICK_TIME)
 	{
-		return;
-	}
-
-	UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(GetWorld());
-	if (NavSys == NULL)
-	{
-		// can't find navigation system, switch to regular walking
-		SetMovementMode(MOVE_Walking);
-		return;
-	}
-
-	const ANavigationData* NavData = NULL;
-	INavAgentInterface* MyNavAgent = Cast<INavAgentInterface>(CharacterOwner);
-	float SearchRadius = 0.0f;
-	float SearchHeight = 100.0f;
-	if (MyNavAgent)
-	{
-		const FNavAgentProperties& AgentProps = MyNavAgent->GetNavAgentPropertiesRef();
-		NavData = NavSys->GetNavDataForProps(AgentProps);
-		SearchRadius = AgentProps.AgentRadius * 2.0f;
-		SearchHeight = AgentProps.AgentHeight * 0.5f;
-	}
-	if (NavData == NULL)
-	{
-		NavData = NavSys->GetMainNavData();
-	}
-
-	const ARecastNavMesh* NavMeshData = Cast<const ARecastNavMesh>(NavData);
-	if (NavMeshData == NULL)
-	{
-		// can't find navigation data for owning character, switch to regular walking
-		SetMovementMode(MOVE_Walking);
 		return;
 	}
 
@@ -3817,35 +3802,74 @@ void UCharacterMovementComponent::PhysNavWalking(float deltaTime, int32 Iteratio
 	FVector AdjustedDest = OldLocation + DeltaMove;
 	FNavLocation DestNavLocation;
 
-	if (DeltaMove.IsNearlyZero() &&
-		CachedNavLocation.NodeRef != INVALID_NAVNODEREF &&
-		CachedNavLocation.Location.Equals(OldLocation))
+	bool bSameNavLocation = false;
+	if (CachedNavLocation.NodeRef != INVALID_NAVNODEREF)
+	{
+		if (bProjectNavMeshWalking)
+		{
+			bSameNavLocation = (OldLocation - CachedNavLocation.Location).SizeSquared2D() <= KINDA_SMALL_NUMBER;
+		}
+		else
+		{
+			bSameNavLocation = CachedNavLocation.Location.Equals(OldLocation);
+		}
+	}
+		
+
+	if (DeltaMove.IsNearlyZero() && bSameNavLocation)
 	{
 		DestNavLocation = CachedNavLocation;
+		UE_LOG(LogNavMeshMovement, VeryVerbose, TEXT("%s using cached navmesh location! (bProjectNavMeshWalking = %d)"), *GetNameSafe(CharacterOwner), bProjectNavMeshWalking);
 	}
 	else
 	{
-		// scope for projection perf test
-		NavData->ProjectPoint(AdjustedDest, DestNavLocation, FVector(SearchRadius, SearchRadius, SearchHeight));
+		SCOPE_CYCLE_COUNTER(STAT_CharNavProjectPoint);
+
+		// Start the trace from the Z location of the last valid trace.
+		// Otherwise if we are projecting our location to the underlying geometry and it's far above or below the navmesh,
+		// we'll follow that geometry's plane out of range of valid navigation.
+		if (bSameNavLocation && bProjectNavMeshWalking)
+		{
+			AdjustedDest.Z = CachedNavLocation.Location.Z;
+		}
+
+		// Find the point on the NavMesh
+		const bool bHasNavigationData = FindNavFloor(AdjustedDest, DestNavLocation);
+		if (!bHasNavigationData)
+		{
+			SetMovementMode(MOVE_Walking);
+			return;
+		}
+
 		CachedNavLocation = DestNavLocation;
 	}
 
 	if (DestNavLocation.NodeRef != INVALID_NAVNODEREF)
 	{
 		FVector NewLocation(AdjustedDest.X, AdjustedDest.Y, DestNavLocation.Location.Z);
-		ProjectLocationFromNavMesh(deltaTime, NewLocation);
+		if (bProjectNavMeshWalking)
+		{
+			SCOPE_CYCLE_COUNTER(STAT_CharNavProjectLocation);
+			const float TotalCapsuleHeight = CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() * 2.0f;
+			const float UpOffset = TotalCapsuleHeight * FMath::Max(0.f, NavMeshProjectionHeightScaleUp);
+			const float DownOffset = TotalCapsuleHeight * FMath::Max(0.f, NavMeshProjectionHeightScaleDown);
+			NewLocation = ProjectLocationFromNavMesh(deltaTime, OldLocation, NewLocation, UpOffset, DownOffset);
+		}
 
 		FVector AdjustedDelta = NewLocation - OldLocation;
 
 		if (!AdjustedDelta.IsNearlyZero())
 		{
-			MoveUpdatedComponent(AdjustedDelta, CharacterOwner->GetActorRotation(), true);
+			const bool bSweep = UpdatedPrimitive ? UpdatedPrimitive->bGenerateOverlapEvents : false;
+			FHitResult HitResult;
+			SafeMoveUpdatedComponent(AdjustedDelta, CharacterOwner->GetActorRotation(), bSweep, HitResult);
 		}
 
 		// Update velocity to reflect actual move
 		if (!bJustTeleported && !HasRootMotion())
 		{
 			Velocity = (GetActorFeetLocation() - OldLocation) / deltaTime;
+			MaintainHorizontalGroundVelocity();
 		}
 
 		bJustTeleported = false;
@@ -3856,39 +3880,111 @@ void UCharacterMovementComponent::PhysNavWalking(float deltaTime, int32 Iteratio
 	}
 }
 
-void UCharacterMovementComponent::ProjectLocationFromNavMesh(float DeltaSeconds, FVector& InOutLocation)
+bool UCharacterMovementComponent::FindNavFloor(const FVector& TestLocation, FNavLocation& NavFloorLocation) const
 {
-	if(bProjectNavMeshWalking)
+	UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(GetWorld());
+	if (NavSys == nullptr)
 	{
-		NavMeshProjectionTimer -= DeltaSeconds;
+		return false;
+	}
 
-		const FVector RayCastOffset(0.0f, 0.0f, CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() * 2.0f);
+	const ANavigationData* NavData = nullptr;
+	INavAgentInterface* MyNavAgent = Cast<INavAgentInterface>(CharacterOwner);
+	float SearchRadius = 0.0f;
+	float SearchHeight = 100.0f;
+	if (MyNavAgent)
+	{
+		const FNavAgentProperties& AgentProps = MyNavAgent->GetNavAgentPropertiesRef();
+		NavData = NavSys->GetNavDataForProps(AgentProps);
+		SearchRadius = AgentProps.AgentRadius * 2.0f;
+		SearchHeight = AgentProps.AgentHeight * AgentProps.NavWalkingSearchHeightScale;
+	}
+	if (NavData == nullptr)
+	{
+		NavData = NavSys->GetMainNavData();
+	}
 
-		if(NavMeshProjectionTimer <= 0.0f)
+	const ARecastNavMesh* NavMeshData = Cast<const ARecastNavMesh>(NavData);
+	if (NavMeshData == nullptr)
+	{
+		return false;
+	}
+
+	NavData->ProjectPoint(TestLocation, NavFloorLocation, FVector(SearchRadius, SearchRadius, SearchHeight));
+	return true;
+}
+
+FVector UCharacterMovementComponent::ProjectLocationFromNavMesh(float DeltaSeconds, const FVector& CurrentFeetLocation, const FVector& TargetNavLocation, float UpOffset, float DownOffset)
+{
+	SCOPE_CYCLE_COUNTER(STAT_CharNavProjectLocation);
+
+	FVector NewLocation = TargetNavLocation;
+
+	const FVector RayCastOffsetUp(0.0f, 0.0f, UpOffset);
+	const FVector RayCastOffsetDown(0.0f, 0.0f, DownOffset);
+
+	NavMeshProjectionTimer -= DeltaSeconds;
+	if (NavMeshProjectionTimer <= 0.0f)
+	{
+		// We can skip this trace if we are checking at the same location as the last trace (ie, we haven't moved).
+		const bool bCachedLocationStillValid = (!bAlwaysCheckFloor &&
+												CachedProjectedNavMeshHitResult.bBlockingHit &&
+												CachedProjectedNavMeshHitResult.TraceStart == (TargetNavLocation + RayCastOffsetUp) &&
+												CachedProjectedNavMeshHitResult.TraceEnd == (TargetNavLocation - RayCastOffsetDown));
+
+		if (!bCachedLocationStillValid)
 		{
+			UE_LOG(LogNavMeshMovement, VeryVerbose, TEXT("ProjectLocationFromNavMesh(): %s interval: %.3f velocity: %s"), *GetNameSafe(CharacterOwner), NavMeshProjectionInterval, *Velocity.ToString());
+
 			// raycast to underlying mesh to allow us to more closely follow geometry
 			// we use static objects here as a best approximation to accept only objects that
 			// influence navmesh generation
-			FCollisionQueryParams Params;
-			FCollisionObjectQueryParams ObjectQueryParams(FCollisionObjectQueryParams::AllStaticObjects);
-			GetWorld()->LineTraceSingle(CachedProjectedNavMeshHitResult, InOutLocation + RayCastOffset, InOutLocation - RayCastOffset, Params, ObjectQueryParams);
+			static const FName ProjectLocationName(TEXT("NavProjectLocation"));
+			FCollisionQueryParams Params(ProjectLocationName, false);
+			FCollisionResponseParams ResponseParams(ECR_Ignore); // ignore everything
+			ResponseParams.CollisionResponse.SetResponse(ECC_WorldStatic, ECR_Block); // get blocked only by WorldStatic
+			GetWorld()->LineTraceSingleByChannel(CachedProjectedNavMeshHitResult, TargetNavLocation + RayCastOffsetUp, TargetNavLocation - RayCastOffsetDown, ECC_WorldStatic, Params, ResponseParams);
 
 			// discard result if we were already inside something
-			if(CachedProjectedNavMeshHitResult.bStartPenetrating)
+			if (CachedProjectedNavMeshHitResult.bStartPenetrating)
 			{
 				CachedProjectedNavMeshHitResult.Reset();
 			}
-
-			NavMeshProjectionTimer = NavMeshProjectionInterval;
 		}
-		
-		// project to last plane we found
-		if(CachedProjectedNavMeshHitResult.bBlockingHit)
+		else
 		{
-			FVector ProjectedPoint = FMath::LinePlaneIntersection(InOutLocation, InOutLocation - RayCastOffset, CachedProjectedNavMeshHitResult.Location, CachedProjectedNavMeshHitResult.Normal);
-			InOutLocation.Z = ProjectedPoint.Z;
+			UE_LOG(LogNavMeshMovement, VeryVerbose, TEXT("ProjectLocationFromNavMesh(): %s interval: %.3f velocity: %s [SKIP TRACE]"), *GetNameSafe(CharacterOwner), NavMeshProjectionInterval, *Velocity.ToString());
 		}
+
+		// Wrap around to maintain same relative offset to tick time changes.
+		// Prevents large framerate spikes from aligning multiple characters to the same frame (if they start staggered, they will now remain staggered).
+		float ModTime = 0.f;
+		if (NavMeshProjectionInterval > SMALL_NUMBER)
+		{
+			ModTime = FMath::Fmod(FMath::Abs(NavMeshProjectionTimer), NavMeshProjectionInterval);
+		}
+
+		NavMeshProjectionTimer = NavMeshProjectionInterval - ModTime;
 	}
+		
+	// project to last plane we found
+	if (CachedProjectedNavMeshHitResult.bBlockingHit)
+	{
+		FVector ProjectedPoint = FMath::LinePlaneIntersection(TargetNavLocation + RayCastOffsetUp, TargetNavLocation - RayCastOffsetDown, CachedProjectedNavMeshHitResult.Location, CachedProjectedNavMeshHitResult.Normal);
+
+		// Limit to not be too far above or below NavMesh location
+		ProjectedPoint.Z = FMath::Clamp(ProjectedPoint.Z, TargetNavLocation.Z - DownOffset, TargetNavLocation.Z + UpOffset);
+
+		// Interp for smoother updates (less "pop" when trace hits something new). 0 interp speed is instant.
+		const float InterpSpeed = FMath::Max(0.f, NavMeshProjectionInterpSpeed);
+		ProjectedPoint.Z = FMath::FInterpTo(CurrentFeetLocation.Z, ProjectedPoint.Z, DeltaSeconds, InterpSpeed);
+		ProjectedPoint.Z = FMath::Clamp(ProjectedPoint.Z, TargetNavLocation.Z - DownOffset, TargetNavLocation.Z + UpOffset);
+
+		// Final result
+		NewLocation.Z = ProjectedPoint.Z;
+	}
+
+	return NewLocation;
 }
 
 void UCharacterMovementComponent::PhysCustom(float deltaTime, int32 Iterations)
@@ -3974,6 +4070,23 @@ void UCharacterMovementComponent::ProcessLanded(const FHitResult& Hit, float rem
 	}
 	if( IsFalling() )
 	{
+		if (GroundMovementMode == MOVE_NavWalking)
+		{
+			// verify navmesh projection and current floor
+			// otherwise movement will be stuck in infinite loop:
+			// navwalking -> (no navmesh) -> falling -> (standing on something) -> navwalking -> ....
+
+			const FVector TestLocation = GetActorFeetLocation();
+			FNavLocation NavLocation;
+
+			const bool bHasNavigationData = FindNavFloor(TestLocation, NavLocation);
+			if (!bHasNavigationData || NavLocation.NodeRef == INVALID_NAVNODEREF)
+			{
+				GroundMovementMode = MOVE_Walking;
+				UE_LOG(LogNavMeshMovement, Verbose, TEXT("ProcessLanded(): %s tried to go to NavWalking but couldn't find NavMesh! Using Walking instead."), *GetNameSafe(CharacterOwner));
+			}
+		}
+
 		SetPostLandedPhysics(Hit);
 	}
 	if (PathFollowingComp.IsValid())
@@ -4004,14 +4117,17 @@ void UCharacterMovementComponent::SetPostLandedPhysics(const FHitResult& Hit)
 
 void UCharacterMovementComponent::SetNavWalkingPhysics(bool bEnable)
 {
-	if (UpdatedComponent)
+	if (UpdatedPrimitive)
 	{
 		if (bEnable)
 		{
-			UpdatedComponent->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Ignore);
-			UpdatedComponent->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Ignore);
+			UpdatedPrimitive->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Ignore);
+			UpdatedPrimitive->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Ignore);
 			CachedProjectedNavMeshHitResult.Reset();
-			NavMeshProjectionTimer = 0.0f;
+
+			// Stagger timed updates so many different characters spawned at the same time don't update on the same frame.
+			// Initially we want an immediate update though, so set time to a negative randomized range.
+			NavMeshProjectionTimer = (NavMeshProjectionInterval > 0.f) ? FMath::FRandRange(-NavMeshProjectionInterval, 0.f) : 0.f;
 		}
 		else
 		{
@@ -4024,8 +4140,8 @@ void UCharacterMovementComponent::SetNavWalkingPhysics(bool bEnable)
 
 			if (DefaultCapsule)
 			{
-				UpdatedComponent->SetCollisionResponseToChannel(ECC_WorldStatic, DefaultCapsule->GetCollisionResponseToChannel(ECC_WorldStatic));
-				UpdatedComponent->SetCollisionResponseToChannel(ECC_WorldDynamic, DefaultCapsule->GetCollisionResponseToChannel(ECC_WorldDynamic));
+				UpdatedPrimitive->SetCollisionResponseToChannel(ECC_WorldStatic, DefaultCapsule->GetCollisionResponseToChannel(ECC_WorldStatic));
+				UpdatedPrimitive->SetCollisionResponseToChannel(ECC_WorldDynamic, DefaultCapsule->GetCollisionResponseToChannel(ECC_WorldDynamic));
 			}
 			else
 			{
@@ -4044,7 +4160,7 @@ bool UCharacterMovementComponent::TryToLeaveNavWalking()
 	if (CharacterOwner)
 	{
 		FVector CollisionFreeLocation = CharacterOwner->GetActorLocation();
-		const bool bCanTeleport = GetWorld()->FindTeleportSpot(CharacterOwner, CollisionFreeLocation, CharacterOwner->GetActorRotation());
+		bCanTeleport = GetWorld()->FindTeleportSpot(CharacterOwner, CollisionFreeLocation, CharacterOwner->GetActorRotation());
 		if (bCanTeleport)
 		{
 			CharacterOwner->SetActorLocation(CollisionFreeLocation);
@@ -4295,7 +4411,7 @@ bool UCharacterMovementComponent::CheckWaterJump(FVector CheckPoint, FVector& Wa
 	InitCollisionParams(CapsuleParams, ResponseParam);
 	FCollisionShape CapsuleShape = GetPawnCapsuleCollisionShape(SHRINK_None);
 	const ECollisionChannel CollisionChannel = UpdatedComponent->GetCollisionObjectType();
-	bool bHit = GetWorld()->SweepSingle( HitInfo, CharacterOwner->GetActorLocation(), CheckPoint, FQuat::Identity, CollisionChannel, CapsuleShape, CapsuleParams, ResponseParam);
+	bool bHit = GetWorld()->SweepSingleByChannel( HitInfo, CharacterOwner->GetActorLocation(), CheckPoint, FQuat::Identity, CollisionChannel, CapsuleShape, CapsuleParams, ResponseParam);
 	
 	if ( bHit && !Cast<APawn>(HitInfo.GetActor()) )
 	{
@@ -4307,7 +4423,7 @@ bool UCharacterMovementComponent::CheckWaterJump(FVector CheckPoint, FVector& Wa
 		FCollisionQueryParams LineParams(CheckWaterJumpName, true, CharacterOwner);
 		FCollisionResponseParams LineResponseParam;
 		InitCollisionParams(LineParams, LineResponseParam);
-		bHit = GetWorld()->LineTraceSingle( HitInfo, Start, CheckPoint, CollisionChannel, LineParams, LineResponseParam );
+		bHit = GetWorld()->LineTraceSingleByChannel( HitInfo, Start, CheckPoint, CollisionChannel, LineParams, LineResponseParam );
 		// if no high obstruction, or it's a valid floor, then pawn can jump out of water
 		return !bHit || IsWalkable(HitInfo);
 	}
@@ -4604,7 +4720,7 @@ void UCharacterMovementComponent::ComputeFloorDist(const FVector& CapsuleLocatio
 		QueryParams.TraceTag = FloorLineTraceName;
 
 		FHitResult Hit(1.f);
-		bBlockingHit = GetWorld()->LineTraceSingle(Hit, LineTraceStart, LineTraceStart + Down, CollisionChannel, QueryParams, ResponseParam);
+		bBlockingHit = GetWorld()->LineTraceSingleByChannel(Hit, LineTraceStart, LineTraceStart + Down, CollisionChannel, QueryParams, ResponseParam);
 
 		if (bBlockingHit)
 		{
@@ -4741,7 +4857,7 @@ bool UCharacterMovementComponent::FloorSweepTest(
 
 	if (!bUseFlatBaseForFloorChecks)
 	{
-		bBlockingHit = GetWorld()->SweepSingle(OutHit, Start, End, FQuat::Identity, TraceChannel, CollisionShape, Params, ResponseParam);
+		bBlockingHit = GetWorld()->SweepSingleByChannel(OutHit, Start, End, FQuat::Identity, TraceChannel, CollisionShape, Params, ResponseParam);
 	}
 	else
 	{
@@ -4751,13 +4867,13 @@ bool UCharacterMovementComponent::FloorSweepTest(
 		const FCollisionShape BoxShape = FCollisionShape::MakeBox(FVector(CapsuleRadius * 0.707f, CapsuleRadius * 0.707f, CapsuleHeight));
 
 		// First test with the box rotated so the corners are along the major axes (ie rotated 45 degrees).
-		bBlockingHit = GetWorld()->SweepSingle(OutHit, Start, End, FQuat(FVector(0.f, 0.f, -1.f), PI * 0.25f), TraceChannel, BoxShape, Params, ResponseParam);
+		bBlockingHit = GetWorld()->SweepSingleByChannel(OutHit, Start, End, FQuat(FVector(0.f, 0.f, -1.f), PI * 0.25f), TraceChannel, BoxShape, Params, ResponseParam);
 
 		if (!bBlockingHit)
 		{
 			// Test again with the same box, not rotated.
 			OutHit.Reset(1.f, false);			
-			bBlockingHit = GetWorld()->SweepSingle(OutHit, Start, End, FQuat::Identity, TraceChannel, BoxShape, Params, ResponseParam);
+			bBlockingHit = GetWorld()->SweepSingleByChannel(OutHit, Start, End, FQuat::Identity, TraceChannel, BoxShape, Params, ResponseParam);
 		}
 	}
 
@@ -4794,6 +4910,15 @@ bool UCharacterMovementComponent::IsValidLandingSpot(const FVector& CapsuleLocat
 		// Reject hits that are barely on the cusp of the radius of the capsule
 		if (!IsWithinEdgeTolerance(Hit.Location, Hit.ImpactPoint, PawnRadius))
 		{
+			return false;
+		}
+	}
+	else
+	{
+		// Penetrating
+		if (Hit.Normal.Z < KINDA_SMALL_NUMBER)
+		{
+			// Normal is nearly horizontal or downward, that's a penetration adjustment next to a vertical or overhanging wall. Don't pop to the floor.
 			return false;
 		}
 	}
@@ -6558,20 +6683,20 @@ void UCharacterMovementComponent::SetAvoidanceEnabled(bool bEnable)
 
 void UCharacterMovementComponent::ApplyRepulsionForce(float DeltaSeconds)
 {
-	if (UpdatedComponent && RepulsionForce > 0.0f)
+	if (UpdatedPrimitive && RepulsionForce > 0.0f)
 	{
 		FCollisionQueryParams QueryParams;
 		QueryParams.bReturnFaceIndex = false;
 		QueryParams.bReturnPhysicalMaterial = false;
 
-		const FCollisionShape CollisionShape = UpdatedComponent->GetCollisionShape();
+		const FCollisionShape CollisionShape = UpdatedPrimitive->GetCollisionShape();
 		const float CapsuleRadius = CollisionShape.GetCapsuleRadius();
 		const float CapsuleHalfHeight = CollisionShape.GetCapsuleHalfHeight();
 		const float RepulsionForceRadius = CapsuleRadius * 1.2f;
 		const float StopBodyDistance = 2.5f;
 
-		const TArray<FOverlapInfo>& Overlaps = UpdatedComponent->GetOverlapInfos();
-		const FVector MyLocation = UpdatedComponent->GetComponentLocation();
+		const TArray<FOverlapInfo>& Overlaps = UpdatedPrimitive->GetOverlapInfos();
+		const FVector MyLocation = UpdatedPrimitive->GetComponentLocation();
 
 		for (int32 i=0; i < Overlaps.Num(); i++)
 		{
@@ -6612,7 +6737,7 @@ void UCharacterMovementComponent::ApplyRepulsionForce(float DeltaSeconds)
 
 			// Trace to get the hit location on the capsule
 			FHitResult Hit;
-			bool bHasHit = UpdatedComponent->LineTraceComponent(Hit, BodyLocation, 
+			bool bHasHit = UpdatedPrimitive->LineTraceComponent(Hit, BodyLocation,
 																FVector(MyLocation.X, MyLocation.Y, BodyLocation.Z),
 																QueryParams);
 

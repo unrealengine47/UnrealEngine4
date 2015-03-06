@@ -53,9 +53,7 @@ AWorldSettings::AWorldSettings(const FObjectInitializer& ObjectInitializer)
 	MatineeTimeDilation = 1.0f;
 	DemoPlayTimeDilation = 1.0f;
 	PackedLightAndShadowMapTextureSize = 1024;
-#if WITH_EDITORONLY_DATA
-	bHiddenEd = true;
-#endif // WITH_EDITORONLY_DATA
+	bHidden = false;
 
 	DefaultColorScale = FVector(1.0f, 1.0f, 1.0f);
 
@@ -125,7 +123,11 @@ void AWorldSettings::NotifyBeginPlay()
 	{
 		for (FActorIterator It(World); It; ++It)
 		{
-			It->BeginPlay();
+			// Actors that have traveled seamlessly from other levels already had BeginPlay called in that level
+			if (!It->IsPendingKill() && !It->HasActorBegunPlay())
+			{
+				It->BeginPlay();
+			}
 		}
 		World->bBegunPlay = true;
 	}

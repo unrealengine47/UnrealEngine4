@@ -50,6 +50,7 @@
 #include "SCreateAssetFromObject.h"
 
 #include "SourceCodeNavigation.h"
+#include "Editor/BlueprintGraph/Public/BlueprintEditorSettings.h"
 
 #define LOCTEXT_NAMESPACE "SSCSEditor"
 
@@ -230,6 +231,12 @@ public:
 		DropAction_AttachToOrMakeNewRoot
 	};
 
+	// FGraphEditorDragDropAction interface
+	virtual void HoverTargetChanged() override;
+	virtual FReply DroppedOnNode(FVector2D ScreenPosition, FVector2D GraphPosition) override;
+	virtual FReply DroppedOnPanel(const TSharedRef< class SWidget >& Panel, FVector2D ScreenPosition, FVector2D GraphPosition, UEdGraph& Graph) override;
+	// End of FGraphEditorDragDropAction
+
 	/** Node(s) that we started the drag from */
 	TArray<FSCSEditorTreeNodePtrType> SourceNodes;
 
@@ -247,6 +254,75 @@ TSharedRef<FSCSRowDragDropOp> FSCSRowDragDropOp::New(FName InVariableName, UStru
 	Operation->AnalyticCallback = AnalyticCallback;
 	Operation->Construct();
 	return Operation.ToSharedRef();
+}
+
+void FSCSRowDragDropOp::HoverTargetChanged()
+{
+	bool bHoverHandled = false;
+
+	if(SourceNodes.Num() > 1)
+	{
+		// Display an error message if attempting to drop multiple source items onto a node
+		UEdGraphNode* VarNodeUnderCursor = Cast<UK2Node_Variable>(GetHoveredNode());
+		if (VarNodeUnderCursor != NULL)
+		{
+			// Icon/text to draw on tooltip
+			FSlateColor IconColor = FLinearColor::White;
+			const FSlateBrush* StatusSymbol = FEditorStyle::GetBrush(TEXT("Graph.ConnectorFeedback.Error"));
+			FText Message = LOCTEXT("InvalidMultiDropTarget", "Cannot replace node with multiple nodes");
+			SetSimpleFeedbackMessage(StatusSymbol, IconColor, Message);
+
+			bHoverHandled = true;
+		}
+	}
+
+	if(!bHoverHandled)
+	{
+		FKismetVariableDragDropAction::HoverTargetChanged();
+	}
+}
+
+FReply FSCSRowDragDropOp::DroppedOnNode(FVector2D ScreenPosition, FVector2D GraphPosition)
+{
+	// Only allow dropping on another node if there is only a single source item
+	if(SourceNodes.Num() == 1)
+	{
+		FKismetVariableDragDropAction::DroppedOnNode(ScreenPosition, GraphPosition);
+	}
+	return FReply::Handled();
+}
+
+FReply FSCSRowDragDropOp::DroppedOnPanel(const TSharedRef< class SWidget >& Panel, FVector2D ScreenPosition, FVector2D GraphPosition, UEdGraph& Graph)
+{
+	const FScopedTransaction Transaction(LOCTEXT("SCSEditorAddMultipleNodes", "Add Component Nodes"));
+
+	TArray<UK2Node_VariableGet*> OriginalVariableNodes;
+	Graph.GetNodesOfClass<UK2Node_VariableGet>(OriginalVariableNodes);
+
+	// Add source items to the graph in turn
+	for (FSCSEditorTreeNodePtrType& SourceNode : SourceNodes)
+	{
+		VariableName = SourceNode->GetVariableName();
+		FKismetVariableDragDropAction::DroppedOnPanel(Panel, ScreenPosition, GraphPosition, Graph);
+
+		GraphPosition.Y += 50;
+	}
+
+	TArray<UK2Node_VariableGet*> ResultVariableNodes;
+	Graph.GetNodesOfClass<UK2Node_VariableGet>(ResultVariableNodes);
+
+	if (ResultVariableNodes.Num() - OriginalVariableNodes.Num() > 1)
+	{
+		TSet<const UEdGraphNode*> NodeSelection;
+
+		// Because there is more than one new node, lets grab all the nodes at the bottom of the list and add them to a set for selection
+		for (int32 NodeIdx = ResultVariableNodes.Num() - 1; NodeIdx >= OriginalVariableNodes.Num(); --NodeIdx)
+		{
+			NodeSelection.Add(ResultVariableNodes[NodeIdx]);
+		}
+		Graph.SelectNodeSet(NodeSelection);
+	}
+	return FReply::Handled();
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -1602,6 +1678,13 @@ FText SSCS_RowWidget::GetIntroducedInToolTipText() const
 							BestClass = OwningBP->GeneratedClass;
 						}
 					}
+					else if (OwningActor != nullptr)
+					{
+						if (UBlueprint* OwningBP = UBlueprint::GetBlueprintFromClass(OwningActor->GetClass()))
+						{
+							BestClass = OwningBP->GeneratedClass;
+						}
+					}
 				}
 
 				if (BestClass == nullptr)
@@ -1614,6 +1697,14 @@ FText SSCS_RowWidget::GetIntroducedInToolTipText() const
 					{
 						IntroducedInTooltip = LOCTEXT("IntroducedInNativeError", "Unknown native source (via C++ code)");
 					}
+				}
+				else if (!TreeNode->IsNative() && ComponentTemplate->CreationMethod == EComponentCreationMethod::Native)
+				{
+					IntroducedInTooltip = FText::Format(LOCTEXT("IntroducedInCPPErrorFmt", "{0} (via C++ code)"), FBlueprintEditorUtils::GetFriendlyClassDisplayName(BestClass));
+				}
+				else if (ComponentTemplate->CreationMethod == EComponentCreationMethod::UserConstructionScript)
+				{
+					IntroducedInTooltip = FText::Format(LOCTEXT("IntroducedInUCSErrorFmt", "{0} (via an Add Component call)"), FBlueprintEditorUtils::GetFriendlyClassDisplayName(BestClass));
 				}
 				else
 				{
@@ -2014,6 +2105,16 @@ void SSCS_RowWidget::OnDragEnter( const FGeometry& MyGeometry, const FDragDropEv
 				{
 					// Can't attach Static components to mobile ones
 					Message = LOCTEXT("DropActionToolTip_Error_CannotAttachStationary", "Cannot attach Stationary components to movable ones.");
+				}
+				else if ((!NodePtr->IsNative() && HoveredTemplate->CreationMethod == EComponentCreationMethod::Native))
+				{
+					// Can't attach to post-construction C++-added components as they exist outside of the CDO and are not known at SCS execution time
+					Message = LOCTEXT("DropActionToolTip_Error_CannotAttachCPPAdded", "Cannot attach to components added in post-construction C++ code.");
+				}
+				else if (HoveredTemplate->CreationMethod == EComponentCreationMethod::UserConstructionScript)
+				{
+					// Can't attach to UCS-added components as they exist outside of the CDO and are not known at SCS execution time
+					Message = LOCTEXT("DropActionToolTip_Error_CannotAttachUCSAdded", "Cannot attach to components added in the Construction Script.");
 				}
 				else if (HoveredTemplate->CanAttachAsChild(DraggedTemplate, NAME_None))
 				{
@@ -2500,6 +2601,9 @@ void SSCS_RowWidget::OnMakeNewRootDropAction(FSCSEditorTreeNodePtrType DroppedNo
 		if(OldSceneRootNodePtr.IsValid())
 		{
 			SceneRootNodePtr->AddChild(OldSceneRootNodePtr);
+
+			// Expand the new scene root as we've just added a child to it
+			SCSEditorPtr->SetNodeExpansionState(SceneRootNodePtr, true);
 		}
 	}
 	else    // EComponentEditorMode::ActorInstance
@@ -2521,6 +2625,9 @@ void SSCS_RowWidget::OnMakeNewRootDropAction(FSCSEditorTreeNodePtrType DroppedNo
 		// Set old root as child of new root
 		check(OldSceneRootNodePtr.IsValid());
 		SceneRootNodePtr->AddChild(OldSceneRootNodePtr);
+
+		// Expand the new scene root as we've just added a child to it
+		SCSEditorPtr->SetNodeExpansionState(SceneRootNodePtr, true);
 	}
 
 	PostDragDropAction(true);
@@ -3015,6 +3122,7 @@ void SSCSEditor::Construct( const FArguments& InArgs )
 	OnItemDoubleClicked = InArgs._OnItemDoubleClicked;
 	OnHighlightPropertyInDetailsView = InArgs._OnHighlightPropertyInDetailsView;
 	bUpdatingSelection = false;
+	bHasAddedSceneAndBehaviorComponentSeparator = false;
 
 	CommandList = MakeShareable( new FUICommandList );
 	CommandList->MapAction( FGenericCommands::Get().Cut,
@@ -3182,7 +3290,7 @@ void SSCSEditor::Construct( const FArguments& InArgs )
 							SNew(STextBlock)
 							.TextStyle(FEditorStyle::Get(), "ContentBrowser.TopBar.Font")
 							.Font( FEditorStyle::Get().GetFontStyle( "FontAwesome.10" ) )
-							.Text(FString(TEXT("\xf085")) /*fa-cogs*/)
+							.Text(FText::FromString(FString(TEXT("\xf085"))) /*fa-cogs*/)
 						]
 
 						+ SHorizontalBox::Slot()
@@ -3222,7 +3330,7 @@ void SSCSEditor::Construct( const FArguments& InArgs )
 							SNew(STextBlock)
 							.TextStyle(FEditorStyle::Get(), "ContentBrowser.TopBar.Font")
 							.Font(FEditorStyle::Get().GetFontStyle("FontAwesome.10"))
-							.Text(FString(TEXT("\xf085")) /*fa-cogs*/)
+							.Text(FText::FromString(FString(TEXT("\xf085"))) /*fa-cogs*/)
 						]
 						
 						+ SHorizontalBox::Slot()
@@ -3302,15 +3410,29 @@ void SSCSEditor::Tick( const FGeometry& AllottedGeometry, const double InCurrent
 		TFunction<bool (const TArray<FSCSEditorTreeNodePtrType>&, int32&)> AreAnyNodesInvalidLambda = [&](const TArray<FSCSEditorTreeNodePtrType>& InNodes, int32& OutNumValidNodes) -> bool
 		{
 			bool bFoundInvalidNode = false;
-			for(auto NodeIt = InNodes.CreateConstIterator(); NodeIt && !bFoundInvalidNode; ++NodeIt)
+			for(auto NodeIt = InNodes.CreateConstIterator(); NodeIt && !bFoundInvalidNode && !AreAnyNodesInvalidLambda((*NodeIt)->GetChildren(), OutNumValidNodes); ++NodeIt)
 			{
 				bool bIsComponent = (*NodeIt)->GetNodeType() == FSCSEditorTreeNode::ComponentNode;
-
-				const UActorComponent* InstancedComponent = (*NodeIt)->GetComponentTemplate();
-				bFoundInvalidNode = (bIsComponent && (!InstancedComponent || InstancedComponent->IsPendingKill())) || AreAnyNodesInvalidLambda((*NodeIt)->GetChildren(), OutNumValidNodes);
 				if (bIsComponent)
 				{
-					++OutNumValidNodes;
+					// A component node is considered to be invalid if one of the following conditions holds true:
+					//	(a) The component instance is invalid (i.e. NULL).
+					//	(b) The component instance is pending garbage collection.
+					//	(c) The component instance is a USceneComponent derivative and either is not the scene "root" node or otherwise is not contained within the scene component node hierarchy.
+					//	(d) The component instance is not a USceneComponent derivative and either matches the scene "root" node or is otherwise contained within the scene component node hierarchy.
+					//		=> (c) and (d) could happen if the user changes the parent class of a custom component's Blueprint class, for example.
+					//
+					FSCSEditorTreeNodePtrType ParentNodePtr = (*NodeIt)->GetParent();
+					const UActorComponent* InstancedComponent = (*NodeIt)->GetComponentTemplate();
+					bFoundInvalidNode = !InstancedComponent
+						|| InstancedComponent->IsPendingKill()
+						|| (InstancedComponent->IsA<USceneComponent>() && (*NodeIt != SceneRootNodePtr && (!ParentNodePtr.IsValid() || ParentNodePtr->GetNodeType() != FSCSEditorTreeNode::ComponentNode)))
+						|| (!InstancedComponent->IsA<USceneComponent>() && (*NodeIt == SceneRootNodePtr || (ParentNodePtr.IsValid() && ParentNodePtr->GetNodeType() == FSCSEditorTreeNode::ComponentNode)));
+					
+					if(!bFoundInvalidNode)
+					{
+						++OutNumValidNodes;
+					}
 				}
 			}
 
@@ -3322,8 +3444,9 @@ void SSCSEditor::Tick( const FGeometry& AllottedGeometry, const double InCurrent
 			int32 NumComponentInstances = 0;
 			for (auto CompIt = ActorInstance->GetComponents().CreateConstIterator(); CompIt; ++CompIt)
 			{
-				// Don't count editor-only components, because we don't show them
-				if (!(*CompIt)->IsEditorOnly())
+				// Don't count editor-only components, because we don't show them. Also, don't count UCS-added components if the option to hide them is enabled.
+				if (!(*CompIt)->IsEditorOnly()
+					&& ((*CompIt)->CreationMethod != EComponentCreationMethod::UserConstructionScript || !GetDefault<UBlueprintEditorSettings>()->bHideConstructionScriptComponentsInDetailsView))
 				{
 					++NumComponentInstances;
 				}
@@ -3387,24 +3510,24 @@ void SSCSEditor::GetSelectedItemsForContextMenu(TArray<FComponentEventConstructi
 
 TSharedPtr< SWidget > SSCSEditor::CreateContextMenu()
 {
-	TArray<FSCSEditorTreeNodePtrType> SelectedNodes = SCSTreeWidget->GetSelectedItems();
+	TArray<FSCSEditorTreeNodePtrType> SelectedItems = SCSTreeWidget->GetSelectedItems();
 
-	if (SelectedNodes.Num() > 0 || CanPasteNodes())
+	if (SelectedItems.Num() > 0 || CanPasteNodes())
 	{
 		const bool CloseAfterSelection = true;
 		FMenuBuilder MenuBuilder( CloseAfterSelection, CommandList );
 
 		bool bOnlyShowPasteOption = false;
 
-		if (SelectedNodes.Num() > 0)
+		if (SelectedItems.Num() > 0)
 		{
-			if (SelectedNodes.Num() == 1 && SelectedNodes[0]->GetNodeType() == FSCSEditorTreeNode::RootActorNode)
+			if (SelectedItems.Num() == 1 && SelectedItems[0]->GetNodeType() == FSCSEditorTreeNode::RootActorNode)
 			{
 				bOnlyShowPasteOption = true;
 			}
 			else
 			{
-				for (auto SelectedNode : SelectedNodes)
+				for (auto SelectedNode : SelectedItems)
 				{
 					if (SelectedNode->GetNodeType() != FSCSEditorTreeNode::ComponentNode)
 					{
@@ -3860,6 +3983,14 @@ void SSCSEditor::SelectNode(FSCSEditorTreeNodePtrType InNodeToSelect, bool IsCnt
 	}
 }
 
+void SSCSEditor::SetNodeExpansionState(FSCSEditorTreeNodePtrType InNodeToChange, const bool bIsExpanded)
+{
+	if(SCSTreeWidget.IsValid() && InNodeToChange.IsValid())
+	{
+		SCSTreeWidget->SetItemExpansion(InNodeToChange, bIsExpanded);
+	}
+}
+
 static FSCSEditorTreeNode* FindRecursive( FSCSEditorTreeNode* Node, FName Name )
 {
 	if (Node->GetVariableName() == Name)
@@ -3944,6 +4075,8 @@ void SSCSEditor::UpdateTree(bool bRegenerateTreeNodes)
 		RootNodes.Empty();
 		RootComponentNodes.Empty();
 
+		bHasAddedSceneAndBehaviorComponentSeparator = false;
+
 		// Reset the scene root node
 		SceneRootNodePtr.Reset();
 
@@ -3996,15 +4129,14 @@ void SSCSEditor::UpdateTree(bool bRegenerateTreeNodes)
 				}
 
 				// Add native ActorComponent nodes that aren't SceneComponents
-				bool bSeparatorAdded = false;
 				for(auto CompIter = Components.CreateIterator(); CompIter; ++CompIter)
 				{
 					UActorComponent* ActorComp = *CompIter;
 					if (!ActorComp->IsA<USceneComponent>())
 					{
-						if (!bSeparatorAdded)
+						if (!bHasAddedSceneAndBehaviorComponentSeparator)
 						{
-							bSeparatorAdded = true;
+							bHasAddedSceneAndBehaviorComponentSeparator = true;
 							RootNodes.Add(MakeShareable(new FSCSEditorTreeNodeSeparator()));
 						}
 						AddRootComponentTreeNode(ActorComp);
@@ -4064,22 +4196,23 @@ void SSCSEditor::UpdateTree(bool bRegenerateTreeNodes)
 				for(auto CompIter = Components.CreateIterator(); CompIter; ++CompIter)
 				{
 					USceneComponent* SceneComp = Cast<USceneComponent>(*CompIter);
-					if(SceneComp != nullptr && !SceneComp->IsEditorOnly())
+					if(SceneComp != nullptr && !SceneComp->IsEditorOnly()
+						&& (SceneComp->CreationMethod != EComponentCreationMethod::UserConstructionScript || !GetDefault<UBlueprintEditorSettings>()->bHideConstructionScriptComponentsInDetailsView))
 					{
 						AddTreeNodeFromComponent(SceneComp);
 					}
 				}
 
 				// Add all non-scene component instances to the root set first
-				bool bSeparatorAdded = false;
 				for(auto CompIter = Components.CreateIterator(); CompIter; ++CompIter)
 				{
 					UActorComponent* ActorComp = *CompIter;
-					if (!ActorComp->IsA<USceneComponent>() && !ActorComp->IsEditorOnly())
+					if (!ActorComp->IsA<USceneComponent>() && !ActorComp->IsEditorOnly()
+						&& (ActorComp->CreationMethod != EComponentCreationMethod::UserConstructionScript || !GetDefault<UBlueprintEditorSettings>()->bHideConstructionScriptComponentsInDetailsView))
 					{
-						if (!bSeparatorAdded)
+						if (!bHasAddedSceneAndBehaviorComponentSeparator)
 						{
-							bSeparatorAdded = true;
+							bHasAddedSceneAndBehaviorComponentSeparator = true;
 							RootNodes.Add(MakeShareable(new FSCSEditorTreeNode(FSCSEditorTreeNode::SeparatorNode)));
 						}
 						AddRootComponentTreeNode(ActorComp);
@@ -4468,6 +4601,13 @@ UActorComponent* SSCSEditor::AddNewNodeForInstancedComponent(UActorComponent* Ne
 	}
 	else
 	{
+		// Make sure we've added the separator between scene and behavior components
+		if (!bHasAddedSceneAndBehaviorComponentSeparator)
+		{
+			bHasAddedSceneAndBehaviorComponentSeparator = true;
+			RootNodes.Add(MakeShareable(new FSCSEditorTreeNode(FSCSEditorTreeNode::SeparatorNode)));
+		}
+
 		NewNodePtr = AddRootComponentTreeNode(NewInstanceComponent);
 	}
 
@@ -4479,7 +4619,6 @@ UActorComponent* SSCSEditor::AddNewNodeForInstancedComponent(UActorComponent* Ne
 	}
 
 	UpdateTree(false);
-
 
 	return NewInstanceComponent;
 }
@@ -4601,11 +4740,8 @@ void SSCSEditor::PasteNodes()
 			UActorComponent* NewActorComponent = NewObjectIt->Value;
 			check(NewActorComponent);
 
-			// Relocate the instance from the transient package to the BPGC and assign it a unique object name
-			NewActorComponent->Rename(NULL, Blueprint->GeneratedClass, REN_DontCreateRedirectors | REN_DoNotDirty);
-
 			// Create a new SCS node to contain the new component and add it to the tree
-			NewActorComponent = AddNewNode(Blueprint->SimpleConstructionScript->CreateNode(NewActorComponent), NULL, false, false);
+			NewActorComponent = AddNewNode(Blueprint->SimpleConstructionScript->CreateNodeAndRenameComponent(NewActorComponent), NULL, false, false);
 
 			if (NewActorComponent)
 			{
@@ -4705,9 +4841,13 @@ void SSCSEditor::OnDeleteNodes()
 
 	if (EditorMode == EComponentEditorMode::BlueprintSCS)
 	{
-		// Remove node from SCS
 		UBlueprint* Blueprint = GetBlueprint();
-		FThumbnailRenderingInfo* RenderInfo = nullptr;
+		check(Blueprint != nullptr);
+
+		// Get the current render info for the blueprint. If this is NULL then the blueprint is not currently visualizable (no visible primitive components)
+		FThumbnailRenderingInfo* RenderInfo = GUnrealEd->GetThumbnailManager()->GetRenderingInfo( Blueprint );
+
+		// Remove node(s) from SCS
 		TArray<FSCSEditorTreeNodePtrType> SelectedNodes = SCSTreeWidget->GetSelectedItems();
 		for (int32 i = 0; i < SelectedNodes.Num(); ++i)
 		{
@@ -4719,18 +4859,9 @@ void SSCSEditor::OnDeleteNodes()
 				USimpleConstructionScript* SCS = SCS_Node->GetSCS();
 				check(SCS != nullptr && Blueprint == SCS->GetBlueprint());
 
-				if(Blueprint == nullptr)
-				{
-					Blueprint = SCS->GetBlueprint();
-					check(Blueprint != nullptr);
-
-					// Get the current render info for the blueprint. If this is NULL then the blueprint is not currently visualizable (no visible primitive components)
-					FThumbnailRenderingInfo* RenderInfo = GUnrealEd->GetThumbnailManager()->GetRenderingInfo( Blueprint );
-
-					// Saving objects for restoring purpose.
-					Blueprint->Modify();
-					SaveSCSCurrentState( SCS );
-				}
+				// Saving objects for restoring purpose.
+				Blueprint->Modify();
+				SaveSCSCurrentState( SCS );
 			}
 
 			RemoveComponentNode(Node);

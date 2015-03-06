@@ -41,7 +41,7 @@ float USoundBase::GetMaxAudibleDistance()
 	return 0.f;
 }
 
-bool USoundBase::IsAudibleSimple( const FVector Location, USoundAttenuation* AttenuationSettings )
+bool USoundBase::IsAudibleSimple( const FVector Location, USoundAttenuation* InAttenuationSettings )
 {
 	// No audio device means no listeners to check against
 	if( !GEngine || !GEngine->GetAudioDevice() )
@@ -56,7 +56,7 @@ bool USoundBase::IsAudibleSimple( const FVector Location, USoundAttenuation* Att
 	}
 
 	// Is this SourceActor within the MaxAudibleDistance of any of the listeners?
-	float MaxAudibleDistance = AttenuationSettings != nullptr ? AttenuationSettings->Attenuation.GetMaxDimension() : GetMaxAudibleDistance();
+	float MaxAudibleDistance = InAttenuationSettings  != nullptr ? InAttenuationSettings ->Attenuation.GetMaxDimension() : GetMaxAudibleDistance();
 	return GEngine->GetAudioDevice()->LocationIsAudible( Location, MaxAudibleDistance );
 }
 
@@ -77,7 +77,7 @@ bool USoundBase::IsAudible( const FVector &SourceLocation, const FVector &Listen
 			static FName NAME_IsAudible(TEXT("IsAudible"));
 
 			// simple trace occlusion check - reduce max audible distance if occluded
-			bIsOccluded = SourceActor->GetWorld()->LineTraceTest(ModifiedSourceLocation, ListenerLocation, ECC_Visibility, FCollisionQueryParams(NAME_IsAudible, true, SourceActor));
+			bIsOccluded = SourceActor->GetWorld()->LineTraceTestByChannel(ModifiedSourceLocation, ListenerLocation, ECC_Visibility, FCollisionQueryParams(NAME_IsAudible, true, SourceActor));
 		}
 		return true;
 	}
@@ -100,4 +100,9 @@ float USoundBase::GetVolumeMultiplier()
 float USoundBase::GetPitchMultiplier()
 {
 	return 1.f;
+}
+
+USoundClass* USoundBase::GetSoundClass() const
+{
+	return SoundClassObject;
 }

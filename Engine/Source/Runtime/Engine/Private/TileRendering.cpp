@@ -1,7 +1,7 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
-	TranslucentRendering.cpp: Translucent rendering implementation.
+	TileRendering.cpp: Tile rendering implementation.
 =============================================================================*/
 
 #include "EnginePrivate.h"
@@ -10,6 +10,8 @@
 #include "LocalVertexFactory.h"
 #include "MeshBatch.h"
 #include "RendererInterface.h"
+#include "SceneUtils.h"
+#include "CanvasTypes.h"
 
 /** 
 * vertex data for a screen quad 
@@ -17,22 +19,25 @@
 struct FMaterialTileVertex
 {
 	FVector			Position;
-	FPackedNormal	TangentX,
-					TangentZ;
+	FPackedNormal	TangentX;
+	FPackedNormal	TangentZ;
 	uint32			Color;
-	float			U,
-					V;
+	float			U;
+	float			V;
 
 	inline void Initialize(float InX, float InY, float InU, float InV)
 	{
-		Position.X = InX; Position.Y = InY; Position.Z = 0.0f;
+		Position.X = InX; 
+		Position.Y = InY; 
+		Position.Z = 0.0f;
 		TangentX = FVector(1, 0, 0); 
 		//TangentY = FVector(0, 1, 0); 
 		TangentZ = FVector(0, 0, 1);
 		// TangentZ.w contains the sign of the tangent basis determinant. Assume +1
 		TangentZ.Vector.W = 255;
 		Color = FColor(255,255,255,255).DWColor();
-		U = InU; V = InV;
+		U = InU; 
+		V = InV;
 	}
 };
 
@@ -166,4 +171,158 @@ void FTileRenderer::DrawTile(FRHICommandListImmediate& RHICmdList, const class F
 	Mesh.MaterialRenderProxy = MaterialRenderProxy;
 
 	GetRendererModule().DrawTileMesh(RHICmdList, View, Mesh, bIsHitTesting, HitProxyId);
+}
+
+bool FCanvasTileRendererItem::Render_RenderThread(FRHICommandListImmediate& RHICmdList, const FCanvas* Canvas)
+{
+	float CurrentRealTime = 0.f;
+	float CurrentWorldTime = 0.f;
+	float DeltaWorldTime = 0.f;
+
+	if (!bFreezeTime)
+	{
+		CurrentRealTime = Canvas->GetCurrentRealTime();
+		CurrentWorldTime = Canvas->GetCurrentWorldTime();
+		DeltaWorldTime = Canvas->GetCurrentDeltaWorldTime();
+	}
+
+	checkSlow(Data);
+	// current render target set for the canvas
+	const FRenderTarget* CanvasRenderTarget = Canvas->GetRenderTarget();
+	FSceneViewFamily* ViewFamily = new FSceneViewFamily(FSceneViewFamily::ConstructionValues(
+		CanvasRenderTarget,
+		nullptr,
+		FEngineShowFlags(ESFIM_Game))
+		.SetWorldTimes(CurrentWorldTime, DeltaWorldTime, CurrentRealTime)
+		.SetGammaCorrection(CanvasRenderTarget->GetDisplayGamma()));
+
+	FIntRect ViewRect(FIntPoint(0, 0), CanvasRenderTarget->GetSizeXY());
+
+	// make a temporary view
+	FSceneViewInitOptions ViewInitOptions;
+	ViewInitOptions.ViewFamily = ViewFamily;
+	ViewInitOptions.SetViewRectangle(ViewRect);
+	ViewInitOptions.ViewOrigin = FVector::ZeroVector;
+	ViewInitOptions.ViewRotationMatrix = FMatrix::Identity;
+	ViewInitOptions.ProjectionMatrix = Data->Transform.GetMatrix();
+	ViewInitOptions.BackgroundColor = FLinearColor::Black;
+	ViewInitOptions.OverlayColor = FLinearColor::White;
+
+	FSceneView* View = new FSceneView(ViewInitOptions);
+	
+	bool bNeedsToSwitchVerticalAxis = RHINeedsToSwitchVerticalAxis(Canvas->GetShaderPlatform()) && !Canvas->GetAllowSwitchVerticalAxis();
+
+	for (int32 TileIdx = 0; TileIdx < Data->Tiles.Num(); TileIdx++)
+	{
+		const FRenderData::FTileInst& Tile = Data->Tiles[TileIdx];
+		FTileRenderer::DrawTile(
+			RHICmdList,
+			*View,
+			Data->MaterialRenderProxy,
+			bNeedsToSwitchVerticalAxis,
+			Tile.X, Tile.Y, Tile.SizeX, Tile.SizeY,
+			Tile.U, Tile.V, Tile.SizeU, Tile.SizeV,
+			Canvas->IsHitTesting(), Tile.HitProxyId,
+			Tile.InColor
+			);
+	}
+
+	delete View->Family;
+	delete View;
+	if (Canvas->GetAllowedModes() & FCanvas::Allow_DeleteOnRender)
+	{
+		delete Data;
+	}
+	if (Canvas->GetAllowedModes() & FCanvas::Allow_DeleteOnRender)
+	{
+		Data = NULL;
+	}
+	return true;
+}
+
+bool FCanvasTileRendererItem::Render_GameThread(const FCanvas* Canvas)
+{
+	float CurrentRealTime = 0.f;
+	float CurrentWorldTime = 0.f;
+	float DeltaWorldTime = 0.f;
+
+	if (!bFreezeTime)
+	{
+		CurrentRealTime = Canvas->GetCurrentRealTime();
+		CurrentWorldTime = Canvas->GetCurrentWorldTime();
+		DeltaWorldTime = Canvas->GetCurrentDeltaWorldTime();
+	}
+
+	checkSlow(Data);
+	// current render target set for the canvas
+	const FRenderTarget* CanvasRenderTarget = Canvas->GetRenderTarget();
+	FSceneViewFamily* ViewFamily = new FSceneViewFamily(FSceneViewFamily::ConstructionValues(
+		CanvasRenderTarget,
+		NULL,
+		FEngineShowFlags(ESFIM_Game))
+		.SetWorldTimes(CurrentWorldTime, DeltaWorldTime, CurrentRealTime)
+		.SetGammaCorrection(CanvasRenderTarget->GetDisplayGamma()));
+
+	FIntRect ViewRect(FIntPoint(0, 0), CanvasRenderTarget->GetSizeXY());
+
+	// make a temporary view
+	FSceneViewInitOptions ViewInitOptions;
+	ViewInitOptions.ViewFamily = ViewFamily;
+	ViewInitOptions.SetViewRectangle(ViewRect);
+	ViewInitOptions.ViewOrigin = FVector::ZeroVector;
+	ViewInitOptions.ViewRotationMatrix = FMatrix::Identity;
+	ViewInitOptions.ProjectionMatrix = Data->Transform.GetMatrix();
+	ViewInitOptions.BackgroundColor = FLinearColor::Black;
+	ViewInitOptions.OverlayColor = FLinearColor::White;
+
+	FSceneView* View = new FSceneView(ViewInitOptions);
+
+	bool bNeedsToSwitchVerticalAxis = RHINeedsToSwitchVerticalAxis(Canvas->GetShaderPlatform()) && !Canvas->GetAllowSwitchVerticalAxis();
+	struct FDrawTileParameters
+	{
+		FSceneView* View;
+		FRenderData* RenderData;
+		uint32 bIsHitTesting : 1;
+		uint32 bNeedsToSwitchVerticalAxis : 1;
+		uint32 AllowedCanvasModes;
+	};
+	FDrawTileParameters DrawTileParameters =
+	{
+		View,
+		Data,
+		Canvas->IsHitTesting(),
+		bNeedsToSwitchVerticalAxis,
+		Canvas->GetAllowedModes()
+	};
+	ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
+		DrawTileCommand,
+		FDrawTileParameters, Parameters, DrawTileParameters,
+		{
+		SCOPED_DRAW_EVENT(RHICmdList, CanvasDrawTile);
+		for (int32 TileIdx = 0; TileIdx < Parameters.RenderData->Tiles.Num(); TileIdx++)
+		{
+			const FRenderData::FTileInst& Tile = Parameters.RenderData->Tiles[TileIdx];
+			FTileRenderer::DrawTile(
+				RHICmdList,
+				*Parameters.View,
+				Parameters.RenderData->MaterialRenderProxy,
+				Parameters.bNeedsToSwitchVerticalAxis,
+				Tile.X, Tile.Y, Tile.SizeX, Tile.SizeY,
+				Tile.U, Tile.V, Tile.SizeU, Tile.SizeV,
+				Parameters.bIsHitTesting, Tile.HitProxyId,
+				Tile.InColor);
+		}
+
+		delete Parameters.View->Family;
+		delete Parameters.View;
+		if (Parameters.AllowedCanvasModes & FCanvas::Allow_DeleteOnRender)
+		{
+			delete Parameters.RenderData;
+		}
+		});
+	if (Canvas->GetAllowedModes() & FCanvas::Allow_DeleteOnRender)
+	{
+		Data = NULL;
+	}
+	return true;
 }

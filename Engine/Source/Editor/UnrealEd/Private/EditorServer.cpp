@@ -1123,7 +1123,7 @@ UTransactor* UEditorEngine::CreateTrans()
 void UEditorEngine::PostUndo (bool bSuccess)
 {
 	//Update the actor selection followed by the component selection if needed (note: order is important)
-
+		
 	//Get the list of all selected actors after the operation
 	TArray<AActor*> SelectedActors;
 	for (FSelectionIterator It(GEditor->GetSelectedActorIterator()); It; ++It)
@@ -1140,8 +1140,8 @@ void UEditorEngine::PostUndo (bool bSuccess)
 		}
 	}
 
-	USelection* Selection = GetSelectedActors();
-	Selection->BeginBatchSelectOperation();
+	USelection* ActorSelection = GetSelectedActors();
+	ActorSelection->BeginBatchSelectOperation();
 
 	//Deselect all of the actors that were selected prior to the operation
 	for (int32 OldSelectedActorIndex = OldSelectedActors.Num() - 1; OldSelectedActorIndex >= 0; --OldSelectedActorIndex)
@@ -1171,7 +1171,7 @@ void UEditorEngine::PostUndo (bool bSuccess)
 	}
 
 	OldSelectedActors.Empty();
-	Selection->EndBatchSelectOperation();
+	ActorSelection->EndBatchSelectOperation();
 	
 	if (GetSelectedComponentCount() > 0)
 	{
@@ -1184,8 +1184,8 @@ void UEditorEngine::PostUndo (bool bSuccess)
 			SelectedComponents.Add(CastChecked<UActorComponent>(*It));
 		}
 		
-		USelection* Selection = GetSelectedComponents();
-		Selection->BeginBatchSelectOperation();
+		USelection* ComponentSelection = GetSelectedComponents();
+		ComponentSelection->BeginBatchSelectOperation();
 
 		//Deselect all of the actors that were selected prior to the operation
 		for (int32 OldSelectedComponentIndex = OldSelectedComponents.Num() - 1; OldSelectedComponentIndex >= 0; --OldSelectedComponentIndex)
@@ -1218,8 +1218,8 @@ void UEditorEngine::PostUndo (bool bSuccess)
 		OldSelectedComponents.Empty();
 
 		// We want to broadcast the component SelectionChangedEvent even if the selection didn't actually change
-		Selection->MarkBatchDirty();
-		Selection->EndBatchSelectOperation();
+		ComponentSelection->MarkBatchDirty();
+		ComponentSelection->EndBatchSelectOperation();
 	}
 }
 
@@ -1611,72 +1611,72 @@ void UEditorEngine::RebuildAlteredBSP()
 {
 	if( GUndo && !GIsTransacting )
 	{
-		// Early out if BSP auto-updating is disabled
-		if (!GetDefault<ULevelEditorMiscSettings>()->bBSPAutoUpdate)
-		{
-			return;
-		}
+	// Early out if BSP auto-updating is disabled
+	if (!GetDefault<ULevelEditorMiscSettings>()->bBSPAutoUpdate)
+	{
+		return;
+	}
 
-		FlushRenderingCommands();
+	FlushRenderingCommands();
 
-		// A list of all the levels that need to be rebuilt
-		TArray< TWeakObjectPtr< ULevel > > LevelsToRebuild;
+	// A list of all the levels that need to be rebuilt
+	TArray< TWeakObjectPtr< ULevel > > LevelsToRebuild;
 		ABrush::NeedsRebuild(&LevelsToRebuild);
 
-		// Determine which levels need to be rebuilt
-		for (FSelectionIterator It(GetSelectedActorIterator()); It; ++It)
-		{
-			AActor* Actor = static_cast<AActor*>(*It);
+	// Determine which levels need to be rebuilt
+	for (FSelectionIterator It(GetSelectedActorIterator()); It; ++It)
+	{
+		AActor* Actor = static_cast<AActor*>(*It);
 			checkSlow(Actor->IsA(AActor::StaticClass()));
 
 			ABrush* SelectedBrush = Cast< ABrush >(Actor);
-			if (SelectedBrush && !FActorEditorUtils::IsABuilderBrush(Actor))
+		if (SelectedBrush && !FActorEditorUtils::IsABuilderBrush(Actor))
+		{
+			ULevel* Level = SelectedBrush->GetLevel();
+			if (Level)
 			{
-				ULevel* Level = SelectedBrush->GetLevel();
-				if (Level)
-				{
-					LevelsToRebuild.AddUnique(Level);
-				}
+				LevelsToRebuild.AddUnique(Level);
 			}
-			else
-			{
-				// In addition to any selected brushes, any brushes attached to a selected actor should be rebuilt
-				TArray<AActor*> AttachedActors;
+		}
+		else
+		{
+			// In addition to any selected brushes, any brushes attached to a selected actor should be rebuilt
+			TArray<AActor*> AttachedActors;
 				Actor->GetAttachedActors(AttachedActors);
 
-				const bool bExactClass = true;
-				TArray<AActor*> AttachedBrushes;
-				// Get any brush actors attached to the selected actor
+			const bool bExactClass = true;
+			TArray<AActor*> AttachedBrushes;
+			// Get any brush actors attached to the selected actor
 				if (ContainsObjectOfClass(AttachedActors, ABrush::StaticClass(), bExactClass, &AttachedBrushes))
-				{
+			{
 					for (int32 BrushIndex = 0; BrushIndex < AttachedBrushes.Num(); ++BrushIndex)
-					{
+				{
 						ULevel* Level = CastChecked<ABrush>(AttachedBrushes[BrushIndex])->GetLevel();
-						if (Level)
-						{
-							LevelsToRebuild.AddUnique(Level);
-						}
+					if (Level)
+					{
+						LevelsToRebuild.AddUnique(Level);
 					}
 				}
-
 			}
 
 		}
 
-		// Rebuild the levels
-		for (int32 LevelIdx = 0; LevelIdx < LevelsToRebuild.Num(); ++LevelIdx)
-		{
-			TWeakObjectPtr< ULevel > LevelToRebuild = LevelsToRebuild[LevelIdx];
-			if (LevelToRebuild.IsValid())
-			{
-				RebuildLevel(*LevelToRebuild.Get());
-			}
-		}
-
-		RedrawLevelEditingViewports();
-
-		ABrush::OnRebuildDone();
 	}
+
+	// Rebuild the levels
+	for (int32 LevelIdx = 0; LevelIdx < LevelsToRebuild.Num(); ++LevelIdx)
+	{
+		TWeakObjectPtr< ULevel > LevelToRebuild = LevelsToRebuild[LevelIdx];
+			if (LevelToRebuild.IsValid())
+		{
+			RebuildLevel(*LevelToRebuild.Get());
+		}
+	}
+
+	RedrawLevelEditingViewports();
+
+	ABrush::OnRebuildDone();
+}
 	else
 	{
  		ensureMsgf(0, TEXT("Rebuild BSP ignored. Not in a transaction") );
@@ -1861,11 +1861,11 @@ bool UEditorEngine::ShouldAbortBecauseOfUnsavedWorld() const
 	// If an unsaved world exists that would be lost in a map transition, give the user the option to cancel a map load.
 
 	// First check if we have a world and it is dirty
-	UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
-	if (EditorWorld && EditorWorld->GetOutermost()->IsDirty())
+	UWorld* LevelEditorWorld = GEditor->GetEditorWorldContext().World();
+	if (LevelEditorWorld && LevelEditorWorld->GetOutermost()->IsDirty())
 	{
 		// Now check if the world is in a path that can be saved (otherwise it is in something like the transient package or temp)
-		const FString PackageName = EditorWorld->GetOutermost()->GetName();
+		const FString PackageName = LevelEditorWorld->GetOutermost()->GetName();
 		const bool bIncludeReadOnlyRoots = false;
 		if ( FPackageName::IsValidLongPackageName(PackageName, bIncludeReadOnlyRoots) )
 		{
@@ -1873,7 +1873,7 @@ bool UEditorEngine::ShouldAbortBecauseOfUnsavedWorld() const
 			if ( !FPackageName::DoesPackageExist(PackageName) )
 			{
 				// This world will be completely lost if a map transition happens. Warn the user that this is happening and ask him/her how to proceed.
-				if (EAppReturnType::Yes != FMessageDialog::Open(EAppMsgType::YesNo, FText::Format(NSLOCTEXT("UnrealEd", "Prompt_ThisActionWillDiscardWorldContinue", "The unsaved level {0} will be lost.  Continue?"), FText::FromString(EditorWorld->GetName()))))
+				if (EAppReturnType::Yes != FMessageDialog::Open(EAppMsgType::YesNo, FText::Format(NSLOCTEXT("UnrealEd", "Prompt_ThisActionWillDiscardWorldContinue", "The unsaved level {0} will be lost.  Continue?"), FText::FromString(LevelEditorWorld->GetName()))))
 				{
 					// User doesn't want to lose the world -- abort the load.
 					return true;
@@ -2831,6 +2831,38 @@ void UEditorEngine::DoMoveSelectedActorsToLevel( ULevel* InDestLevel )
 
 	// End the transaction
 	GEditor->Trans->End();
+}
+
+void UEditorEngine::MoveSelectedFoliageToLevel(ULevel* InTargetLevel)
+{
+	// Can't move into a locked level
+	if (FLevelUtils::IsLevelLocked(InTargetLevel))
+	{
+		FNotificationInfo Info(NSLOCTEXT("UnrealEd", "CannotMoveFoliageIntoLockedLevel", "Cannot move the selected foliage into a locked level"));
+		Info.bUseThrobber = false;
+		FSlateNotificationManager::Get().AddNotification(Info)->SetCompletionState(SNotificationItem::CS_Fail);
+		return;
+	}
+
+	const FScopedTransaction Transaction(NSLOCTEXT("UnrealEd", "MoveSelectedFoliageToSelectedLevel", "Move Selected Foliage to Level"));
+
+	// Get a world context
+	UWorld* World = InTargetLevel->OwningWorld;
+	
+	// Iterate over all foliage actors in the world and move selected instances to a foliage actor in the target level
+	const int32 NumLevels = World->GetNumLevels();
+	for (int32 LevelIdx = 0; LevelIdx < NumLevels; ++LevelIdx)
+	{
+		ULevel* Level = World->GetLevel(LevelIdx);
+		if (Level != InTargetLevel)
+		{
+			AInstancedFoliageActor* IFA = AInstancedFoliageActor::GetInstancedFoliageActorForLevel(Level, /*bCreateIfNone*/ false);
+			if (IFA && IFA->HasSelectedInstances())
+			{
+				IFA->MoveSelectedInstancesToLevel(InTargetLevel);
+			}
+		}
+	}
 }
 
 ULevel*  UEditorEngine::CreateTransLevelMoveBuffer( UWorld* InWorld )
@@ -4351,18 +4383,17 @@ void UEditorEngine::MoveViewportCamerasToActor(const TArray<AActor*> &Actors, co
 				}
 				else
 				{
-					TInlineComponentArray<UPrimitiveComponent*> Components;
-					Actor->GetComponents(Components);
+					TInlineComponentArray<UPrimitiveComponent*> PrimitiveComponents(Actor);
 
-					for(int32 ComponentIndex = 0; ComponentIndex < Components.Num(); ++ComponentIndex)
+					for(int32 ComponentIndex = 0; ComponentIndex < PrimitiveComponents.Num(); ++ComponentIndex)
 					{
-						UPrimitiveComponent* PrimitiveComponent = Components[ComponentIndex];
+						UPrimitiveComponent* PrimitiveComponent = PrimitiveComponents[ComponentIndex];
 
 						if(PrimitiveComponent->IsRegistered())
 						{
 
 							// Some components can have huge bounds but are not visible.  Ignore these components unless it is the only component on the actor 
-							const bool bIgnore = Components.Num() > 1 && PrimitiveComponentTypesToIgnore.IndexOfByPredicate(ComponentTypeMatcher(PrimitiveComponent)) != INDEX_NONE;
+							const bool bIgnore = PrimitiveComponents.Num() > 1 && PrimitiveComponentTypesToIgnore.IndexOfByPredicate(ComponentTypeMatcher(PrimitiveComponent)) != INDEX_NONE;
 
 							if(!bIgnore)
 							{
@@ -4595,11 +4626,11 @@ bool UEditorEngine::SnapObjectTo( FActorOrComponent Object, const bool InAlign, 
 		Params.AddIgnoredComponent( Cast<UPrimitiveComponent>(Object.Component) );
 	}
 
-	if (Object.GetWorld()->SweepSingle(Hit, StartLocation, StartLocation + Direction*WORLD_MAX, FQuat::Identity, ECC_WorldStatic, FCollisionShape::MakeBox(Extent), Params))
+	if (Object.GetWorld()->SweepSingleByChannel(Hit, StartLocation, StartLocation + Direction*WORLD_MAX, FQuat::Identity, ECC_WorldStatic, FCollisionShape::MakeBox(Extent), Params))
 	{
 		FVector NewLocation = Hit.Location - LocationOffset;
 		NewLocation.Z += KINDA_SMALL_NUMBER;	// Move the new desired location up by an error tolerance
-
+		
 		Object.SetWorldLocation( NewLocation );
 		//InActor->TeleportTo( NewLocation, InActor->GetActorRotation(), false,true );
 		
@@ -4767,7 +4798,7 @@ bool UEditorEngine::Exec_Camera( const TCHAR* Str, FOutputDevice& Ar )
 		{
 			SelectedObject.Actor = GEditor->GetSelectedActors()->GetTop<AActor>();
 		}
-		
+
 		if (SelectedObject.IsValid())
 		{
 			// Set perspective viewport camera parameters to that of the selected camera.
@@ -5872,6 +5903,12 @@ bool UEditorEngine::HandleJumpToCommand( const TCHAR* Str, FOutputDevice& Ar )
 
 bool UEditorEngine::HandleBugItGoCommand( const TCHAR* Str, FOutputDevice& Ar )
 {
+	if (PlayWorld)
+	{
+		// in PIE, let the in-game codepath handle it
+		return false;
+	}
+
 	const TCHAR* Stream = Str;
 	FVector Loc;
 	Stream = GetFVECTORSpaceDelimited( Stream, Loc );

@@ -312,6 +312,12 @@ static void APIENTRY OpenGLDebugMessageCallbackARB(
 				ANSI_TO_TCHAR(Message)
 				);
 		}
+
+		// this is a debugging code to catch VIDEO->HOST copying
+		if (Id == 131186)
+		{
+			int A = 5;
+		}
 	}
 #endif
 }
@@ -422,6 +428,8 @@ void InitDebugContext()
 #if defined(GL_ARB_debug_output)
 	if (glDebugMessageCallbackARB)
 	{
+		// Synchronous output can slow things down, but we'll get better callstack if breaking in or crashing in the callback. This is debug only after all.
+		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
 		glDebugMessageCallbackARB(GLDEBUGPROCARB(OpenGLDebugMessageCallbackARB), /*UserParam=*/ NULL);
 		bDebugOutputInitialized = (glGetError() == GL_NO_ERROR);
 	}
@@ -478,7 +486,7 @@ static void InitRHICapabilitiesForGL()
 
 	GTexturePoolSize = 0;
 	GPoolSizeVRAMPercentage = 0;
-#if PLATFORM_WINDOWS
+#if PLATFORM_WINDOWS || PLATFORM_LINUX
 	GConfig->GetInt( TEXT( "TextureStreaming" ), TEXT( "PoolSizeVRAMPercentage" ), GPoolSizeVRAMPercentage, GEngineIni );	
 #endif
 
@@ -517,7 +525,7 @@ static void InitRHICapabilitiesForGL()
 		// Log supported GL extensions
 		UE_LOG(LogRHI, Log, TEXT("OpenGL Extensions:"));
 		TArray<FString> GLExtensionArray;
-		ExtensionsString.ParseIntoArray(&GLExtensionArray, TEXT(" "), true);
+		ExtensionsString.ParseIntoArray(GLExtensionArray, TEXT(" "), true);
 		for (int ExtIndex = 0; ExtIndex < GLExtensionArray.Num(); ExtIndex++)
 		{
 			UE_LOG(LogRHI, Log, TEXT("  %s"), *GLExtensionArray[ExtIndex]);
@@ -1185,7 +1193,7 @@ void FOpenGLDynamicRHI::Init()
 		ResourceIt->InitRHI();
 	}
 
-#if PLATFORM_WINDOWS || PLATFORM_MAC
+#if PLATFORM_WINDOWS || PLATFORM_MAC || PLATFORM_LINUX
 
 	extern int64 GOpenGLDedicatedVideoMemory;
 	extern int64 GOpenGLTotalGraphicsMemory;

@@ -83,6 +83,7 @@ void UBlackboardComponent::InitializeParentChain(UBlackboardData* NewAsset)
 	if (NewAsset)
 	{
 		InitializeParentChain(NewAsset->Parent);
+		NewAsset->UpdateDeprecatedKeys();
 		NewAsset->UpdateKeyIDs();
 	}
 }
@@ -201,6 +202,7 @@ void UBlackboardComponent::PopulateSynchronizedKeys()
 	
 	UAISystem* AISystem = UAISystem::GetCurrentSafe(GetWorld());
 	check(AISystem);
+	AISystem->RegisterBlackboardComponent(*BlackboardAsset, *this);
 
 	for (auto Iter = AISystem->CreateBlackboardDataToComponentsIterator(*BlackboardAsset); Iter; ++Iter)
 	{
@@ -693,7 +695,7 @@ void UBlackboardComponent::ClearValue(FBlackboard::FKey KeyID)
 	uint8* RawData = GetKeyRawData(KeyID);
 	if (RawData)
 	{
-		const bool bHasData = EntryInfo->KeyType->WrappedIsEmpty(*this, RawData);
+		const bool bHasData = (EntryInfo->KeyType->WrappedIsEmpty(*this, RawData) == false);
 		if (bHasData)
 		{
 			EntryInfo->KeyType->WrappedClear(*this, RawData);

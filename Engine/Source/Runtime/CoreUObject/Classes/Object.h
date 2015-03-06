@@ -447,7 +447,7 @@ struct FLinearColor
  * A bounding box.
  * The full C++ class is located here: Engine\Source\Runtime\Core\Public\Math\Box.h
  */
-USTRUCT(immutable, noexport)
+USTRUCT(immutable, noexport, BlueprintType)
 struct FBox
 {
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Box, SaveGame)
@@ -882,6 +882,10 @@ public:
 	 * Default UObject constructor.
 	 */
 	UObject(const FObjectInitializer& ObjectInitializer);
+#if WITH_HOT_RELOAD_CTORS
+	/** DO NOT USE. This constructor is for internal usage only for hot-reload purposes. */
+	UObject(FVTableHelper& Helper);
+#endif // WITH_HOT_RELOAD_CTORS
 
 	//=============================================================================
 	// K2 support functions.

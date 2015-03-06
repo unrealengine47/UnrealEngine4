@@ -396,7 +396,7 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 			FLinearColor Hovered;
 			FLinearColor Pressed;
 
-			ButtonColor(const FName& Name, const FLinearColor& Color) : Name(Name)
+			ButtonColor(const FName& InName, const FLinearColor& Color) : Name(InName)
 			{
 				Normal = Color * 0.8f;
 				Normal.A = Color.A;
@@ -2888,14 +2888,14 @@ void FSlateEditorStyle::FStyle::SetupTutorialStyles()
 				.SetCheckedPressedImage(BOX_BRUSH("Tutorials/FlatColorSquare", FVector2D(1.0f, 1.0f), FMargin(1), HoverColor))
 				);
 
-			const FButtonStyle Button = FButtonStyle()
+			const FButtonStyle TutorialButton = FButtonStyle()
 				.SetNormal(BOX_BRUSH("Tutorials/FlatColorSquare", FVector2D(1.0f, 1.0f), FMargin(1), NormalColor))
 				.SetHovered(BOX_BRUSH("Tutorials/FlatColorSquare", FVector2D(1.0f, 1.0f), FMargin(1), HoverColor))
 				.SetPressed(BOX_BRUSH("Tutorials/FlatColorSquare", FVector2D(1.0f, 1.0f), FMargin(1), SelectedColor))
 				.SetDisabled(BOX_BRUSH("Tutorials/FlatColorSquare", FVector2D(1.0f, 1.0f), FMargin(1), DisabledColor))
 				.SetNormalPadding(FMargin(2, 2, 2, 2))
 				.SetPressedPadding(FMargin(2, 3, 2, 1));
-			Set("TutorialEditableText.Toolbar.Button", Button);
+			Set("TutorialEditableText.Toolbar.Button", TutorialButton);
 
 			const FComboButtonStyle ComboButton = FComboButtonStyle()
 				.SetButtonStyle(Button)
@@ -3153,7 +3153,7 @@ void FSlateEditorStyle::FStyle::SetupPropertyEditorStyles()
 			.SetSelectedTextColor( InvertedForeground )
 			);
 	}
-}
+	}
 
 void FSlateEditorStyle::FStyle::SetupProfilerStyle()
 {
@@ -3373,8 +3373,8 @@ void FSlateEditorStyle::FStyle::SetupGraphEditorStyles()
 		Set( "Graph.Node.CommentFont", TTF_CORE_FONT( "Fonts/Roboto-Regular", 10 ) );
 		Set( "Graph.Node.Comment.BubbleOffset", FMargin(8,0,0,0) );
 		Set( "Graph.Node.Comment.PinIconPadding", FMargin(0,2,0,0) );
-		Set( "Graph.Node.Comment.BubblePadding", FVector2D(3,3) );
-		Set( "Graph.Node.Comment.BubbleWidgetMargin", FMargin(4,4) );
+		Set("Graph.Node.Comment.BubblePadding", FVector2D(3, 3));
+		Set("Graph.Node.Comment.BubbleWidgetMargin", FMargin(4, 4));
 
 		const FCheckBoxStyle CommentTitleButton = FCheckBoxStyle()
 			.SetCheckBoxType( ESlateCheckBoxType::CheckBox )
@@ -3973,7 +3973,7 @@ void FSlateEditorStyle::FStyle::SetupGraphEditorStyles()
 		}
 	}
 
-	// SCSEditor
+		// SCSEditor
 	{
 		Set("SCSEditor.ToggleComponentEditing", new IMAGE_BRUSH("Icons/icon_translate_40x", Icon40x40));
 		Set("SCSEditor.ToggleComponentEditing.Small", new IMAGE_BRUSH("Icons/icon_translate_40x", Icon20x20));
@@ -4029,7 +4029,7 @@ void FSlateEditorStyle::FStyle::SetupGraphEditorStyles()
 
 		Set("SCSEditor.ComponentTooltip.ClassDescription",
 			FTextBlockStyle(NormalText)
-			.SetFont(TTF_CORE_FONT("Fonts/Roboto-Italic", 10))
+			.SetFont(TTF_FONT("Fonts/Roboto-Italic", 10))
 			.SetColorAndOpacity(FLinearColor(0.1f, 0.1f, 0.1f))
 			.SetShadowOffset(FVector2D(1.0f, 1.0f))
 			.SetShadowColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f))

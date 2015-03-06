@@ -41,7 +41,7 @@ FAsyncDirectoryReader::EProgressResult FAsyncDirectoryReader::Tick(const FTimeLi
 		if (TimeLimit.Exceeded())
 		{
 			// We've spent too long, bail
-			PendingDirectories.RemoveAt(0, Index, false);
+			PendingDirectories.RemoveAt(0, Index + 1, false);
 			return EProgressResult::Pending;
 		}
 	}
@@ -58,7 +58,7 @@ FAsyncDirectoryReader::EProgressResult FAsyncDirectoryReader::Tick(const FTimeLi
 		if (Index % 100 == 0 && TimeLimit.Exceeded())
 		{
 			// We've spent too long, bail
-			PendingFiles.RemoveAt(0, Index, false);
+			PendingFiles.RemoveAt(0, Index + 1, false);
 			return EProgressResult::Pending;
 		}
 	}
@@ -145,7 +145,7 @@ void FFileCache::Destroy()
 
 void FFileCache::UnbindWatcher()
 {
-	if (WatcherDelegate == FDelegateHandle())
+	if (!WatcherDelegate.IsValid())
 	{
 		return;
 	}
@@ -158,7 +158,7 @@ void FFileCache::UnbindWatcher()
 		}
 	}
 
-	WatcherDelegate = FDelegateHandle();
+	WatcherDelegate.Reset();
 }
 
 TOptional<FDirectoryState> FFileCache::ReadCache() const
@@ -361,12 +361,12 @@ TOptional<FUpdateCacheTransaction> FFileCache::ProcessChange(const FString& File
 				return X.Action == FFileChangeData::FCA_Removed && X.Filename == TransactionFilename;
 			});
 
-			const auto Action = NumRemoved == 0 ? FFileChangeData::FCA_Added : FFileChangeData::FCA_Modified;
+			const auto FileChangeAction = NumRemoved == 0 ? FFileChangeData::FCA_Added : FFileChangeData::FCA_Modified;
 
 			// If it's a modification (remove then add) or the file doesn't already exist in the cache, we can create a transaction
-			if (Action == FFileChangeData::FCA_Modified || !CachedDirectoryState.Files.Find(TransactionFilename))
+			if (FileChangeAction == FFileChangeData::FCA_Modified || !CachedDirectoryState.Files.Find(TransactionFilename))
 			{
-				return FUpdateCacheTransaction(TransactionFilename, Action, FileManager.GetTimeStamp(*Filename));
+				return FUpdateCacheTransaction(TransactionFilename, FileChangeAction, FileManager.GetTimeStamp(*Filename));
 			}
 		}
 		break;

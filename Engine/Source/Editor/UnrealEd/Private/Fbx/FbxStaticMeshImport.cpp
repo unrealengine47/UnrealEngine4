@@ -1178,9 +1178,15 @@ UStaticMesh* UnFbx::FFbxImporter::ImportStaticMeshAsSingle(UObject* InParent, TA
 		for (int32 MaterialIndex = 0; MaterialIndex < NumMaterials; ++MaterialIndex)
 		{
 			FMeshSectionInfo Info = StaticMesh->SectionInfoMap.Get(LODIndex, MaterialIndex);
-			Info.MaterialIndex = StaticMesh->Materials.Num();
+			int32 Index = StaticMesh->Materials.Find( SortedMaterials[MaterialIndex] );
+			if( Index == INDEX_NONE )
+			{
+				Index = StaticMesh->Materials.Num();
+				StaticMesh->Materials.Add(SortedMaterials[MaterialIndex]);
+			}
+			Info.MaterialIndex = Index;
 			StaticMesh->SectionInfoMap.Set(LODIndex, MaterialIndex, Info);
-			StaticMesh->Materials.Add(SortedMaterials[MaterialIndex]);
+			
 		}
 
 	
@@ -1226,6 +1232,25 @@ UStaticMesh* UnFbx::FFbxImporter::ImportStaticMeshAsSingle(UObject* InParent, TA
 		StaticMesh->LODGroup = ImportOptions->StaticMeshLODGroup;
 		StaticMesh->Build(false);
 		
+		// this is damage control. After build, we'd like to absolutely sure that 
+		// all index is pointing correctly and they're all used. Otherwise we remove them
+		FMeshSectionInfoMap OldSectionInfoMap = StaticMesh->SectionInfoMap;
+		StaticMesh->SectionInfoMap.Clear();
+		// fix up section data
+		for (int32 LODResoureceIndex = 0; LODResoureceIndex<StaticMesh->RenderData->LODResources.Num(); ++LODResoureceIndex)
+		{
+			FStaticMeshLODResources& LOD = StaticMesh->RenderData->LODResources[LODResoureceIndex];
+			int32 NumSections = LOD.Sections.Num();
+			for(int32 SectionIndex = 0; SectionIndex < NumSections; ++SectionIndex)
+			{
+				FMeshSectionInfo Info = OldSectionInfoMap.Get(LODResoureceIndex, SectionIndex);
+				if (StaticMesh->Materials.IsValidIndex(Info.MaterialIndex))
+				{
+					StaticMesh->SectionInfoMap.Set(LODResoureceIndex, SectionIndex, Info);
+				}
+			}
+		}
+
 		// The code to check for bad lightmap UVs doesn't scale well with number of triangles.
 		// Skip it here because Lightmass will warn about it during a light build anyway.
 		bool bWarnOnBadLightmapUVs = false;

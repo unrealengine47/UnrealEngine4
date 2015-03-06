@@ -46,12 +46,12 @@ bool FKismetCompilerUtilities::IsTypeCompatibleWithProperty(UEdGraphPin* SourceP
 				// Check for the magic ArrayParm property, which always matches array types
 				FString ArrayPointerMetaData = OwningFunction->GetMetaData(TEXT("ArrayParm"));
 				TArray<FString> ArrayPinComboNames;
-				ArrayPointerMetaData.ParseIntoArray(&ArrayPinComboNames, TEXT(","), true);
+				ArrayPointerMetaData.ParseIntoArray(ArrayPinComboNames, TEXT(","), true);
 
 				for(auto Iter = ArrayPinComboNames.CreateConstIterator(); Iter; ++Iter)
 				{
 					TArray<FString> ArrayPinNames;
-					Iter->ParseIntoArray(&ArrayPinNames, TEXT("|"), true);
+					Iter->ParseIntoArray(ArrayPinNames, TEXT("|"), true);
 
 					if( ArrayPinNames[0] == SourcePin->PinName )
 					{
@@ -80,7 +80,7 @@ bool FKismetCompilerUtilities::IsTypeCompatibleWithProperty(UEdGraphPin* SourceP
 		// Check to see if this param is type dependent on an array parameter
 		const FString DependentParams = OwningFunction->GetMetaData(TEXT("ArrayTypeDependentParams"));
 		TArray<FString>	DependentParamNames;
-		DependentParams.ParseIntoArray(&DependentParamNames, TEXT(","), true);
+		DependentParams.ParseIntoArray(DependentParamNames, TEXT(","), true);
 		if (DependentParamNames.Find(SourcePin->PinName) != INDEX_NONE)
 		{
 			//@todo:  This assumes that the wildcard coersion has done its job...I'd feel better if there was some easier way of accessing the target array type
@@ -654,9 +654,27 @@ UProperty* FKismetCompilerUtilities::CreatePropertyOnScope(UStruct* Scope, const
 	// Check to see if there's already a object on this scope with the same name, and throw an internal compiler error if so
 	// If this happens, it breaks the property link, which causes stack corruption and hard-to-track errors, so better to fail at this point
 	{
-		if (UObject* ExistingObject = FindObject<UObject>(Scope, *PropertyName.ToString(), false))
+		auto CheckIfPropertyNameIsUsed = [](UStruct* Struct, const TCHAR* Name) -> UObject*
 		{
-			MessageLog.Error(*FString::Printf(TEXT("Internal Compiler Error:  Tried to create a property %s in scope %s, but another object of type %s already already exists there."), *PropertyName.ToString(), (Scope ? *Scope->GetName() : TEXT("None"))), *ExistingObject->GetFullName(Scope));
+			if (UObject* ExistingObject = FindObject<UObject>(Struct, Name, false))
+			{
+				return ExistingObject;
+			}
+			
+			if (Struct && !Struct->IsA<UFunction>() && (UBlueprintGeneratedClass::GetUberGraphFrameName() != Name))
+			{
+				if (auto Field = FindField<UField>(Struct ? Struct->GetSuperStruct() : nullptr, Name))
+				{
+					return Field;
+				}
+			}
+
+			return nullptr;
+		};
+
+		if (UObject* ExistingObject = CheckIfPropertyNameIsUsed(Scope, *PropertyName.ToString()))
+		{
+			MessageLog.Error(*FString::Printf(TEXT("Internal Compiler Error:  Tried to create a property %s in scope %s, but %s already exists there."), *PropertyName.ToString(), (Scope ? *Scope->GetName() : TEXT("None")), *ExistingObject->GetFullName()));
 
 			// Find a free name, so we can still create the property to make it easier to spot the duplicates, and avoid crashing
 			uint32 Counter = 0;
@@ -664,7 +682,7 @@ UProperty* FKismetCompilerUtilities::CreatePropertyOnScope(UStruct* Scope, const
 			do 
 			{
 				TestNameString = PropertyName.ToString() + FString::Printf(TEXT("_ERROR_DUPLICATE_%d"), Counter++);
-			} while (FindObject<UObject>(Scope, *TestNameString, false) != NULL);
+			} while (CheckIfPropertyNameIsUsed(Scope, *TestNameString) != NULL);
 
 			ValidatedPropertyName = FName(*TestNameString);
 		}

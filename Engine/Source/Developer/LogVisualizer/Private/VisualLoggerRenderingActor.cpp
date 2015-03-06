@@ -203,11 +203,13 @@ void AVisualLoggerRenderingActor::OnItemSelectionChanged(const FVisualLogDevice:
 	AddDebugRendering();
 #endif
 
-	const float Length = 100;
-	const FVector DirectionNorm = FVector(0, 0, 1).GetSafeNormal();
-	FVector YAxis, ZAxis;
-	DirectionNorm.FindBestAxisVectors(YAxis, ZAxis);
-	Cones.Add(FDebugRenderSceneProxy::FCone(FScaleMatrix(FVector(Length)) * FMatrix(DirectionNorm, YAxis, ZAxis, Entry->Location), 5, 5, FColor::Red));
+	{
+		const float Length = 100;
+		const FVector DirectionNorm = FVector(0, 0, 1).GetSafeNormal();
+		FVector YAxis, ZAxis;
+		DirectionNorm.FindBestAxisVectors(YAxis, ZAxis);
+		Cones.Add(FDebugRenderSceneProxy::FCone(FScaleMatrix(FVector(Length)) * FMatrix(DirectionNorm, YAxis, ZAxis, Entry->Location), 5, 5, FColor::Red));
+	}
 
 	if (LogEntriesPath.Num())
 	{
@@ -229,7 +231,7 @@ void AVisualLoggerRenderingActor::OnItemSelectionChanged(const FVisualLogDevice:
 	for (const auto CurrentData : Entry->DataBlocks)
 	{
 		const FName TagName = CurrentData.TagName;
-		const bool bIsValidByFilter = FLogVisualizer::Get().GetVisualLoggerInterface()->IsValidCategory(CurrentData.Category.ToString(), ELogVerbosity::All) && FLogVisualizer::Get().GetVisualLoggerInterface()->IsValidCategory(CurrentData.TagName.ToString(), ELogVerbosity::All);
+		const bool bIsValidByFilter = FCategoryFiltersManager::Get().MatchCategoryFilters(CurrentData.Category.ToString(), ELogVerbosity::All) && FCategoryFiltersManager::Get().MatchCategoryFilters(CurrentData.TagName.ToString(), ELogVerbosity::All);
 		FVisualLogExtensionInterface* Extension = FVisualLogger::Get().GetExtensionForTag(TagName);
 		if (!Extension)
 		{
@@ -248,7 +250,7 @@ void AVisualLoggerRenderingActor::OnItemSelectionChanged(const FVisualLogDevice:
 
 	for (int32 ElementIndex = 0; ElementIndex < ElementsCount; ++ElementIndex, ++ElementToDraw)
 	{
-		if (!FLogVisualizer::Get().GetVisualLoggerInterface()->IsValidCategory(ElementToDraw->Category.ToString(), ElementToDraw->Verbosity))
+		if (!FCategoryFiltersManager::Get().MatchCategoryFilters(ElementToDraw->Category.ToString(), ElementToDraw->Verbosity))
 		{
 			continue;
 		}

@@ -18,6 +18,7 @@ struct CORE_API FMacPlatformMisc : public FGenericPlatformMisc
 	static void PlatformPreInit();
 	static void PlatformInit();
 	static void PlatformPostInit(bool ShowSplashScreen = false);
+	static void PlatformTearDown();
 	static class GenericApplication* CreateApplication();
 	static void GetEnvironmentVariable(const TCHAR* VariableName, TCHAR* Result, int32 ResultLength);
 	static void SetEnvironmentVar(const TCHAR* VariableName, const TCHAR* Value);
@@ -173,6 +174,8 @@ struct CORE_API FMacPlatformMisc : public FGenericPlatformMisc
 	static FString GetOperatingSystemId();
 
 	static bool bChachedMacMenuStateNeedsUpdate;
+
+	static id<NSObject> CommandletActivity;
 };
 
 #ifdef __OBJC__
@@ -196,7 +199,9 @@ private:
 	NSAutoreleasePool*	Pool;
 };
 
-#define SCOPED_AUTORELEASE_POOL const FScopeAutoreleasePool Pool##__LINE__;
+#define SCOPED_AUTORELEASE_POOL_TOKENPASTE_INNER(x,y) x##y
+#define SCOPED_AUTORELEASE_POOL_TOKENPASTE(x,y) SCOPED_AUTORELEASE_POOL_TOKENPASTE_INNER(x,y)
+#define SCOPED_AUTORELEASE_POOL const FScopeAutoreleasePool SCOPED_AUTORELEASE_POOL_TOKENPASTE(Pool,__LINE__);
 
 #endif // __OBJC__
 

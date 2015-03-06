@@ -1,10 +1,10 @@
-// Copyright 1998-2014 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 #pragma once
 
 #include "STableRow.h"
 #include "IPropertyUtilities.h"
 #include "PropertyHandle.h"
-#include "ProjectLocalizationSettings.h"
+#include "LocalizationTarget.h"
 #include "LocalizationTarget.h"
 #include "SDockTab.h"
 

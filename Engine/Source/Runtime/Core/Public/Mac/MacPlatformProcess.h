@@ -15,16 +15,12 @@ public:
 	/** Default constructor. */
 	FORCEINLINE FProcHandle()
 		: TProcHandle()
-		, IsShellScript( false )
 	{}
 
 	/** Initialization constructor. */
-	FORCEINLINE explicit FProcHandle( HandleType Other, bool InIsShellScript = false )
+	FORCEINLINE explicit FProcHandle( HandleType Other )
 		: TProcHandle( Other )
-		, IsShellScript( InIsShellScript )
 	{}
-
-	bool IsShellScript;
 };
 
 /**
@@ -60,6 +56,7 @@ struct CORE_API FMacPlatformProcess : public FGenericPlatformProcess
 	static bool IsApplicationRunning( uint32 ProcessId );
 	static FString GetApplicationName( uint32 ProcessId );
 	static bool IsThisApplicationForeground();
+	static bool IsSandboxedApplication();
 	static void LaunchFileInDefaultExternalApplication( const TCHAR* FileName, const TCHAR* Parms = NULL, ELaunchVerb::Type Verb = ELaunchVerb::Open );
 	static void ExploreFolder( const TCHAR* FilePath );
 	static FRunnableThread* CreateRunnableThread();

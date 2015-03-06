@@ -56,7 +56,7 @@ public:
 	DELEGATE_DEPRECATED("This RemoveTicker overload is deprecated - please remove tickers using the FDelegateHandle returned by the AddTicker function.")
 	void RemoveTicker(const FTickerDelegate& Delegate)
 	{
-		for (int32 Index = 0; Index < PriorityQueue.Num(); ++Index)
+		for (int32 Index = PriorityQueue.Num() - 1; Index >= 0; --Index)
 		{
 			if (PriorityQueue[Index].Delegate.DEPRECATED_Compare(Delegate))
 			{
@@ -71,6 +71,7 @@ public:
 	 */
 	void Tick(float DeltaTime)
 	{
+		QUICK_SCOPE_CYCLE_COUNTER(STAT_FTicker_Tick);
 		if (!PriorityQueue.Num())
 		{
 			return;

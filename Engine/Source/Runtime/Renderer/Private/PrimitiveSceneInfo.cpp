@@ -96,7 +96,7 @@ FPrimitiveSceneInfo::FPrimitiveSceneInfo(UPrimitiveComponent* InComponent,FScene
 	Scene(InScene),
 	PackedIndex(INDEX_NONE),
 	ComponentForDebuggingOnly(InComponent),
-	bNeedsStaticMeshUpdate(true)
+	bNeedsStaticMeshUpdate(false)
 {
 	check(ComponentForDebuggingOnly);
 	check(PrimitiveComponentId.IsValid());
@@ -221,6 +221,10 @@ void FPrimitiveSceneInfo::AddToScene(FRHICommandListImmediate& RHICmdList, bool 
 	{
 		OcclusionFlags |= EOcclusionFlags::CanBeOccluded;
 	}
+	if (Proxy->HasSubprimitiveOcclusionQueries())
+	{
+		OcclusionFlags |= EOcclusionFlags::HasSubprimitiveQueries;
+	}
 	if (Proxy->AllowApproximateOcclusion()
 		// Allow approximate occlusion if attached, even if the parent does not have bLightAttachmentsAsGroup enabled
 		|| LightingAttachmentRoot.IsValid())
@@ -305,6 +309,8 @@ void FPrimitiveSceneInfo::UpdateStaticMeshes(FRHICommandListImmediate& RHICmdLis
 {
 	checkSlow(bNeedsStaticMeshUpdate);
 	bNeedsStaticMeshUpdate = false;
+
+	QUICK_SCOPE_CYCLE_COUNTER(STAT_FPrimitiveSceneInfo_UpdateStaticMeshes);
 
 	// Remove the primitive's static meshes from the draw lists they're currently in, and re-add them to the appropriate draw lists.
 	for (int32 MeshIndex = 0; MeshIndex < StaticMeshes.Num(); MeshIndex++)

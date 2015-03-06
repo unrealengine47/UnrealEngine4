@@ -15,7 +15,29 @@ namespace UnrealBuildTool
         [XmlConfig]
         public static string IOSArchitecture = "";
 
-        // The current architecture - affects everything about how UBT operates on IOS
+		/** Which version of the iOS to allow at run time */
+		public static string RunTimeIOSVersion = "6.1";
+
+		/** which devices the game is allowed to run on */
+		public static string RunTimeIOSDevices = "1,2";
+
+		/** The architecture(s) to compile */
+		[XmlConfig]
+		public static string NonShippingArchitectures = "armv7";
+		[XmlConfig]
+		public static string ShippingArchitectures = "armv7,arm64";
+
+		public string GetRunTimeVersion()
+		{
+			return RunTimeIOSVersion;
+		}
+
+		public string GetRunTimeDevices()
+		{
+			return RunTimeIOSDevices;
+		}
+
+		// The current architecture - affects everything about how UBT operates on IOS
         public override string GetActiveArchitecture()
         {
             return IOSArchitecture;
@@ -104,7 +126,7 @@ namespace UnrealBuildTool
 
         public override string GetDebugInfoExtension(UEBuildBinaryType InBinaryType)
         {
-            return BuildConfiguration.bGeneratedSYMFile ? ".dsym" : "";
+            return BuildConfiguration.bGeneratedSYMFile ? ".dSYM" : "";
         }
 
         public override bool CanUseXGE()
@@ -117,7 +139,173 @@ namespace UnrealBuildTool
 			return true;
 		}
 
-        /**
+		public override void SetUpProjectEnvironment(UnrealTargetPlatform InPlatform)
+		{
+			base.SetUpProjectEnvironment(InPlatform);
+
+			// update the configuration based on the project file
+			// look in ini settings for what platforms to compile for
+			ConfigCacheIni Ini = new ConfigCacheIni(InPlatform, "Engine", UnrealBuildTool.GetUProjectPath());
+			string MinVersion = "IOS_6";
+			if (Ini.GetString("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "MinimumiOSVersion", out MinVersion))
+			{
+				switch (MinVersion)
+				{
+					case "IOS_61":
+						RunTimeIOSVersion = "6.1";
+						break;
+					case "IOS_7":
+						RunTimeIOSVersion = "7.0";
+						break;
+					case "IOS_8":
+						RunTimeIOSVersion = "8.0";
+						break;
+				}
+			}
+
+			bool biPhoneAllowed = true;
+			bool biPadAllowed = true;
+			Ini.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bSupportsIPhone", out biPhoneAllowed);
+			Ini.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bSupportsIPad", out biPadAllowed);
+			if (biPhoneAllowed && biPadAllowed)
+			{
+				RunTimeIOSDevices = "1,2";
+			}
+			else if (biPadAllowed)
+			{
+				RunTimeIOSDevices = "2";
+			}
+			else if (biPhoneAllowed)
+			{
+				RunTimeIOSDevices = "1";
+			}
+
+			List<string> ProjectArches = new List<string>();
+			bool bBuild = true;
+			if (Ini.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bDevForArmV7", out bBuild) && bBuild)
+			{
+				ProjectArches.Add("armv7");
+			}
+			if (Ini.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bDevForArm64", out bBuild) && bBuild)
+			{
+				ProjectArches.Add("arm64");
+			}
+			if (Ini.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bDevForArmV7S", out bBuild) && bBuild)
+			{
+				ProjectArches.Add("armv7s");
+			}
+
+			// force armv7 if something went wrong
+			if (ProjectArches.Count == 0)
+			{
+				ProjectArches.Add("armv7");
+			}
+			NonShippingArchitectures = ProjectArches[0];
+			for (int Index = 1; Index < ProjectArches.Count; ++Index)
+			{
+				NonShippingArchitectures += "," + ProjectArches[Index];
+			}
+
+			ProjectArches.Clear();
+			if (Ini.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bShipForArmV7", out bBuild) && bBuild)
+			{
+				ProjectArches.Add("armv7");
+			}
+			if (Ini.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bShipForArm64", out bBuild) && bBuild)
+			{
+				ProjectArches.Add("arm64");
+			}
+			if (Ini.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bShipForArmV7S", out bBuild) && bBuild)
+			{
+				ProjectArches.Add("armv7s");
+			}
+
+			// force armv7 if something went wrong
+			if (ProjectArches.Count == 0)
+			{
+				ProjectArches.Add("armv7");
+				ProjectArches.Add("arm64");
+			}
+			ShippingArchitectures = ProjectArches[0];
+			for (int Index = 1; Index < ProjectArches.Count; ++Index)
+			{
+				ShippingArchitectures += "," + ProjectArches[Index];
+			}
+
+			// determine if we need to generate the dsym
+			Ini.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bGenerateSYMFile", out BuildConfiguration.bGeneratedSYMFile);
+		}
+
+		/**
+		 * Check for the default configuration
+		 *
+		 * return true if the project uses the default build config
+		 */
+		public override bool HasDefaultBuildConfig(UnrealTargetPlatform Platform, string ProjectPath)
+		{
+			ConfigCacheIni ProjIni = new ConfigCacheIni(Platform, "Engine", ProjectPath);
+			ConfigCacheIni DefaultIni = new ConfigCacheIni(Platform, "Engine", null);
+
+			string DefaultMinVersion = "IOS_6";
+			string ProjectMinVersion = DefaultMinVersion;
+			ProjIni.GetString("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "MinimumiOSVersion", out ProjectMinVersion);
+			DefaultIni.GetString("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "MinimumiOSVersion", out DefaultMinVersion);
+			if (DefaultMinVersion != ProjectMinVersion)
+			{
+				return false;
+			}
+
+			bool bDefaultBuild = true;
+			bool bProjectBuild = true;
+			ProjIni.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bDevForArmV7", out bProjectBuild);
+			DefaultIni.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bDevForArmV7", out bDefaultBuild);
+			if (bDefaultBuild != bProjectBuild)
+			{
+				return false;
+			}
+			ProjIni.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bDevForArm64", out bProjectBuild);
+			DefaultIni.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bDevForArm64", out bDefaultBuild);
+			if (bDefaultBuild != bProjectBuild)
+			{
+				return false;
+			}
+			ProjIni.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bDevForArmV7S", out bProjectBuild);
+			DefaultIni.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bDevForArmV7S", out bDefaultBuild);
+			if (bDefaultBuild != bProjectBuild)
+			{
+				return false;
+			}
+			ProjIni.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bShipForArmV7", out bProjectBuild);
+			DefaultIni.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bShipForArmV7", out bDefaultBuild);
+			if (bDefaultBuild != bProjectBuild)
+			{
+				return false;
+			}
+			ProjIni.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bShipForArm64", out bProjectBuild);
+			DefaultIni.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bShipForArm64", out bDefaultBuild);
+			if (bDefaultBuild != bProjectBuild)
+			{
+				return false;
+			}
+			ProjIni.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bShipForArmV7S", out bProjectBuild);
+			DefaultIni.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bShipForArmV7S", out bDefaultBuild);
+			if (bDefaultBuild != bProjectBuild)
+			{
+				return false;
+			}
+
+			// determine if we need to generate the dsym
+			ProjIni.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bGenerateSYMFile", out bProjectBuild);
+			DefaultIni.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bGenerateSYMFile", out bDefaultBuild);
+			if (bDefaultBuild != bProjectBuild)
+			{
+				return false;
+			}
+
+			return base.HasDefaultBuildConfig(Platform, ProjectPath);
+		}
+
+		/**
          *	Setup the target environment for building
          *	
          *	@param	InBuildTarget		The target being built
@@ -209,13 +397,16 @@ namespace UnrealBuildTool
 
         public override void ValidateBuildConfiguration(CPPTargetConfiguration Configuration, CPPTargetPlatform Platform, bool bCreateDebugInfo)
         {
+			// check the base first
+			base.ValidateBuildConfiguration(Configuration, Platform, bCreateDebugInfo);
+
             BuildConfiguration.bUsePCHFiles = false;
             BuildConfiguration.bUseSharedPCHs = false;
             BuildConfiguration.bCheckExternalHeadersForModification = false;
             BuildConfiguration.bCheckSystemHeadersForModification = false;
             BuildConfiguration.ProcessorCountMultiplier = IOSToolChain.GetAdjustedProcessorCountMultiplier();
             BuildConfiguration.bDeployAfterCompile = true;
-        }
+		}
 
         /**
          *	Whether the platform requires the extra UnityCPPWriter

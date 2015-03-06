@@ -52,7 +52,7 @@ class UFbxImportUI : public UObject
 	bool bImportAsSkeletal;
 
 	/** Whether to import the mesh. Allows animation only import when importing a skeletal mesh. */
-	UPROPERTY(EditAnywhere, config, Category=Mesh, meta=(ImportType="SkeletalMesh"))
+	UPROPERTY(EditAnywhere, Category=Mesh, meta=(ImportType="SkeletalMesh"))
 	bool bImportMesh;
 
 	/** For static meshes, enabling this option will combine all meshes in the FBX into a single monolithic mesh in Unreal */
@@ -106,14 +106,6 @@ class UFbxImportUI : public UObject
 	/** Import data used when importing animations */
 	UPROPERTY(EditAnywhere, Instanced, Category=Animation, meta=(editcondition="bImportAnimations", ImportType = "Animation"))
 	class UFbxAnimSequenceImportData* AnimSequenceImportData;
-
-	/** Type of asset to import from the FBX file */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, config, Category=Animation, meta=(editcondition="bImportAnimations", ImportType = "SkeletalMesh|Animation"))
-	bool bPreserveLocalTransform;
-
-	/** Type of asset to import from the FBX file */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, config, Category=Animation, meta=(editcondition="bImportAnimations", ImportType = "SkeletalMesh|Animation"))
-	bool bDeleteExistingMorphTargetCurves;
 
 	/** Import data used when importing textures */
 	UPROPERTY(EditAnywhere, Instanced, Category=Material)

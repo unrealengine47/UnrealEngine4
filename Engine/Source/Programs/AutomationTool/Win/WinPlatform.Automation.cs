@@ -57,7 +57,7 @@ public abstract class BaseWinPlatform : Platform
 
 		if (Params.bUsesSteam)
 		{
-			string SteamVersion = "Steamv130";
+			string SteamVersion = "Steamv132";
 
 			// Check that the TPS directory exists. We don't distribute binaries for Steam in Rocket.
 			if (Directory.Exists(CommandUtils.CombinePaths(SC.LocalRoot, "Engine/Binaries/ThirdParty/Steamworks/" + SteamVersion)))
@@ -85,6 +85,9 @@ public abstract class BaseWinPlatform : Platform
 			}
 		}
 
+        // Leap files
+        StageExecutable("dll", SC, CommandUtils.CombinePaths(SC.LocalRoot, "Engine/Binaries/ThirdParty/Leap", SC.PlatformDir), "Leap.", false, null, null, true);
+        
 		// Copy the splash screen, windows specific
 		SC.StageFiles(StagedFileType.NonUFS, CombinePaths(SC.ProjectRoot, "Content/Splash"), "Splash.bmp", false, null, null, true);
 

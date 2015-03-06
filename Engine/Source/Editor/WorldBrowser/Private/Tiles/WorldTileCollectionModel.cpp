@@ -268,10 +268,10 @@ TSharedPtr<FLevelDragDropOp> FWorldTileCollectionModel::CreateDragDropOp() const
 	return FLevelCollectionModel::CreateDragDropOp();
 }
 
-bool FWorldTileCollectionModel::PassesAllFilters(TSharedPtr<FLevelModel> Item) const
+bool FWorldTileCollectionModel::PassesAllFilters(const FLevelModel& Item) const
 {
-	TSharedPtr<FWorldTileModel> Tile = StaticCastSharedPtr<FWorldTileModel>(Item);
-	if (!Tile->IsInLayersList(SelectedLayers))
+	const FWorldTileModel& Tile = static_cast<const FWorldTileModel&>(Item);
+	if (!Tile.IsInLayersList(SelectedLayers))
 	{
 		return false;
 	}
@@ -358,6 +358,7 @@ void FWorldTileCollectionModel::BuildWorldCompositionMenu(FMenuBuilder& InMenuBu
 		if (IsOneLevelSelected())
 		{
 			InMenuBuilder.AddMenuEntry(Commands.MoveActorsToSelected);
+			InMenuBuilder.AddMenuEntry(Commands.MoveFoliageToSelected);
 		}
 	}
 	InMenuBuilder.EndSection();
@@ -468,6 +469,7 @@ void FWorldTileCollectionModel::BuildHierarchyMenu(FMenuBuilder& InMenuBuilder) 
 		if (IsOneLevelSelected())
 		{
 			InMenuBuilder.AddMenuEntry( Commands.MoveActorsToSelected );
+			InMenuBuilder.AddMenuEntry( Commands.MoveFoliageToSelected );
 		}
 	}
 	InMenuBuilder.EndSection();
@@ -1627,16 +1629,13 @@ void FWorldTileCollectionModel::ImportTiledLandscape_Executed()
 
 					if (NewLandscape)
 					{
-						// Set landscape actor location at min corner of bounding rect, so it will be centered around origin
+						// Set bounds of a tile
+						NewTileModel->TileDetails->Bounds = NewLandscape->GetComponentsBoundingBox();
+						
+						// Calculate this tile offset from world origin
 						FIntRect NewLandscapeRect = NewLandscape->GetBoundingRect();
 						float WidthX = NewLandscapeRect.Width()*TileScale.X;
 						float WidthY = NewLandscapeRect.Height()*TileScale.Y;
-						NewLandscape->SetActorLocation(-FVector(WidthX, WidthY, 0.f)*0.5f);
-						
-						// Set bounds of a tile
-						NewTileModel->TileDetails->Bounds = NewLandscape->GetComponentsBoundingBox();
-
-						// Calculate this tile offset from world origin
 						FIntPoint TileCoordinates = ImportSettings.TileCoordinates[TileIndex] + ImportSettings.TilesCoordinatesOffset;
 						FIntPoint TileOffset = FIntPoint(TileCoordinates.X*WidthX, TileCoordinates.Y*WidthY);
 						
@@ -2113,13 +2112,13 @@ bool FWorldTileCollectionModel::GenerateLODLevels(FLevelModelList InLevelList, i
 			UWorld* LODWorld = UWorld::FindWorldInPackage(LODPackage);
 			if (LODWorld)
 			{
-				LODWorld->ClearFlags(RF_Standalone);
+				LODWorld->ClearFlags(RF_Public | RF_Standalone);
 				LODWorld->DestroyWorld(false);
 			}
-
+			
 			// Create a new world
 			LODWorld = UWorld::CreateWorld(EWorldType::None, false, FPackageName::GetShortFName(LODPackage->GetFName()), LODPackage);
-			LODWorld->SetFlags(RF_Standalone);
+			LODWorld->SetFlags(RF_Public | RF_Standalone);
 
 			for (FAssetToSpawnInfo& AssetInfo : AssetsToSpawn)
 			{
@@ -2144,12 +2143,12 @@ bool FWorldTileCollectionModel::GenerateLODLevels(FLevelModelList InLevelList, i
 			// Save generated level
 			if (FEditorFileUtils::PromptToCheckoutLevels(false, LODWorld->PersistentLevel))
 			{
-				FEditorFileUtils::SaveLevel(LODWorld->PersistentLevel, *LODLevelFileName);
-				FAssetRegistryModule::AssetCreated(LODWorld->PersistentLevel);
+				FEditorFileUtils::SaveLevel(LODWorld->PersistentLevel, LODLevelFileName);
+				FAssetRegistryModule::AssetCreated(LODWorld);
 			}
 			
 			// Destroy the new world we created and collect the garbage
-			LODWorld->ClearFlags(RF_Standalone);
+			LODWorld->ClearFlags(RF_Public | RF_Standalone);
 			LODWorld->DestroyWorld(false);
 			CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 		}

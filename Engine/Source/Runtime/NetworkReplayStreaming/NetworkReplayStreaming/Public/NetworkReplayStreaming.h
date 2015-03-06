@@ -9,18 +9,53 @@
 /** Struct to store information about a stream, returned from search results. */
 struct FNetworkReplayStreamInfo
 {
-	/** The name of the stream */
+	FNetworkReplayStreamInfo() : SizeInBytes( 0 ), LengthInMS( 0 ), NumViewers( 0 ), bIsLive( false ) {}
+
+	/** The name of the stream (generally this is auto generated, refer to friendly name for UI) */
 	FString Name;
+
+	/** The UI friendly name of the stream */
+	FString FriendlyName;
 
 	/** The date and time the stream was recorded */
 	FDateTime Timestamp;
 
 	/** The size of the stream */
 	int64 SizeInBytes;
+	
+	/** The duration of the stream in MS */
+	int32 LengthInMS;
+
+	/** Number of viewers viewing this stream */
+	int32 NumViewers;
 
 	/** True if the stream is live and the game hasn't completed yet */
 	bool bIsLive;
 };
+
+namespace ENetworkReplayError
+{
+	enum Type
+	{
+		/** There are currently no issues */
+		None,
+
+		/** The backend service supplying the stream is unavailable, or connection interrupted */
+		ServiceUnavailable,
+	};
+
+	inline const TCHAR* ToString( const ENetworkReplayError::Type FailureType )
+	{
+		switch ( FailureType )
+		{
+			case None:
+				return TEXT( "None" );
+			case ServiceUnavailable:
+				return TEXT( "ServiceUnavailable" );
+		}
+		return TEXT( "Unknown ENetworkReplayError error" );
+	}
+}
 
 DECLARE_MULTICAST_DELEGATE_TwoParams( FOnStreamReady, bool, bool );
 typedef FOnStreamReady::FDelegate FOnStreamReadyDelegate;
@@ -71,6 +106,9 @@ public:
 	 * @param Delegate A delegate that will be executed if bound when the list of streams is available
 	 */
 	virtual void EnumerateStreams( const FString& VersionString, const FOnEnumerateStreamsComplete& Delegate ) = 0;
+
+	/** Returns the last error that occurred while streaming replays */
+	virtual ENetworkReplayError::Type GetLastError() const = 0;
 };
 
 /** Replay streamer factory */

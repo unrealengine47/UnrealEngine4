@@ -16,6 +16,7 @@ class AController;
 class UTexture;
 struct FEngineShowFlags;
 struct FConvexVolume;
+struct FNavigableGeometryExport;
 
 /** Information about a streaming texture that a primitive uses for rendering. */
 struct FStreamingTexturePrimitiveInfo
@@ -299,6 +300,13 @@ public:
 	uint32 bCastInsetShadow:1;
 
 	/** 
+	 * Whether this component should cast shadows from lights that have bCastShadowsFromCinematicObjectsOnly enabled.
+	 * This is useful for characters in a cinematic with special cinematic lights, where the cost of shadowmap rendering of the environment is undesired.
+	 */
+	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category=Lighting, meta=(EditCondition="CastShadow"))
+	uint32 bCastCinematicShadow:1;
+
+	/** 
 	 *	If true, the primitive will cast shadows even if bHidden is true.
 	 *	Controls whether the primitive should cast shadows when hidden.
 	 *	This flag is only used if CastShadow is true.
@@ -418,7 +426,7 @@ protected:
 	TEnumAsByte<EHasCustomNavigableGeometry::Type> bHasCustomNavigableGeometry;
 
 	/** Next id to be used by a component. */
-	static uint64 NextComponentId;
+	static uint32 NextComponentId;
 
 public:
 	/** 
@@ -509,16 +517,26 @@ public:
 	 */
 	void EndComponentOverlap(const FOverlapInfo& OtherOverlap, bool bDoNotifies=true, bool bNoNotifySelf=false);
 
-	/** Returns true if this component is overlapping OtherComp, false otherwise. */
-	bool IsOverlappingComponent(UPrimitiveComponent const* OtherComp) const;
+	/**
+	 * Check whether this component is overlapping another component.
+	 * @param OtherComp Component to test this component against.
+	 * @return Whether this component is overlapping another component.
+	 */
+	UFUNCTION(BlueprintCallable, Category="Collision", meta=(UnsafeDuringActorConstruction="true"))
+	bool IsOverlappingComponent(const UPrimitiveComponent* OtherComp) const;
 	
-	/** Returns true if this component is overlapping OtherComp, false otherwise. */
+	/** Check whether this component has the specified overlap. */
 	bool IsOverlappingComponent(const FOverlapInfo& Overlap) const;
 
-	/** Return true if this component is overlapping any component of the given actor, false otherwise. */
+	/**
+	 * Check whether this component is overlapping any component of the given Actor.
+	 * @param Other Actor to test this component against.
+	 * @return Whether this component is overlapping any component of the given Actor.
+	 */
+	UFUNCTION(BlueprintCallable, Category="Collision", meta=(UnsafeDuringActorConstruction="true"))
 	bool IsOverlappingActor(const AActor* Other) const;
 
-	/** Appends list of overlaps with components owned by the given actor to the 'OutOverlaps' array. Returns the number of overlaps that were added. */
+	/** Appends list of overlaps with components owned by the given actor to the 'OutOverlaps' array. Returns true if any overlaps were added. */
 	bool GetOverlapsWithActor(const AActor* Actor, TArray<FOverlapInfo>& OutOverlaps) const;
 
 	/** 
@@ -1114,7 +1132,7 @@ public:
 	 * @return		Success if returns > 0.f, if returns 0.f, it is either not convex or inside of the point
 	 *				If returns < 0.f, this primitive does not have collsion
 	 */
-	float GetDistanceToCollision(const FVector& Point, FVector& ClosestPointOnCollision) const;
+	virtual float GetDistanceToCollision(const FVector& Point, FVector& ClosestPointOnCollision) const;
 
 	/**
 	 * Creates a proxy to represent the primitive to the scene manager in the rendering thread.
@@ -1305,6 +1323,18 @@ public:
 	// End UObject interface.
 
 	//Begin USceneComponent Interface
+	/**
+	 * Tries to move the component by a movement vector (Delta) and sets rotation to NewRotation.
+	 * Assumes that the component's current location is valid and that the component does fit in its current Location.
+	 * Dispatches blocking hit notifications (if bSweep is true), and calls UpdateOverlaps() after movement to update overlap state.
+	 * 
+	 * @param Delta			The desired location change in world space.
+	 * @param NewRotation	The new desired rotation in world space.
+	 * @param bSweep		Should we sweep to the destination location, stopping short of the target if blocked by something. Note:If the component has no collision this will have no effect.
+	 * @param Hit			Optional output describing the blocking hit that stopped the move, if any.
+	 * @param MoveFlags		Flags controlling behavior of the move. @see EMoveComponentFlags
+	 * @return				True if some movement occurred, false if no movement occurred.
+	 */
 	virtual bool MoveComponent(const FVector& Delta, const FRotator& NewRotation, bool bSweep, FHitResult* OutHit = NULL, EMoveComponentFlags MoveFlags = MOVECOMP_NoFlags) override;
 	virtual bool IsWorldGeometry() const override;
 	virtual ECollisionEnabled::Type GetCollisionEnabled() const override;
@@ -1537,6 +1567,11 @@ public:
 	void SetCullDistance(float NewCullDistance);
 	
 	/**
+	 * Utility to cache the max draw distance based on cull distance volumes or the desired max draw distance
+	 */
+	void SetCachedMaxDrawDistance(const float NewCachedMaxDrawDistance);
+
+	/**
 	 * Changes the value of DepthPriorityGroup.
 	 * @param NewDepthPriorityGroup - The value to assign to DepthPriorityGroup.
 	 */
@@ -1636,15 +1671,21 @@ public:
 	}
 
 	// Begin INavRelevantInterface Interface
-	virtual FBox GetNavigationBounds() const;
-	virtual bool IsNavigationRelevant() const;
+	virtual FBox GetNavigationBounds() const override;
+	virtual bool IsNavigationRelevant() const override;
 	// End INavRelevantInterface Interface
 
 	FORCEINLINE EHasCustomNavigableGeometry::Type HasCustomNavigableGeometry() const { return bHasCustomNavigableGeometry; }
 
+	void SetCustomNavigableGeometry(const EHasCustomNavigableGeometry::Type InType);
+
 	/** Collects custom navigable geometry of component.
 	 *	@return true if regular navigable geometry exporting should be run as well */
-	virtual bool DoCustomNavigableGeometryExport(struct FNavigableGeometryExport* GeomExport) const { return true; }
+	DEPRECATED(4.8, "UPrimitiveComponent::DoCustomNavigableGeometryExport(FNavigableGeometryExport* GeomExport) is deprecated, use UPrimitiveComponent::DoCustomNavigableGeometryExport(FNavigableGeometryExport& GeomExport) instead (takes ref instead of a pointer)")
+	virtual bool DoCustomNavigableGeometryExport(FNavigableGeometryExport* GeomExport) const { return DoCustomNavigableGeometryExport(*GeomExport); }
+	/** Collects custom navigable geometry of component.
+	*	@return true if regular navigable geometry exporting should be run as well */
+	virtual bool DoCustomNavigableGeometryExport(FNavigableGeometryExport& GeomExport) const { return true; }
 
 	static void DispatchMouseOverEvents(UPrimitiveComponent* CurrentComponent, UPrimitiveComponent* NewComponent);
 	static void DispatchTouchOverEvents(ETouchIndex::Type FingerIndex, UPrimitiveComponent* CurrentComponent, UPrimitiveComponent* NewComponent);

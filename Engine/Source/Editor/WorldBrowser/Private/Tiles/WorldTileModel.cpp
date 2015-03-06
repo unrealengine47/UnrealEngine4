@@ -36,6 +36,7 @@ FWorldTileModel::FWorldTileModel(const TWeakObjectPtr<UEditorEngine>& InEditor,
 	TileDetails->ParentPackageNameChangedEvent.AddRaw(this, &FWorldTileModel::OnParentPackageNamePropertyChanged);
 	TileDetails->LODSettingsChangedEvent.AddRaw(this, &FWorldTileModel::OnLODSettingsPropertyChanged);
 	TileDetails->ZOrderChangedEvent.AddRaw(this, &FWorldTileModel::OnZOrderPropertyChanged);
+	TileDetails->HideInTileViewChangedEvent.AddRaw(this, &FWorldTileModel::OnHideInTileViewChanged);
 			
 	// Initialize tile details
 	if (WorldComposition->GetTilesList().IsValidIndex(TileIdx))
@@ -473,6 +474,8 @@ void FWorldTileModel::SetLevelPosition(const FIntPoint& InPosition)
 	if (IsLandscapeBased())
 	{
 		UpdateLandscapeSectionsOffset(Offset);
+		bool bShowWarnings = true;
+		ULandscapeInfo::RecreateLandscapeInfo(LevelCollectionModel.GetWorld(), bShowWarnings);
 	}
 	
 	// Transform child levels
@@ -650,6 +653,11 @@ void FWorldTileModel::OnParentChanged()
 	OnLevelInfoUpdated();
 }
 
+bool FWorldTileModel::IsVisibleInCompositionView() const
+{
+	return !TileDetails->bHideInTileView && LevelCollectionModel.PassesAllFilters(*this);
+}
+
 void FWorldTileModel::OnLevelBoundsActorUpdated()
 {
 	Update();
@@ -757,6 +765,11 @@ void FWorldTileModel::OnZOrderPropertyChanged()
 	OnLevelInfoUpdated();
 }
 
+void FWorldTileModel::OnHideInTileViewChanged()
+{
+	OnLevelInfoUpdated();
+}
+
 bool FWorldTileModel::CreateAdjacentLandscapeProxy(ALandscapeProxy* SourceLandscape, FIntPoint SourceTileOffset, FWorldTileModel::EWorldDirections InWhere)
 {
 	if (!IsLoaded())	
@@ -848,6 +861,9 @@ ALandscapeProxy* FWorldTileModel::ImportLandscapeTile(const FLandscapeImportSett
 		LandscapeProxy->LandscapeMaterial = Settings.LandscapeMaterial;
 	}
 	
+	// Cache pointer to landscape in the level model
+	Landscape = LandscapeProxy;
+
 	// Create landscape components	
 	LandscapeProxy->Import(
 		Settings.LandscapeGuid, 

@@ -157,18 +157,20 @@ bool FMaterialInstanceResource::GetScalarValue(
 	static FName NameSubsurfaceProfile(TEXT("__SubsurfaceProfile"));
 	if (ParameterName == NameSubsurfaceProfile)
 	{
-		const USubsurfaceProfilePointer SubsurfaceProfileRT = GetSubsurfaceProfileRT();
+		const USubsurfaceProfile* SubsurfaceProfileRT = GetSubsurfaceProfileRT();
 
+		int32 AllocationId = 0;
 		if (SubsurfaceProfileRT)
 		{
 			// can be optimized (cached)
-			*OutValue = GSubsufaceProfileTextureObject.FindAllocationId(SubsurfaceProfileRT) / 255.0f;
+			AllocationId = GSubsufaceProfileTextureObject.FindAllocationId(SubsurfaceProfileRT);
 		}
 		else
 		{
 			// no profile specified means we use the default one stored at [0] which is human skin
-			*OutValue = 0.0f;
+			AllocationId = 0;
 		}
+		*OutValue = AllocationId / 255.0f;
 
 		return true;
 	}
@@ -284,22 +286,22 @@ void UMaterialInstance::PropagateDataToMaterialProxy()
 	}
 }
 
-void FMaterialInstanceResource::GameThread_SetParent(UMaterialInterface* InParent)
+void FMaterialInstanceResource::GameThread_SetParent(UMaterialInterface* ParentMaterialInterface)
 {
 	check(IsInGameThread());
 
-	if( GameThreadParent != InParent )
+	if( GameThreadParent != ParentMaterialInterface )
 	{
 		// Set the game thread accessible parent.
 		UMaterialInterface* OldParent = GameThreadParent;
-		GameThreadParent = InParent;
+		GameThreadParent = ParentMaterialInterface;
 
 		// Set the rendering thread's parent and instance pointers.
-		check(InParent != NULL);
+		check(ParentMaterialInterface != NULL);
 		ENQUEUE_UNIQUE_RENDER_COMMAND_TWOPARAMETER(
 			InitMaterialInstanceResource,
 			FMaterialInstanceResource*,Resource,this,
-			UMaterialInterface*,Parent,InParent,
+			UMaterialInterface*,Parent,ParentMaterialInterface,
 		{
 			Resource->Parent = Parent;
 			Resource->InvalidateUniformExpressionCache();
@@ -475,6 +477,8 @@ void UMaterialInstance::InitResources()
 	GameThread_InitMIParameters(this, VectorParameterValues);
 	GameThread_InitMIParameters(this, TextureParameterValues);
 	GameThread_InitMIParameters(this, FontParameterValues);
+	PropagateDataToMaterialProxy();
+
 	CacheMaterialInstanceUniformExpressions(this);
 }
 
@@ -1414,31 +1418,24 @@ void UMaterialInstance::CacheShadersForResources(EShaderPlatform ShaderPlatform,
 	}
 }
 
-bool UMaterialInstance::GetStaticSwitchParameterValue(FName ParameterName, bool &OutValue,FGuid &OutExpressionGuid)
+bool UMaterialInstance::GetStaticSwitchParameterValue(FName ParameterName, bool &OutValue,FGuid &OutExpressionGuid) const
 {
 	if(ReentrantFlag)
 	{
 		return false;
 	}
 
-	bool* Value = NULL;
-	FGuid* Guid = NULL;
 	for (int32 ValueIndex = 0;ValueIndex < StaticParameters.StaticSwitchParameters.Num();ValueIndex++)
 	{
 		if (StaticParameters.StaticSwitchParameters[ValueIndex].ParameterName == ParameterName)
 		{
-			Value = &StaticParameters.StaticSwitchParameters[ValueIndex].Value;
-			Guid = &StaticParameters.StaticSwitchParameters[ValueIndex].ExpressionGUID;
-			break;
+			OutValue = StaticParameters.StaticSwitchParameters[ValueIndex].Value;
+			OutExpressionGuid = StaticParameters.StaticSwitchParameters[ValueIndex].ExpressionGUID;
+			return true;
 		}
 	}
-	if(Value)
-	{
-		OutValue = *Value;
-		OutExpressionGuid = *Guid;
-		return true;
-	}
-	else if(Parent)
+
+	if(Parent)
 	{
 		FMICReentranceGuard	Guard(this);
 		return Parent->GetStaticSwitchParameterValue(ParameterName,OutValue,OutExpressionGuid);
@@ -1449,40 +1446,27 @@ bool UMaterialInstance::GetStaticSwitchParameterValue(FName ParameterName, bool 
 	}
 }
 
-bool UMaterialInstance::GetStaticComponentMaskParameterValue(FName ParameterName, bool &OutR, bool &OutG, bool &OutB, bool &OutA, FGuid &OutExpressionGuid)
+bool UMaterialInstance::GetStaticComponentMaskParameterValue(FName ParameterName, bool &OutR, bool &OutG, bool &OutB, bool &OutA, FGuid &OutExpressionGuid) const
 {
 	if(ReentrantFlag)
 	{
 		return false;
 	}
 
-	bool* R = NULL;
-	bool* G = NULL;
-	bool* B = NULL;
-	bool* A = NULL;
-	FGuid* ExpressionId = NULL;
 	for (int32 ValueIndex = 0;ValueIndex < StaticParameters.StaticComponentMaskParameters.Num();ValueIndex++)
 	{
 		if (StaticParameters.StaticComponentMaskParameters[ValueIndex].ParameterName == ParameterName)
 		{
-			R = &StaticParameters.StaticComponentMaskParameters[ValueIndex].R;
-			G = &StaticParameters.StaticComponentMaskParameters[ValueIndex].G;
-			B = &StaticParameters.StaticComponentMaskParameters[ValueIndex].B;
-			A = &StaticParameters.StaticComponentMaskParameters[ValueIndex].A;
-			ExpressionId = &StaticParameters.StaticComponentMaskParameters[ValueIndex].ExpressionGUID;
-			break;
+			OutR = StaticParameters.StaticComponentMaskParameters[ValueIndex].R;
+			OutG = StaticParameters.StaticComponentMaskParameters[ValueIndex].G;
+			OutB = StaticParameters.StaticComponentMaskParameters[ValueIndex].B;
+			OutA = StaticParameters.StaticComponentMaskParameters[ValueIndex].A;
+			OutExpressionGuid = StaticParameters.StaticComponentMaskParameters[ValueIndex].ExpressionGUID;
+			return true;
 		}
 	}
-	if(R && G && B && A)
-	{
-		OutR = *R;
-		OutG = *G;
-		OutB = *B;
-		OutA = *A;
-		OutExpressionGuid = *ExpressionId;
-		return true;
-	}
-	else if(Parent)
+
+	if(Parent)
 	{
 		FMICReentranceGuard	Guard(this);
 		return Parent->GetStaticComponentMaskParameterValue(ParameterName, OutR, OutG, OutB, OutA, OutExpressionGuid);
@@ -1493,32 +1477,24 @@ bool UMaterialInstance::GetStaticComponentMaskParameterValue(FName ParameterName
 	}
 }
 
-bool UMaterialInstance::GetTerrainLayerWeightParameterValue(FName ParameterName, int32& OutWeightmapIndex, FGuid &OutExpressionGuid)
+bool UMaterialInstance::GetTerrainLayerWeightParameterValue(FName ParameterName, int32& OutWeightmapIndex, FGuid &OutExpressionGuid) const
 {
 	if(ReentrantFlag)
 	{
 		return false;
 	}
 
-	int32 WeightmapIndex = INDEX_NONE;
-
-	FGuid* ExpressionId = NULL;
 	for (int32 ValueIndex = 0;ValueIndex < StaticParameters.TerrainLayerWeightParameters.Num();ValueIndex++)
 	{
 		if (StaticParameters.TerrainLayerWeightParameters[ValueIndex].ParameterName == ParameterName)
 		{
-			WeightmapIndex = StaticParameters.TerrainLayerWeightParameters[ValueIndex].WeightmapIndex;
-			ExpressionId = &StaticParameters.TerrainLayerWeightParameters[ValueIndex].ExpressionGUID;
-			break;
+			OutWeightmapIndex = StaticParameters.TerrainLayerWeightParameters[ValueIndex].WeightmapIndex;
+			OutExpressionGuid = StaticParameters.TerrainLayerWeightParameters[ValueIndex].ExpressionGUID;
+			return true;
 		}
 	}
-	if (WeightmapIndex >= 0)
-	{
-		OutWeightmapIndex = WeightmapIndex;
-		OutExpressionGuid = *ExpressionId;
-		return true;
-	}
-	else if(Parent)
+
+	if(Parent)
 	{
 		FMICReentranceGuard	Guard(this);
 		return Parent->GetTerrainLayerWeightParameterValue(ParameterName, OutWeightmapIndex, OutExpressionGuid);
@@ -1541,6 +1517,8 @@ void TrimToOverriddenOnly(TArray<ParameterType>& Parameters)
 	}
 }
 
+#if WITH_EDITOR
+
 void UMaterialInstance::BeginCacheForCookedPlatformData( const ITargetPlatform *TargetPlatform )
 {
 	TArray<FMaterialResource*> *CachedMaterialResourcesForPlatform = CachedMaterialResourcesForCooking.Find( TargetPlatform );
@@ -1560,9 +1538,9 @@ void UMaterialInstance::BeginCacheForCookedPlatformData( const ITargetPlatform *
 		// Cache shaders for each shader format, storing the results in CachedMaterialResourcesForCooking so they will be available during saving
 		for (int32 FormatIndex = 0; FormatIndex < DesiredShaderFormats.Num(); FormatIndex++)
 		{
-			const EShaderPlatform TargetPlatform = ShaderFormatToLegacyShaderPlatform(DesiredShaderFormats[FormatIndex]);
+			const EShaderPlatform TargetShaderPlatform = ShaderFormatToLegacyShaderPlatform(DesiredShaderFormats[FormatIndex]);
 
-			CacheResourceShadersForCooking(TargetPlatform, *CachedMaterialResourcesForPlatform );
+			CacheResourceShadersForCooking(TargetShaderPlatform, *CachedMaterialResourcesForPlatform );
 		}
 	}
 }
@@ -1612,6 +1590,8 @@ void UMaterialInstance::ClearAllCachedCookedPlatformData()
 	CachedMaterialResourcesForCooking.Empty();
 }
 
+#endif 
+
 void UMaterialInstance::Serialize(FArchive& Ar)
 {
 	Super::Serialize(Ar);
@@ -1622,8 +1602,12 @@ void UMaterialInstance::Serialize(FArchive& Ar)
 		if (Ar.UE4Ver() >= VER_UE4_PURGED_FMATERIAL_COMPILE_OUTPUTS)
 		{
 			StaticParameters.Serialize(Ar);
+#if WITH_EDITOR
+			SerializeInlineShaderMaps( &CachedMaterialResourcesForCooking, Ar, StaticPermutationMaterialResources );
+#else
+			SerializeInlineShaderMaps( NULL, Ar, StaticPermutationMaterialResources );
+#endif
 
-			SerializeInlineShaderMaps( CachedMaterialResourcesForCooking, Ar, StaticPermutationMaterialResources );
 		}
 		else
 		{
@@ -1730,12 +1714,11 @@ void UMaterialInstance::PostLoad()
 
 		// Make sure static parameters are up to date and shaders are cached for the current platform
 		InitStaticPermutation();
-
+#if WITH_EDITOR
 		// enable caching in postload for derived data cache commandlet and cook by the book
 		ITargetPlatformManagerModule* TPM = GetTargetPlatformManager();
 		if (TPM && (TPM->RestrictFormatsToRuntimeOnly() == false)) 
 		{
-			ITargetPlatformManagerModule* TPM = GetTargetPlatformManager();
 			TArray<ITargetPlatform*> Platforms = TPM->GetActiveTargetPlatforms();
 			// Cache for all the shader formats that the cooking target requires
 			for (int32 FormatIndex = 0; FormatIndex < Platforms.Num(); FormatIndex++)
@@ -1743,6 +1726,7 @@ void UMaterialInstance::PostLoad()
 				BeginCacheForCookedPlatformData(Platforms[FormatIndex]);
 			}
 		}
+#endif
 	}
 
 	INC_FLOAT_STAT_BY(STAT_ShaderCompiling_MaterialLoading,(float)MaterialLoadTime);
@@ -1807,9 +1791,9 @@ void UMaterialInstance::FinishDestroy()
 			CurrentResource = NULL;
 		}
 	}
-
+#if WITH_EDITOR
 	ClearAllCachedCookedPlatformData();
-
+#endif
 	Super::FinishDestroy();
 }
 
@@ -2327,21 +2311,19 @@ void UMaterialInstance::OverrideBlendableSettings(class FSceneView& View, float 
 		// do we partly want to fade this one in.
 		if(Weight < 1.0f)
 		{
-			UMaterial* Base = Material->GetBaseMaterial();
-
-			UMaterialInstanceDynamic* MID = View.State->GetReusableMID((UMaterialInterface*)Base);//, (UMaterialInterface*)this);
+			UMaterialInstanceDynamic* MID = View.State->GetReusableMID((UMaterialInterface*)this);
 
 			if(MID)
 			{
-				MID->K2_CopyMaterialInstanceParameters((UMaterialInterface*)Base);
+				MID->K2_CopyMaterialInstanceParameters((UMaterialInterface*)Material);
 
-				FPostProcessMaterialNode NewNode(MID, Base->BlendableLocation, Base->BlendablePriority);
+				FPostProcessMaterialNode NewNode(MID, Material->BlendableLocation, Material->BlendablePriority);
 
 				// it's the first material, no blending needed
 				Dest.BlendableManager.PushBlendableData(1.0f, NewNode);
 
 				// can be optimized
-				PostProcessMaterialNode = IteratePostProcessMaterialNodes(Dest, Base, Iterator);
+				PostProcessMaterialNode = IteratePostProcessMaterialNodes(Dest, Material, Iterator);
 			}
 		}
 	}
@@ -2409,11 +2391,11 @@ void UMaterialInstance::AllMaterialsCacheResourceShadersForRendering()
 }
 
 
-bool UMaterialInstance::IsChildOf(const UMaterialInterface* Parent) const
+bool UMaterialInstance::IsChildOf(const UMaterialInterface* ParentMaterialInterface) const
 {
 	const UMaterialInterface* Material = this;
 
-	while (Material != Parent && Material != nullptr)
+	while (Material != ParentMaterialInterface && Material != nullptr)
 	{
 		const UMaterialInstance* MaterialInstance = Cast<const UMaterialInstance>(Material);
 		Material = (MaterialInstance != nullptr) ? MaterialInstance->Parent : nullptr;

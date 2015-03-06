@@ -46,6 +46,9 @@ UAbilitySystemComponent::UAbilitySystemComponent(const FObjectInitializer& Objec
 	bReplicates = true;
 
 	UserAbilityActivationInhibited = false;
+
+	GenericConfirmInputID = INDEX_NONE;
+	GenericCancelInputID = INDEX_NONE;
 }
 
 UAbilitySystemComponent::~UAbilitySystemComponent()
@@ -239,6 +242,8 @@ FGameplayEffectContextHandle UAbilitySystemComponent::GetEffectContext() const
 {
 	FGameplayEffectContextHandle Context = FGameplayEffectContextHandle(UAbilitySystemGlobals::Get().AllocGameplayEffectContext());
 	// By default use the owner and avatar as the instigator and causer
+	check(AbilityActorInfo.IsValid());
+	
 	Context.AddInstigator(AbilityActorInfo->OwnerActor.Get(), AbilityActorInfo->AvatarActor.Get());
 	return Context;
 }
@@ -333,6 +338,11 @@ FOnActiveGameplayEffectRemoved* UAbilitySystemComponent::OnGameplayEffectRemoved
 	}
 
 	return nullptr;
+}
+
+FOnActiveGameplayEffectRemoved& UAbilitySystemComponent::OnAnyGameplayEffectRemovedDelegate()
+{
+	return ActiveGameplayEffects.OnActiveGameplayEffectRemovedDelegate;
 }
 
 int32 UAbilitySystemComponent::GetNumActiveGameplayEffects() const
@@ -468,7 +478,7 @@ void UAbilitySystemComponent::UpdateTagMap(const FGameplayTagContainer& Containe
 
 FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToTarget(OUT FGameplayEffectSpec &Spec, UAbilitySystemComponent *Target, FPredictionKey PredictionKey)
 {
-	if (!UAbilitySystemGlobals::Get().PredictTargetGameplayEffects)
+	if (!UAbilitySystemGlobals::Get().ShouldPredictTargetGameplayEffects())
 	{
 		// If we don't want to predict target effects, clear prediction key
 		PredictionKey = FPredictionKey();
@@ -476,7 +486,7 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToTa
 
 	FActiveGameplayEffectHandle ReturnHandle;
 
-	if (!UAbilitySystemGlobals::Get().PredictTargetGameplayEffects)
+	if (!UAbilitySystemGlobals::Get().ShouldPredictTargetGameplayEffects())
 	{
 		// If we don't want to predict target effects, clear prediction key
 		PredictionKey = FPredictionKey();
@@ -495,6 +505,8 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSe
 	// Scope lock the container after the addition has taken place to prevent the new effect from potentially getting mangled during the remainder
 	// of the add operation
 	FScopedActiveGameplayEffectLock ScopeLock(ActiveGameplayEffects);
+
+	const bool bIsNetAuthority = IsOwnerActorAuthoritative();
 
 	// Check Network Authority
 	if (!HasNetworkAuthorityToApplyGameplayEffect(PredictionKey))
@@ -653,7 +665,7 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSe
 	//		Remove any active gameplay effects that match the RemoveGameplayEffectsWithTags in the definition for this spec
 	//		Only call this if we are the Authoritative owner and we have some RemoveGameplayEffectsWithTags.CombinedTag to remove
 	// ------------------------------------------------------
-	if (IsOwnerActorAuthoritative() && Spec.Def->RemoveGameplayEffectsWithTags.CombinedTags.Num() > 0)
+	if (bIsNetAuthority && Spec.Def->RemoveGameplayEffectsWithTags.CombinedTags.Num() > 0)
 	{
 		// Clear tags is always removing all stacks.
 		FActiveGameplayEffectQuery ClearQuery(&Spec.Def->RemoveGameplayEffectsWithTags.CombinedTags);
@@ -663,8 +675,34 @@ FActiveGameplayEffectHandle UAbilitySystemComponent::ApplyGameplayEffectSpecToSe
 		}
 		ActiveGameplayEffects.RemoveActiveEffects(ClearQuery, -1);
 	}
+	
 
+	// ------------------------------------------------------
+	//	Apply Granted Abilities
+	//	
+	//	Note: Doing this before apply TargetEffectSpecs, but we could just as easily apply after.
+	//	Hedging bet for now that we are more likely to want to have 'passive ability that reacts to linked GE'
+	//	over 'need ability to activate after linked GE is applied'.
+	//	
+	//	Note2: This is allowing instant GEs to permanently grant abilities. This could be disallowed if needed.
+	// ------------------------------------------------------
+	if (bIsNetAuthority)
+	{
+		for (FGameplayAbilitySpecDef& AbilitySpecDef : OurCopyOfSpec->GrantedAbilitySpecs)
+		{
+			// Only do this is we havent assigned the ability yet! This prevents cases where stacking GEs
+			// would regrant the ability every time the stack was applied
+			if (AbilitySpecDef.AssignedHandle.IsValid() == false)
+			{
+				GiveAbility( FGameplayAbilitySpec(AbilitySpecDef, MyHandle) );
+			}
+		}	
+	}
+
+	// ------------------------------------------------------
+	// Apply Linked effects
 	// todo: this is ignoring the returned handles, should we put them into a TArray and return all of the handles?
+	// ------------------------------------------------------
 	for (const FGameplayEffectSpecHandle TargetSpec: Spec.TargetEffectSpecs)
 	{
 		if (TargetSpec.IsValid())
@@ -730,7 +768,41 @@ float UAbilitySystemComponent::GetGameplayEffectMagnitude(FActiveGameplayEffectH
 	return ActiveGameplayEffects.GetGameplayEffectMagnitude(Handle, Attribute);
 }
 
-void UAbilitySystemComponent::InvokeGameplayCueEvent(const FGameplayEffectSpec &Spec, EGameplayCueEvent::Type EventType)
+int32 UAbilitySystemComponent::GetCurrentStackCount(FActiveGameplayEffectHandle Handle) const
+{
+	if (const FActiveGameplayEffect* ActiveGE = ActiveGameplayEffects.GetActiveGameplayEffect(Handle))
+	{
+		return ActiveGE->Spec.StackCount;
+	}
+	return 0;
+}
+
+int32 UAbilitySystemComponent::GetCurrentStackCount(FGameplayAbilitySpecHandle Handle) const
+{
+	FActiveGameplayEffectHandle GEHandle = FindActiveGameplayEffectHandle(Handle);
+	if (GEHandle.IsValid())
+	{
+		return GetCurrentStackCount(GEHandle);
+	}
+	return 0;
+}
+
+FActiveGameplayEffectHandle UAbilitySystemComponent::FindActiveGameplayEffectHandle(FGameplayAbilitySpecHandle Handle) const
+{
+	for (const FActiveGameplayEffect& ActiveGE : &ActiveGameplayEffects)
+	{
+		for (const FGameplayAbilitySpecDef& AbiilitySpecDef : ActiveGE.Spec.GrantedAbilitySpecs)
+		{
+			if (AbiilitySpecDef.AssignedHandle == Handle)
+			{
+				return ActiveGE.Handle;
+			}
+		}
+	}
+	return FActiveGameplayEffectHandle();
+}
+
+void UAbilitySystemComponent::InvokeGameplayCueEvent(const FGameplayEffectSpecForRPC &Spec, EGameplayCueEvent::Type EventType)
 {
 	AActor* ActorAvatar = AbilityActorInfo->AvatarActor.Get();
 	if (!Spec.Def)
@@ -875,7 +947,7 @@ void UAbilitySystemComponent::RemoveAllGameplayCues()
 	}
 }
 
-void UAbilitySystemComponent::NetMulticast_InvokeGameplayCueExecuted_FromSpec_Implementation(const FGameplayEffectSpec Spec, FPredictionKey PredictionKey)
+void UAbilitySystemComponent::NetMulticast_InvokeGameplayCueExecuted_FromSpec_Implementation(const FGameplayEffectSpecForRPC Spec, FPredictionKey PredictionKey)
 {
 	if (IsOwnerActorAuthoritative() || PredictionKey.IsValidKey() == false)
 	{
@@ -944,7 +1016,11 @@ TArray<float> UAbilitySystemComponent::GetActiveEffectsDuration(const FActiveGam
 
 void UAbilitySystemComponent::RemoveActiveEffectsWithTags(const FGameplayTagContainer Tags)
 {
-	RemoveActiveEffects(FActiveGameplayEffectQuery(&Tags));
+	AActor *OwningActor = GetOwner();
+	if (OwningActor && OwningActor->Role == ROLE_Authority)
+	{
+		RemoveActiveEffects(FActiveGameplayEffectQuery(&Tags));
+	}
 }
 
 void UAbilitySystemComponent::RemoveActiveEffects(const FActiveGameplayEffectQuery Query, int32 StacksToRemove)
@@ -1128,6 +1204,11 @@ void UAbilitySystemComponent::OnGameplayEffectAppliedToSelf(UAbilitySystemCompon
 	OnGameplayEffectAppliedDelegateToSelf.Broadcast(Source, SpecApplied, ActiveHandle);
 }
 
+TArray<TWeakObjectPtr<UAbilityTask> >&	UAbilitySystemComponent::GetAbilityActiveTasks(UGameplayAbility* Ability)
+{
+	return Ability->ActiveTasks;
+}
+
 // ------------------------------------------------------------------------
 
 FString ASC_CleanupName(FString Str)
@@ -1160,7 +1241,7 @@ void UAbilitySystemComponent::DisplayDebug(class UCanvas* Canvas, const class FD
 
 	if (BlockedAbilityTags.GetExplicitGameplayTags().Num() > 0)
 	{
-		YPos += Canvas->DrawText(GEngine->GetTinyFont(), FString::Printf(TEXT("BlockedAbilityTags: %s"), *BlockedAbilityTags.GetExplicitGameplayTags().ToStringSimple()), 4.f, YPos);
+		YL = Canvas->DrawText(GEngine->GetTinyFont(), FString::Printf(TEXT("BlockedAbilityTags: %s"), *BlockedAbilityTags.GetExplicitGameplayTags().ToStringSimple()), 4.f, YPos);
 		YPos += YL;
 	}
 

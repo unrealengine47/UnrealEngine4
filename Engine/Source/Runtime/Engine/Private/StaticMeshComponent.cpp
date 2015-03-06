@@ -144,6 +144,7 @@ UStaticMeshComponent::UStaticMeshComponent(const FObjectInitializer& ObjectIniti
 
 	WireframeColorOverride = FColor(255, 255, 255, 255);
 
+	MinLOD = 0;
 	bOverrideLightMapRes = false;
 	OverriddenLightMapRes = 64;
 	SubDivisionStepSize = 32;
@@ -201,19 +202,6 @@ void UStaticMeshComponent::QuerySupportedSockets(TArray<FComponentSocketDescript
 			}
 		}
 	}
-}
-
-TArray<FName> UStaticMeshComponent::GetAllSocketNames() const
-{
-	TArray<FName> SocketNames;
-	if( StaticMesh )
-	{
-		for( auto It=StaticMesh->Sockets.CreateConstIterator(); It; ++It )
-		{
-			SocketNames.Add( (*It)->SocketName ) ;
-		}
-	}
-	return SocketNames;
 }
 
 FString UStaticMeshComponent::GetDetailedInfoInternal() const
@@ -1194,7 +1182,7 @@ bool UStaticMeshComponent::SetStaticMesh(UStaticMesh* NewMesh)
 	if(!AreDynamicDataChangesAllowed() && Owner != NULL)
 	{
 		FMessageLog("PIE").Warning(FText::Format(LOCTEXT("SetMeshOnStatic", "Calling SetStaticMesh on '{0}' but Mobility is Static."), 
-			FText::FromString(GetPathName(this))));
+			FText::FromString(GetPathName())));
 		return false;
 	}
 
@@ -1206,6 +1194,9 @@ bool UStaticMeshComponent::SetStaticMesh(UStaticMesh* NewMesh)
 
 	// Update physics representation right away
 	RecreatePhysicsState();
+
+	// update navigation relevancy
+	bNavigationRelevant = IsNavigationRelevant();
 
 	// Notify the streaming system. Don't use Update(), because this may be the first time the mesh has been set
 	// and the component may have to be added to the streaming system for the first time.
@@ -1616,7 +1607,7 @@ void UStaticMeshComponent::ApplyComponentInstanceData(FStaticMeshComponentInstan
 }
 
 #include "AI/Navigation/RecastHelpers.h"
-bool UStaticMeshComponent::DoCustomNavigableGeometryExport(struct FNavigableGeometryExport* GeomExport) const
+bool UStaticMeshComponent::DoCustomNavigableGeometryExport(FNavigableGeometryExport& GeomExport) const
 {
 	if (StaticMesh != NULL && StaticMesh->NavCollision != NULL)
 	{
@@ -1632,10 +1623,10 @@ bool UStaticMeshComponent::DoCustomNavigableGeometryExport(struct FNavigableGeom
 			// if any of scales is 0 there's no point in exporting it
 			if (!Scale3D.IsZero())
 			{
-				GeomExport->ExportCustomMesh(NavCollision->ConvexCollision.VertexBuffer.GetData(), NavCollision->ConvexCollision.VertexBuffer.Num(),
+				GeomExport.ExportCustomMesh(NavCollision->ConvexCollision.VertexBuffer.GetData(), NavCollision->ConvexCollision.VertexBuffer.Num(),
 					NavCollision->ConvexCollision.IndexBuffer.GetData(), NavCollision->ConvexCollision.IndexBuffer.Num(), ComponentToWorld);
 
-				GeomExport->ExportCustomMesh(NavCollision->TriMeshCollision.VertexBuffer.GetData(), NavCollision->TriMeshCollision.VertexBuffer.Num(),
+				GeomExport.ExportCustomMesh(NavCollision->TriMeshCollision.VertexBuffer.GetData(), NavCollision->TriMeshCollision.VertexBuffer.Num(),
 					NavCollision->TriMeshCollision.IndexBuffer.GetData(), NavCollision->TriMeshCollision.IndexBuffer.Num(), ComponentToWorld);
 			}
 
@@ -1645,6 +1636,11 @@ bool UStaticMeshComponent::DoCustomNavigableGeometryExport(struct FNavigableGeom
 	}
 
 	return true;
+}
+
+bool UStaticMeshComponent::IsNavigationRelevant() const
+{
+	return StaticMesh != nullptr && Super::IsNavigationRelevant();
 }
 
 void UStaticMeshComponent::GetNavigationData(FNavigationRelevantData& Data) const
@@ -1864,7 +1860,7 @@ void FStaticMeshComponentLODInfo::ImportText(const TCHAR** SourceText)
 		bool bValidInput = true;
 
 		// Tokenize the text
-		SourceTextStr.ParseIntoArray(&Tokens, TEXT(","), false);
+		SourceTextStr.ParseIntoArray(Tokens, TEXT(","), false);
 
 		// There should be 11 tokens per vertex
 		check(Tokens.Num() * 11 >= VertCount);

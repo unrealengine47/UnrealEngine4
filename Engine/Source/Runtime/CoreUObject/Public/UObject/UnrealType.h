@@ -348,6 +348,7 @@ private:
 			// in the future, these checks will be tested if the property is supposed be from a UClass
 			// need something for networking, since those are NOT live uobjects, just memory blocks
 			check(((UObject*)ContainerPtr)->IsValidLowLevel()); // Check its a valid UObject that was passed in
+			check(((UObject*)ContainerPtr)->GetClass() != NULL);
 			check(Cast<UClass>(GetOuter()) != nullptr); // Check that the outer of this property is a UClass (not another property)
 
 			// Check that the object we are accessing is of the class that contains this property
@@ -939,6 +940,11 @@ public:
 		SetElementSize();
 	}
 
+#if WITH_HOT_RELOAD_CTORS
+	/** DO NOT USE. This constructor is for internal usage only for hot-reload purposes. */
+	TProperty(FVTableHelper& Helper) : Super(Helper) {};
+#endif // WITH_HOT_RELOAD_CTORS
+
 	// UHT interface
 	virtual FString GetCPPType( FString* ExtendedTypeText=NULL, uint32 CPPExportFlags=0 ) const override
 	{
@@ -1036,6 +1042,11 @@ public:
 		:	Super( ObjectInitializer, EC_CppProperty, InOffset, InFlags)
 	{
 	}
+
+#if WITH_HOT_RELOAD_CTORS
+	/** DO NOT USE. This constructor is for internal usage only for hot-reload purposes. */
+	TProperty_WithEqualityAndSerializer(FVTableHelper& Helper) : Super(Helper) {};
+#endif // WITH_HOT_RELOAD_CTORS
 
 	// UProperty interface.
 	virtual bool Identical( const void* A, const void* B, uint32 PortFlags=0 ) const override
@@ -1194,6 +1205,11 @@ public:
 		:	Super( ObjectInitializer, EC_CppProperty, InOffset, InFlags)
 	{
 	}
+
+#if WITH_HOT_RELOAD_CTORS
+	/** DO NOT USE. This constructor is for internal usage only for hot-reload purposes. */
+	TProperty_Numeric(FVTableHelper& Helper) : Super(Helper) {};
+#endif // WITH_HOT_RELOAD_CTORS
 
 	FString GetCPPTypeForwardDeclaration() const override
 	{
@@ -1752,6 +1768,11 @@ public:
 	{
 		this->PropertyClass = InClass;
 	}
+
+#if WITH_HOT_RELOAD_CTORS
+	/** DO NOT USE. This constructor is for internal usage only for hot-reload purposes. */
+	TUObjectPropertyBase(FVTableHelper& Helper) : Super(Helper) {};
+#endif // WITH_HOT_RELOAD_CTORS
 
 	// UProperty interface.
 	virtual bool ContainsObjectReference() const override
@@ -2605,6 +2626,7 @@ public:
 
 	// UObject interface
 	virtual void Serialize( FArchive& Ar ) override;
+	virtual void BeginDestroy() override;
 	// End of UObject interface
 
 	// UProperty interface
@@ -2651,6 +2673,7 @@ public:
 
 	// UObject interface
 	virtual void Serialize( FArchive& Ar ) override;
+	virtual void BeginDestroy() override;
 	// End of UObject interface
 
 	// UProperty interface

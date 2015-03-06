@@ -18,6 +18,7 @@
 
 class UAbilitySystemComponent;
 class UGameplayEffect;
+class UGameplayAbility;
 
 struct FGameplayEffectSpec;
 struct FGameplayEffectModCallbackData;
@@ -258,19 +259,12 @@ struct GAMEPLAYABILITIES_API FGameplayEffectContext
 	GENERATED_USTRUCT_BODY()
 
 	FGameplayEffectContext()
-		: Instigator(NULL)
-		, EffectCauser(NULL)
-		, SourceObject(NULL)
-		, InstigatorAbilitySystemComponent(NULL)
-		, bHasWorldOrigin(false)
+		: bHasWorldOrigin(false)
 	{
 	}
 
 	FGameplayEffectContext(AActor* InInstigator, AActor* InEffectCauser)
-		: Instigator(NULL)
-		, EffectCauser(NULL)
-		, SourceObject(NULL)
-		, InstigatorAbilitySystemComponent(NULL)
+		: bHasWorldOrigin(false)
 	{
 		AddInstigator(InInstigator, InEffectCauser);
 	}
@@ -294,7 +288,7 @@ struct GAMEPLAYABILITIES_API FGameplayEffectContext
 	/** Returns the ability system component of the instigator of this effect */
 	virtual UAbilitySystemComponent* GetInstigatorAbilitySystemComponent() const
 	{
-		return InstigatorAbilitySystemComponent;
+		return InstigatorAbilitySystemComponent.Get();
 	}
 
 	/** Returns the physical actor tied to the application of this effect */
@@ -312,7 +306,7 @@ struct GAMEPLAYABILITIES_API FGameplayEffectContext
 	/** Returns the ability system component of the instigator that started the whole chain */
 	virtual UAbilitySystemComponent* GetOriginalInstigatorAbilitySystemComponent() const
 	{
-		return InstigatorAbilitySystemComponent;
+		return InstigatorAbilitySystemComponent.Get();
 	}
 
 	/** Sets the object this effect was created from. */
@@ -324,7 +318,7 @@ struct GAMEPLAYABILITIES_API FGameplayEffectContext
 	/** Returns the object this effect was created from. */
 	virtual const UObject* GetSourceObject() const
 	{
-		return SourceObject;
+		return SourceObject.Get();
 	}
 
 	virtual void AddActors(TArray<TWeakObjectPtr<AActor>> InActor, bool bReset = false);
@@ -386,6 +380,7 @@ struct GAMEPLAYABILITIES_API FGameplayEffectContext
 	virtual bool NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess);
 
 protected:
+	// The object pointers here have to be weak because contexts aren't necessarily tracked by GC in all cases
 
 	/** Instigator actor, the actor that owns the ability system component */
 	UPROPERTY()
@@ -397,11 +392,11 @@ protected:
 
 	/** Object this effect was created from, can be an actor or static object. Useful to bind an effect to a gameplay object */
 	UPROPERTY()
-	const UObject* SourceObject;
+	TWeakObjectPtr<const UObject> SourceObject;
 
 	/** The ability system component that's bound to instigator */
 	UPROPERTY(NotReplicated)
-	UAbilitySystemComponent* InstigatorAbilitySystemComponent;
+	TWeakObjectPtr<UAbilitySystemComponent> InstigatorAbilitySystemComponent;
 
 	UPROPERTY()
 	TArray<TWeakObjectPtr<AActor>> Actors;
@@ -740,7 +735,7 @@ DECLARE_DELEGATE_RetVal_OneParam(FOnGameplayEffectTagCountChanged&, FRegisterGam
  * while simultaneously tracking the count of parent tags as well. Events/delegates are fired whenever the tag counts
  * of any tag (explicit or parent) are modified.
  */
-struct FGameplayTagCountContainer
+struct GAMEPLAYABILITIES_API FGameplayTagCountContainer
 {
 	// Constructor
 	FGameplayTagCountContainer()
@@ -818,6 +813,9 @@ private:
 	/** Map of tag to active count of that tag */
 	TMap<FGameplayTag, int32> GameplayTagCountMap;
 
+	/** Map of tag to explicit count of that tag. Cannot share with above map because it's not safe to merge explicit and generic counts */
+	TMap<FGameplayTag, int32> ExplicitTagCountMap;
+
 	/** Delegate fired whenever any tag's count changes to or away from zero */
 	FOnGameplayEffectTagCountChanged OnAnyTagChangeDelegate;
 
@@ -837,11 +835,11 @@ struct GAMEPLAYABILITIES_API FGameplayTagRequirements
 	GENERATED_USTRUCT_BODY()
 
 	/** All of these tags must be present */
-	UPROPERTY(EditAnywhere, Category = GameplayModifier)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = GameplayModifier)
 	FGameplayTagContainer RequireTags;
 
 	/** None of these tags may be present */
-	UPROPERTY(EditAnywhere, Category = GameplayModifier)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = GameplayModifier)
 	FGameplayTagContainer IgnoreTags;
 
 	bool	RequirementsMet(const FGameplayTagContainer& Container) const;

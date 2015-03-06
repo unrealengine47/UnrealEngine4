@@ -320,6 +320,10 @@ class UStaticMesh : public UObject, public IInterface_CollisionDataProvider, pub
 	bool bRequiresLODDistanceConversion : 1;
 #endif // #if WITH_EDITORONLY_DATA
 
+	/** Minimum LOD to use for rendering.  This is the default setting for the mesh and can be overridden by component settings. */
+	UPROPERTY()
+	int32 MinLOD;
+
 	/** Materials used by this static mesh. Individual sections index in to this array. */
 	UPROPERTY()
 	TArray<UMaterialInterface*> Materials;
@@ -470,7 +474,7 @@ public:
 	ENGINE_API virtual void ReleaseResources();
 
 	/**
-	 * Returns the scale dependent texture factor used by the texture streaming code.
+	 * Returns the scale dependent texture factor used by the texture streaLODg code.
 	 *
 	 * @param RequestedUVIndex UVIndex to look at
 	 * @return scale dependent texture factor

@@ -237,7 +237,7 @@ bool FMacPlatformProcess::ExecProcess( const TCHAR* URL, const TCHAR* Params, in
 		[ProcessHandle setLaunchPath: LaunchPath];
 		
 		TArray<FString> ArgsArray;
-		FString(Params).ParseIntoArray(&ArgsArray, TEXT(" "), true);
+		FString(Params).ParseIntoArray(ArgsArray, TEXT(" "), true);
 		
 		NSMutableArray *Arguments = [[NSMutableArray new] autorelease];
 		
@@ -367,11 +367,10 @@ FProcHandle FMacPlatformProcess::CreateProc( const TCHAR* URL, const TCHAR* Parm
 	
 	if(LaunchPath == NULL)
 	{
-		return FProcHandle(NULL, false);
+		return FProcHandle(NULL);
 	}
 
 	NSTask* ProcessHandle = [[NSTask alloc] init];
-	bool bIsShellScript = false;
 
 	if (ProcessHandle)
 	{
@@ -385,12 +384,11 @@ FProcHandle FMacPlatformProcess::CreateProc( const TCHAR* URL, const TCHAR* Parm
 			[Arguments addObject: @"-c"];
 			[Arguments addObject: Arg];
 			CFRelease((CFStringRef)Arg);
-			bIsShellScript = true;
 		}
 		else
 		{
 			TArray<FString> ArgsArray;
-			FString(Parms).ParseIntoArray(&ArgsArray, TEXT(" "), true);
+			FString(Parms).ParseIntoArray(ArgsArray, TEXT(" "), true);
 
 			FString MultiPartArg;
 			for (int32 Index = 0; Index < ArgsArray.Num(); Index++)
@@ -474,7 +472,6 @@ FProcHandle FMacPlatformProcess::CreateProc( const TCHAR* URL, const TCHAR* Parm
 		{
 			[ProcessHandle release];
 			ProcessHandle = nil;
-			bIsShellScript = false;
 		}
 
 		[Arguments release];
@@ -487,7 +484,7 @@ FProcHandle FMacPlatformProcess::CreateProc( const TCHAR* URL, const TCHAR* Parm
 
 	CFRelease((CFStringRef)LaunchPath);
 
-	return FProcHandle(ProcessHandle, bIsShellScript);
+	return FProcHandle(ProcessHandle);
 }
 
 bool FMacPlatformProcess::IsProcRunning( FProcHandle& ProcessHandle )
@@ -550,10 +547,6 @@ bool FMacPlatformProcess::GetProcReturnCode( FProcHandle& ProcessHandle, int32* 
 	}
 
 	*ReturnCode = [(NSTask*)ProcessHandle.Get() terminationStatus];
-	if (ProcessHandle.IsShellScript && *ReturnCode > 128)
-	{
-		*ReturnCode = *ReturnCode - 256;
-	}
 	return true;
 }
 
@@ -614,6 +607,33 @@ bool FMacPlatformProcess::IsThisApplicationForeground()
 {
 	SCOPED_AUTORELEASE_POOL;
 	return [NSApp isActive] && MacApplication && MacApplication->IsWorkspaceSessionActive();
+}
+
+bool FMacPlatformProcess::IsSandboxedApplication()
+{
+	SCOPED_AUTORELEASE_POOL;
+	
+	bool bIsSandboxedApplication = false;
+
+	SecStaticCodeRef SecCodeObj = nullptr;
+	NSURL* BundleURL = [[NSBundle mainBundle] bundleURL];
+    OSStatus Err = SecStaticCodeCreateWithPath((CFURLRef)BundleURL, kSecCSDefaultFlags, &SecCodeObj);
+	if (SecCodeObj)
+	{
+		check(Err == errSecSuccess);
+		
+		SecRequirementRef SandboxRequirement = nullptr;
+		Err = SecRequirementCreateWithString(CFSTR("entitlement[\"com.apple.security.app-sandbox\"] exists"), kSecCSDefaultFlags, &SandboxRequirement);
+		check(Err == errSecSuccess && SandboxRequirement);
+		
+		Err = SecStaticCodeCheckValidityWithErrors(SecCodeObj, kSecCSDefaultFlags, SandboxRequirement, nullptr);
+		
+		bIsSandboxedApplication = (Err == errSecSuccess);
+		
+		CFRelease(SecCodeObj);
+	}
+	
+	return bIsSandboxedApplication;
 }
 
 void FMacPlatformProcess::CleanFileCache()

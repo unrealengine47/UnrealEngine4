@@ -115,11 +115,6 @@ struct ENGINE_API FNavMeshPath : public FNavigationPath
 	/** get cost of path, starting from given point */
 	virtual float GetCostFromIndex(int32 PathPointIndex) const
 	{
-		if (PathPointIndex >= PathCorridorCost.Num() - 1)
-		{
-			return 0.f;
-		}
-
 		float TotalCost = 0.f;
 		const float* Cost = PathCorridorCost.GetData();
 		for (int32 PolyIndex = PathPointIndex; PolyIndex < PathCorridorCost.Num(); ++PolyIndex, ++Cost)
@@ -145,13 +140,13 @@ struct ENGINE_API FNavMeshPath : public FNavigationPath
 
 	bool IsPathSegmentANavLink(const int32 PathSegmentStartIndex) const;
 
-	virtual bool DoesIntersectBox(const FBox& Box, uint32 StartingIndex = 0, int32* IntersectingSegmentIndex = NULL) const override;
-	virtual bool DoesIntersectBox(const FBox& Box, const FVector& AgentLocation, uint32 StartingIndex = 0, int32* IntersectingSegmentIndex = NULL) const override;
+	virtual bool DoesIntersectBox(const FBox& Box, uint32 StartingIndex = 0, int32* IntersectingSegmentIndex = NULL, FVector* AgentExtent = NULL) const override;
+	virtual bool DoesIntersectBox(const FBox& Box, const FVector& AgentLocation, uint32 StartingIndex = 0, int32* IntersectingSegmentIndex = NULL, FVector* AgentExtent = NULL) const override;
 	/** retrieves normalized direction vector to given path segment. If path is not string pulled navigation corridor is being used */
 	virtual FVector GetSegmentDirection(uint32 SegmentEndIndex) const override;
 
 private:
-	bool DoesPathIntersectBoxImplementation(const FBox& Box, const FVector& StartLocation, uint32 StartingIndex, int32* IntersectingSegmentIndex) const;
+	bool DoesPathIntersectBoxImplementation(const FBox& Box, const FVector& StartLocation, uint32 StartingIndex, int32* IntersectingSegmentIndex, FVector* AgentExtent) const;
 public:
 
 #if ENABLE_VISUAL_LOG
@@ -407,7 +402,7 @@ class ENGINE_API ARecastNavMesh : public ANavigationData
 	uint32 bDrawTriangleEdges:1;
 
 	/** should we draw edges of every poly (i.e. not only border-edges)  */
-	UPROPERTY(EditAnywhere, Category=Display)
+	UPROPERTY(EditAnywhere, Category=Display, config)
 	uint32 bDrawPolyEdges:1;
 
 	/** should we draw border-edges */
@@ -511,6 +506,9 @@ class ENGINE_API ARecastNavMesh : public ANavigationData
 	UPROPERTY(EditAnywhere, Category = Generation, config, meta = (ClampMin = "0.0"))
 	float MaxSimplificationError;
 
+	UPROPERTY(EditAnywhere, Category = Generation, config, meta = (ClampMin = "0", UIMin = "0"), AdvancedDisplay)
+	int32 MaxSimultaneousTileGenerationJobsCount;
+	
 	/** navmesh draw distance in game (always visible in editor) */
 	UPROPERTY(config)
 	float DefaultDrawDistance;
@@ -557,6 +555,9 @@ class ENGINE_API ARecastNavMesh : public ANavigationData
 	UPROPERTY(EditAnywhere, Category = Generation, config, AdvancedDisplay)
 	uint32 bMarkLowHeightAreas : 1;
 
+	UPROPERTY(EditAnywhere, Category = Generation, config, AdvancedDisplay)
+	uint32 bDoFullyAsyncNavDataGathering : 1;
+	
 	/** TODO: switch to disable new code from OffsetFromCorners if necessary - remove it later */
 	UPROPERTY(config)
 	uint32 bUseBetterOffsetsFromCorners : 1;
@@ -773,6 +774,9 @@ public:
 	/** Area sort function */
 	virtual void SortAreasForGenerator(TArray<FRecastAreaNavModifierElement>& Areas) const;
 
+	int32 GetMaxSimultaneousTileGenerationJobsCount() const { return MaxSimultaneousTileGenerationJobsCount; }
+	void SetMaxSimultaneousTileGenerationJobsCount(int32 NewJobsCountLimit);
+
 	//----------------------------------------------------------------------//
 	// Custom navigation links
 	//----------------------------------------------------------------------//
@@ -886,6 +890,7 @@ public:
 	virtual bool SupportsRuntimeGeneration() const override;
 	virtual bool SupportsStreaming() const override;
 	virtual void ConditionalConstructGenerator() override;
+	bool ShouldGatherDataOnGameThread() const { return bDoFullyAsyncNavDataGathering == false; }
 
 	void UpdateActiveTiles(const TArray<FNavigationInvokerRaw>& InvokerLocations);
 	void RemoveTiles(const TArray<FIntPoint>& Tiles);

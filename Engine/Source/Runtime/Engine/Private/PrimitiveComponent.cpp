@@ -66,7 +66,7 @@ TAutoConsoleVariable<int32> CVarShowInitialOverlaps(
 int32 UPrimitiveComponent::CurrentTag = 2147483647 / 4;
 
 // 0 is reserved to mean invalid
-uint64 UPrimitiveComponent::NextComponentId = 1;
+uint32 UPrimitiveComponent::NextComponentId = 1;
 
 UPrimitiveComponent::UPrimitiveComponent(const FObjectInitializer& ObjectInitializer /*= FObjectInitializer::Get()*/)
 	: Super(ObjectInitializer)
@@ -99,7 +99,7 @@ UPrimitiveComponent::UPrimitiveComponent(const FObjectInitializer& ObjectInitial
 	VisibilityId = -1;
 	CanBeCharacterBase_DEPRECATED = ECB_Yes;
 	CanCharacterStepUpOn = ECB_Yes;
-	ComponentId.Value = NextComponentId;
+	ComponentId.PrimIDValue = NextComponentId;
 	check(IsInGameThread());
 	NextComponentId++;
 
@@ -306,8 +306,15 @@ void UPrimitiveComponent::OnRegister()
 
 	if (bCanEverAffectNavigation)
 	{
-		bNavigationRelevant = IsNavigationRelevant();
-		UNavigationSystem::OnComponentRegistered(this);	
+		const bool bNavRelevant = bNavigationRelevant = IsNavigationRelevant();
+		if (bNavRelevant)
+		{
+			UNavigationSystem::OnComponentRegistered(this);
+		}
+	}
+	else
+	{
+		bNavigationRelevant = false;
 	}
 }
 
@@ -591,7 +598,8 @@ bool UPrimitiveComponent::CanEditChange(const UProperty* InProperty) const
 			return Mobility != EComponentMobility::Movable || bLightAsIfStatic;
 		}
 
-		if (PropertyName == GET_MEMBER_NAME_CHECKED(UPrimitiveComponent, IndirectLightingCacheQuality))
+		if (PropertyName == GET_MEMBER_NAME_CHECKED(UPrimitiveComponent, IndirectLightingCacheQuality)
+			|| PropertyName == GET_MEMBER_NAME_CHECKED(UPrimitiveComponent, bCastCinematicShadow))
 		{
 			return Mobility == EComponentMobility::Movable;
 		}
@@ -938,10 +946,23 @@ void UPrimitiveComponent::PushHoveredToProxy(const bool bInHovered)
 
 void UPrimitiveComponent::SetCullDistance(float NewCullDistance)
 {
-	if( CachedMaxDrawDistance != NewCullDistance )
+	if (NewCullDistance > 0)
 	{
-	    CachedMaxDrawDistance = NewCullDistance;
-	    MarkRenderStateDirty();
+		LDMaxDrawDistance = NewCullDistance;
+	
+		if (LDMaxDrawDistance < CachedMaxDrawDistance)
+		{
+			SetCachedMaxDrawDistance(LDMaxDrawDistance);
+		}
+	}
+}
+
+void UPrimitiveComponent::SetCachedMaxDrawDistance(const float NewCachedMaxDrawDistance)
+{
+	if( !FMath::IsNearlyEqual(CachedMaxDrawDistance, NewCachedMaxDrawDistance) )
+	{
+		CachedMaxDrawDistance = NewCachedMaxDrawDistance;
+		MarkRenderStateDirty();
 	}
 }
 
@@ -1290,14 +1311,18 @@ FCollisionShape UPrimitiveComponent::GetCollisionShape(float Inflation) const
 
 bool UPrimitiveComponent::CheckStaticMobilityAndWarn(const FText& ActionText) const
 {
-	AActor* Actor = GetOwner();
 	// static things can move before they are registered (e.g. immediately after streaming), but not after.
-	if (Mobility == EComponentMobility::Static && Actor && Actor->IsActorInitialized())
+	if (Mobility == EComponentMobility::Static)
 	{
-		FMessageLog("PIE").Warning(FText::Format(LOCTEXT("InvalidStaticMove", "Mobility of {0} : {1} has to be 'Movable' if you'd like to {2}. "),
-			FText::FromString(GetNameSafe(GetOwner())), FText::FromString(GetName()), ActionText));
+		AActor* Actor = GetOwner();
+		if (Actor && Actor->IsActorInitialized())
+		{
+			static const FText WarnText = LOCTEXT("InvalidStaticMove", "Mobility of {0} : {1} has to be 'Movable' if you'd like to {2}. ");
+			FMessageLog("PIE").Warning(FText::Format(WarnText,
+				FText::FromString(GetNameSafe(GetOwner())), FText::FromString(GetName()), ActionText));
 
-		return true;
+			return true;
+		}
 	}
 
 	return false;
@@ -1330,7 +1355,8 @@ bool UPrimitiveComponent::MoveComponent( const FVector& Delta, const FRotator& N
 
 	// static things can move before they are registered (e.g. immediately after streaming), but not after.
 	// TODO: Static components without an owner can move, should they be able to?
-	if (CheckStaticMobilityAndWarn(LOCTEXT("InvalidMove", "move")))
+	static const FText WarnText = LOCTEXT("InvalidMove", "move");
+	if (CheckStaticMobilityAndWarn(WarnText))
 	{
 		if (OutHit)
 		{
@@ -1816,7 +1842,10 @@ bool UPrimitiveComponent::IsOverlappingComponent(UPrimitiveComponent const* Othe
 {
 	for (int32 i=0; i < OverlappingComponents.Num(); ++i)
 	{
-		if (OverlappingComponents[i].OverlapInfo.Component.Get() == OtherComp) { return true; }
+		if (OverlappingComponents[i].OverlapInfo.Component.Get() == OtherComp)
+		{
+			return true;
+		}
 	}
 	return false;
 }
@@ -1926,8 +1955,9 @@ void UPrimitiveComponent::BeginComponentOverlap(const FOverlapInfo& OtherOverlap
 		if (!bComponentsAlreadyTouching)
 		{
 			AActor* const OtherActor = OtherComp->GetOwner();
+			AActor* const MyActor = GetOwner();
 
-			const bool bNotifyActorTouch = bDoNotifies && !IsOverlappingActor(OtherActor);
+			const bool bNotifyActorTouch = bDoNotifies && !MyActor->IsOverlappingActor(OtherActor);
 
 			// Perform reflexive touch.
 			OverlappingComponents.Add(OtherOverlap);										// already verified uniqueness above
@@ -1935,8 +1965,6 @@ void UPrimitiveComponent::BeginComponentOverlap(const FOverlapInfo& OtherOverlap
 			
 			if (bDoNotifies)
 			{
-				AActor* const MyActor = GetOwner();
-
 				// first execute component delegates
 				if (!IsPendingKill())
 				{
@@ -2016,7 +2044,7 @@ void UPrimitiveComponent::EndComponentOverlap(const FOverlapInfo& OtherOverlap, 
 		}
 		
 		// if this was the last touch on the other actor, notify that we've untouched the actor as well
-		if (bDoNotifies && !IsOverlappingActor(OtherActor) && MyActor && OtherActor)
+		if (bDoNotifies && MyActor && OtherActor && !MyActor->IsOverlappingActor(OtherActor) )
 		{			
 			if (IsActorValidToNotify(MyActor))
 			{
@@ -2037,7 +2065,7 @@ void UPrimitiveComponent::EndComponentOverlap(const FOverlapInfo& OtherOverlap, 
 
 void UPrimitiveComponent::GetOverlappingActors(TArray<AActor*>& OutOverlappingActors, UClass* ClassFilter) const
 {
-	OutOverlappingActors.Empty();
+	OutOverlappingActors.Reset();
 
 	for (auto CompIt = OverlappingComponents.CreateConstIterator(); CompIt; ++CompIt)
 	{
@@ -2637,6 +2665,11 @@ bool UPrimitiveComponent::CanEditSimulatePhysics()
 	//Even if there's no collision but there is a body setup, we still let them simulate physics.
 	// The object falls through the world - this behavior is debatable but what we decided on for now
 	return GetBodySetup() != nullptr;
+}
+
+void UPrimitiveComponent::SetCustomNavigableGeometry(const EHasCustomNavigableGeometry::Type InType)
+{
+	bHasCustomNavigableGeometry = InType;
 }
 
 #undef LOCTEXT_NAMESPACE

@@ -74,24 +74,11 @@ FReply SWidget::OnFocusReceived(const FGeometry& MyGeometry, const FFocusEvent& 
 	return FReply::Unhandled();
 }
 
-FReply SWidget::OnKeyboardFocusReceived(const FGeometry& MyGeometry, const FKeyboardFocusEvent& InFocusEvent)
-{
-	return FReply::Unhandled();
-}
-
 void SWidget::OnFocusLost(const FFocusEvent& InFocusEvent)
 {
 }
 
-void SWidget::OnKeyboardFocusLost(const FKeyboardFocusEvent& InFocusEvent)
-{
-}
-
 void SWidget::OnFocusChanging(const FWeakWidgetPath& PreviousFocusPath, const FWidgetPath& NewWidgetPath)
-{
-}
-
-void SWidget::OnKeyboardFocusChanging(const FWeakWidgetPath& PreviousFocusPath, const FWidgetPath& NewWidgetPath)
 {
 }
 
@@ -327,11 +314,11 @@ void SWidget::OnFinishedKeyInput()
 FNavigationReply SWidget::OnNavigation(const FGeometry& MyGeometry, const FNavigationEvent& InNavigationEvent)
 {
 	EUINavigation Type = InNavigationEvent.GetNavigationType();
-	TSharedPtr<FNavigationMetaData> MetaData = GetMetaData<FNavigationMetaData>();
-	if (MetaData.IsValid())
+	TSharedPtr<FNavigationMetaData> NavigationMetaData = GetMetaData<FNavigationMetaData>();
+	if (NavigationMetaData.IsValid())
 	{
-		TSharedPtr<SWidget> Widget = MetaData->GetFocusRecipient(Type).Pin();
-		return FNavigationReply(MetaData->GetBoundaryRule(Type), Widget, MetaData->GetFocusDelegate(Type));
+		TSharedPtr<SWidget> Widget = NavigationMetaData->GetFocusRecipient(Type).Pin();
+		return FNavigationReply(NavigationMetaData->GetBoundaryRule(Type), Widget, NavigationMetaData->GetFocusDelegate(Type));
 	}
 	return FNavigationReply::Escape();
 }

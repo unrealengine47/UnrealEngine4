@@ -40,13 +40,23 @@ class UDemoNetDriver
 	/** True if we are at the end of playing a demo */
 	bool bDemoPlaybackDone;
 
+	/** True if as have paused all of the channels */
+	bool bChannelsArePaused;
+
 	/** This is our spectator controller that is used to view the demo world from */
 	APlayerController* SpectatorController;
 
 	UPROPERTY(config)
 	FString DemoSpectatorClass;
 
+	/** Our network replay streamer */
 	TSharedPtr< class INetworkReplayStreamer > ReplayStreamer;
+
+	/** Internal debug timing/tracking */
+	double		AccumulatedRecordTime;
+	double		LastRecordAvgFlush;
+	double		MaxRecordTime;
+	int32		RecordCountSinceFlush;
 
 public:
 
@@ -82,6 +92,7 @@ public:
 	virtual bool IsNetResourceValid(void) { return true; }
 
 	void TickDemoRecord( float DeltaSeconds );
+	void PauseChannels( const bool bPause );
 	bool ReadDemoFrame();
 	void TickDemoPlayback( float DeltaSeconds );
 	void SpawnDemoRecSpectator( UNetConnection* Connection );

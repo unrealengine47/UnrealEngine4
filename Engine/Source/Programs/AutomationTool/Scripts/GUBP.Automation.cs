@@ -194,9 +194,11 @@ public class GUBP : BuildCommand
         public class BranchOptions
         {            
             public List<UnrealTargetPlatform> PlatformsToRemove = new List<UnrealTargetPlatform>();
-            public List<string> ExcludeNodes = new List<string>();
+			public List<string> ExcludeNodes = new List<string>();
+			public List<UnrealTargetPlatform> ExcludePlatformsForEditor = new List<UnrealTargetPlatform>();
 			public bool bNoAutomatedTesting = false;
 			public bool bNoDocumentation = false;
+			public bool bMakeFormalBuildWithoutLabelPromotable = false;
 			public int QuantumOverride = 0;
         }
         public virtual void ModifyOptions(GUBP bp, ref BranchOptions Options, string Branch)
@@ -1504,7 +1506,10 @@ public class GUBP : BuildCommand
 			}
             if (InGameProj.GameName != bp.Branch.BaseEngineProject.GameName && GameProj.Properties.Targets.ContainsKey(TargetRules.TargetType.Editor))
             {
-                AddPseudodependency(EditorGameNode.StaticGetFullName(InHostPlatform, GameProj));
+				if (!bp.BranchOptions.ExcludePlatformsForEditor.Contains(InHostPlatform))
+				{
+					AddPseudodependency(EditorGameNode.StaticGetFullName(InHostPlatform, GameProj));
+				}
                 if (bp.HasNode(GamePlatformMonolithicsNode.StaticGetFullName(HostPlatform, bp.Branch.BaseEngineProject, TargetPlatform)))
                 {
                     AddPseudodependency(GamePlatformMonolithicsNode.StaticGetFullName(HostPlatform, bp.Branch.BaseEngineProject, TargetPlatform));
@@ -2169,7 +2174,10 @@ public class GUBP : BuildCommand
                         }
                         else if (Options.bTestWithShared)
                         {
-                            AddDependency(EditorGameNode.StaticGetFullName(HostPlatform, CodeProj)); // if we are just testing, we will still include the editor stuff
+							if (!Options.bIsNonCode)
+							{
+                                AddDependency(EditorGameNode.StaticGetFullName(HostPlatform, CodeProj)); // if we are just testing, we will still include the editor stuff
+                            }
                         }
                     }
                 }
@@ -2967,7 +2975,7 @@ public class GUBP : BuildCommand
 
             var AllTargetPlatforms = new List<UnrealTargetPlatform>();
 			var Options = InGameProj.Options(HostPlatform);
-			if(!Options.bSeparateGamePromotion)
+			if(!Options.bSeparateGamePromotion && !bp.BranchOptions.bMakeFormalBuildWithoutLabelPromotable)
 			{
 				AddPseudodependency(WaitForFormalUserInput.StaticGetFullName());				
 			}
@@ -4882,6 +4890,112 @@ public class GUBP : BuildCommand
 			GUBPNodesHistory.Add(Node, History);
         }
     }
+	void GetFailureEmails(string NodeToDo, string CLString, bool OnlyLateUpdates = false)
+	{
+		var StartTime = DateTime.UtcNow;        
+        string EMails = "";
+        string FailCauserEMails = "";
+        string EMailNote = "";
+        bool SendSuccessForGreenAfterRed = false;
+        int NumPeople = 0;
+        if (GUBPNodesHistory.ContainsKey(NodeToDo))
+        {
+            var History = GUBPNodesHistory[NodeToDo];
+			RunECTool(String.Format("setProperty \"/myWorkflow/LastGreen/{0}\" \"{1}\"", NodeToDo, History.LastSucceeded), true);
+			RunECTool(String.Format("setProperty \"/myWorkflow/LastGreen/{0}\" \"{1}\"", NodeToDo, History.FailedString), true);
+
+            if (History.LastSucceeded > 0 && History.LastSucceeded < P4Env.Changelist)
+            {
+                int LastNonDuplicateFail = P4Env.Changelist;
+                try
+                {
+                    if (OnlyLateUpdates)
+                    {
+                        LastNonDuplicateFail = FindLastNonDuplicateFail(NodeToDo, CLString);
+                        if (LastNonDuplicateFail < P4Env.Changelist)
+                        {
+                            Log("*** Red-after-red spam reduction, changed CL {0} to CL {1} because the errors didn't change.", P4Env.Changelist, LastNonDuplicateFail);
+                        }
+                    }
+                }
+                catch (Exception Ex)
+                {
+                    LastNonDuplicateFail = P4Env.Changelist;
+                    Log(System.Diagnostics.TraceEventType.Warning, "Failed to FindLastNonDuplicateFail.");
+                    Log(System.Diagnostics.TraceEventType.Warning, LogUtils.FormatException(Ex));
+                }
+
+                var ChangeRecords = GetChanges(History.LastSucceeded, LastNonDuplicateFail, History.LastSucceeded);
+                foreach (var Record in ChangeRecords)
+                {
+                    FailCauserEMails = GUBPNode.MergeSpaceStrings(FailCauserEMails, Record.UserEmail);
+                }
+                if (!String.IsNullOrEmpty(FailCauserEMails))
+                {
+                    NumPeople++;
+                    foreach (var AChar in FailCauserEMails.ToCharArray())
+                    {
+                        if (AChar == ' ')
+                        {
+                            NumPeople++;
+                        }
+                    }
+                    if (NumPeople > 50)
+                    {
+                        EMailNote = String.Format("This step has been broken for more than 50 changes. It last succeeded at CL {0}. ", History.LastSucceeded);
+                    }
+                }
+            }
+            else if (History.LastSucceeded <= 0)
+            {
+                EMailNote = String.Format("This step has been broken for more than a few days, so there is no record of it ever succeeding. ");
+            }
+            if (EMailNote != "" && !String.IsNullOrEmpty(History.FailedString))
+            {
+                EMailNote += String.Format("It has failed at CLs {0}. ", History.FailedString);
+            }
+            if (EMailNote != "" && !String.IsNullOrEmpty(History.InProgressString))
+            {
+                EMailNote += String.Format("These CLs are being built right now {0}. ", History.InProgressString);
+            }
+            if (History.LastSucceeded > 0 && History.LastSucceeded < P4Env.Changelist && History.LastFailed > History.LastSucceeded && History.LastFailed < P4Env.Changelist)
+            {
+                SendSuccessForGreenAfterRed = ParseParam("CIS");
+            }
+        }
+        else
+        {
+			RunECTool(String.Format("setProperty \"/myWorkflow/LastGreen/{0}\" \"{1}\"", NodeToDo, "0"));
+			RunECTool(String.Format("setProperty \"/myWorkflow/RedsSince/{0}\" \"{1}\"", NodeToDo, ""));
+        }
+		RunECTool(String.Format("setProperty \"/myWorkflow/FailCausers/{0}\" \"{1}\"", NodeToDo, FailCauserEMails));
+		RunECTool(String.Format("setProperty \"/myWorkflow/EmailNotes/{0}\" \"{1}\"", NodeToDo, EMailNote));
+        {
+            var AdditonalEmails = "";
+
+			string Causers = "";
+            if (ParseParam("CIS") && !GUBPNodes[NodeToDo].SendSuccessEmail() && !GUBPNodes[NodeToDo].TriggerNode())
+            {
+				Causers = FailCauserEMails;
+           }
+            string AddEmails = ParseParamValue("AddEmails");
+            if (!String.IsNullOrEmpty(AddEmails))
+            {
+                AdditonalEmails = GUBPNode.MergeSpaceStrings(AddEmails, AdditonalEmails);
+            }
+
+            EMails = GetEMailListForNode(this, NodeToDo, AdditonalEmails, Causers);
+			RunECTool(String.Format("setProperty \"/myWorkflow/FailEmails/{0}\" \"{1}\"", NodeToDo, EMails));            
+        }
+		if (GUBPNodes[NodeToDo].SendSuccessEmail() || SendSuccessForGreenAfterRed)
+		{
+			RunECTool(String.Format("setProperty \"/myWorkflow/SendSuccessEmail/{0}\" \"{1}\"", NodeToDo, "1"));
+		}
+		else
+		{
+			RunECTool(String.Format("setProperty \"/myWorkflow/SendSuccessEmail/{0}\" \"{1}\"", NodeToDo, "0"));
+		}
+	}
 
     bool HashSetEqual(HashSet<string> A, HashSet<string> B)
     {
@@ -4971,130 +5085,31 @@ public class GUBP : BuildCommand
         var StartTime = DateTime.UtcNow;
 
         var ECProps = new List<string>();
-        EMails = "";
-        string FailCauserEMails = "";
-        string EMailNote = "";
-        bool SendSuccessForGreenAfterRed = false;
-        int NumPeople = 0;
-        if (GUBPNodesHistory.ContainsKey(NodeToDo))
-        {
-            var History = GUBPNodesHistory[NodeToDo];
-
-            ECProps.Add(string.Format("LastGreen/{0}={1}", NodeToDo, History.LastSucceeded));
-            ECProps.Add(string.Format("RedsSince/{0}={1}", NodeToDo, History.FailedString));
-            ECProps.Add(string.Format("InProgress/{0}={1}", NodeToDo, History.InProgressString));
-
-
-            if (History.LastSucceeded > 0 && History.LastSucceeded < P4Env.Changelist)
-            {
-                int LastNonDuplicateFail = P4Env.Changelist;
-                try
-                {
-                    if (OnlyLateUpdates)
-                    {
-                        LastNonDuplicateFail = FindLastNonDuplicateFail(NodeToDo, CLString);
-                        if (LastNonDuplicateFail < P4Env.Changelist)
-                        {
-                            Log("*** Red-after-red spam reduction, changed CL {0} to CL {1} because the errors didn't change.", P4Env.Changelist, LastNonDuplicateFail);
-                        }
-                    }
-                }
-                catch (Exception Ex)
-                {
-                    LastNonDuplicateFail = P4Env.Changelist;
-                    Log(System.Diagnostics.TraceEventType.Warning, "Failed to FindLastNonDuplicateFail.");
-                    Log(System.Diagnostics.TraceEventType.Warning, LogUtils.FormatException(Ex));
-                }
-
-                var ChangeRecords = GetChanges(History.LastSucceeded, LastNonDuplicateFail, History.LastSucceeded);
-                foreach (var Record in ChangeRecords)
-                {
-                    FailCauserEMails = GUBPNode.MergeSpaceStrings(FailCauserEMails, Record.UserEmail);
-                }
-                if (!String.IsNullOrEmpty(FailCauserEMails))
-                {
-                    NumPeople++;
-                    foreach (var AChar in FailCauserEMails.ToCharArray())
-                    {
-                        if (AChar == ' ')
-                        {
-                            NumPeople++;
-                        }
-                    }
-                    if (NumPeople > 50)
-                    {
-                        EMailNote = String.Format("This step has been broken for more than 50 changes. It last succeeded at CL {0}. ", History.LastSucceeded);
-                    }
-                }
-            }
-            else if (History.LastSucceeded <= 0)
-            {
-                EMailNote = String.Format("This step has been broken for more than a few days, so there is no record of it ever succeeding. ");
-            }
-            if (EMailNote != "" && !String.IsNullOrEmpty(History.FailedString))
-            {
-                EMailNote += String.Format("It has failed at CLs {0}. ", History.FailedString);
-            }
-            if (EMailNote != "" && !String.IsNullOrEmpty(History.InProgressString))
-            {
-                EMailNote += String.Format("These CLs are being built right now {0}. ", History.InProgressString);
-            }
-            if (History.LastSucceeded > 0 && History.LastSucceeded < P4Env.Changelist && History.LastFailed > History.LastSucceeded && History.LastFailed < P4Env.Changelist)
-            {
-                SendSuccessForGreenAfterRed = ParseParam("CIS");
-            }
-        }
-        else
-        {
-            ECProps.Add(string.Format("LastGreen/{0}=0", NodeToDo));
-            ECProps.Add(string.Format("RedsSince/{0}=", NodeToDo));
-            ECProps.Add(string.Format("InProgress/{0}=", NodeToDo));
-        }
-
-        ECProps.Add(string.Format("FailCausers/{0}={1}", NodeToDo, FailCauserEMails));
-        ECProps.Add(string.Format("EmailNotes/{0}={1}", NodeToDo, EMailNote));
-
-        {
-            var AdditonalEmails = "";
-
-			string Causers = "";
-            if (ParseParam("CIS") && !GUBPNodes[NodeToDo].SendSuccessEmail() && !GUBPNodes[NodeToDo].TriggerNode())
-            {
-				Causers = FailCauserEMails;
-                }
-            string AddEmails = ParseParamValue("AddEmails");
-            if (!String.IsNullOrEmpty(AddEmails))
-            {
-                AdditonalEmails = GUBPNode.MergeSpaceStrings(AddEmails, AdditonalEmails);
-            }
-
-            EMails = GetEMailListForNode(this, NodeToDo, AdditonalEmails, Causers);
-
-            ECProps.Add("FailEmails/" + NodeToDo + "=" + EMails);
-        }
-        if (GUBPNodes[NodeToDo].SendSuccessEmail() || SendSuccessForGreenAfterRed)
-        {
-            ECProps.Add("SendSuccessEmail/" + NodeToDo + "=1");
-        }
-        else
-        {
-            ECProps.Add("SendSuccessEmail/" + NodeToDo + "=0");
-        }
-        if (!OnlyLateUpdates)
-        {
+        EMails = "";		
+		var AdditonalEmails = "";
+		string Causers = "";				
+		string AddEmails = ParseParamValue("AddEmails");
+		if (!String.IsNullOrEmpty(AddEmails))
+		{
+			AdditonalEmails = GUBPNode.MergeSpaceStrings(AddEmails, AdditonalEmails);
+		}
+		EMails = GetEMailListForNode(this, NodeToDo, AdditonalEmails, Causers);
+		ECProps.Add("FailEmails/" + NodeToDo + "=" + EMails);
+	
+		if (!OnlyLateUpdates)
+		{
 			string AgentReq = GUBPNodes[NodeToDo].ECAgentString();
 			if(ParseParamValue("AgentOverride") != "" && !GUBPNodes[NodeToDo].GetFullName().Contains("OnMac"))
 			{
 				AgentReq = ParseParamValue("AgentOverride");
 			}
-            ECProps.Add(string.Format("AgentRequirementString/{0}={1}", NodeToDo, AgentReq));
-            ECProps.Add(string.Format("RequiredMemory/{0}={1}", NodeToDo, GUBPNodes[NodeToDo].AgentMemoryRequirement(this)));
-            ECProps.Add(string.Format("Timeouts/{0}={1}", NodeToDo, GUBPNodes[NodeToDo].TimeoutInMinutes()));
-            ECProps.Add(string.Format("JobStepPath/{0}={1}", NodeToDo, GetJobStepPath(NodeToDo)));
-        }
+			ECProps.Add(string.Format("AgentRequirementString/{0}={1}", NodeToDo, AgentReq));
+			ECProps.Add(string.Format("RequiredMemory/{0}={1}", NodeToDo, GUBPNodes[NodeToDo].AgentMemoryRequirement(this)));
+			ECProps.Add(string.Format("Timeouts/{0}={1}", NodeToDo, GUBPNodes[NodeToDo].TimeoutInMinutes()));
+			ECProps.Add(string.Format("JobStepPath/{0}={1}", NodeToDo, GetJobStepPath(NodeToDo)));
+		}
+		
         var BuildDuration = (DateTime.UtcNow - StartTime).TotalMilliseconds;
-        Log("Took {0}s to get P4 history for node {1}", BuildDuration / 1000, NodeToDo);
-
         return ECProps;
     }
 
@@ -5103,7 +5118,7 @@ public class GUBP : BuildCommand
         try
         {
             Log("Updating node props for node {0}", NodeToDo);
-            string EMails;
+			string EMails = "";
             var Props = GetECPropsForNode(NodeToDo, CLString, out EMails, true);
             foreach (var Prop in Props)
             {
@@ -5561,81 +5576,88 @@ public class GUBP : BuildCommand
 
         foreach (var HostPlatform in HostPlatforms)
         {
-            AddNode(new ToolsForCompileNode(HostPlatform));
-            AddNode(new RootEditorNode(HostPlatform));			
-            if (bBuildRocket)
-            {
-                AddNode(new RootEditorHeadersNode(HostPlatform));
-            }
-            AddNode(new ToolsNode(HostPlatform));            
-			AddNode(new InternalToolsNode(HostPlatform));
-			if (HostPlatform == UnrealTargetPlatform.Win64)
+			AddNode(new ToolsForCompileNode(HostPlatform));
+			
+			if (!BranchOptions.ExcludePlatformsForEditor.Contains(HostPlatform))
 			{
-				AddNode(new ToolsCrossCompileNode(HostPlatform));
-			}
-            foreach (var ProgramTarget in Branch.BaseEngineProject.Properties.Programs)
-            {
-                bool bInternalOnly;
-                bool SeparateNode;
-				bool CrossCompile;
-
-                if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && SeparateNode)
-                {
-                    if (bInternalOnly)
-                    {
-                        AddNode(new SingleInternalToolsNode(HostPlatform, ProgramTarget));						
-                    }
-                    else
-                    {
-                        AddNode(new SingleToolsNode(HostPlatform, ProgramTarget));
-                    }				
-                }
-				if (ProgramTarget.Rules.GUBP_IncludeNonUnityToolTest())
+				AddNode(new RootEditorNode(HostPlatform));			
+				if (bBuildRocket)
 				{
-					AddNode(new NonUnityToolNode(HostPlatform, ProgramTarget));
+					AddNode(new RootEditorHeadersNode(HostPlatform));
 				}
-            }
-			foreach(var CodeProj in Branch.CodeProjects)
-			{
-				foreach(var ProgramTarget in CodeProj.Properties.Programs)
+				AddNode(new ToolsNode(HostPlatform));            
+				AddNode(new InternalToolsNode(HostPlatform));
+			if (HostPlatform == UnrealTargetPlatform.Win64 && ActivePlatforms.Contains(UnrealTargetPlatform.Linux))
 				{
-					bool bInternalNodeOnly;
+					if (!BranchOptions.ExcludePlatformsForEditor.Contains(UnrealTargetPlatform.Linux))
+					{
+						AddNode(new ToolsCrossCompileNode(HostPlatform));
+					}
+				}
+				foreach (var ProgramTarget in Branch.BaseEngineProject.Properties.Programs)
+				{
+					bool bInternalOnly;
 					bool SeparateNode;
 					bool CrossCompile;
 
-					if(ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalNodeOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && SeparateNode)
+					if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && SeparateNode)
 					{
-						if(bInternalNodeOnly)
+						if (bInternalOnly)
 						{
-							AddNode(new SingleInternalToolsNode(HostPlatform, ProgramTarget));
+							AddNode(new SingleInternalToolsNode(HostPlatform, ProgramTarget));						
 						}
 						else
 						{
 							AddNode(new SingleToolsNode(HostPlatform, ProgramTarget));
-						}
+						}				
 					}
-					if(ProgramTarget.Rules.GUBP_IncludeNonUnityToolTest())
+					if (ProgramTarget.Rules.GUBP_IncludeNonUnityToolTest())
 					{
 						AddNode(new NonUnityToolNode(HostPlatform, ProgramTarget));
 					}
 				}
+				foreach(var CodeProj in Branch.CodeProjects)
+				{
+					foreach(var ProgramTarget in CodeProj.Properties.Programs)
+					{
+						bool bInternalNodeOnly;
+						bool SeparateNode;
+						bool CrossCompile;
+
+						if(ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalNodeOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && SeparateNode)
+						{
+							if(bInternalNodeOnly)
+							{
+								AddNode(new SingleInternalToolsNode(HostPlatform, ProgramTarget));
+							}
+							else
+							{
+								AddNode(new SingleToolsNode(HostPlatform, ProgramTarget));
+							}
+						}
+						if(ProgramTarget.Rules.GUBP_IncludeNonUnityToolTest())
+						{
+							AddNode(new NonUnityToolNode(HostPlatform, ProgramTarget));
+						}
+					}
+				}
+
+				AddNode(new EditorAndToolsNode(this, HostPlatform));
+
+				if (bOrthogonalizeEditorPlatforms)
+				{
+					foreach (var Plat in ActivePlatforms)
+					{
+						if (Plat != HostPlatform && Plat != GetAltHostPlatform(HostPlatform))
+						{
+							if (Platform.Platforms[HostPlatform].CanHostPlatform(Plat))
+							{
+								AddNode(new EditorPlatformNode(HostPlatform, Plat));
+							}
+						}
+					}
+				}
 			}
-
-            AddNode(new EditorAndToolsNode(this, HostPlatform));
-
-            if (bOrthogonalizeEditorPlatforms)
-            {
-                foreach (var Plat in ActivePlatforms)
-                {
-                    if (Plat != HostPlatform && Plat != GetAltHostPlatform(HostPlatform))
-                    {
-                        if (Platform.Platforms[HostPlatform].CanHostPlatform(Plat))
-                        {
-                            AddNode(new EditorPlatformNode(HostPlatform, Plat));
-                        }
-                    }
-                }
-            }
 
             bool DoASharedPromotable = false;
 
@@ -5664,7 +5686,8 @@ public class GUBP : BuildCommand
                     }
                     else if (Proj.Properties.bIsCodeBasedProject)
                     {
-                        throw new AutomationException("{0} was listed as a codeless project by GUBP_NonCodeProjects_BaseEditorTypeOnly, however it is a code based project.", Codeless.Key);
+						Branch.NonCodeProjects.Add(Proj);
+						NonCodeProjectNames.Add(Codeless.Key, Codeless.Value);                        
                     }
                     else
                     {
@@ -5707,10 +5730,10 @@ public class GUBP : BuildCommand
                 throw new AutomationException("we were asked to make a rocket build, but this branch does not have a shared promotable.");
             }
 
+			AddNode(new NonUnityTestNode(HostPlatform));
+
             if (DoASharedPromotable)
             {
-                AddNode(new NonUnityTestNode(HostPlatform));
-
                 var AgentSharingGroup = "Shared_EditorTests" + HostPlatformNode.StaticGetHostPlatformSuffix(HostPlatform);
 
                 var Options = Branch.BaseEngineProject.Options(HostPlatform);
@@ -6001,28 +6024,35 @@ public class GUBP : BuildCommand
                     AgentShareName = "Shared";
                 }
 
-                AddNode(new EditorGameNode(this, HostPlatform, CodeProj));
+				if (!BranchOptions.ExcludePlatformsForEditor.Contains(HostPlatform) && !Options.bIsNonCode)
+				{
+					AddNode(new EditorGameNode(this, HostPlatform, CodeProj));
+				}
+
 				if (!bNoAutomatedTesting && HostPlatform == UnrealTargetPlatform.Win64) //temp hack till automated testing works on other platforms than Win64
                 {
-                    var EditorTests = CodeProj.Properties.Targets[TargetRules.TargetType.Editor].Rules.GUBP_GetEditorTests_EditorTypeOnly(HostPlatform);
-                    var EditorTestNodes = new List<string>();
-                    string AgentSharingGroup = "";
-                    if (EditorTests.Count > 1)
-                    {
-                        AgentSharingGroup = AgentShareName + "_EditorTests" + HostPlatformNode.StaticGetHostPlatformSuffix(HostPlatform);
-                    }
-                    foreach (var Test in EditorTests)
-                    {
-                        EditorTestNodes.Add(AddNode(new UATTestNode(this, HostPlatform, CodeProj, Test.Key, Test.Value, AgentSharingGroup)));
-						if (!Options.bTestWithShared)
+					if (CodeProj.Properties.Targets.ContainsKey(TargetRules.TargetType.Editor))
+					{
+						var EditorTests = CodeProj.Properties.Targets[TargetRules.TargetType.Editor].Rules.GUBP_GetEditorTests_EditorTypeOnly(HostPlatform);
+						var EditorTestNodes = new List<string>();
+						string AgentSharingGroup = "";
+						if (EditorTests.Count > 1)
 						{
-							RemovePseudodependencyFromNode((UATTestNode.StaticGetFullName(HostPlatform, CodeProj, Test.Key)), WaitForTestShared.StaticGetFullName());
+							AgentSharingGroup = AgentShareName + "_EditorTests" + HostPlatformNode.StaticGetHostPlatformSuffix(HostPlatform);
 						}
-                    }
-                    if (EditorTestNodes.Count > 0)
-                    {                        
-                        AddNode(new GameAggregateNode(this, HostPlatform, CodeProj, "AllEditorTests", EditorTestNodes, 0.0f));
-                    }
+						foreach (var Test in EditorTests)
+						{
+							EditorTestNodes.Add(AddNode(new UATTestNode(this, HostPlatform, CodeProj, Test.Key, Test.Value, AgentSharingGroup)));
+							if (!Options.bTestWithShared)
+							{
+								RemovePseudodependencyFromNode((UATTestNode.StaticGetFullName(HostPlatform, CodeProj, Test.Key)), WaitForTestShared.StaticGetFullName());
+							}
+						}
+						if (EditorTestNodes.Count > 0)
+						{
+							AddNode(new GameAggregateNode(this, HostPlatform, CodeProj, "AllEditorTests", EditorTestNodes, 0.0f));
+						}
+					}
                 }
 
                 var CookedAgentSharingGroup = AgentShareName + "_CookedTests" + HostPlatformNode.StaticGetHostPlatformSuffix(HostPlatform);
@@ -6212,16 +6242,19 @@ public class GUBP : BuildCommand
 
                 foreach (var HostPlatform in HostPlatforms)
                 {
-                    var Options = CodeProj.Options(HostPlatform);
-                    AnySeparate = AnySeparate || Options.bSeparateGamePromotion;
-                    if (Options.bIsPromotable)
-                    {
-                        if (!Options.bSeparateGamePromotion)
-                        {
-                            NumSharedAllHosts++;
-                        }
-                        PromotedHosts.Add(HostPlatform);
-                    }
+					if (!BranchOptions.ExcludePlatformsForEditor.Contains(HostPlatform))
+					{
+						var Options = CodeProj.Options(HostPlatform);
+						AnySeparate = AnySeparate || Options.bSeparateGamePromotion;
+						if (Options.bIsPromotable)
+						{
+							if (!Options.bSeparateGamePromotion)
+							{
+								NumSharedAllHosts++;
+							}
+							PromotedHosts.Add(HostPlatform);
+						}
+					}
                 }
                 if (PromotedHosts.Count > 0)
                 {
@@ -6260,7 +6293,10 @@ public class GUBP : BuildCommand
 				//AddNode(new IOSOnPCTestNode(this)); - Disable IOSOnPCTest until a1011 crash is fixed
 			}
 			AddNode(new VSExpressTestNode(this));
-			AddNode(new RootEditorCrossCompileLinuxNode(UnrealTargetPlatform.Win64));
+			if (ActivePlatforms.Contains(UnrealTargetPlatform.Linux) && !BranchOptions.ExcludePlatformsForEditor.Contains(UnrealTargetPlatform.Linux))
+			{
+				AddNode(new RootEditorCrossCompileLinuxNode(UnrealTargetPlatform.Win64));
+			}
             if (!bPreflightBuild)
             {
                 AddNode(new CleanSharedTempStorageNode(this));
@@ -6791,7 +6827,7 @@ public class GUBP : BuildCommand
             var BuildDuration = (DateTime.UtcNow - StartTime).TotalMilliseconds;
             Log("Took {0}s to cache completion for {1} nodes", BuildDuration / 1000, NodesToDo.Count);
         }
-        if (CLString != "" && StoreName.Contains(CLString) && !ParseParam("NoHistory"))
+        /*if (CLString != "" && StoreName.Contains(CLString) && !ParseParam("NoHistory"))
         {
             Log("******* Updating history");
             var StartTime = DateTime.UtcNow;
@@ -6804,7 +6840,7 @@ public class GUBP : BuildCommand
             }
             var BuildDuration = (DateTime.UtcNow - StartTime).TotalMilliseconds;
             Log("Took {0}s to get history for {1} nodes", BuildDuration / 1000, NodesToDo.Count);
-        }
+        }*/
 
         var OrdereredToDo = TopologicalSort(NodesToDo, ExplicitTrigger, LocalOnly);
 
@@ -7492,9 +7528,13 @@ public class GUBP : BuildCommand
                 {
                     if (SaveSuccessRecords)
                     {
-                        UpdateNodeHistory(NodeToDo, CLString);
+                        UpdateNodeHistory(NodeToDo, CLString);						
                         SaveStatus(NodeToDo, FailedTempStorageSuffix, NodeStoreName, bSaveSharedTempStorage, GameNameIfAny, ParseParamValue("MyJobStepId"));
                         UpdateECProps(NodeToDo, CLString);
+						if (IsBuildMachine)
+						{
+							GetFailureEmails(NodeToDo, CLString);
+						}
 						UpdateECBuildTime(NodeToDo, BuildDuration);
                     }
 
@@ -7545,9 +7585,13 @@ public class GUBP : BuildCommand
                 }
                 if (SaveSuccessRecords) 
                 {
-                    UpdateNodeHistory(NodeToDo, CLString);
+                    UpdateNodeHistory(NodeToDo, CLString);					
                     SaveStatus(NodeToDo, SucceededTempStorageSuffix, NodeStoreName, bSaveSharedTempStorage, GameNameIfAny);
                     UpdateECProps(NodeToDo, CLString);
+					if (IsBuildMachine)
+					{
+						GetFailureEmails(NodeToDo, CLString);
+					}
 					UpdateECBuildTime(NodeToDo, BuildDuration);
                 }
             }

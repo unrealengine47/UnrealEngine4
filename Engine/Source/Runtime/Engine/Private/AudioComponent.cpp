@@ -177,7 +177,7 @@ void UAudioComponent::PlayInternal(const float StartTime, const float FadeInDura
 			if (FadeInDuration > 0.0f)
 			{
 				NewActiveSound.CurrentAdjustVolumeMultiplier = 0.f;
-				NewActiveSound.TargetAdjustVolumeStopTime = FMath::Max(0.f, StartTime) + FadeInDuration;
+				NewActiveSound.TargetAdjustVolumeStopTime = FadeInDuration;
 			}
 			else
 			{
@@ -287,7 +287,7 @@ void UAudioComponent::PlaybackCompleted(bool bFailedToStart)
 	}
 }
 
-bool UAudioComponent::IsPlaying( void )
+bool UAudioComponent::IsPlaying() const
 {
 	return bIsActive;
 }

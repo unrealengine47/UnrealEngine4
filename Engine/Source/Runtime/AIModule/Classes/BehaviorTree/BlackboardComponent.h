@@ -14,6 +14,8 @@
 #include "Components/ActorComponent.h"
 #include "BehaviorTreeTypes.h"
 #include "BehaviorTree/Blackboard/BlackboardKeyType.h"
+#include "BehaviorTree/Blackboard/BlackboardKeyType_Enum.h"
+#include "BehaviorTree/Blackboard/BlackboardKeyType_NativeEnum.h"
 #include "BlackboardData.h"
 #include "AISystem.h"
 #include "BlackboardComponent.generated.h"
@@ -332,7 +334,7 @@ template<class TDataClass>
 bool UBlackboardComponent::SetValue(FBlackboard::FKey KeyID, typename TDataClass::FDataType Value)
 {
 	const FBlackboardEntry* EntryInfo = BlackboardAsset ? BlackboardAsset->GetKey(KeyID) : nullptr;
-	if ((EntryInfo == nullptr) || (EntryInfo->KeyType == nullptr) || !EntryInfo->KeyType->IsA(TDataClass::StaticClass()))
+	if ((EntryInfo == nullptr) || (EntryInfo->KeyType == nullptr))
 	{
 		return false;
 	}
@@ -381,7 +383,7 @@ template<class TDataClass>
 typename TDataClass::FDataType UBlackboardComponent::GetValue(FBlackboard::FKey KeyID) const
 {
 	const FBlackboardEntry* EntryInfo = BlackboardAsset ? BlackboardAsset->GetKey(KeyID) : nullptr;
-	if ((EntryInfo == nullptr) || (EntryInfo->KeyType == nullptr) || !EntryInfo->KeyType->IsA(TDataClass::StaticClass()))
+	if ((EntryInfo == nullptr) || (EntryInfo->KeyType == nullptr))
 	{
 		return TDataClass::InvalidValue;
 	}

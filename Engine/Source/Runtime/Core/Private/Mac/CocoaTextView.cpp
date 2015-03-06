@@ -21,14 +21,6 @@
     return self;
 }
 
-- (void)drawRect:(NSRect)dirtyRect
-{
-	SCOPED_AUTORELEASE_POOL;
-	[super drawRect:dirtyRect];
-	
-    // Drawing code here.
-}
-
 - (bool)imkKeyDown:(NSEvent *)theEvent
 {
 	if (IMMContext.IsValid())
@@ -43,8 +35,8 @@
 	}
 }
 
-/** Forward mouse events up to the window rather than through the responder chain - thus avoiding
- *	the hidden titlebar controls. Normal windows just use the responder chain as usual.
+/**
+ * Forward mouse events up to the window rather than through the responder chain.
  */
 - (BOOL)acceptsFirstMouse:(NSEvent *)Event
 {

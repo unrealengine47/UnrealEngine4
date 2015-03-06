@@ -583,6 +583,49 @@ bool UGameEngine::Exec( UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar )
 	{
 		return HandleCancelCommand( Cmd, Ar, InWorld );	
 	}
+	else if ( FParse::Command( &Cmd, TEXT("TOGGLECVAR") ) )
+	{
+		FString CVarName;
+		FParse::Token(Cmd, CVarName, false);
+
+		bool bEnoughParamsSupplied = false;
+		IConsoleVariable * CVar = nullptr;
+
+		if (CVarName.Len() > 0)
+		{
+			CVar = IConsoleManager::Get().FindConsoleVariable(*CVarName);
+		}
+
+		if (CVar)
+		{
+			// values to toggle between
+			FString StringVal1, StringVal2;
+			
+			if (FParse::Token(Cmd, StringVal1, false))
+			{
+				if (FParse::Token(Cmd, StringVal2, false))
+				{
+					bEnoughParamsSupplied = true;
+					FString CurrentValue = CVar->GetString();
+
+					FString Command(FString::Printf(TEXT("%s %s"), *CVarName, (CurrentValue == StringVal1) ? *StringVal2 : *StringVal1));
+					GEngine->Exec(InWorld, *Command);
+				}
+			}
+		}
+		else
+		{
+			Ar.Log(*FString::Printf(TEXT("TOGGLECVAR: cvar '%s' was not found"), *CVarName));
+			bEnoughParamsSupplied = true;	// cannot say anything about the rest of parameters
+		}
+		
+		if (!bEnoughParamsSupplied)
+		{
+			Ar.Log(TEXT("Usage: TOGGLECVAR CVarName Value1 Value2"));
+		}
+
+		return true;
+	}
 #if !UE_BUILD_SHIPPING
 	else if( FParse::Command( &Cmd, TEXT("ApplyUserSettings") ) )
 	{
@@ -772,6 +815,7 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 	if ( GameViewport != NULL )
 	{
 		// Decide whether to drop high detail because of frame rate.
+		QUICK_SCOPE_CYCLE_COUNTER(STAT_UGameEngine_Tick_SetDropDetail);
 		GameViewport->SetDropDetail(DeltaSeconds);
 	}
 
@@ -806,10 +850,14 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 		GWorld = Context.World();
 
 		// Tick all travel and Pending NetGames (Seamless, server, client)
-		TickWorldTravel(Context, DeltaSeconds);
+		{
+			QUICK_SCOPE_CYCLE_COUNTER(STAT_UGameEngine_Tick_TickWorldTravel);
+			TickWorldTravel(Context, DeltaSeconds);
+		}
 
 		if (!IsRunningDedicatedServer() && !IsRunningCommandlet())
 		{
+			QUICK_SCOPE_CYCLE_COUNTER(STAT_UGameEngine_Tick_CheckCaptures);
 			// Only update reflection captures in game once all 'always loaded' levels have been loaded
 			// This won't work with actual level streaming though
 			if (Context.World()->AreAlwaysLoadedLevelsLoaded())
@@ -915,13 +963,17 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 			// Will need to take another look when trying to support multiple worlds.
 
 			// Update resource streaming after viewports have had a chance to update view information. Normal update.
-			IStreamingManager::Get().Tick( DeltaSeconds );
+			{
+				QUICK_SCOPE_CYCLE_COUNTER(STAT_UGameEngine_Tick_IStreamingManager);
+				IStreamingManager::Get().Tick( DeltaSeconds );
+			}
 
 			if ( Context.World()->bTriggerPostLoadMap )
 			{
 				Context.World()->bTriggerPostLoadMap = false;
 
 				// Turns off the loading movie (if it was turned on by LoadMap) and other post-load cleanup.
+				QUICK_SCOPE_CYCLE_COUNTER(STAT_UGameEngine_Tick_IStreamingManager);
 				PostLoadMap();
 			}
 		}
@@ -930,6 +982,7 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 		TickCycles=LocalTickCycles;
 
 		// See whether any map changes are pending and we requested them to be committed.
+		QUICK_SCOPE_CYCLE_COUNTER(STAT_UGameEngine_Tick_ConditionalCommitMapChange);
 		ConditionalCommitMapChange(Context);
 	}
 
@@ -940,6 +993,7 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 	// Restore original GWorld*. This will go away one day.
 	if (OriginalGWorldContext != NAME_None)
 	{
+		QUICK_SCOPE_CYCLE_COUNTER(STAT_UGameEngine_Tick_GetWorldContextFromHandleChecked);
 		GWorld = GetWorldContextFromHandleChecked(OriginalGWorldContext).World();
 	}
 
@@ -966,6 +1020,7 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 		FAVIWriter* AVIWriter = FAVIWriter::GetInstance();
 		if (AVIWriter)
 		{
+			QUICK_SCOPE_CYCLE_COUNTER(STAT_UGameEngine_Tick_AVIWriter);
 			AVIWriter->Update(DeltaSeconds);
 		}
 
@@ -974,6 +1029,7 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 		{
 			if (AVIWriter)
 			{
+				QUICK_SCOPE_CYCLE_COUNTER(STAT_UGameEngine_Tick_StartCapture);
 				AVIWriter->StartCapture(GameViewport->Viewport);
 			}
 			bCheckForMovieCapture = false;

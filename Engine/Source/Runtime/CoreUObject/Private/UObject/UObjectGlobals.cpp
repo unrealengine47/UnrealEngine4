@@ -866,6 +866,8 @@ UPackage* LoadPackageInternal(UPackage* InOuter, const TCHAR* InLongPackageName,
 	// Try to load.
 	BeginLoad();
 
+	bool bFullyLoadSkipped = false;
+
 	SlowTask.EnterProgressFrame(30);
 	{
 		// Keep track of start time.
@@ -923,11 +925,7 @@ UPackage* LoadPackageInternal(UPackage* InOuter, const TCHAR* InLongPackageName,
 		// if this linker already has the DeferDependencyLoads flag, then we're
 		// already loading it earlier up the load chain (don't let it invoke any
 		// deeper loads that may introduce a circular dependency)
-		if ((Linker->LoadFlags & LOAD_DeferDependencyLoads))
-		{
-			DoNotLoadExportsFlags |= LOAD_DeferDependencyLoads;
-		}
-		// @TODO: what of cases where DeferDependencyLoads was specified, but not already set on the Linker?
+		DoNotLoadExportsFlags |= LOAD_DeferDependencyLoads;
 #endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 
 		if ((LoadFlags & DoNotLoadExportsFlags) == 0)
@@ -943,6 +941,10 @@ UPackage* LoadPackageInternal(UPackage* InOuter, const TCHAR* InLongPackageName,
 			Linker->LoadAllObjects();
 
 			Linker->SetSerializedProperty(OldSerializedProperty);
+		}
+		else
+		{
+			bFullyLoadSkipped = true;
 		}
 
 		SlowTask.EnterProgressFrame(30);
@@ -1011,8 +1013,11 @@ UPackage* LoadPackageInternal(UPackage* InOuter, const TCHAR* InLongPackageName,
 		// We no longer need the linker. Passing in NULL would reset all loaders so we need to check for that.
 		ResetLoaders( Result );
 	}
-	// Mark package as loaded.
-	Result->SetFlags(RF_WasLoaded);
+	if (!bFullyLoadSkipped)
+	{
+		// Mark package as loaded.
+		Result->SetFlags(RF_WasLoaded);
+	}
 
 	return Result;
 }
@@ -1914,17 +1919,25 @@ void UObject::PostInitProperties()
 
 UObject::UObject()
 {
+#if WITH_HOT_RELOAD_CTORS
+	EnsureNotRetrievingVTablePtr();
+#endif // WITH_HOT_RELOAD_CTORS
+
 	FObjectInitializer* ObjectInitializerPtr = FTlsObjectInitializers::Top();
 	UE_CLOG(!ObjectInitializerPtr, LogUObjectGlobals, Fatal, TEXT("%s is not being constructed with either NewObject, NewNamedObject or ConstructObject."), *GetName());
 	FObjectInitializer& ObjectInitializer = *ObjectInitializerPtr;
-	check(!ObjectInitializer.Obj || ObjectInitializer.Obj == this);
+	UE_CLOG(ObjectInitializer.Obj != nullptr && ObjectInitializer.Obj != this, LogUObjectGlobals, Fatal, TEXT("UObject() constructor called but it's not the object that's currently being constructed with NewObject. Maybe you trying to construct it on the stack which is not supported."));
 	const_cast<FObjectInitializer&>(ObjectInitializer).Obj = this;
 	const_cast<FObjectInitializer&>(ObjectInitializer).FinalizeSubobjectClassInitialization();
 }
 
 UObject::UObject(const FObjectInitializer& ObjectInitializer)
 {
-	check(!ObjectInitializer.Obj || ObjectInitializer.Obj == this);
+#if WITH_HOT_RELOAD_CTORS
+	EnsureNotRetrievingVTablePtr();
+#endif // WITH_HOT_RELOAD_CTORS
+
+	UE_CLOG(ObjectInitializer.Obj != nullptr && ObjectInitializer.Obj != this, LogUObjectGlobals, Fatal, TEXT("UObject(const FObjectInitializer&) constructor called but it's not the object that's currently being constructed with NewObject. Maybe you trying to construct it on the stack which is not supported."));
 	const_cast<FObjectInitializer&>(ObjectInitializer).Obj = this;
 	const_cast<FObjectInitializer&>(ObjectInitializer).FinalizeSubobjectClassInitialization();
 }
