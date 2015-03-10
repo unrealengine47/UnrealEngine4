@@ -184,60 +184,6 @@ namespace EEnvQueryTestClamping
 	};
 }
 
-// DEPRECATED, will be removed soon - use AI Data Providers instead 
-USTRUCT()
-struct AIMODULE_API FEnvFloatParam
-{
-	GENERATED_USTRUCT_BODY();
-
-	/** default value */
-	UPROPERTY(EditDefaultsOnly, Category=Param)
-	float Value;
-
-	/** name of parameter */
-	UPROPERTY(EditDefaultsOnly, Category=Param)
-	FName ParamName;
-
-	bool IsNamedParam() const { return ParamName != NAME_None; }
-	void Convert(UObject* Owner, FAIDataProviderFloatValue& ValueProvider);
-};
-
-// DEPRECATED, will be removed soon - use AI Data Providers instead 
-USTRUCT()
-struct AIMODULE_API FEnvIntParam
-{
-	GENERATED_USTRUCT_BODY();
-
-	/** default value */
-	UPROPERTY(EditDefaultsOnly, Category=Param)
-	int32 Value;
-
-	/** name of parameter */
-	UPROPERTY(EditDefaultsOnly, Category=Param)
-	FName ParamName;
-
-	bool IsNamedParam() const { return ParamName != NAME_None; }
-	void Convert(UObject* Owner, FAIDataProviderIntValue& ValueProvider);
-};
-
-// DEPRECATED, will be removed soon - use AI Data Providers instead 
-USTRUCT()
-struct AIMODULE_API FEnvBoolParam
-{
-	GENERATED_USTRUCT_BODY();
-
-	/** default value */
-	UPROPERTY(EditDefaultsOnly, Category=Param)
-	bool Value;
-
-	/** name of parameter */
-	UPROPERTY(EditDefaultsOnly, Category=Param)
-	FName ParamName;
-
-	bool IsNamedParam() const { return ParamName != NAME_None; }
-	void Convert(UObject* Owner, FAIDataProviderBoolValue& ValueProvider);
-};
-
 USTRUCT(BlueprintType)
 struct AIMODULE_API FEnvNamedValue
 {
@@ -523,7 +469,10 @@ struct AIMODULE_API FEnvQueryOptionInstance
 	TSubclassOf<UEnvQueryItemType> ItemType;
 
 	/** if set, items will be shuffled after tests */
-	bool bShuffleItems;
+	uint32 bShuffleItems : 1;
+
+	/** if set, items will be shuffled after tests */
+	uint32 bHasNavLocations : 1;
 
 	FORCEINLINE uint32 GetAllocatedSize() const { return sizeof(*this) + Tests.GetAllocatedSize(); }
 };
@@ -860,6 +809,11 @@ public:
 			bSkipped++;
 		}
 
+		void IgnoreTimeLimit()
+		{
+			Deadline = -1.0f;
+		}
+
 		operator bool() const
 		{
 			return CurrentItem < Instance->Items.Num() && !Instance->bFoundSingleResult && (Deadline < 0 || FPlatformTime::Seconds() < Deadline);
@@ -926,6 +880,83 @@ namespace FEQSHelpers
 	AIMODULE_API const ARecastNavMesh* FindNavMeshForQuery(FEnvQueryInstance& QueryInstance);
 #endif // WITH_RECAST
 }
+
+// BEGIN DEPRECATED SUPPORT
+
+USTRUCT()
+struct AIMODULE_API FEnvFloatParam_DEPRECATED
+{
+	GENERATED_USTRUCT_BODY();
+
+	/** default value */
+	UPROPERTY(EditDefaultsOnly, Category = Param)
+	float Value;
+
+	/** name of parameter */
+	UPROPERTY(EditDefaultsOnly, Category = Param)
+	FName ParamName;
+
+	bool IsNamedParam() const { return ParamName != NAME_None; }
+	void Convert(UObject* Owner, FAIDataProviderFloatValue& ValueProvider);
+};
+
+USTRUCT()
+struct AIMODULE_API FEnvIntParam_DEPRECATED
+{
+	GENERATED_USTRUCT_BODY();
+
+	/** default value */
+	UPROPERTY(EditDefaultsOnly, Category = Param)
+	int32 Value;
+
+	/** name of parameter */
+	UPROPERTY(EditDefaultsOnly, Category = Param)
+	FName ParamName;
+
+	bool IsNamedParam() const { return ParamName != NAME_None; }
+	void Convert(UObject* Owner, FAIDataProviderIntValue& ValueProvider);
+};
+
+USTRUCT()
+struct AIMODULE_API FEnvBoolParam_DEPRECATED
+{
+	GENERATED_USTRUCT_BODY();
+
+	/** default value */
+	UPROPERTY(EditDefaultsOnly, Category = Param)
+	bool Value;
+
+	/** name of parameter */
+	UPROPERTY(EditDefaultsOnly, Category = Param)
+	FName ParamName;
+
+	bool IsNamedParam() const { return ParamName != NAME_None; }
+	void Convert(UObject* Owner, FAIDataProviderBoolValue& ValueProvider);
+};
+
+struct DEPRECATED(4.8, "FEnvFloatParam is deprecated in 4.8 and was replaced with FAIDataProviderFloatValue. Please use that type instead.") FEnvFloatParam;
+struct DEPRECATED(4.8, "FEnvIntParam is deprecated in 4.8 and was replaced with FAIDataProviderIntValue. Please use that type instead.") FEnvIntParam;
+struct DEPRECATED(4.8, "FEnvBoolParam is deprecated in 4.8 and was replaced with FAIDataProviderBoolValue. Please use that type instead.") FEnvBoolParam;
+
+USTRUCT()
+struct AIMODULE_API FEnvFloatParam : public FEnvFloatParam_DEPRECATED
+{
+	GENERATED_USTRUCT_BODY();
+};
+
+USTRUCT()
+struct AIMODULE_API FEnvIntParam : public FEnvIntParam_DEPRECATED
+{
+	GENERATED_USTRUCT_BODY();
+};
+
+USTRUCT()
+struct AIMODULE_API FEnvBoolParam : public FEnvBoolParam_DEPRECATED
+{
+	GENERATED_USTRUCT_BODY();
+};
+
+// END DEPRECATED SUPPORT
 
 UCLASS(Abstract)
 class AIMODULE_API UEnvQueryTypes : public UObject

@@ -15,11 +15,6 @@ namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 	/// </summary>
 	public class BuggsController : Controller
 	{
-		/// <summary></summary>
-		private BuggRepository LocalBuggRepository = new BuggRepository();
-		/// <summary></summary>
-		private CrashRepository LocalCrashRepository = new CrashRepository();
-
 		/// <summary>
 		/// An empty constructor.
 		/// </summary>
@@ -36,8 +31,11 @@ namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 		{
 			using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( this.GetType().ToString() ) )
 			{
+				BuggRepository Buggs = new BuggRepository();
+
 				FormHelper FormData = new FormHelper( Request, BuggsForm, "CrashesInTimeFrameGroup" );
-				BuggsViewModel Results = LocalBuggRepository.GetResults( FormData );
+				BuggsViewModel Results = Buggs.GetResults( FormData );
+				Results.GenerationTime = LogTimer.GetElapsedSeconds().ToString( "F2" );
 				return View( "Index", Results );
 			}
 		}
@@ -52,6 +50,8 @@ namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 		{
 			using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( this.GetType().ToString() + "(BuggId=" + id + ")" ) )
 			{
+				BuggRepository Buggs = new BuggRepository();
+
 				// Set the display properties based on the radio buttons
 				bool DisplayModuleNames = false;
 				if( BuggsForm["DisplayModuleNames"] == "true" )
@@ -89,7 +89,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 				Bugg Bugg = new Bugg();
 
 				BuggViewModel Model = new BuggViewModel();
-				Bugg = LocalBuggRepository.GetBugg( id );
+				Bugg = Buggs.GetBugg( id );
 				if( Bugg == null )
 				{
 					return RedirectToAction( "" );
@@ -125,19 +125,19 @@ namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 					if( !string.IsNullOrEmpty( BuggsForm["SetStatus"] ) )
 					{
 						Bugg.Status = BuggsForm["SetStatus"];
-						LocalCrashRepository.SetBuggStatus( Bugg.Status, id );
+						Buggs.SetBuggStatus( Bugg.Status, id );
 					}
 
 					if( !string.IsNullOrEmpty( BuggsForm["SetFixedIn"] ) )
 					{
 						Bugg.FixedChangeList = BuggsForm["SetFixedIn"];
-						LocalCrashRepository.SetBuggFixedChangeList( Bugg.FixedChangeList, id );
+						Buggs.SetBuggFixedChangeList( Bugg.FixedChangeList, id );
 					}
 
 					if( !string.IsNullOrEmpty( BuggsForm["SetTTP"] ) )
 					{
 						Bugg.TTPID = BuggsForm["SetTTP"];
-						BuggRepository.SetJIRAForBuggAndCrashes( Bugg.TTPID, id );
+						Buggs.SetJIRAForBuggAndCrashes( Bugg.TTPID, id );
 					}
 
 					if( !string.IsNullOrEmpty( BuggsForm["Description"] ) )
@@ -186,6 +186,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Controllers
 						LocalCrashRepository.PopulateUserInfo( CrashInstance );
 					}
 				}*/
+				Model.GenerationTime = LogTimer.GetElapsedSeconds().ToString( "F2" );
 				return View( "Show", Model );
 			}
 		}

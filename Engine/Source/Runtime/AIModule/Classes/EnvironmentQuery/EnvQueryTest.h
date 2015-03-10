@@ -20,6 +20,21 @@ namespace EnvQueryTestVersion
 	const int32 Latest = DataProviders;
 }
 
+#if WITH_EDITORONLY_DATA
+struct FEnvQueryTestScoringPreview
+{
+	float Samples[11];
+	float FilterLow;
+	float FilterHigh;
+	float ClampMin;
+	float ClampMax;
+	uint32 bShowFilterLow : 1;
+	uint32 bShowFilterHigh : 1;
+	uint32 bShowClampMin : 1;
+	uint32 bShowClampMax : 1;
+};
+#endif
+
 UCLASS(Abstract)
 class AIMODULE_API UEnvQueryTest : public UEnvQueryNode
 {
@@ -81,6 +96,11 @@ class AIMODULE_API UEnvQueryTest : public UEnvQueryNode
 	/** Validation: item type that can be used with this test */
 	TSubclassOf<UEnvQueryItemType> ValidItemType;
 
+#if WITH_EDITORONLY_DATA
+	/** samples of scoring function to show on graph in editor */
+	FEnvQueryTestScoringPreview PreviewData;
+#endif
+
 	void SetWorkOnFloatValues(bool bWorkOnFloats);
 	FORCEINLINE bool GetWorkOnFloatValues() const { return bWorkOnFloatValues; }
 
@@ -90,26 +110,6 @@ class AIMODULE_API UEnvQueryTest : public UEnvQueryNode
 				&& ((TestPurpose == EEnvTestPurpose::Filter)					// Either we are NOT scoring at ALL or...
 					|| (ScoringEquation == EEnvTestScoreEquation::Constant));	// We are giving a constant score value for passing.
 	}
-
-	// BEGIN: deprecated properties, do not use them
-	UPROPERTY()
-	FEnvBoolParam BoolFilter;
-
-	UPROPERTY()
-	FEnvFloatParam FloatFilterMin;
-
-	UPROPERTY()
-	FEnvFloatParam FloatFilterMax;
-
-	UPROPERTY()
-	FEnvFloatParam ScoreClampingMin;
-
-	UPROPERTY()
-	FEnvFloatParam ScoreClampingMax;
-
-	UPROPERTY()
-	FEnvFloatParam Weight;
-	// END: deprecated properties, do not use them
 
 private:
 	/** When set, test operates on float values (e.g. distance, with AtLeast, UpTo conditions),
@@ -168,6 +168,13 @@ public:
 
 	/** update to latest version after spawning */
 	virtual void UpdateNodeVersion() override;
+
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+
+	/** update preview list */
+	void UpdatePreviewData();
 };
 
 //////////////////////////////////////////////////////////////////////////

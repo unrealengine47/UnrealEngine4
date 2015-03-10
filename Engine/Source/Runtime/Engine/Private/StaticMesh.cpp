@@ -386,17 +386,17 @@ void FStaticMeshLODResources::InitVertexFactory(
 
 			// Use the "override" color vertex buffer if one was supplied.  Otherwise, the color vertex stream
 			// associated with the static mesh is used.
-			FColorVertexBuffer* ColorVertexBuffer = &Params.LODResources->ColorVertexBuffer;
+			FColorVertexBuffer* LODColorVertexBuffer = &Params.LODResources->ColorVertexBuffer;
 			if( Params.OverrideColorVertexBuffer != NULL )
 			{
-				ColorVertexBuffer = Params.OverrideColorVertexBuffer;
+				LODColorVertexBuffer = Params.OverrideColorVertexBuffer;
 			}
-			if( ColorVertexBuffer->GetNumVertices() > 0 )
+			if( LODColorVertexBuffer->GetNumVertices() > 0 )
 			{
 				Data.ColorComponent = FVertexStreamComponent(
-					ColorVertexBuffer,
+					LODColorVertexBuffer,
 					0,	// Struct offset to color
-					ColorVertexBuffer->GetStride(),
+					LODColorVertexBuffer->GetStride(),
 					VET_Color
 					);
 			}
@@ -1541,6 +1541,8 @@ void UStaticMesh::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const
 #if WITH_EDITOR
 void UStaticMesh::GetAssetRegistryTagMetadata(TMap<FName, FAssetRegistryTagMetadata>& OutMetadata) const
 {
+	Super::GetAssetRegistryTagMetadata(OutMetadata);
+
 	OutMetadata.Add("CollisionPrims",
 		FAssetRegistryTagMetadata()
 			.SetTooltip(NSLOCTEXT("UStaticMesh", "CollisionPrimsTooltip", "The number of collision primitives in the static mesh"))

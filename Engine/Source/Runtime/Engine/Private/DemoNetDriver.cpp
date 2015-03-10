@@ -23,6 +23,7 @@ DEFINE_LOG_CATEGORY_STATIC( LogDemo, Log, All );
 
 static TAutoConsoleVariable<float> CVarDemoRecordHz( TEXT( "demo.RecordHz" ), 10, TEXT( "Number of demo frames recorded per second" ) );
 static TAutoConsoleVariable<float> CVarDemoTimeDilation( TEXT( "demo.TimeDilation" ), -1.0f, TEXT( "Override time dilation during demo playback (-1 = don't override)" ) );
+static TAutoConsoleVariable<float> CVarDemoSkipTime( TEXT( "demo.SkipTime" ), 0, TEXT( "Skip fixed amount of network replay time (in seconds)" ) );
 
 static const int32 MAX_DEMO_READ_WRITE_BUFFER = 1024 * 2;
 
@@ -46,6 +47,7 @@ bool UDemoNetDriver::InitBase( bool bInitAsClient, FNetworkNotify* InNotify, con
 		bIsRecordingDemoFrame	= false;
 		bDemoPlaybackDone		= false;
 		bChannelsArePaused		= false;
+		TimeToSkip = 0.0f;
 
 		ResetDemoState();
 
@@ -902,6 +904,11 @@ bool UDemoNetDriver::ReadDemoFrame()
 	return true;
 }
 
+void UDemoNetDriver::SkipTime(float InTimeToSkip)
+{
+	TimeToSkip = InTimeToSkip;
+}
+
 void UDemoNetDriver::TickDemoPlayback( float DeltaSeconds )
 {
 	if ( ServerConnection == NULL || ServerConnection->State == USOCK_Closed )
@@ -918,22 +925,53 @@ void UDemoNetDriver::TickDemoPlayback( float DeltaSeconds )
 	}
 
 	DemoDeltaTime += DeltaSeconds;
-	DemoCurrentTime += DeltaSeconds;
 
-	if ( DemoCurrentTime >= DemoTotalTime )
+	DemoCurrentTime += DeltaSeconds;
+	
+	if ( CVarDemoSkipTime.GetValueOnGameThread() > 0 )
+	{
+		SkipTime( CVarDemoSkipTime.GetValueOnGameThread() );		// Just overwrite existing value, cvar wins in this case
+		CVarDemoSkipTime.AsVariable()->Set( TEXT( "0" ), ECVF_SetByConsole );
+	}
+	
+	if (TimeToSkip > 0.0f)
+	{
+		DemoDeltaTime += TimeToSkip;
+
+		if (DemoCurrentTime + DemoDeltaTime > DemoTotalTime)
+		{
+			DemoDeltaTime = DemoTotalTime - DemoCurrentTime;
+		}
+
+		DemoCurrentTime += TimeToSkip;
+
+		TimeToSkip = 0.0f;
+	}
+
+	if ( DemoCurrentTime > DemoTotalTime )
 	{
 		DemoCurrentTime = DemoTotalTime;
 	}
 
 	while ( true )
 	{
-		// Read demo frames until we are caught up
-		if ( !ReadDemoFrame() )
+		const int32 StartFrame = DemoFrameNum;
+
+		while ( true )
+		{
+			// Read demo frames until we are caught up
+			if ( !ReadDemoFrame() )
+			{
+				break;
+			}
+
+			DemoFrameNum++;
+		}
+
+		if ( StartFrame == DemoFrameNum )
 		{
 			break;
 		}
-
-		DemoFrameNum++;
 	}
 }
 

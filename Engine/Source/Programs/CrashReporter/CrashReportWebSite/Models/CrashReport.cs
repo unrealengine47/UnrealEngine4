@@ -163,17 +163,15 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 				string JiraCallstack = string.Join( "\r\n", Callstack );
 				Fields.Add( "customfield_11807", JiraCallstack );								// Callstack
 
+				string BuggLink = "http://crashreporter/Buggs/Show/" + Id;
+				Fields.Add( "customfield_11205", BuggLink );									// Additional Info URL / Link to Crash/Bugg
+
 				string Key = JC.AddJiraTicket( Fields );
 				if( !string.IsNullOrEmpty( Key ) )
 				{
 					TTPID = Key;
-					BuggRepository.SetJIRAForBuggAndCrashes( Key, Id );
-
-					// Update the JIRA in the bugg.
-					Dictionary<string, object> FieldsToUpdate = new Dictionary<string, object>();			
-					string BuggLink = "http://crashreporter/Buggs/Show/" + Id;
-					FieldsToUpdate.Add( "customfield_11205", BuggLink );									// Additional Info URL / Link to Crash/Bugg
-					JC.UpdateJiraTicket( Key, FieldsToUpdate );
+					BuggRepository Buggs = new BuggRepository();
+					Buggs.SetJIRAForBuggAndCrashes( Key, Id );
 				}
 
 			}
@@ -242,11 +240,11 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		{
 			CrashRepository CrashRepo = new CrashRepository();
 			var CrashList =
-				(
+			(
 					from BuggCrash in CrashRepo.Context.Buggs_Crashes
 					where BuggCrash.BuggId == Id
 					select BuggCrash.Crash
-				).AsEnumerable().ToList();
+			).AsEnumerable().ToList();
 			return CrashList;
 		}
 
@@ -316,8 +314,8 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		{
 			using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( this.GetType().ToString() + "(Id=" + this.Id + ")" ) )
 			{
-				BuggRepository LocalBuggRepository = new BuggRepository();
-				List<string> Results = LocalBuggRepository.GetFunctionCalls( Pattern );
+				BuggRepository Buggs = new BuggRepository();
+				List<string> Results = Buggs.GetFunctionCalls( Pattern );
 				return Results;
 			}
 		}
@@ -460,8 +458,64 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		/// <returns>A formatted callstack.</returns>
 		public CallStackContainer GetCallStack()
 		{
-			CrashRepository LocalCrashRepository = new CrashRepository();
-			return LocalCrashRepository.GetCallStack( this );
+			CrashRepository Crashes = new CrashRepository();
+			return Crashes.GetCallStack( this );
+		}
+
+
+		/// <summary>
+		/// Build a callstack pattern for a crash to ease bucketing of crashes into Buggs.
+		/// </summary>
+		public void BuildPattern( CrashReportDataContext Context )
+		{
+			using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( this.GetType().ToString() + "(Crash=" + Id + ")" ) )
+			{
+				List<string> PatternList = new List<string>();
+				var FunctionCalls = Context.FunctionCalls;
+
+				// Get an array of callstack items
+				CallStackContainer CallStack = new CallStackContainer( this );
+				CallStack.bDisplayFunctionNames = true;
+
+				if( Pattern == null )
+				{
+					// Set the module based on the modules in the callstack
+					Module = CallStack.GetModuleName();
+					try
+					{
+						foreach( CallStackEntry Entry in CallStack.CallStackEntries.Take( 64 ) )
+						{
+							FunctionCall CurrentFunctionCall = new FunctionCall();
+
+							if( FunctionCalls.Where( f => f.Call == Entry.FunctionName ).Count() > 0 )
+							{
+								CurrentFunctionCall = FunctionCalls.Where( f => f.Call == Entry.FunctionName ).First();
+							}
+							else
+							{
+								CurrentFunctionCall = new FunctionCall();
+								CurrentFunctionCall.Call = Entry.FunctionName;
+								FunctionCalls.InsertOnSubmit( CurrentFunctionCall );
+							}
+
+							Context.SubmitChanges();
+
+							PatternList.Add( CurrentFunctionCall.Id.ToString() );
+						}
+
+						//CrashInstance.Pattern = "+";
+						Pattern = string.Join( "+", PatternList );
+						// We need something like this +1+2+3+5+ for searching for exact pattern like +5+
+						//CrashInstance.Pattern += "+";
+
+						Context.SubmitChanges();
+					}
+					catch( Exception Ex )
+					{
+						FLogger.WriteException( "BuildPattern: " + Ex.ToString() );
+					}
+				}
+			}
 		}
 
 		/// <summary>

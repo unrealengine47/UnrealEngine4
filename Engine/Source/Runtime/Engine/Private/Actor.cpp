@@ -909,12 +909,12 @@ void AActor::ClearComponentOverlaps()
 	// Remove owned components from overlap tracking
 	// We don't traverse the RootComponent attachment tree since that might contain
 	// components owned by other actors.
+	TArray<UPrimitiveComponent*> OverlappingComponentsForCurrentComponent;
 	for (UPrimitiveComponent* const PrimComp : PrimitiveComponents)
 	{
-		TArray<UPrimitiveComponent*> OverlappingComponents;
-		PrimComp->GetOverlappingComponents(OverlappingComponents);
+		PrimComp->GetOverlappingComponents(OverlappingComponentsForCurrentComponent);
 
-		for (UPrimitiveComponent* const OverlapComp : OverlappingComponents)
+		for (UPrimitiveComponent* const OverlapComp : OverlappingComponentsForCurrentComponent)
 		{
 			if (OverlapComp)
 			{
@@ -2466,7 +2466,15 @@ void AActor::BeginPlay()
 
 	for (UActorComponent* Component : Components)
 	{
-		Component->BeginPlay();
+		if (Component->IsRegistered())
+		{
+			Component->BeginPlay();
+		}
+		else
+		{
+			// When an Actor begins play we expect only the not bAutoRegister false components to not be registered
+			//check(!Component->bAutoRegister);
+		}
 	}
 
 	ReceiveBeginPlay();

@@ -614,9 +614,9 @@ void ULandscapeComponent::RemoveGrassMap()
 	GrassData = MakeShareable(new FLandscapeComponentGrassData());
 }
 
-void ALandscapeProxy::RenderGrassMaps(const TArray<ULandscapeComponent*>& LandscapeComponents, const TArray<ULandscapeGrassType*>& GrassTypes)
+void ALandscapeProxy::RenderGrassMaps(const TArray<ULandscapeComponent*>& InLandscapeComponents, const TArray<ULandscapeGrassType*>& GrassTypes)
 {
-	FLandscapeGrassWeightExporter Exporter(this, LandscapeComponents, GrassTypes);
+	FLandscapeGrassWeightExporter Exporter(this, InLandscapeComponents, GrassTypes);
 	Exporter.ApplyResults();
 }
 
@@ -986,6 +986,7 @@ struct FAsyncGrassBuilder : public FGrassBuilderBase
 
 		MeshBox = GrassVariety.GrassMesh->GetBounds().GetBox();
 		DesiredInstancesPerLeaf = HierarchicalInstancedStaticMeshComponent->DesiredInstancesPerLeaf();
+		check(DesiredInstancesPerLeaf > 0);
 
 		TotalInstances = 0;
 		HaltonBaseIndex = InHaltonBaseIndex;
@@ -1168,11 +1169,10 @@ struct FAsyncGrassBuilder : public FGrassBuilderBase
 		{
 			TArray<int32> SortedInstances;
 			TArray<int32> InstanceReorderTable;
-			UHierarchicalInstancedStaticMeshComponent::BuildTreeAnyThread(InstanceTransforms, MeshBox, ClusterTree, SortedInstances, InstanceReorderTable, DesiredInstancesPerLeaf, OutOcclusionLayerNum);
+			UHierarchicalInstancedStaticMeshComponent::BuildTreeAnyThread(InstanceTransforms, MeshBox, ClusterTree, SortedInstances, InstanceReorderTable, OutOcclusionLayerNum, DesiredInstancesPerLeaf);
 
 			// in-place sort the instances
 			FInstanceStream SwapBuffer;
-			int32 FirstUnfixedIndex = 0;
 			for (int32 FirstUnfixedIndex = 0; FirstUnfixedIndex < NumInstances; FirstUnfixedIndex++)
 			{
 				int32 LoadFrom = SortedInstances[FirstUnfixedIndex];

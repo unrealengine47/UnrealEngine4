@@ -1059,6 +1059,24 @@ ENavigationQueryResult::Type ARecastNavMesh::CalcPathLengthAndCost(const FVector
 	return Result;
 }
 
+bool ARecastNavMesh::DoesNodeContainLocation(NavNodeRef NodeRef, const FVector& WorldSpaceLocation) const
+{
+	bool bResult = false;
+	if (RecastNavMeshImpl != nullptr && RecastNavMeshImpl->GetRecastMesh() != nullptr)
+	{
+		dtNavMeshQuery NavQuery;
+		NavQuery.init(RecastNavMeshImpl->GetRecastMesh(), 0);
+
+		const FVector RcLocation = Unreal2RecastPoint(WorldSpaceLocation);
+		if (dtStatusFailed(NavQuery.isPointInsidePoly(NodeRef, &RcLocation.X, bResult)))
+		{
+			bResult = false;
+		}
+	}
+
+	return bResult; 
+}
+
 NavNodeRef ARecastNavMesh::FindNearestPoly(FVector const& Loc, FVector const& Extent, TSharedPtr<const FNavigationQueryFilter> Filter, const UObject* QueryOwner) const
 {
 	NavNodeRef PolyRef = 0;
@@ -1254,12 +1272,13 @@ bool ARecastNavMesh::GetClusterBounds(NavNodeRef ClusterRef, FBox& OutBounds) co
 	return bSuccess;
 }
 
-bool ARecastNavMesh::GetPolysWithinPathingDistance(FVector const& StartLoc, const float PathingDistance, TArray<NavNodeRef>& FoundPolys, TSharedPtr<const FNavigationQueryFilter> Filter, const UObject* QueryOwner) const
+bool ARecastNavMesh::GetPolysWithinPathingDistance(FVector const& StartLoc, const float PathingDistance, TArray<NavNodeRef>& FoundPolys,
+	TSharedPtr<const FNavigationQueryFilter> Filter, const UObject* QueryOwner, FRecastDebugPathfindingData* DebugData) const
 {
 	bool bSuccess = false;
 	if (RecastNavMeshImpl)
 	{
-		bSuccess = RecastNavMeshImpl->GetPolysWithinPathingDistance(StartLoc, PathingDistance, GetRightFilterRef(Filter), QueryOwner, FoundPolys);
+		bSuccess = RecastNavMeshImpl->GetPolysWithinPathingDistance(StartLoc, PathingDistance, GetRightFilterRef(Filter), QueryOwner, FoundPolys, DebugData);
 	}
 
 	return bSuccess;
@@ -1812,7 +1831,7 @@ bool ARecastNavMesh::FindStraightPath(const FVector& StartLoc, const FVector& En
 	return bResult;
 }
 
-int32 ARecastNavMesh::DebugPathfinding(const FPathFindingQuery& Query, TArray<FRecastDebugPathfindingStep>& Steps)
+int32 ARecastNavMesh::DebugPathfinding(const FPathFindingQuery& Query, TArray<FRecastDebugPathfindingData>& Steps)
 {
 	int32 NumSteps = 0;
 
@@ -1907,9 +1926,13 @@ bool ARecastNavMesh::SupportsStreaming() const
 }
 
 void ARecastNavMesh::ConditionalConstructGenerator()
-{
-	NavDataGenerator.Reset();
-	
+{	
+	if (NavDataGenerator.IsValid())
+	{
+		NavDataGenerator->CancelBuild();
+		NavDataGenerator.Reset();
+	}
+
 	UWorld* World = GetWorld();
 	check(World);
 	const bool bRequiresGenerator = SupportsRuntimeGeneration() || !World->IsGameWorld();

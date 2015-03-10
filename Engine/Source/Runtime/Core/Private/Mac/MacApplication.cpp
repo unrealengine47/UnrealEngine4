@@ -5,7 +5,6 @@
 #include "MacApplication.h"
 #include "MacWindow.h"
 #include "MacCursor.h"
-#include "MacEvent.h"
 #include "CocoaMenu.h"
 #include "GenericApplicationMessageHandler.h"
 #include "HIDInputInterface.h"
@@ -14,8 +13,6 @@
 #include "CocoaThread.h"
 #include "ModuleManager.h"
 #include "CocoaTextView.h"
-
-static NSString* NSWindowDraggingFinished = @"NSWindowDraggingFinished";
 
 FMacApplication* MacApplication = NULL;
 
@@ -61,18 +58,12 @@ NSEvent* FMacApplication::HandleNSEvent(NSEvent* Event)
 
 		if (!bIsResentEvent && (!bIsMouseClickOrKeyEvent || [Event window] == NULL))
 		{
-			FMacEvent::SendToGameRunLoop(Event, EMacEventSendMethod::Async);
+			GameThreadCall(^{ FMacApplication::ProcessEvent([Event retain]); }, @[ NSDefaultRunLoopMode ], false);
 			
 			if ([Event type] == NSKeyDown || [Event type] == NSKeyUp)
 			{
 				ReturnEvent = nil;
 			}
-		}
-
-		if ([Event type] == NSLeftMouseUp)
-		{
-			NSNotification* Notification = [NSNotification notificationWithName:NSWindowDraggingFinished object:[Event window]];
-			FMacEvent::SendToGameRunLoop(Notification, EMacEventSendMethod::Async);
 		}
 	}
 
@@ -113,7 +104,7 @@ FMacApplication::FMacApplication()
 	CGDisplayRegisterReconfigurationCallback(FMacApplication::OnDisplayReconfiguration, this);
 
 	[NSEvent addGlobalMonitorForEventsMatchingMask:NSMouseMovedMask handler:^(NSEvent* Event){
-		FMacEvent::SendToGameRunLoop(Event, EMacEventSendMethod::Async);
+		GameThreadCall(^{ FMacApplication::ProcessEvent([Event retain]); }, @[ NSDefaultRunLoopMode ], false);
 	}];
 
 	EventMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSAnyEventMask handler:^(NSEvent* IncomingEvent)
@@ -243,24 +234,21 @@ bool FMacApplication::IsCursorDirectlyOverSlateWindow() const
 	return Window && [Window isKindOfClass:[FCocoaWindow class]] && Window != DraggedWindow;
 }
 
-void FMacApplication::ProcessEvent(FMacEvent const* const Event)
+void FMacApplication::ProcessEvent(NSObject const* const Event)
 {
 	// Must have an event
 	check(Event);
 	
-	// Determine the type of the event to forward to the right handling routine
-	NSEvent* AppKitEvent = Event->GetEvent();
-	NSNotification* Notification = Event->GetNotification();
-
-	if (AppKitEvent)
+	if ([Event isKindOfClass:[NSEvent class]])
 	{
 		// Process a standard NSEvent as we always did
-		MacApplication->ProcessNSEvent(AppKitEvent);
+		MacApplication->ProcessNSEvent((NSEvent*)Event);
 	}
-	else if (Notification)
+	else if ([Event isKindOfClass:[NSNotification class]])
 	{
 		// Notifications need to mapped to the right handler function, that's no longer handled in the
 		// call location.
+		NSNotification* Notification = (NSNotification*)Event;
 		NSString* const NotificationName = [Notification name];
 		FCocoaWindow* CocoaWindow = [[Notification object] isKindOfClass:[FCocoaWindow class]] ? (FCocoaWindow*)[Notification object] : nullptr;
 		if (CocoaWindow)
@@ -305,10 +293,6 @@ void FMacApplication::ProcessEvent(FMacEvent const* const Event)
 			{
 				MacApplication->OnWindowDidClose(CocoaWindow);
 			}
-			else if (NotificationName == NSWindowDraggingFinished)
-			{
-				MacApplication->OnWindowDraggingFinished();
-			}
 			else
 			{
 				check(false);
@@ -341,7 +325,7 @@ void FMacApplication::ProcessEvent(FMacEvent const* const Event)
 	}
 	
 	// We are responsible for deallocating the event
-	delete Event;
+	[Event release];
 }
 
 void FMacApplication::RedrawWindow(FCocoaWindow* Window)
@@ -417,15 +401,6 @@ void FMacApplication::InvalidateTextLayouts()
 		WindowsRequiringTextInvalidation.Empty();
 	}
 
-}
-
-void FMacApplication::OnWindowDraggingFinished()
-{
-	if ( DraggedWindow )
-	{
-		SCOPED_AUTORELEASE_POOL;
-		DraggedWindow = NULL;
-	}
 }
 
 bool FMacApplication::IsWindowMovable(FCocoaWindow* Win, bool* OutMovableByBackground)
@@ -539,29 +514,35 @@ void FMacApplication::ProcessNSEvent(NSEvent* const Event)
 
 			FMacCursor* MacCursor = (FMacCursor*)Cursor.Get();
 
+			FVector2D const MouseScaling = MacCursor->GetMouseScaling();
+			
 			if (bUsingHighPrecisionMouseInput)
 			{
 				// Under OS X we disassociate the cursor and mouse position during hi-precision mouse input.
 				// The game snaps the mouse cursor back to the starting point when this is disabled, which
 				// accumulates mouse delta that we want to ignore.
-				const FVector2D AccumDelta = MacCursor->GetMouseWarpDelta(true);
-
+				const FVector2D AccumDelta = MacCursor->GetMouseWarpDelta() * MouseScaling;
+				
+				// Get the mouse position
+				FVector2D HighPrecisionMousePos = MacCursor->GetPosition();
+				
 				// Find the screen the cursor is currently on.
 				NSEnumerator *ScreenEnumerator = [[NSScreen screens] objectEnumerator];
 				NSScreen *Screen;
-				while ((Screen = [ScreenEnumerator nextObject]) && !NSMouseInRect(NSMakePoint(HighPrecisionMousePos.X, HighPrecisionMousePos.Y), Screen.frame, NO))
+				while ((Screen = [ScreenEnumerator nextObject]) && !NSMouseInRect(NSMakePoint(HighPrecisionMousePos.X / MouseScaling.X, HighPrecisionMousePos.Y / MouseScaling.Y), Screen.frame, NO))
 					;
-
-				// Clamp to no more than the reported delta - a single event of no mouse movement won't be noticed
-				// but going in the wrong direction will.
-				const FVector2D FullDelta([Event deltaX], [Event deltaY]);
-				const FVector2D WarpDelta(FMath::Abs(AccumDelta.X)<FMath::Abs(FullDelta.X) ? AccumDelta.X : FullDelta.X, FMath::Abs(AccumDelta.Y)<FMath::Abs(FullDelta.Y) ? AccumDelta.Y : FullDelta.Y);
-
-				FVector2D Delta = ((FullDelta - WarpDelta) / 2.f) * MacCursor->GetMouseScaling();
-
-				HighPrecisionMousePos = MacCursor->GetPosition() + Delta;
+				
+				// Account for warping delta's
+				FVector2D Delta = FVector2D([Event deltaX], [Event deltaY]) * MouseScaling;
+				const FVector2D WarpDelta(FMath::Abs(AccumDelta.X)<FMath::Abs(Delta.X) ? AccumDelta.X : Delta.X, FMath::Abs(AccumDelta.Y)<FMath::Abs(Delta.Y) ? AccumDelta.Y : Delta.Y);
+				Delta -= WarpDelta;
+				
+				// Update to latest position
+				HighPrecisionMousePos += Delta;
+				
+				// Clip to lock rect
 				MacCursor->UpdateCursorClipping(HighPrecisionMousePos);
-
+				
 				// Clamp to the current screen and avoid the menu bar and dock to prevent popups and other
 				// assorted potential for mouse abuse.
 				NSRect VisibleFrame = [Screen visibleFrame];
@@ -573,11 +554,14 @@ void FMacApplication::ProcessNSEvent(NSEvent* const Event)
 				}
 				NSRect FullFrame = [Screen frame];
 				VisibleFrame.origin.y = (FullFrame.origin.y+FullFrame.size.height) - (VisibleFrame.origin.y + VisibleFrame.size.height);
-
-				HighPrecisionMousePos.X = FMath::Clamp(HighPrecisionMousePos.X / MacCursor->GetMouseScaling().X, (float)VisibleFrame.origin.x, (float)(VisibleFrame.origin.x + VisibleFrame.size.width)-1.f);
-				HighPrecisionMousePos.Y = FMath::Clamp(HighPrecisionMousePos.Y / MacCursor->GetMouseScaling().Y, (float)VisibleFrame.origin.y, (float)(VisibleFrame.origin.y + VisibleFrame.size.height)-1.f);
-
-				MacCursor->WarpCursor(HighPrecisionMousePos.X, HighPrecisionMousePos.Y);
+				
+				int32 ScaledX = (int32)(HighPrecisionMousePos.X / MouseScaling.X);
+				int32 ScaledY = (int32)(HighPrecisionMousePos.Y / MouseScaling.Y);
+				int32 ClampedPosX = FMath::Clamp(ScaledX, (int32)VisibleFrame.origin.x, (int32)(VisibleFrame.origin.x + VisibleFrame.size.width)-1);
+				int32 ClampedPosY = FMath::Clamp(ScaledY, (int32)VisibleFrame.origin.y, (int32)(VisibleFrame.origin.y + VisibleFrame.size.height)-1);
+				MacCursor->SetPosition(ClampedPosX * MouseScaling.X, ClampedPosY * MouseScaling.Y);
+				
+				// Forward the delta on to Slate
 				MessageHandler->OnRawMouseMove(Delta.X, Delta.Y);
 			}
 			else
@@ -585,7 +569,7 @@ void FMacApplication::ProcessNSEvent(NSEvent* const Event)
 				NSPoint CursorPos = [NSEvent mouseLocation];
 				CursorPos.y--; // The y coordinate of the point returned by mouseLocation starts from a base of 1
 				const FVector2D MousePosition = FVector2D(CursorPos.x, FPlatformMisc::ConvertSlateYPositionToCocoa(CursorPos.y));
-				FVector2D CurrentPosition = MousePosition * MacCursor->GetMouseScaling();
+				FVector2D CurrentPosition = MousePosition * MouseScaling;
 				const FVector2D MouseDelta = CurrentPosition - MacCursor->GetPosition();
 				if (MacCursor->UpdateCursorClipping(CurrentPosition))
 				{
@@ -711,6 +695,7 @@ void FMacApplication::ProcessNSEvent(NSEvent* const Event)
 			}
 
 			FPlatformMisc::bChachedMacMenuStateNeedsUpdate = true;
+			DraggedWindow = nullptr;
 			break;
 		}
 
@@ -842,7 +827,6 @@ void FMacApplication::ProcessNSEvent(NSEvent* const Event)
 		}
 	}
 
-	[Event ResetWindow];
 	bIsProcessingNSEvent = bWasProcessingNSEvent;
 }
 
@@ -877,7 +861,7 @@ FCocoaWindow* FMacApplication::FindEventWindow( NSEvent* Event )
 			break;
 	}
 
-	FCocoaWindow* EventWindow = (FCocoaWindow*)[Event GetWindow];
+	FCocoaWindow* EventWindow = (FCocoaWindow*)[Event window];
 
 	if ([Event type] == NSMouseMoved)
 	{
@@ -974,6 +958,8 @@ void FMacApplication::OnApplicationDidBecomeActive()
 			}
 		}
 	}
+	
+	static_cast<FMacCursor*>( Cursor.Get() )->UpdateVisibility();
 
 	// If editor thread doesn't have the focus, don't suck up too much CPU time.
 	if (GIsEditor && !IsRunningCommandlet())
@@ -1017,6 +1003,8 @@ void FMacApplication::OnApplicationWillResignActive()
 			}
 		}
 	}
+	
+	static_cast<FMacCursor*>( Cursor.Get() )->UpdateVisibility();
 
 	// If editor thread doesn't have the focus, don't suck up too much CPU time.
 	if (GIsEditor && !IsRunningCommandlet())
@@ -1074,8 +1062,7 @@ void FMacApplication::PollGameDeviceState( const float TimeDelta )
 void FMacApplication::SetHighPrecisionMouseMode( const bool Enable, const TSharedPtr< FGenericWindow >& InWindow )
 {
 	bUsingHighPrecisionMouseInput = Enable;
-	HighPrecisionMousePos = static_cast<FMacCursor*>( Cursor.Get() )->GetPosition();
-	static_cast<FMacCursor*>( Cursor.Get() )->AssociateMouseAndCursorPosition( !Enable );
+	static_cast<FMacCursor*>( Cursor.Get() )->SetHighPrecisionMouseMode( Enable );
 }
 
 FModifierKeysState FMacApplication::GetModifierKeys() const

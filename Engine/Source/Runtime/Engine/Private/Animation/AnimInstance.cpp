@@ -473,6 +473,9 @@ void UAnimInstance::UpdateAnimation(float DeltaSeconds)
 	// now trigger Notifies
 	TriggerAnimNotifies(DeltaSeconds);
 
+	// Trigger Montage end events after notifies. In case Montage ending ends abilities or other states, we make sure notifies are processed before montage events.
+	TriggerQueuedMontageEvents();
+
 	// Add 0.0 curves to clear parameters that we have previously set but didn't set this tick.
 	//   - Make a copy of MaterialParametersToClear as it will be modified by AddCurveValue
 	TArray<FName> ParamsToClearCopy = MaterialParamatersToClear;
@@ -1762,6 +1765,9 @@ void UAnimInstance::Montage_UpdateWeight(float DeltaSeconds)
 
 void UAnimInstance::Montage_Advance(float DeltaSeconds)
 {
+	// We're about to tick montages, queue their events to they're triggered after batched anim notifies.
+	bQueueMontageEvents = true;
+
 	// go through all montage instances, and update them
 	// and make sure their weight is updated properly
 	for (int32 InstanceIndex = 0; InstanceIndex<MontageInstances.Num(); InstanceIndex++)
@@ -1805,6 +1811,67 @@ void UAnimInstance::Montage_Advance(float DeltaSeconds)
 			}
 #endif
 		}
+	}
+}
+
+void UAnimInstance::QueueMontageBlendingOutEvent(const FQueuedMontageBlendingOutEvent& MontageBlendingOutEvent)
+{
+	if (bQueueMontageEvents)
+	{
+		QueuedMontageBlendingOutEvents.Add(MontageBlendingOutEvent);
+	}
+	else
+	{
+		TriggerMontageBlendingOutEvent(MontageBlendingOutEvent);
+	}
+}
+
+void UAnimInstance::TriggerMontageBlendingOutEvent(const FQueuedMontageBlendingOutEvent& MontageBlendingOutEvent)
+{
+	MontageBlendingOutEvent.Delegate.ExecuteIfBound(MontageBlendingOutEvent.Montage, MontageBlendingOutEvent.bInterrupted);
+	OnMontageBlendingOut.Broadcast(MontageBlendingOutEvent.Montage, MontageBlendingOutEvent.bInterrupted);
+}
+
+void UAnimInstance::QueueMontageEndedEvent(const FQueuedMontageEndedEvent& MontageEndedEvent)
+{
+	if (bQueueMontageEvents)
+	{
+		QueuedMontageEndedEvents.Add(MontageEndedEvent);
+	}
+	else
+	{
+		TriggerMontageEndedEvent(MontageEndedEvent);
+	}
+}
+
+void UAnimInstance::TriggerMontageEndedEvent(const FQueuedMontageEndedEvent& MontageEndedEvent)
+{
+	MontageEndedEvent.Delegate.ExecuteIfBound(MontageEndedEvent.Montage, MontageEndedEvent.bInterrupted);
+	OnMontageEnded.Broadcast(MontageEndedEvent.Montage, MontageEndedEvent.bInterrupted);
+}
+
+void UAnimInstance::TriggerQueuedMontageEvents()
+{
+	// We don't need to queue montage events anymore.
+	bQueueMontageEvents = false;
+
+	// Trigger Montage blending out before Ended events.
+	if (QueuedMontageBlendingOutEvents.Num() > 0)
+	{
+		for (auto MontageBlendingOutEvent : QueuedMontageBlendingOutEvents)
+		{
+			TriggerMontageBlendingOutEvent(MontageBlendingOutEvent);
+		}
+		QueuedMontageBlendingOutEvents.Empty();
+	}
+
+	if (QueuedMontageEndedEvents.Num() > 0)
+	{
+		for (auto MontageEndedEvent : QueuedMontageEndedEvents)
+		{
+			TriggerMontageEndedEvent(MontageEndedEvent);
+		}
+		QueuedMontageEndedEvents.Empty();
 	}
 }
 
@@ -2185,14 +2252,14 @@ FName UAnimInstance::Montage_GetCurrentSection(UAnimMontage* Montage)
 	return NAME_None;
 }
 
-void UAnimInstance::Montage_SetEndDelegate(FOnMontageEnded & OnMontageEnded, UAnimMontage* Montage)
+void UAnimInstance::Montage_SetEndDelegate(FOnMontageEnded & InOnMontageEnded, UAnimMontage* Montage)
 {
 	if (Montage)
 	{
 		FAnimMontageInstance * MontageInstance = GetActiveInstanceForMontage(*Montage);
 		if (MontageInstance)
 		{
-			MontageInstance->OnMontageEnded = OnMontageEnded;
+			MontageInstance->OnMontageEnded = InOnMontageEnded;
 		}
 	}
 	else
@@ -2203,20 +2270,20 @@ void UAnimInstance::Montage_SetEndDelegate(FOnMontageEnded & OnMontageEnded, UAn
 			FAnimMontageInstance * MontageInstance = MontageInstances[InstanceIndex];
 			if (MontageInstance && MontageInstance->IsActive())
 			{
-				MontageInstance->OnMontageEnded = OnMontageEnded;
+				MontageInstance->OnMontageEnded = InOnMontageEnded;
 			}
 		}
 	}
 }
 
-void UAnimInstance::Montage_SetBlendingOutDelegate(FOnMontageBlendingOutStarted & OnMontageBlendingOut, UAnimMontage* Montage)
+void UAnimInstance::Montage_SetBlendingOutDelegate(FOnMontageBlendingOutStarted & InOnMontageBlendingOut, UAnimMontage* Montage)
 {
 	if (Montage)
 	{
 		FAnimMontageInstance * MontageInstance = GetActiveInstanceForMontage(*Montage);
 		if (MontageInstance)
 		{
-			MontageInstance->OnMontageBlendingOutStarted = OnMontageBlendingOut;
+			MontageInstance->OnMontageBlendingOutStarted = InOnMontageBlendingOut;
 		}
 	}
 	else
@@ -2227,7 +2294,7 @@ void UAnimInstance::Montage_SetBlendingOutDelegate(FOnMontageBlendingOutStarted 
 			FAnimMontageInstance * MontageInstance = MontageInstances[InstanceIndex];
 			if (MontageInstance && MontageInstance->IsActive())
 			{
-				MontageInstance->OnMontageBlendingOutStarted = OnMontageBlendingOut;
+				MontageInstance->OnMontageBlendingOutStarted = InOnMontageBlendingOut;
 			}
 		}
 	}

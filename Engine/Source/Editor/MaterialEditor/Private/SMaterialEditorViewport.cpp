@@ -335,11 +335,6 @@ void SMaterialEditorViewport::SetPreviewMaterial(UMaterialInterface* InMaterialI
 	}
 }
 
-void SMaterialEditorViewport::ToggleRealtime()
-{
-	EditorViewportClient->ToggleRealtime();
-}
-
 TSharedRef<FUICommandList> SMaterialEditorViewport::GetMaterialEditorCommands() const
 {
 	check(MaterialEditorPtr.IsValid());
@@ -391,7 +386,8 @@ void SMaterialEditorViewport::BindCommands()
 	ToolkitCommandList->MapAction(
 		Commands.SetPreviewMeshFromSelection,
 		FExecuteAction::CreateSP( this, &SMaterialEditorViewport::OnSetPreviewMeshFromSelection ),
-		FCanExecuteAction());
+		FCanExecuteAction(),
+		FIsActionChecked::CreateSP( this, &SMaterialEditorViewport::IsPreviewMeshFromSelectionChecked ) );
 
 	ToolkitCommandList->MapAction(
 		Commands.TogglePreviewGrid,
@@ -491,6 +487,11 @@ void SMaterialEditorViewport::OnSetPreviewMeshFromSelection()
 		FSuppressableWarningDialog NoPreviewMeshWarning( Info );
 		NoPreviewMeshWarning.ShowModal();
 	}
+}
+
+bool SMaterialEditorViewport::IsPreviewMeshFromSelectionChecked() const
+{
+	return (PreviewPrimType == TPT_None && PreviewMeshComponent != nullptr);
 }
 
 void SMaterialEditorViewport::TogglePreviewGrid()

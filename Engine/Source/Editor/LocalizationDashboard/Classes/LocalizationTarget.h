@@ -14,6 +14,66 @@ enum class ELocalizationTargetStatus : uint8
 };
 
 USTRUCT()
+struct FGatherTextFromTextFilesConfiguration
+{
+	GENERATED_USTRUCT_BODY()
+
+	UPROPERTY(config, EditAnywhere, Category = "Filter")
+	TArray<FString> SearchDirectories;
+
+	UPROPERTY(config, EditAnywhere, Category = "Filter")
+	TArray<FString> ExcludePathWildcards;
+
+	UPROPERTY(config, EditAnywhere, Category = "Filter")
+	TArray<FString> FileExtensions;
+};
+
+USTRUCT()
+struct FGatherTextFromPackagesConfiguration
+{
+	GENERATED_USTRUCT_BODY()
+
+	UPROPERTY(config, EditAnywhere, Category = "Filter")
+	TArray<FString> IncludePathWildcards;
+
+	UPROPERTY(config, EditAnywhere, Category = "Filter")
+	TArray<FString> ExcludePathWildcards;
+
+	UPROPERTY(config, EditAnywhere, Category = "Filter")
+	TArray<FString> FileExtensions;
+};
+
+USTRUCT()
+struct FMetaDataKeyGatherSpecification
+{
+	GENERATED_USTRUCT_BODY()
+
+	UPROPERTY(config, EditAnywhere, Category = "Input")
+	FString MetaDataKey;
+
+	UPROPERTY(config, EditAnywhere, Category = "Output")
+	FString TextNamespace;
+
+	UPROPERTY(config, EditAnywhere, Category = "Output")
+	FString TextKeyPattern;
+};
+
+USTRUCT()
+struct FGatherTextFromMetaDataConfiguration
+{
+	GENERATED_USTRUCT_BODY()
+
+	UPROPERTY(config, EditAnywhere, Category = "Filter")
+	TArray<FString> IncludePathWildcards;
+
+	UPROPERTY(config, EditAnywhere, Category = "Filter")
+	TArray<FString> ExcludePathWildcards;
+
+	UPROPERTY(config, EditAnywhere, Category = "MetaData")
+	TArray<FMetaDataKeyGatherSpecification> KeySpecifications;
+};
+
+USTRUCT()
 struct FCultureStatistics
 {
 	GENERATED_USTRUCT_BODY()
@@ -44,10 +104,19 @@ struct FLocalizationTargetSettings
 	UPROPERTY(Transient, EditAnywhere, Category = "Target")
 	ELocalizationTargetStatus Status;
 
-	UPROPERTY(config, EditAnywhere, Category = "Target")
+	UPROPERTY(config, EditAnywhere, Category = "Gather Configuration")
 	TArray<FString> TargetDependencies;
 
-	UPROPERTY(config, EditAnywhere, Category = "Target", AdvancedDisplay, meta=(FilePathFilter="manifest"))
+	UPROPERTY(config, EditAnywhere, Category = "Gather Configuration")
+	FGatherTextFromTextFilesConfiguration GatherFromTextFiles;
+
+	UPROPERTY(config, EditAnywhere, Category = "Gather Configuration")
+	FGatherTextFromPackagesConfiguration GatherFromPackages;
+
+	UPROPERTY(config, EditAnywhere, Category = "Gather Configuration")
+	FGatherTextFromMetaDataConfiguration GatherFromMetaData;
+
+	UPROPERTY(config, EditAnywhere, Category = "Gather Configuration", AdvancedDisplay, meta=(FilePathFilter="manifest"))
 	TArray<FFilePath> AdditionalManifestDependencies;
 
 	UPROPERTY(config, EditAnywhere, Category = "Cultures")
@@ -55,11 +124,6 @@ struct FLocalizationTargetSettings
 
 	UPROPERTY(config, EditAnywhere, Category = "Cultures")
 	TArray<FCultureStatistics> SupportedCulturesStatistics;
-
-	bool UpdateWordCountsFromCSV();
-	void UpdateStatusFromConflictReport();
-	bool Rename(const FString& NewName);
-	bool DeleteFiles(const FString* const Culture = nullptr) const;
 };
 
 UCLASS(Within=LocalizationTargetSet)
@@ -75,6 +139,11 @@ public:
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
+
+	bool UpdateWordCountsFromCSV();
+	void UpdateStatusFromConflictReport();
+	bool RenameTargetAndFiles(const FString& NewName);
+	bool DeleteFiles(const FString* const Culture = nullptr) const;
 };
 
 UCLASS(Config=Game, defaultconfig)

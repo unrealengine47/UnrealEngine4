@@ -126,6 +126,26 @@ void FKismet2CompilerModule::CompileBlueprint(class UBlueprint* Blueprint, const
 		FKismetCompilerOptions SkeletonCompileOptions;
 		SkeletonCompileOptions.CompileType = EKismetCompileType::SkeletonOnly;
 		CompileBlueprintInner(Blueprint, SkeletonCompileOptions, SkeletonResults, ObjLoaded);
+
+		// Relink the child classes
+		TArray<UClass*> ChildrenOfClass;
+		GetDerivedClasses(Blueprint->SkeletonGeneratedClass, ChildrenOfClass);
+		for ( UClass* ChildClass : ChildrenOfClass )
+		{
+			ChildClass->AssembleReferenceTokenStream();
+			ChildClass->SetSuperStruct(Blueprint->SkeletonGeneratedClass);
+
+			auto BPGDuplicatedClass = Cast<UBlueprintGeneratedClass>(ChildClass);
+			auto DuplicatedClassUberGraphFunction = BPGDuplicatedClass ? BPGDuplicatedClass->UberGraphFunction : nullptr;
+			if (DuplicatedClassUberGraphFunction)
+			{
+				DuplicatedClassUberGraphFunction->Bind();
+				DuplicatedClassUberGraphFunction->StaticLink(true);
+			}
+
+			ChildClass->Bind();
+			ChildClass->StaticLink(true);
+		}
 	}
 
 	// If this was a full compile, take appropriate actions depending on the success of failure of the compile
@@ -168,8 +188,8 @@ void FKismet2CompilerModule::CompileBlueprint(class UBlueprint* Blueprint, const
 					ParentReinstancer->ReinstanceObjects();
 				}
 			}
-
-			auto StubReinstancer = FBlueprintCompileReinstancer::Create(Blueprint->GeneratedClass);
+			const bool bBytecodeOnly = EKismetCompileType::BytecodeOnly == CompileOptions.CompileType;
+			auto StubReinstancer = FBlueprintCompileReinstancer::Create(Blueprint->GeneratedClass, bBytecodeOnly);
 
 			// Toss the half-baked class and generate a stubbed out skeleton class that can be used
 			FCompilerResultsLog StubResults;

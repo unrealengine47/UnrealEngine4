@@ -547,9 +547,9 @@ FSkeletalMeshVertexColorBuffer& FSkeletalMeshVertexColorBuffer::operator=(const 
 	return *this;
 }
 
-void FSkeletalMeshVertexColorBuffer::ResizeData(int32 NumVertices)
+void FSkeletalMeshVertexColorBuffer::ResizeData(int32 InNumVertices)
 {
-	VertexData->ResizeBuffer(NumVertices);
+	VertexData->ResizeBuffer(InNumVertices);
 	UpdateCachedInfo();
 }
 
@@ -2711,6 +2711,7 @@ void USkeletalMesh::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) con
 #if WITH_EDITOR
 void USkeletalMesh::GetAssetRegistryTagMetadata(TMap<FName, FAssetRegistryTagMetadata>& OutMetadata) const
 {
+	Super::GetAssetRegistryTagMetadata(OutMetadata);
 	OutMetadata.Add("PhysicsAsset", FAssetRegistryTagMetadata().SetImportantValue(TEXT("None")));
 }
 #endif

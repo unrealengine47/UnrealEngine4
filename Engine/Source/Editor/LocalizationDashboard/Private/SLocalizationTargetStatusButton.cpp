@@ -3,6 +3,7 @@
 #include "LocalizationDashboardPrivatePCH.h"
 #include "SLocalizationTargetStatusButton.h"
 #include "LocalizationCommandletExecution.h"
+#include "LocalizationCommandletTasks.h"
 
 #define LOCTEXT_NAMESPACE "LocalizationTargetStatusButton"
 
@@ -85,13 +86,10 @@ FReply SLocalizationTargetStatusButton::OnClicked()
 	case ELocalizationTargetStatus::Unknown:
 		{
 			// Generate conflict report.
-			const FString ReportScriptPath = LocalizationConfigurationScript::GetReportScriptPath(Target->Settings);
-			LocalizationConfigurationScript::GenerateReportScript(Target->Settings).Write(ReportScriptPath);
-			TSharedPtr<FLocalizationCommandletProcess> ReportProcess = FLocalizationCommandletProcess::Execute(ReportScriptPath);
-			if (ReportProcess.IsValid())
+			const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(AsShared());
+			if (LocalizationCommandletTasks::GenerateReportsForTarget(ParentWindow.ToSharedRef(), Target))
 			{
-				FPlatformProcess::WaitForProc(ReportProcess->GetHandle());
-				Target->Settings.UpdateStatusFromConflictReport();
+				Target->UpdateStatusFromConflictReport();
 			}
 		}
 		break;
@@ -100,7 +98,7 @@ FReply SLocalizationTargetStatusButton::OnClicked()
 		break;
 	case ELocalizationTargetStatus::ConflictsPresent:
 		FString ReportString;
-		if (FFileHelper::LoadFileToString(ReportString, *LocalizationConfigurationScript::GetConflictReportPath(Target->Settings)))
+		if (FFileHelper::LoadFileToString(ReportString, *LocalizationConfigurationScript::GetConflictReportPath(Target)))
 		{
 			TSharedPtr<SWindow> ReportWindow =
 				SNew(SWindow)

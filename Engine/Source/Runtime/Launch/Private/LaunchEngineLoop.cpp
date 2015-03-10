@@ -358,15 +358,23 @@ void LaunchFixGameNameCase()
 #endif	//PLATFORM_DESKTOP
 }
 
-static IPlatformFile* ConditionallyCreateFileWrapper(const TCHAR* Name, IPlatformFile* CurrentPlatformFile, const TCHAR* CommandLine, bool* OutFailedToInitialize = NULL)
+static IPlatformFile* ConditionallyCreateFileWrapper(const TCHAR* Name, IPlatformFile* CurrentPlatformFile, const TCHAR* CommandLine, bool* OutFailedToInitialize = NULL, bool* bOutShouldBeUsed = NULL )
 {
 	if (OutFailedToInitialize)
 	{
 		*OutFailedToInitialize = false;
 	}
+	if ( bOutShouldBeUsed )
+	{
+		*bOutShouldBeUsed = false;
+	}
 	IPlatformFile* WrapperFile = FPlatformFileManager::Get().GetPlatformFile(Name);
 	if (WrapperFile != NULL && WrapperFile->ShouldBeUsed(CurrentPlatformFile, CommandLine))
 	{
+		if ( bOutShouldBeUsed )
+		{
+			*bOutShouldBeUsed = true;
+		}
 		if (WrapperFile->Initialize(CurrentPlatformFile, CommandLine) == false)
 		{
 			if (OutFailedToInitialize)
@@ -427,15 +435,17 @@ bool LaunchCheckForFileOverride(const TCHAR* CmdLine, bool& OutFileOverrideFound
 	bool bNetworkFailedToInitialize = false;
 	do
 	{
-		IPlatformFile* NetworkPlatformFile = ConditionallyCreateFileWrapper(TEXT("StreamingFile"), CurrentPlatformFile, CmdLine, &bNetworkFailedToInitialize);
+		bool bShouldUseStreamingFile = false;
+		IPlatformFile* NetworkPlatformFile = ConditionallyCreateFileWrapper(TEXT("StreamingFile"), CurrentPlatformFile, CmdLine, &bNetworkFailedToInitialize, &bShouldUseStreamingFile);
 		if (NetworkPlatformFile)
 		{
 			CurrentPlatformFile = NetworkPlatformFile;
 			FPlatformFileManager::Get().SetPlatformFile(*CurrentPlatformFile);
 		}
 
+		// if streaming network platform file was tried this loop don't try this one
 		// Network file wrapper (only create if the streaming wrapper hasn't been created)
-		if (!NetworkPlatformFile)
+		if ( !bShouldUseStreamingFile && !NetworkPlatformFile)
 		{
 			NetworkPlatformFile = ConditionallyCreateFileWrapper(TEXT("NetworkFile"), CurrentPlatformFile, CmdLine, &bNetworkFailedToInitialize);
 			if (NetworkPlatformFile)
@@ -444,6 +454,7 @@ bool LaunchCheckForFileOverride(const TCHAR* CmdLine, bool& OutFileOverrideFound
 				FPlatformFileManager::Get().SetPlatformFile(*CurrentPlatformFile);
 			}
 		}
+		
 
 		if (bNetworkFailedToInitialize)
 		{
@@ -1377,15 +1388,15 @@ int32 FEngineLoop::PreInit( const TCHAR* CmdLine )
 		GetMoviePlayer()->Initialize();
 		GetMoviePlayer()->PlayMovie();
 
-        // do any post appInit processing, before the render thread is started.
-        FPlatformMisc::PlatformPostInit(!GetMoviePlayer()->IsMovieCurrentlyPlaying());
-    }
-    else
+		// do any post appInit processing, before the render thread is started.
+		FPlatformMisc::PlatformPostInit(!GetMoviePlayer()->IsMovieCurrentlyPlaying());
+	}
+	else
 #endif
-    {
-        // do any post appInit processing, before the render thread is started.
-        FPlatformMisc::PlatformPostInit(true);
-    }
+	{
+		// do any post appInit processing, before the render thread is started.
+		FPlatformMisc::PlatformPostInit(true);
+	}
 	SlowTask.EnterProgressFrame(5);
 
 	if (GUseThreadedRendering)
@@ -1797,14 +1808,29 @@ bool FEngineLoop::LoadStartupCoreModules()
 		FModuleManager::LoadModuleChecked<IEditorStyleModule>("EditorStyle");
 #endif //WITH_EDITOR
 
-	// Load all Development modules
-	SlowTask.EnterProgressFrame(30);
-	if (!IsRunningDedicatedServer())
+	// Load UI modules
+	SlowTask.EnterProgressFrame(10);
+	if ( !IsRunningDedicatedServer() )
 	{
 		FModuleManager::Get().LoadModule("Slate");
+	}
+
+#if WITH_EDITOR
+	// In dedicated server builds with the editor, we need to load UMG/UMGEditor for compiling blueprints.
+	// UMG must be loaded for runtime and cooking.
+	FModuleManager::Get().LoadModule("UMG");
+#else
+	if ( !IsRunningDedicatedServer() )
+	{
 		// UMG must be loaded for runtime and cooking.
 		FModuleManager::Get().LoadModule("UMG");
+	}
+#endif //WITH_EDITOR
 
+	// Load all Development modules
+	SlowTask.EnterProgressFrame(20);
+	if (!IsRunningDedicatedServer())
+	{
 #if WITH_UNREAL_DEVELOPER_TOOLS
 		FModuleManager::Get().LoadModule("MessageLog");
 		FModuleManager::Get().LoadModule("CollisionAnalyzer");

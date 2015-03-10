@@ -4,6 +4,24 @@
 #include "LocalizationConfigurationScript.h"
 #include "Classes/LocalizationTarget.h"
 
+namespace
+{
+	bool IsMemberOfUE4TargetSet(const ULocalizationTarget* const Target)
+	{
+		return false;
+	}
+
+	FString GetConfigDir(const ULocalizationTarget* const Target)
+	{
+		return IsMemberOfUE4TargetSet(Target) ? FPaths::EngineConfigDir() : FPaths::GameConfigDir();
+	}
+
+	FString GetContentDir(const ULocalizationTarget* const Target)
+	{
+		return IsMemberOfUE4TargetSet(Target) ? FPaths::EngineContentDir() : FPaths::GameContentDir();
+	}
+}
+
 namespace LocalizationConfigurationScript
 {
 	FString MakePathRelativeToProjectDirectory(const FString& Path)
@@ -13,17 +31,17 @@ namespace LocalizationConfigurationScript
 		return Result;
 	}
 
-	FString GetScriptDirectory()
+	FString GetScriptDirectory(const ULocalizationTarget* const Target)
 	{
-		return FPaths::GameConfigDir() / TEXT("Localization");
+		return GetConfigDir(Target) / TEXT("Localization");
 	}
 
-	FString GetDataDirectory(const FLocalizationTargetSettings& Target)
+	FString GetDataDirectory(const ULocalizationTarget* const Target)
 	{
-		return FPaths::GameContentDir() / TEXT("Localization") / Target.Name;
+		return GetContentDir(Target) / TEXT("Localization") / Target->Settings.Name;
 	}
 
-	TArray<FString> GetScriptPaths(const FLocalizationTargetSettings& Target)
+	TArray<FString> GetScriptPaths(const ULocalizationTarget* const Target)
 	{
 		TArray<FString> Result;
 		Result.Add(GetGatherScriptPath(Target));
@@ -33,81 +51,78 @@ namespace LocalizationConfigurationScript
 		return Result;
 	}
 
-	FString GetManifestPath(const FLocalizationTargetSettings& Target)
+	FString GetManifestPath(const ULocalizationTarget* const Target)
 	{
-		return GetDataDirectory(Target) / FString::Printf( TEXT("%s.%s"), *Target.Name, TEXT("manifest") );
+		return GetDataDirectory(Target) / FString::Printf( TEXT("%s.%s"), *Target->Settings.Name, TEXT("manifest") );
 	}
 
-	FString GetArchivePath(const FLocalizationTargetSettings& Target, const FString& CultureName)
+	FString GetArchivePath(const ULocalizationTarget* const Target, const FString& CultureName)
 	{
-		return GetDataDirectory(Target) / CultureName / FString::Printf( TEXT("%s.%s"), *Target.Name, TEXT("archive") );
+		return GetDataDirectory(Target) / CultureName / FString::Printf( TEXT("%s.%s"), *Target->Settings.Name, TEXT("archive") );
 	}
 
-	FString GetDefaultPOFileName(const FLocalizationTargetSettings& Target)
+	FString GetDefaultPOFileName(const ULocalizationTarget* const Target)
 	{
-		return FString::Printf( TEXT("%s.%s"), *Target.Name, TEXT("po") );
+		return FString::Printf( TEXT("%s.%s"), *Target->Settings.Name, TEXT("po") );
 	}
 
-	FString GetDefaultPOPath(const FLocalizationTargetSettings& Target, const FString& CultureName)
+	FString GetDefaultPOPath(const ULocalizationTarget* const Target, const FString& CultureName)
 	{
 		return GetDataDirectory(Target) / CultureName / GetDefaultPOFileName(Target);
 	}
 
-	FString GetLocResPath(const FLocalizationTargetSettings& Target, const FString& CultureName)
+	FString GetLocResPath(const ULocalizationTarget* const Target, const FString& CultureName)
 	{
-		return GetDataDirectory(Target) / CultureName / FString::Printf( TEXT("%s.%s"), *Target.Name, TEXT("locres") );
+		return GetDataDirectory(Target) / CultureName / FString::Printf( TEXT("%s.%s"), *Target->Settings.Name, TEXT("locres") );
 	}
 
-	FString GetWordCountCSVPath(const FLocalizationTargetSettings& Target)
+	FString GetWordCountCSVPath(const ULocalizationTarget* const Target)
 	{
-		return GetDataDirectory(Target) / FString::Printf( TEXT("%s.%s"), *Target.Name, TEXT("csv") );
+		return GetDataDirectory(Target) / FString::Printf( TEXT("%s.%s"), *Target->Settings.Name, TEXT("csv") );
 	}
 
-	FString GetConflictReportPath(const FLocalizationTargetSettings& Target)
+	FString GetConflictReportPath(const ULocalizationTarget* const Target)
 	{
-		return GetDataDirectory(Target) / FString::Printf( TEXT("%s_Conflicts.%s"), *Target.Name, TEXT("txt") );
+		return GetDataDirectory(Target) / FString::Printf( TEXT("%s_Conflicts.%s"), *Target->Settings.Name, TEXT("txt") );
 	}
 
-	FLocalizationConfigurationScript GenerateGatherScript(const FLocalizationTargetSettings& Target)
+	FLocalizationConfigurationScript GenerateGatherScript(const ULocalizationTarget* const Target)
 	{
 		FLocalizationConfigurationScript Script;
 
-		const bool HasSourceCode = IFileManager::Get().DirectoryExists( *FPaths::GameSourceDir() );
-
-		const FString ConfigDirRelativeToGameDir = MakePathRelativeToProjectDirectory(FPaths::GameConfigDir());
-		const FString SourceDirRelativeToGameDir = MakePathRelativeToProjectDirectory(FPaths::GameSourceDir());
-		const FString ContentDirRelativeToGameDir = MakePathRelativeToProjectDirectory(FPaths::GameContentDir());
+		const FString ConfigDirRelativeToGameDir = MakePathRelativeToProjectDirectory(GetConfigDir(Target));
+		const FString ContentDirRelativeToGameDir = MakePathRelativeToProjectDirectory(GetContentDir(Target));
 
 		// CommonSettings
 		{
 			FConfigSection& ConfigSection = Script.CommonSettings();
 
 			const ULocalizationTargetSet* const LocalizationTargetSet = GetDefault<ULocalizationTargetSet>(ULocalizationTargetSet::StaticClass());
-			for (const FString& TargetDependencyName : Target.TargetDependencies)
+			for (const FString& TargetDependencyName : Target->Settings.TargetDependencies)
 			{
 				ULocalizationTarget* const * OtherTarget = LocalizationTargetSet->TargetObjects.FindByPredicate([&TargetDependencyName](ULocalizationTarget* const OtherTarget)->bool{return OtherTarget->Settings.Name == TargetDependencyName;});
 				if (OtherTarget)
 				{
-					ConfigSection.Add( TEXT("ManifestDependencies"), MakePathRelativeToProjectDirectory(GetManifestPath((*OtherTarget)->Settings)) );
+					ConfigSection.Add( TEXT("ManifestDependencies"), MakePathRelativeToProjectDirectory(GetManifestPath(*OtherTarget)) );
 				}
 			}
 
-			for (const FFilePath& Path : Target.AdditionalManifestDependencies)
+			for (const FFilePath& Path : Target->Settings.AdditionalManifestDependencies)
 			{
 				ConfigSection.Add( TEXT("ManifestDependencies"), MakePathRelativeToProjectDirectory(Path.FilePath) );
 			}
 
-			const FString SourcePath = ContentDirRelativeToGameDir / TEXT("Localization") / Target.Name;
+			const FString SourcePath = ContentDirRelativeToGameDir / TEXT("Localization") / Target->Settings.Name;
 			ConfigSection.Add( TEXT("SourcePath"), SourcePath );
-			const FString DestinationPath = ContentDirRelativeToGameDir / TEXT("Localization") / Target.Name;
+			const FString DestinationPath = ContentDirRelativeToGameDir / TEXT("Localization") / Target->Settings.Name;
 			ConfigSection.Add( TEXT("DestinationPath"), DestinationPath );
 
 			ConfigSection.Add( TEXT("ManifestName"), FPaths::GetCleanFilename(GetManifestPath(Target)) );
 			ConfigSection.Add( TEXT("ArchiveName"), FPaths::GetCleanFilename(GetArchivePath(Target, FString())) );
 
-			ConfigSection.Add( TEXT("SourceCulture"), Target.NativeCultureStatistics.CultureName );
-			ConfigSection.Add( TEXT("CulturesToGenerate"), Target.NativeCultureStatistics.CultureName );
-			for (const FCultureStatistics& CultureStatistics : Target.SupportedCulturesStatistics)
+			ConfigSection.Add( TEXT("SourceCulture"), Target->Settings.NativeCultureStatistics.CultureName );
+			ConfigSection.Add( TEXT("CulturesToGenerate"), Target->Settings.NativeCultureStatistics.CultureName );
+			for (const FCultureStatistics& CultureStatistics : Target->Settings.SupportedCulturesStatistics)
 			{
 				ConfigSection.Add( TEXT("CulturesToGenerate"), CultureStatistics.CultureName );
 			}
@@ -115,6 +130,7 @@ namespace LocalizationConfigurationScript
 
 		uint32 GatherTextStepIndex = 0;
 		// GatherTextFromSource
+		if (Target->Settings.GatherFromTextFiles.SearchDirectories.Num() && Target->Settings.GatherFromTextFiles.FileExtensions.Num()) // Don't gather from source if there are no source files.
 		{
 			FConfigSection& ConfigSection = Script.GatherTextStep(GatherTextStepIndex++);
 
@@ -122,40 +138,80 @@ namespace LocalizationConfigurationScript
 			ConfigSection.Add( TEXT("CommandletClass"), TEXT("GatherTextFromSource") );
 
 			// Include Paths
-			if (HasSourceCode) 
+			for (const auto& IncludePath : Target->Settings.GatherFromTextFiles.SearchDirectories)
 			{
-				ConfigSection.Add( TEXT("IncludePaths"), SourceDirRelativeToGameDir );
+				ConfigSection.Add( TEXT("IncludePaths"), IncludePath );
 			}
-			ConfigSection.Add( TEXT("IncludePaths"), ConfigDirRelativeToGameDir );
 
 			// Exclude Paths
 			ConfigSection.Add( TEXT("ExcludePaths"), ConfigDirRelativeToGameDir / TEXT("Localization") );
-
-			// SourceFileSearchFilters
-			if (HasSourceCode)
+			for (const auto& ExcludePath : Target->Settings.GatherFromTextFiles.ExcludePathWildcards)
 			{
-				ConfigSection.Add( TEXT("SourceFileSearchFilters"), TEXT("*.h") );
-				ConfigSection.Add( TEXT("SourceFileSearchFilters"), TEXT("*.cpp") );
+				ConfigSection.Add( TEXT("ExcludePaths"), ExcludePath );
 			}
-			ConfigSection.Add( TEXT("SourceFileSearchFilters"), TEXT("*.ini") );
+
+			// Source File Search Filters
+			for (const auto& FileExtension : Target->Settings.GatherFromTextFiles.FileExtensions)
+			{
+				ConfigSection.Add( TEXT("SourceFileSearchFilters"), FileExtension );
+			}
 		}
 
 		// GatherTextFromAssets
+		if (Target->Settings.GatherFromTextFiles.SearchDirectories.Num() && Target->Settings.GatherFromTextFiles.FileExtensions.Num()) // Don't gather from packages if there are none specified.
 		{
 			FConfigSection& ConfigSection = Script.GatherTextStep(GatherTextStepIndex++);
 
 			// CommandletClass
 			ConfigSection.Add( TEXT("CommandletClass"), TEXT("GatherTextFromAssets") );
 
-			// IncludePaths
-			ConfigSection.Add( TEXT("IncludePaths"), ContentDirRelativeToGameDir );
+			// Include Paths
+			for (const auto& IncludePath : Target->Settings.GatherFromPackages.IncludePathWildcards)
+			{
+				ConfigSection.Add( TEXT("IncludePaths"), IncludePath );
+			}
 
-			// ExcludePaths
+			// Exclude Paths
 			ConfigSection.Add( TEXT("ExcludePaths"), ContentDirRelativeToGameDir / TEXT("Localization") );
+			for (const auto& ExcludePath : Target->Settings.GatherFromPackages.ExcludePathWildcards)
+			{
+				ConfigSection.Add( TEXT("ExcludePaths"), ExcludePath );
+			}
 
-			// PackageExtensions
-			ConfigSection.Add( TEXT("PackageExtensions"), TEXT("*.umap") );
-			ConfigSection.Add( TEXT("PackageExtensions"), TEXT("*.uasset") );
+			// Package Extensions
+			for (const auto& FileExtension : Target->Settings.GatherFromPackages.FileExtensions)
+			{
+				ConfigSection.Add( TEXT("PackageExtensions"), FileExtension );
+			}
+		}
+
+		// GatherTextFromMetadata
+		if (Target->Settings.GatherFromMetaData.IncludePathWildcards.Num() && Target->Settings.GatherFromMetaData.KeySpecifications.Num()) // Don't gather from metadata if there are none specified.
+		{
+			FConfigSection& ConfigSection = Script.GatherTextStep(GatherTextStepIndex++);
+
+			// CommandletClass
+			ConfigSection.Add( TEXT("CommandletClass"), TEXT("GatherTextFromMetadata") );
+
+			// Include Paths
+			for (const auto& IncludePath : Target->Settings.GatherFromMetaData.IncludePathWildcards)
+			{
+				ConfigSection.Add( TEXT("IncludePaths"), IncludePath );
+			}
+
+			// Exclude Paths
+			for (const auto& ExcludePath : Target->Settings.GatherFromMetaData.ExcludePathWildcards)
+			{
+				ConfigSection.Add( TEXT("ExcludePaths"), ExcludePath );
+			}
+
+			// Package Extensions
+			for (const FMetaDataKeyGatherSpecification& Specification : Target->Settings.GatherFromMetaData.KeySpecifications)
+			{
+				ConfigSection.Add( TEXT("InputKeys"), Specification.MetaDataKey );
+				ConfigSection.Add( TEXT("OutputNamespaces"), Specification.TextNamespace );
+				ConfigSection.Add( TEXT("OutputKeys"), FString::Printf(TEXT("\"%s\""), *Specification.TextKeyPattern) );
+			}
 		}
 
 		// GenerateGatherManifest
@@ -167,7 +223,6 @@ namespace LocalizationConfigurationScript
 		}
 
 		// GenerateGatherArchive
-		if (Target.SupportedCulturesStatistics.Num())
 		{
 			FConfigSection& ConfigSection = Script.GatherTextStep(GatherTextStepIndex++);
 
@@ -180,16 +235,16 @@ namespace LocalizationConfigurationScript
 		return Script;
 	}
 
-	FString GetGatherScriptPath(const FLocalizationTargetSettings& Target)
+	FString GetGatherScriptPath(const ULocalizationTarget* const Target)
 	{
-		return GetScriptDirectory() / FString::Printf( TEXT("%s_Gather.%s"), *(Target.Name), TEXT("ini") );
+		return GetScriptDirectory(Target) / FString::Printf( TEXT("%s_Gather.%s"), *(Target->Settings.Name), TEXT("ini") );
 	}
 
-	FLocalizationConfigurationScript GenerateImportScript(const FLocalizationTargetSettings& Target, const TOptional<FString> CultureName, const TOptional<FString> OutputPathOverride)
+	FLocalizationConfigurationScript GenerateImportScript(const ULocalizationTarget* const Target, const TOptional<FString> CultureName, const TOptional<FString> OutputPathOverride)
 	{
 		FLocalizationConfigurationScript Script;
 
-		const FString ContentDirRelativeToGameDir = MakePathRelativeToProjectDirectory(FPaths::GameContentDir());
+		const FString ContentDirRelativeToGameDir = MakePathRelativeToProjectDirectory(GetContentDir(Target));
 
 		// GatherTextStep0 - InternationalizationExport
 		{
@@ -218,16 +273,16 @@ namespace LocalizationConfigurationScript
 			// Use the default PO file's directory path.
 			else
 			{
-				SourcePath = ContentDirRelativeToGameDir / TEXT("Localization") / Target.Name;
+				SourcePath = ContentDirRelativeToGameDir / TEXT("Localization") / Target->Settings.Name;
 			}
 			ConfigSection.Add( TEXT("SourcePath"), SourcePath );
 
-			const FString DestinationPath = ContentDirRelativeToGameDir / TEXT("Localization") / Target.Name;
+			const FString DestinationPath = ContentDirRelativeToGameDir / TEXT("Localization") / Target->Settings.Name;
 			ConfigSection.Add( TEXT("DestinationPath"), DestinationPath );
 
 			const auto& AddCultureToGenerate = [&](const int32 Index)
 			{
-				ConfigSection.Add( TEXT("CulturesToGenerate"), Target.SupportedCulturesStatistics[Index].CultureName );
+				ConfigSection.Add( TEXT("CulturesToGenerate"), Target->Settings.SupportedCulturesStatistics[Index].CultureName );
 			};
 
 			// Export for a specific culture.
@@ -238,7 +293,7 @@ namespace LocalizationConfigurationScript
 			// Export for all cultures.
 			else
 			{
-				for (const FCultureStatistics& CultureStatistics : Target.SupportedCulturesStatistics)
+				for (const FCultureStatistics& CultureStatistics : Target->Settings.SupportedCulturesStatistics)
 				{
 					ConfigSection.Add( TEXT("CulturesToGenerate"), CultureStatistics.CultureName );
 				}
@@ -272,26 +327,26 @@ namespace LocalizationConfigurationScript
 		return Script;
 	}
 
-	FString GetImportScriptPath(const FLocalizationTargetSettings& Target, const TOptional<FString> CultureName)
+	FString GetImportScriptPath(const ULocalizationTarget* const Target, const TOptional<FString> CultureName)
 	{
-		const FString ConfigFileDirectory = GetScriptDirectory();
+		const FString ConfigFileDirectory = GetScriptDirectory(Target);
 		FString ConfigFilePath;
 		if (CultureName.IsSet())
 		{
-			ConfigFilePath = ConfigFileDirectory / FString::Printf( TEXT("%s_Import_%s.%s"), *Target.Name, *CultureName.GetValue(), TEXT("ini") );
+			ConfigFilePath = ConfigFileDirectory / FString::Printf( TEXT("%s_Import_%s.%s"), *Target->Settings.Name, *CultureName.GetValue(), TEXT("ini") );
 		}
 		else
 		{
-			ConfigFilePath = ConfigFileDirectory / FString::Printf( TEXT("%s_Import.%s"), *Target.Name, TEXT("ini") );
+			ConfigFilePath = ConfigFileDirectory / FString::Printf( TEXT("%s_Import.%s"), *Target->Settings.Name, TEXT("ini") );
 		}
 		return ConfigFilePath;
 	}
 
-	FLocalizationConfigurationScript GenerateExportScript(const FLocalizationTargetSettings& Target, const TOptional<FString> CultureName, const TOptional<FString> OutputPathOverride)
+	FLocalizationConfigurationScript GenerateExportScript(const ULocalizationTarget* const Target, const TOptional<FString> CultureName, const TOptional<FString> OutputPathOverride)
 	{
 		FLocalizationConfigurationScript Script;
 
-		const FString ContentDirRelativeToGameDir = MakePathRelativeToProjectDirectory(FPaths::GameContentDir());
+		const FString ContentDirRelativeToGameDir = MakePathRelativeToProjectDirectory(GetContentDir(Target));
 
 		// GatherTextStep0 - InternationalizationExport
 		{
@@ -302,7 +357,7 @@ namespace LocalizationConfigurationScript
 
 			ConfigSection.Add( TEXT("bExportLoc"), TEXT("true") );
 
-			const FString SourcePath = ContentDirRelativeToGameDir / TEXT("Localization") / Target.Name;
+			const FString SourcePath = ContentDirRelativeToGameDir / TEXT("Localization") / Target->Settings.Name;
 			ConfigSection.Add( TEXT("SourcePath"), SourcePath );
 
 			FString DestinationPath;
@@ -323,13 +378,13 @@ namespace LocalizationConfigurationScript
 			// Use the default PO file's directory path.
 			else
 			{
-				DestinationPath = ContentDirRelativeToGameDir / TEXT("Localization") / Target.Name;
+				DestinationPath = ContentDirRelativeToGameDir / TEXT("Localization") / Target->Settings.Name;
 			}
 			ConfigSection.Add( TEXT("DestinationPath"), DestinationPath );
 
 			TArray<const FCultureStatistics*> AllCultureStatistics;
-			AllCultureStatistics.Add(&Target.NativeCultureStatistics);
-			for (const FCultureStatistics& SupportedCultureStatistics : Target.SupportedCulturesStatistics)
+			AllCultureStatistics.Add(&Target->Settings.NativeCultureStatistics);
+			for (const FCultureStatistics& SupportedCultureStatistics : Target->Settings.SupportedCulturesStatistics)
 			{
 				AllCultureStatistics.Add(&SupportedCultureStatistics);
 			}
@@ -382,26 +437,26 @@ namespace LocalizationConfigurationScript
 		return Script;
 	}
 
-	FString GetExportScriptPath(const FLocalizationTargetSettings& Target, const TOptional<FString> CultureName)
+	FString GetExportScriptPath(const ULocalizationTarget* const Target, const TOptional<FString> CultureName)
 	{
-		const FString ConfigFileDirectory = GetScriptDirectory();
+		const FString ConfigFileDirectory = GetScriptDirectory(Target);
 		FString ConfigFilePath;
 		if (CultureName.IsSet())
 		{
-			ConfigFilePath = ConfigFileDirectory / FString::Printf( TEXT("%s_Export_%s.%s"), *Target.Name, *CultureName.GetValue(), TEXT("ini") );
+			ConfigFilePath = ConfigFileDirectory / FString::Printf( TEXT("%s_Export_%s.%s"), *Target->Settings.Name, *CultureName.GetValue(), TEXT("ini") );
 		}
 		else
 		{
-			ConfigFilePath = ConfigFileDirectory / FString::Printf( TEXT("%s_Export.%s"), *Target.Name, TEXT("ini") );
+			ConfigFilePath = ConfigFileDirectory / FString::Printf( TEXT("%s_Export.%s"), *Target->Settings.Name, TEXT("ini") );
 		}
 		return ConfigFilePath;
 	}
 
-	FLocalizationConfigurationScript GenerateReportScript(const FLocalizationTargetSettings& Target)
+	FLocalizationConfigurationScript GenerateReportScript(const ULocalizationTarget* const Target)
 	{
 		FLocalizationConfigurationScript Script;
 
-		const FString ContentDirRelativeToGameDir = MakePathRelativeToProjectDirectory(FPaths::GameContentDir());
+		const FString ContentDirRelativeToGameDir = MakePathRelativeToProjectDirectory(GetContentDir(Target));
 
 		// GatherTextStep0 - GenerateTextLocalizationReport
 		{
@@ -410,14 +465,14 @@ namespace LocalizationConfigurationScript
 			// CommandletClass
 			ConfigSection.Add( TEXT("CommandletClass"), TEXT("GenerateTextLocalizationReport") );
 
-			const FString SourcePath = ContentDirRelativeToGameDir / TEXT("Localization") / Target.Name;
+			const FString SourcePath = ContentDirRelativeToGameDir / TEXT("Localization") / Target->Settings.Name;
 			ConfigSection.Add( TEXT("SourcePath"), SourcePath );
-			const FString DestinationPath = ContentDirRelativeToGameDir / TEXT("Localization") / Target.Name;
+			const FString DestinationPath = ContentDirRelativeToGameDir / TEXT("Localization") / Target->Settings.Name;
 			ConfigSection.Add( TEXT("DestinationPath"), DestinationPath );
 
-			ConfigSection.Add( TEXT("ManifestName"), FString::Printf( TEXT("%s.%s"), *Target.Name, TEXT("manifest") ) );
+			ConfigSection.Add( TEXT("ManifestName"), FString::Printf( TEXT("%s.%s"), *Target->Settings.Name, TEXT("manifest") ) );
 
-			for (const FCultureStatistics& CultureStatistics : Target.SupportedCulturesStatistics)
+			for (const FCultureStatistics& CultureStatistics : Target->Settings.SupportedCulturesStatistics)
 			{
 				ConfigSection.Add( TEXT("CulturesToGenerate"), CultureStatistics.CultureName );
 			}
@@ -436,16 +491,16 @@ namespace LocalizationConfigurationScript
 		return Script;
 	}
 
-	FString GetReportScriptPath(const FLocalizationTargetSettings& Target)
+	FString GetReportScriptPath(const ULocalizationTarget* const Target)
 	{
-		return GetScriptDirectory() / FString::Printf( TEXT("%s_GenerateReports.%s"), *(Target.Name), TEXT("ini") );
+		return GetScriptDirectory(Target) / FString::Printf( TEXT("%s_GenerateReports.%s"), *(Target->Settings.Name), TEXT("ini") );
 	}
 
-	FLocalizationConfigurationScript GenerateCompileScript(const FLocalizationTargetSettings& Target)
+	FLocalizationConfigurationScript GenerateCompileScript(const ULocalizationTarget* const Target)
 	{
 		FLocalizationConfigurationScript Script;
 
-		const FString ContentDirRelativeToGameDir = MakePathRelativeToProjectDirectory(FPaths::GameContentDir());
+		const FString ContentDirRelativeToGameDir = MakePathRelativeToProjectDirectory(GetContentDir(Target));
 
 		// GatherTextStep0 - GenerateTextLocalizationResource
 		{
@@ -454,17 +509,17 @@ namespace LocalizationConfigurationScript
 			// CommandletClass
 			ConfigSection.Add( TEXT("CommandletClass"), TEXT("GenerateTextLocalizationResource") );
 
-			const FString SourcePath = ContentDirRelativeToGameDir / TEXT("Localization") / Target.Name;
+			const FString SourcePath = ContentDirRelativeToGameDir / TEXT("Localization") / Target->Settings.Name;
 			ConfigSection.Add( TEXT("SourcePath"), SourcePath );
-			const FString DestinationPath = ContentDirRelativeToGameDir / TEXT("Localization") / Target.Name;
+			const FString DestinationPath = ContentDirRelativeToGameDir / TEXT("Localization") / Target->Settings.Name;
 			ConfigSection.Add( TEXT("DestinationPath"), DestinationPath );
 
-			ConfigSection.Add( TEXT("ManifestName"), FString::Printf( TEXT("%s.%s"), *Target.Name, TEXT("manifest") ) );
-			ConfigSection.Add( TEXT("ResourceName"), FString::Printf( TEXT("%s.%s"), *Target.Name, TEXT("locres") ) );
+			ConfigSection.Add( TEXT("ManifestName"), FString::Printf( TEXT("%s.%s"), *Target->Settings.Name, TEXT("manifest") ) );
+			ConfigSection.Add( TEXT("ResourceName"), FString::Printf( TEXT("%s.%s"), *Target->Settings.Name, TEXT("locres") ) );
 
 			TArray<const FCultureStatistics*> AllCultureStatistics;
-			AllCultureStatistics.Add(&Target.NativeCultureStatistics);
-			for (const FCultureStatistics& SupportedCultureStatistics : Target.SupportedCulturesStatistics)
+			AllCultureStatistics.Add(&Target->Settings.NativeCultureStatistics);
+			for (const FCultureStatistics& SupportedCultureStatistics : Target->Settings.SupportedCulturesStatistics)
 			{
 				AllCultureStatistics.Add(&SupportedCultureStatistics);
 			}
@@ -480,8 +535,8 @@ namespace LocalizationConfigurationScript
 		return Script;
 	}
 
-	FString GetCompileScriptPath(const FLocalizationTargetSettings& Target)
+	FString GetCompileScriptPath(const ULocalizationTarget* const Target)
 	{
-		return GetScriptDirectory() / FString::Printf( TEXT("%s_Compile.%s"), *(Target.Name), TEXT("ini") );
+		return GetScriptDirectory(Target) / FString::Printf( TEXT("%s_Compile.%s"), *(Target->Settings.Name), TEXT("ini") );
 	}
 }

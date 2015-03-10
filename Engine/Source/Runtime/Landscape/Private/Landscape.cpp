@@ -1673,18 +1673,18 @@ void ULandscapeInfo::UnregisterActor(ALandscapeProxy* Proxy)
 	if (Landscape)
 	{
 		check(LandscapeActor.Get() == Landscape);
-		LandscapeActor = 0;
+		LandscapeActor = nullptr;
 
 		// update proxies reference to landscape actor
 		for (auto It = Proxies.CreateConstIterator(); It; ++It)
 		{
-			(*It)->LandscapeActor = 0;
+			(*It)->LandscapeActor = nullptr;
 		}
 	}
 	else
 	{
 		Proxies.Remove(Proxy);
-		Proxy->LandscapeActor = 0;
+		Proxy->LandscapeActor = nullptr;
 	}
 
 	// remove proxy components from the XY map
@@ -1789,6 +1789,26 @@ void ULandscapeInfo::FixupProxiesTransform()
 		Landscape->GetRootComponent()->IsRegistered() == false)
 	{
 		return;
+	}
+
+	// Make sure section offset of all proxies is multiple of ALandscapeProxy::ComponentSizeQuads
+	for (auto It = Proxies.CreateConstIterator(); It; ++It)
+	{
+		ALandscapeProxy* Proxy = *It;
+		FIntPoint LandscapeSectionOffset = Proxy->LandscapeSectionOffset - Landscape->LandscapeSectionOffset;
+		FIntPoint LandscapeSectionOffsetRem(
+			LandscapeSectionOffset.X % Proxy->ComponentSizeQuads, 
+			LandscapeSectionOffset.Y % Proxy->ComponentSizeQuads);
+
+		if (LandscapeSectionOffsetRem.X != 0 || LandscapeSectionOffsetRem.Y != 0)
+		{
+			FIntPoint NewLandscapeSectionOffset = Proxy->LandscapeSectionOffset - LandscapeSectionOffsetRem;
+			
+			UE_LOG(LogLandscape, Warning, TEXT("Landscape section base is not multiple of component size, attempted automated fix: '%s', %d,%d vs %d,%d."),
+					*Proxy->GetFullName(), Proxy->LandscapeSectionOffset.X, Proxy->LandscapeSectionOffset.Y, NewLandscapeSectionOffset.X, NewLandscapeSectionOffset.Y);
+
+			Proxy->SetAbsoluteSectionBase(NewLandscapeSectionOffset);
+		}
 	}
 
 	FTransform LandscapeTM = Landscape->LandscapeActorToWorld();

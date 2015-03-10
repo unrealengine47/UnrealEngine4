@@ -243,7 +243,7 @@ FText UField::GetToolTipText(bool bShortTooltip) const
 	{
 		if (NativeToolTip.IsEmpty())
 		{
-			NativeToolTip = FDisplayNameHelper::Get(*this);
+			NativeToolTip = FName::NameToDisplayString(FDisplayNameHelper::Get(*this), IsA<UBoolProperty>());
 		}
 		else
 		{
@@ -1491,11 +1491,11 @@ bool UStruct::GetStringMetaDataHierarchical(const FName& Key, FString* OutValue)
 		UObject*& ExprPtrRef = (UObject*&)ScriptPtr;
 		if (ULinkerPlaceholderClass* PlaceholderObj = Cast<ULinkerPlaceholderClass>(ExprPtrRef))
 		{
-			PlaceholderObj->AddReferencingScriptExpr((ULinkerPlaceholderClass**)(&ExprPtrRef));
+			PlaceholderObj->AddReferencingScriptExpr((UClass**)(&ExprPtrRef));
 		}
 		else if (ULinkerPlaceholderFunction* PlaceholderFunc = Cast<ULinkerPlaceholderFunction>(ExprPtrRef))
 		{
-			PlaceholderFunc->AddReferencingScriptExpr((ULinkerPlaceholderFunction**)(&ExprPtrRef));
+			PlaceholderFunc->AddReferencingScriptExpr((UFunction**)(&ExprPtrRef));
 		}
 	}
 
@@ -3186,6 +3186,12 @@ FArchive& operator<<(FArchive& Ar, FImplementedInterface& A)
 	Ar << A.bImplementedByK2;
 
 	return Ar;
+}
+
+UObject* UClass::GetArchetypeForCDO() const
+{
+	auto SuperClass = GetSuperClass();
+	return SuperClass ? SuperClass->GetDefaultObject() : nullptr;
 }
 
 void UClass::PurgeClass(bool bRecompilingOnLoad)

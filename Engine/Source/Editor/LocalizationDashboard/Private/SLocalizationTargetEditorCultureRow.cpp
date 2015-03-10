@@ -1,4 +1,4 @@
-// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
+﻿// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "LocalizationDashboardPrivatePCH.h"
 #include "SLocalizationTargetEditorCultureRow.h"
@@ -147,6 +147,17 @@ TSharedRef<SWidget> SLocalizationTargetEditorCultureRow::GenerateWidgetForColumn
 	return Return.IsValid() ? Return.ToSharedRef() : SNullWidget::NullWidget;
 }
 
+ULocalizationTarget* SLocalizationTargetEditorCultureRow::GetTarget() const
+{
+	if (TargetSettingsPropertyHandle.IsValid() && TargetSettingsPropertyHandle->IsValidHandle())
+	{
+		TArray<UObject*> OuterObjects;
+		TargetSettingsPropertyHandle->GetOuterObjects(OuterObjects);
+		return CastChecked<ULocalizationTarget>(OuterObjects.Top());
+	}
+	return nullptr;
+}
+
 FLocalizationTargetSettings* SLocalizationTargetEditorCultureRow::GetTargetSettings() const
 {
 	if (TargetSettingsPropertyHandle.IsValid() && TargetSettingsPropertyHandle->IsValidHandle())
@@ -237,8 +248,8 @@ TOptional<float> SLocalizationTargetEditorCultureRow::GetProgressPercentage() co
 
 void SLocalizationTargetEditorCultureRow::UpdateTargetFromReports()
 {
-	FLocalizationTargetSettings* const TargetSettings = GetTargetSettings();
-	if (TargetSettings)
+	ULocalizationTarget* const LocalizationTarget = GetTarget();
+	if (LocalizationTarget)
 	{
 		TArray< TSharedPtr<IPropertyHandle> > WordCountPropertyHandles;
 
@@ -278,8 +289,8 @@ void SLocalizationTargetEditorCultureRow::UpdateTargetFromReports()
 		{
 			WordCountPropertyHandle->NotifyPreChange();
 		}
-		TargetSettings->UpdateWordCountsFromCSV();
-		TargetSettings->UpdateStatusFromConflictReport();
+		LocalizationTarget->UpdateWordCountsFromCSV();
+		LocalizationTarget->UpdateStatusFromConflictReport();
 		for (const TSharedPtr<IPropertyHandle>& WordCountPropertyHandle : WordCountPropertyHandles)
 		{
 			WordCountPropertyHandle->NotifyPostChange();
@@ -290,11 +301,10 @@ void SLocalizationTargetEditorCultureRow::UpdateTargetFromReports()
 FReply SLocalizationTargetEditorCultureRow::Edit()
 {
 	const FCulturePtr Culture = GetCulture();
-
-	FLocalizationTargetSettings* const TargetSettings = GetTargetSettings();
-	if (TargetSettings && Culture.IsValid())
+	ULocalizationTarget* const LocalizationTarget = GetTarget();
+	if (Culture.IsValid() && LocalizationTarget)
 	{
-		FModuleManager::LoadModuleChecked<ITranslationEditor>("TranslationEditor").OpenTranslationEditor(LocalizationConfigurationScript::GetManifestPath(*TargetSettings), LocalizationConfigurationScript::GetArchivePath(*TargetSettings, Culture->GetName()));
+		FModuleManager::LoadModuleChecked<ITranslationEditor>("TranslationEditor").OpenTranslationEditor(LocalizationConfigurationScript::GetManifestPath(LocalizationTarget), LocalizationConfigurationScript::GetArchivePath(LocalizationTarget, Culture->GetName()));
 	}
 
 	return FReply::Handled();
@@ -303,31 +313,33 @@ FReply SLocalizationTargetEditorCultureRow::Edit()
 FReply SLocalizationTargetEditorCultureRow::Import()
 {
 	const FCulturePtr Culture = GetCulture();
-	FLocalizationTargetSettings* const TargetSettings = GetTargetSettings();
+	ULocalizationTarget* const LocalizationTarget = GetTarget();
 	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
-	if (Culture.IsValid() && TargetSettings && DesktopPlatform)
+	if (Culture.IsValid() && LocalizationTarget && DesktopPlatform)
 	{
 		void* ParentWindowWindowHandle = NULL;
-		const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(AsShared());
-		if (ParentWindow.IsValid() && ParentWindow->GetNativeWindow().IsValid())
 		{
-			ParentWindowWindowHandle = ParentWindow->GetNativeWindow()->GetOSWindowHandle();
+			const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(AsShared());
+			if (ParentWindow.IsValid() && ParentWindow->GetNativeWindow().IsValid())
+			{
+				ParentWindowWindowHandle = ParentWindow->GetNativeWindow()->GetOSWindowHandle();
+			}
 		}
 
-		const FString POFileName = LocalizationConfigurationScript::GetDefaultPOFileName(*TargetSettings);
+		const FString POFileName = LocalizationConfigurationScript::GetDefaultPOFileName(LocalizationTarget);
 		const FString POFileTypeDescription = LOCTEXT("PortableObjectFileDescription", "Portable Object").ToString();
 		const FString POFileExtension = FPaths::GetExtension(POFileName);
 		const FString POFileExtensionWildcard = FString::Printf(TEXT("*.%s"), *POFileExtension);
 		const FString FileTypes = FString::Printf(TEXT("%s (%s)|%s"), *POFileTypeDescription, *POFileExtensionWildcard, *POFileExtensionWildcard);
 		const FString DefaultFilename = POFileName;
-		const FString DefaultPath = FPaths::GetPath(LocalizationConfigurationScript::GetDefaultPOPath(*TargetSettings, Culture->GetName()));
+		const FString DefaultPath = FPaths::GetPath(LocalizationConfigurationScript::GetDefaultPOPath(LocalizationTarget, Culture->GetName()));
 
 		FText DialogTitle;
 		{
 			FFormatNamedArguments FormatArguments;
-			FormatArguments.Add(TEXT("TargetName"), FText::FromString(TargetSettings->Name));
+			FormatArguments.Add(TEXT("TargetName"), FText::FromString(LocalizationTarget->Settings.Name));
 			FormatArguments.Add(TEXT("CultureName"), FText::FromString(Culture->GetDisplayName()));
-			FText DialogTitle = FText::Format(LOCTEXT("ImportSpecificTranslationsForTargetDialogTitleFormat", "Import {CultureName} Translations for {TargetName} from Directory"), FormatArguments);
+			DialogTitle = FText::Format(LOCTEXT("ImportSpecificTranslationsForTargetDialogTitleFormat", "Import {CultureName} Translations for {TargetName} from Directory"), FormatArguments);
 		}
 
 		// Prompt the user for the directory
@@ -335,7 +347,7 @@ FReply SLocalizationTargetEditorCultureRow::Import()
 		if (DesktopPlatform->OpenFileDialog(ParentWindowWindowHandle, DialogTitle.ToString(), DefaultPath, DefaultFilename, FileTypes, 0, OpenFilenames))
 		{
 			const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(AsShared());
-			LocalizationCommandletTasks::ImportCulture(ParentWindow.ToSharedRef(), *TargetSettings, Culture->GetName(), TOptional<FString>(OpenFilenames.Top()));
+			LocalizationCommandletTasks::ImportCulture(ParentWindow.ToSharedRef(), LocalizationTarget, Culture->GetName(), TOptional<FString>(OpenFilenames.Top()));
 
 			UpdateTargetFromReports();
 		}
@@ -347,9 +359,9 @@ FReply SLocalizationTargetEditorCultureRow::Import()
 FReply SLocalizationTargetEditorCultureRow::Export()
 {
 	const FCulturePtr Culture = GetCulture();
-	FLocalizationTargetSettings* const TargetSettings = GetTargetSettings();
+	ULocalizationTarget* const LocalizationTarget = GetTarget();
 	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
-	if (Culture.IsValid() && TargetSettings && DesktopPlatform)
+	if (Culture.IsValid() && LocalizationTarget && DesktopPlatform)
 	{
 		void* ParentWindowWindowHandle = NULL;
 		const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(AsShared());
@@ -358,18 +370,18 @@ FReply SLocalizationTargetEditorCultureRow::Export()
 			ParentWindowWindowHandle = ParentWindow->GetNativeWindow()->GetOSWindowHandle();
 		}
 
-		const FString POFileName = LocalizationConfigurationScript::GetDefaultPOFileName(*TargetSettings);
+		const FString POFileName = LocalizationConfigurationScript::GetDefaultPOFileName(LocalizationTarget);
 		const FString POFileTypeDescription = LOCTEXT("PortableObjectFileDescription", "Portable Object").ToString();
 		const FString POFileExtension = FPaths::GetExtension(POFileName);
 		const FString POFileExtensionWildcard = FString::Printf(TEXT("*.%s"), *POFileExtension);
 		const FString FileTypes = FString::Printf(TEXT("%s (%s)|%s"), *POFileTypeDescription, *POFileExtensionWildcard, *POFileExtensionWildcard);
 		const FString DefaultFilename = POFileName;
-		const FString DefaultPath = FPaths::GetPath(LocalizationConfigurationScript::GetDefaultPOPath(*TargetSettings, Culture->GetName()));
+		const FString DefaultPath = FPaths::GetPath(LocalizationConfigurationScript::GetDefaultPOPath(LocalizationTarget, Culture->GetName()));
 
 		FText DialogTitle;
 		{
 			FFormatNamedArguments FormatArguments;
-			FormatArguments.Add(TEXT("TargetName"), FText::FromString(TargetSettings->Name));
+			FormatArguments.Add(TEXT("TargetName"), FText::FromString(LocalizationTarget->Settings.Name));
 			FormatArguments.Add(TEXT("CultureName"), FText::FromString(Culture->GetDisplayName()));
 			DialogTitle = FText::Format(LOCTEXT("ExportSpecificTranslationsForTargetDialogTitleFormat", "Export {CultureName} Translations for {TargetName} to Directory"), FormatArguments);
 		}
@@ -378,7 +390,7 @@ FReply SLocalizationTargetEditorCultureRow::Export()
 		TArray<FString> SaveFilenames;
 		if (DesktopPlatform->SaveFileDialog(ParentWindowWindowHandle, DialogTitle.ToString(), DefaultPath, DefaultFilename, FileTypes, 0, SaveFilenames))
 		{
-			LocalizationCommandletTasks::ExportCulture(ParentWindow.ToSharedRef(), *TargetSettings, Culture->GetName(), TOptional<FString>(SaveFilenames.Top()));
+			LocalizationCommandletTasks::ExportCulture(ParentWindow.ToSharedRef(), LocalizationTarget, Culture->GetName(), TOptional<FString>(SaveFilenames.Top()));
 		}
 	}
 
@@ -404,8 +416,8 @@ void SLocalizationTargetEditorCultureRow::Delete()
 		TGuardValue<bool> ReentranceGuard(IsExecuting, true);
 
 		const FCulturePtr Culture = GetCulture();
-		FLocalizationTargetSettings* const TargetSettings = GetTargetSettings();
-		if (Culture.IsValid() && TargetSettings)
+		ULocalizationTarget* const LocalizationTarget = GetTarget();
+		if (Culture.IsValid() && LocalizationTarget)
 		{
 			FText TitleText;
 			FText MessageText;
@@ -422,7 +434,7 @@ void SLocalizationTargetEditorCultureRow::Delete()
 			case EAppReturnType::Ok:
 				{
 					const FString CultureName = Culture->GetName();
-					TargetSettings->DeleteFiles(&CultureName);
+					LocalizationTarget->DeleteFiles(&CultureName);
 
 					// Remove this element from the parent array.
 					const TSharedPtr<IPropertyHandle> SupportedCulturesStatisticsPropertyHandle = TargetSettingsPropertyHandle.IsValid() && TargetSettingsPropertyHandle->IsValidHandle() ? TargetSettingsPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FLocalizationTargetSettings, SupportedCulturesStatistics)) : nullptr;

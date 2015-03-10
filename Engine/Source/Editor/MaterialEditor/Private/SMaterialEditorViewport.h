@@ -42,8 +42,6 @@ public:
 
 	void SetPreviewMaterial(UMaterialInterface* InMaterialInterface);
 	
-	void ToggleRealtime();
-
 	/** @return The list of commands known by the material editor */
 	TSharedRef<FUICommandList> GetMaterialEditorCommands() const;
 
@@ -72,6 +70,7 @@ public:
 	void OnSetPreviewPrimitive(EThumbnailPrimType PrimType);
 	bool IsPreviewPrimitiveChecked(EThumbnailPrimType PrimType) const;
 	void OnSetPreviewMeshFromSelection();
+	bool IsPreviewMeshFromSelectionChecked() const;
 	void TogglePreviewGrid();
 	bool IsTogglePreviewGridChecked() const;
 	void TogglePreviewBackground();

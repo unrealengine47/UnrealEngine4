@@ -4,7 +4,6 @@
 #include "EnvironmentQuery/Contexts/EnvQueryContext_Querier.h"
 #include "EnvironmentQuery/Items/EnvQueryItemType_Point.h"
 #include "EnvironmentQuery/Generators/EnvQueryGenerator_OnCircle.h"
-#include "AI/Navigation/RecastNavMesh.h"
 
 #define LOCTEXT_NAMESPACE "EnvQueryGenerator"
 
@@ -50,45 +49,45 @@ struct FBatchTracingHelper
 	}
 
 	template<EEnvTraceShape::Type TraceType>
-	void DoSingleSourceMultiDestinations(const FVector& Source, TArray<FVector>& DestinationAndClampedResult)
+	void DoSingleSourceMultiDestinations(const FVector& Source, TArray<FNavLocation>& DestinationAndClampedResult)
 	{
 		UE_LOG(LogEQS, Error, TEXT("FBatchTracingHelper::DoSingleSourceMultiDestinations called with unhandled trace type: %d"), int32(TraceType));
 	}
 };
 
 template<>
-void FBatchTracingHelper::DoSingleSourceMultiDestinations<EEnvTraceShape::Line>(const FVector& Source, TArray<FVector>& DestinationAndClampedResult)
+void FBatchTracingHelper::DoSingleSourceMultiDestinations<EEnvTraceShape::Line>(const FVector& Source, TArray<FNavLocation>& DestinationAndClampedResult)
 {
 	for (auto& OutLocation : DestinationAndClampedResult)
 	{
-		OutLocation = RunLineTrace(Source, OutLocation);
+		OutLocation = RunLineTrace(Source, OutLocation.Location);
 	}
 }
 
 template<>
-void FBatchTracingHelper::DoSingleSourceMultiDestinations<EEnvTraceShape::Box>(const FVector& Source, TArray<FVector>& DestinationAndClampedResult)
+void FBatchTracingHelper::DoSingleSourceMultiDestinations<EEnvTraceShape::Box>(const FVector& Source, TArray<FNavLocation>& DestinationAndClampedResult)
 {
 	for (auto& OutLocation : DestinationAndClampedResult)
 	{
-		OutLocation = RunBoxTrace(Source, OutLocation);
+		OutLocation = RunBoxTrace(Source, OutLocation.Location);
 	}
 }
 
 template<>
-void FBatchTracingHelper::DoSingleSourceMultiDestinations<EEnvTraceShape::Sphere>(const FVector& Source, TArray<FVector>& DestinationAndClampedResult)
+void FBatchTracingHelper::DoSingleSourceMultiDestinations<EEnvTraceShape::Sphere>(const FVector& Source, TArray<FNavLocation>& DestinationAndClampedResult)
 {
 	for (auto& OutLocation : DestinationAndClampedResult)
 	{
-		OutLocation = RunSphereTrace(Source, OutLocation);
+		OutLocation = RunSphereTrace(Source, OutLocation.Location);
 	}
 }
 
 template<>
-void FBatchTracingHelper::DoSingleSourceMultiDestinations<EEnvTraceShape::Capsule>(const FVector& Source, TArray<FVector>& DestinationAndClampedResult)
+void FBatchTracingHelper::DoSingleSourceMultiDestinations<EEnvTraceShape::Capsule>(const FVector& Source, TArray<FNavLocation>& DestinationAndClampedResult)
 {
 	for (auto& OutLocation : DestinationAndClampedResult)
 	{
-		OutLocation = RunCapsuleTrace(Source, OutLocation);
+		OutLocation = RunCapsuleTrace(Source, OutLocation.Location);
 	}
 }
 
@@ -113,22 +112,10 @@ UEnvQueryGenerator_OnCircle::UEnvQueryGenerator_OnCircle(const FObjectInitialize
 	TraceData.TraceMode = EEnvQueryTrace::Navigation;
 
 	ProjectionData.TraceMode = EEnvQueryTrace::None;
-
-	// keep deprecated properties initialized
-	Radius.Value = 1000.0f;
-	ItemSpacing.Value = 50.0f;
-	Angle.Value = 360.0f;
 }
 
 void UEnvQueryGenerator_OnCircle::PostLoad()
 {
-	if (VerNum < EnvQueryGeneratorVersion::DataProviders)
-	{
-		Radius.Convert(this, CircleRadius);
-		ItemSpacing.Convert(this, SpaceBetween);
-		Angle.Convert(this, ArcAngle);
-	}
-
 	Super::PostLoad();
 
 	if (ArcAngle.DefaultValue <= 0)
@@ -207,7 +194,7 @@ void UEnvQueryGenerator_OnCircle::GenerateItems(FEnvQueryInstance& QueryInstance
 
 	// first generate points on a circle
 	const float CircumferenceLength = 2.f * PI * RadiusValue;
-	const float ArcAnglePercentage = Angle.Value / 360.f;
+	const float ArcAnglePercentage = AngleDegree / 360.f;
 	const float ArcLength = CircumferenceLength * ArcAnglePercentage;
 	const int32 StepsCount = FMath::CeilToInt(ArcLength / ItemSpace) + 1;
 	const float AngleStep = AngleDegree / (StepsCount - 1);
@@ -239,49 +226,42 @@ void UEnvQueryGenerator_OnCircle::GenerateItemsForCircle(uint8* ContextRawData, 
 	const FVector& CenterLocation, const FVector& StartDirection, 
 	int32 StepsCount, float AngleStep, FEnvQueryInstance& OutQueryInstance) const
 {
-	TArray<FVector> ItemCandidates;
+	TArray<FNavLocation> ItemCandidates;
 	ItemCandidates.AddZeroed(StepsCount);
+
 	for (int32 Step = 0; Step < StepsCount; ++Step)
 	{
 		ItemCandidates[Step] = CenterLocation + StartDirection.RotateAngleAxis(AngleStep*Step, FVector::UpVector);
 	}
 
-#if WITH_RECAST
-	// @todo this needs to be optimized to batch raycasts
-	const ARecastNavMesh* NavMesh = 
-		(TraceData.TraceMode == EEnvQueryTrace::Navigation) || (ProjectionData.TraceMode == EEnvQueryTrace::Navigation) ?
-		FEQSHelpers::FindNavMeshForQuery(OutQueryInstance) : NULL;
-
-	if (NavMesh)
-	{
-		NavMesh->BeginBatchQuery();
-	}
-#endif
-
 	switch (TraceData.TraceMode)
 	{
 		case EEnvQueryTrace::Navigation:
+		{
+			ANavigationData* NavData = nullptr;
 #if WITH_RECAST
-			if (NavMesh != NULL)
+			NavData = (ANavigationData*)FEQSHelpers::FindNavMeshForQuery(OutQueryInstance);
+#endif
+			if (NavData)
 			{
-				TSharedPtr<const FNavigationQueryFilter> NavigationFilter = UNavigationQueryFilter::GetQueryFilter(NavMesh, TraceData.NavigationFilter);
+				TSharedPtr<const FNavigationQueryFilter> NavigationFilter = UNavigationQueryFilter::GetQueryFilter(NavData, TraceData.NavigationFilter);
 
 				TArray<FNavigationRaycastWork> RaycastWorkload;
 				RaycastWorkload.Reserve(ItemCandidates.Num());
 
 				for (const auto& ItemLocation : ItemCandidates)
 				{
-					RaycastWorkload.Add(FNavigationRaycastWork(CenterLocation, ItemLocation));
+					RaycastWorkload.Add(FNavigationRaycastWork(CenterLocation, ItemLocation.Location));
 				}
 
-				NavMesh->BatchRaycast(RaycastWorkload, NavigationFilter);
-			
+				NavData->BatchRaycast(RaycastWorkload, NavigationFilter);
+
 				for (int32 ItemIndex = 0; ItemIndex < ItemCandidates.Num(); ++ItemIndex)
 				{
-					ItemCandidates[ItemIndex] = RaycastWorkload[ItemIndex].HitLocation.Location;
+					ItemCandidates[ItemIndex] = RaycastWorkload[ItemIndex].HitLocation;
 				}
 			}
-#endif
+		}
 			break;
 
 		case EEnvQueryTrace::Geometry:
@@ -328,24 +308,14 @@ void UEnvQueryGenerator_OnCircle::GenerateItemsForCircle(uint8* ContextRawData, 
 			break;
 	}
 
-#if WITH_RECAST
-	if (NavMesh)
-	{
-		ProjectAndFilterNavPoints(ItemCandidates, NavMesh);
-		NavMesh->FinishBatchQuery();
-	}
-#endif
-
+	ProjectAndFilterNavPoints(ItemCandidates, OutQueryInstance);
 	AddItemDataForCircle(ContextRawData, ContextItemType, ItemCandidates, OutQueryInstance);
 }
 
 void UEnvQueryGenerator_OnCircle::AddItemDataForCircle(uint8* ContextRawData, UEnvQueryItemType* ContextItemType,
-	const TArray<FVector>& Locations, FEnvQueryInstance& OutQueryInstance) const
+	const TArray<FNavLocation>& Locations, FEnvQueryInstance& OutQueryInstance) const
 {
-	for (int32 Idx = 0; Idx < Locations.Num(); Idx++)
-	{
-		OutQueryInstance.AddItemData<UEnvQueryItemType_Point>(Locations[Idx]);
-	}
+	StoreNavPoints(Locations, OutQueryInstance);
 }
 
 FText UEnvQueryGenerator_OnCircle::GetDescriptionTitle() const
@@ -370,7 +340,7 @@ FText UEnvQueryGenerator_OnCircle::GetDescriptionDetails() const
 	{
 		FFormatNamedArguments ArcArgs;
 		ArcArgs.Add(TEXT("Description"), Desc);
-		ArcArgs.Add(TEXT("AngleValue"), Angle.Value);
+		ArcArgs.Add(TEXT("AngleValue"), FText::FromString(ArcAngle.ToString()));
 		ArcArgs.Add(TEXT("ArcDirection"), ArcDirection.ToText());
 		Desc = FText::Format(LOCTEXT("DescriptionWithArc", "{Description}\nLimit to {AngleValue} angle both sides on {ArcDirection}"), ArcArgs);
 	}

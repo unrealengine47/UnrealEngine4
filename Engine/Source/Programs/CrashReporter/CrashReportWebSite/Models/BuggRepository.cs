@@ -19,38 +19,23 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 	/// </summary>
 	public class BuggRepository : IDisposable
 	{
-		private const string DefaultUserGroup = "General";
-
-		private static readonly CrashReportDataContext Context = new CrashReportDataContext();
-
-		/// <summary> Submits enqueue changes to the database. </summary>
-		public static void SubmitChanges()
-		{
-			Context.SubmitChanges();
-		}
+		/// <summary>
+		/// Context
+		/// </summary>
+		public CrashReportDataContext Context;
 
 		/// <summary>
-		/// Sets the JIRA for all crashes in a Bugg.
+		/// The default constructor.
 		/// </summary>
-		/// <param name="JIRA">A string representing a TTP.</param>
-		/// <param name="BuggId">The id of the Bugg to update the crashes for.</param>
-		public static void SetJIRAForBuggAndCrashes( string JIRA, int BuggId )
+		public BuggRepository()
 		{
-			try
-			{
-				using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( "SetJIRAForBuggAndCrashes (" + BuggId + ")" ) )
-				{
-					string Query = "UPDATE Crashes SET TTPID = {0} WHERE Id IN ( SELECT CrashId FROM Buggs_Crashes WHERE BuggId = {1} )";
-					Context.ExecuteCommand( Query, JIRA, BuggId );
+			Context = new CrashReportDataContext();
+		}
 
-					Query = "UPDATE Buggs SET TTPID = {0} WHERE id = {1}";
-					Context.ExecuteCommand( Query, JIRA, BuggId );
-				}
-			}
-			catch( Exception Ex )
-			{
-				FLogger.WriteException( "SetBuggTTPID: " + Ex.ToString() );
-			}
+		/// <summary> Submits enqueue changes to the database. </summary>
+		public void SubmitChanges()
+		{
+			Context.SubmitChanges();
 		}
 
 		/// <summary>
@@ -70,14 +55,74 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		{
 			Context.Dispose();
 		}
+	
+		private const string DefaultUserGroup = "General";
 
 		/// <summary>
-		/// A accessor for the data context.
+		/// Sets the status for all crashes in a Bugg.
 		/// </summary>
-		/// <returns>The data context used to interface with the database.</returns>
-		public CrashReportDataContext GetDataContext()
+		/// <param name="Status">The new status of all crashes.</param>
+		/// <param name="BuggId">The id of the Bugg to update the crashes for.</param>
+		public void SetBuggStatus( string Status, int BuggId )
 		{
-			return Context;
+			try
+			{
+				string Query = "UPDATE Crashes SET Status = {0} WHERE Id IN ( SELECT CrashId FROM Buggs_Crashes WHERE BuggId = {1} )";
+				Context.ExecuteCommand( Query, Status, BuggId );
+
+				Query = "UPDATE Buggs SET Status = {0} WHERE id = {1}";
+				Context.ExecuteCommand( Query, Status, BuggId );
+			}
+			catch( Exception Ex )
+			{
+				FLogger.WriteException( "SetBuggStatus: " + Ex.ToString() );
+			}
+		}
+
+
+		/// <summary>
+		/// Sets the fixed in changelist for all crashes in a Bugg.
+		/// </summary>
+		/// <param name="FixedChangeList">A string representing a revision.</param>
+		/// <param name="BuggId">The id of the Bugg to update the crashes for.</param>
+		public void SetBuggFixedChangeList( string FixedChangeList, int BuggId )
+		{
+			try
+			{
+				string Query = "UPDATE Crashes SET FixedChangeList = {0} WHERE Id IN ( SELECT CrashId FROM Buggs_Crashes WHERE BuggId = {1} )";
+				Context.ExecuteCommand( Query, FixedChangeList, BuggId );
+
+				Query = "UPDATE Buggs SET FixedChangeList = {0} WHERE id = {1}";
+				Context.ExecuteCommand( Query, FixedChangeList, BuggId );
+			}
+			catch( Exception Ex )
+			{
+				FLogger.WriteException( "SetBuggFixedChangeList: " + Ex.ToString() );
+			}
+		}
+
+		/// <summary>
+		/// Sets the JIRA for all crashes in a Bugg.
+		/// </summary>
+		/// <param name="JIRA">A string representing a TTP.</param>
+		/// <param name="BuggId">The id of the Bugg to update the crashes for.</param>
+		public void SetJIRAForBuggAndCrashes( string JIRA, int BuggId )
+		{
+			try
+			{
+				using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( "SetJIRAForBuggAndCrashes (" + BuggId + ")" ) )
+				{
+					string Query = "UPDATE Crashes SET TTPID = {0} WHERE Id IN ( SELECT CrashId FROM Buggs_Crashes WHERE BuggId = {1} )";
+					Context.ExecuteCommand( Query, JIRA, BuggId );
+
+					Query = "UPDATE Buggs SET TTPID = {0} WHERE id = {1}";
+					Context.ExecuteCommand( Query, JIRA, BuggId );
+				}
+			}
+			catch( Exception Ex )
+			{
+				FLogger.WriteException( "SetBuggTTPID: " + Ex.ToString() );
+			}
 		}
 
 		/// <summary>
@@ -139,7 +184,6 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		{
 			CachedDataService CachedResults = new CachedDataService( HttpContext.Current.Cache, this );
 			List<string> FunctionCalls = CachedResults.GetFunctionCalls( Pattern );
-
 			return FunctionCalls;
 		}
 
@@ -250,7 +294,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 
 					if( bHasChanges )
 					{
-						Context.SubmitChanges();
+						SubmitChanges();
 					}
 				}
 				catch( Exception Ex )
@@ -325,13 +369,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		/// <returns>A container of all known Buggs.</returns>
 		public IQueryable<Bugg> ListAll()
 		{
-			IQueryable<Bugg> Buggs =
-			(
-				from BuggDetail in Context.Buggs
-				select BuggDetail
-			);
-
-			return Buggs;
+			return Context.Buggs.AsQueryable();
 		}
 
 		/// <summary>
@@ -484,11 +522,9 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		/// <returns>A dictionary of user group names, and the count of Buggs for each group.</returns>
 		public SortedDictionary<string, int> GetCountsByGroup( IEnumerable<Bugg> Buggs )
 		{
-			// @TODO yrx 2014-11-06 Optimize
 			using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( this.GetType().ToString() + " SQL OPT" ) )
 			{
 				Dictionary<string, int> Results = new Dictionary<string, int>();
-
 				try
 				{
 					Results =
@@ -509,6 +545,45 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 							Results[UserGroupName] = 0;
 						}
 					}
+
+					/*
+					//
+					var UsersIDsAndGroupIDs = Context.Users.Select( User => new { UserId = User.Id, UserGroupId = User.UserGroupId } ).ToList();
+					var UserGroupArray = Context.UserGroups.ToList();
+					UserGroupArray.Sort( ( UG1, UG2 ) => UG1.Name.CompareTo( UG2.Name ) );
+
+					// Initialize all groups to 0.
+					foreach( var UserGroup in UserGroupArray )
+					{
+						Results.Add( UserGroup.Name, 0 );
+					}
+
+					Dictionary<int, string> UserIdToGroupName = new Dictionary<int, string>();
+					foreach( var UserIds in UsersIDsAndGroupIDs )
+					{
+						// Find group name for the user id.
+						string UserGroupName = UserGroupArray.Where( UG => UG.Id == UserIds.UserGroupId ).First().Name;
+						UserIdToGroupName.Add( UserIds.UserId, UserGroupName );
+					}
+
+					HashSet<int> UserNameIds = new HashSet<int>();
+					foreach( Bugg Bugg in Buggs )
+					{
+						var CrashList =
+						(
+							from BuggCrash in Context.Buggs_Crashes
+							where BuggCrash.BuggId == Bugg.Id
+							select BuggCrash.Crash.UserNameId.GetValueOrDefault()
+						).ToList();
+
+						UserNameIds.UnionWith( CrashList );
+					}
+
+					foreach( int UserId in UserNameIds )
+					{
+						string UserGroupName = UserIdToGroupName[UserId];
+						Results[UserGroupName]++;
+					}*/
 				}
 				catch( Exception Ex )
 				{
@@ -531,7 +606,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		{
 			using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( this.GetType().ToString() + " SQL" ) )
 			{
-				IQueryable<Bugg> BuggsInTimeFrame = Results.Where( Bugg => Bugg.TimeOfLastCrash >= DateFrom && Bugg.TimeOfLastCrash <= AddOneDayToDate( DateTo ) );
+				IQueryable<Bugg> BuggsInTimeFrame = Results.Where( Bugg => Bugg.TimeOfLastCrash >= DateFrom && Bugg.TimeOfLastCrash <= DateTo.AddDays( 1 ) );
 				IEnumerable<Bugg> BuggsInTimeFrameEnumerable = BuggsInTimeFrame.ToList();
 				return BuggsInTimeFrameEnumerable;
 			}
@@ -564,11 +639,11 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		/// Filter a set of Buggs by user group name.
 		/// </summary>
 		/// <param name="SetOfBuggs">The unfiltered set of Buggs.</param>
-		/// <param name="UserGroup">The user group name to filter by.</param>
+		/// <param name="GroupName">The user group name to filter by.</param>
 		/// <returns>The set of Buggs by users in the requested user group.</returns>
-		public IEnumerable<Bugg> FilterByUserGroup( IEnumerable<Bugg> SetOfBuggs, string UserGroup )
+		public IEnumerable<Bugg> FilterByUserGroup( IEnumerable<Bugg> SetOfBuggs, string GroupName )
 		{
-			using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( this.GetType().ToString() + "(UserGroup=" + UserGroup + ") SQL" ) )
+			using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( this.GetType().ToString() + "(GroupName=" + GroupName + ") SQL" ) )
 			{
 				IQueryable<Bugg> NewSetOfBuggs = null;
 				IQueryable<Bugg> SetOfBuggsQueryable = SetOfBuggs.AsQueryable();
@@ -580,7 +655,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 						from BuggDetail in SetOfBuggsQueryable
 						join BuggsUserGroupDetail in Context.Buggs_UserGroups on BuggDetail.Id equals BuggsUserGroupDetail.BuggId
 						join UserGroupDetail in Context.UserGroups on BuggsUserGroupDetail.UserGroupId equals UserGroupDetail.Id
-						where UserGroupDetail.Name.Contains( UserGroup )
+						where UserGroupDetail.Name.Contains( GroupName )
 						select BuggDetail
 					);
 
@@ -595,35 +670,20 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 			}
 		}
 
-		/// <summary></summary>
-		public int GetIdFromUserGroup( string UserGroup )
-		{
-			var Group = Context.UserGroups.Where( X => X.Name.Contains( UserGroup ) ).FirstOrDefault();
-			return Group.Id;
-		}
+		
 
-		/// <summary></summary>
-		public HashSet<int> GetUserIdsFromUserGroup( string UserGroup )
+		/// <summary>
+		/// 
+		/// </summary>
+		/// <typeparam name="TKey"></typeparam>
+		/// <param name="Query"></param>
+		/// <param name="Predicate"></param>
+		/// <param name="bDescending"></param>
+		/// <returns></returns>
+		public IEnumerable<Bugg> EnumerableOrderBy<TKey>( IEnumerable<Bugg> Query, Func<Bugg, TKey> Predicate, bool bDescending )
 		{
-			int UserGroupId = GetIdFromUserGroup( UserGroup );
-			var UserIds = Context.Users.Where( X => X.UserGroupId == UserGroupId ).Select( X => X.Id );
-			return new HashSet<int>( UserIds );
-		}
-
-		/// <summary></summary>
-		public HashSet<string> GetUserNamesFromUserGroups( string UserGroup )
-		{
-			using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( this.GetType().ToString() + " SQL" ) )
-			{
-				int UserGroupId = GetIdFromUserGroup( UserGroup );
-				var UserNames = Context.Users.Where( X => X.UserGroupId == UserGroupId ).Select( X => X.UserName );
-				return new HashSet<string>( UserNames );
-			}
-		}
-
-		private DateTime AddOneDayToDate( DateTime Date )
-		{
-			return Date.AddDays( 1 );
+			var Ordered = bDescending ? Query.OrderByDescending( Predicate ) : Query.OrderBy( Predicate );
+			return Ordered;
 		}
 
 		/// <summary>
@@ -634,18 +694,16 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		/// <param name="bSortDescending">Whether to sort by descending or ascending.</param>
 		/// <param name="DateFrom">The date of the earliest Bugg to examine.</param>
 		/// <param name="DateTo">The date of the most recent Bugg to examine.</param>
-		/// <param name="UserGroup">The user group name to filter by.</param>
+		/// <param name="GroupName">The user group name to filter by.</param>
 		/// <returns>A sorted container of Buggs.</returns>
-		public IEnumerable<Bugg> GetSortedResults( IEnumerable<Bugg> Results, string SortTerm, bool bSortDescending, DateTime DateFrom, DateTime DateTo, string UserGroup )
+		public IEnumerable<Bugg> GetSortedResults( IEnumerable<Bugg> Results, string SortTerm, bool bSortDescending, DateTime DateFrom, DateTime DateTo, string GroupName )
 		{
 			using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( this.GetType().ToString() ) )
 			{
 				try
 				{
 					// Get the group id and grab all buggs for the specified group.
-					int NumResults = Results.Count();
-					HashSet<string> UserNamesForUserGroup = GetUserNamesFromUserGroups( UserGroup );
-
+					HashSet<string> UserNamesForUserGroup = FRepository.Get( this ).GetUserNamesFromGroupName( GroupName );
 
 					// Simplified query.
 					var BuggIdToCountMapGroup = new Dictionary<int, int>();
@@ -663,14 +721,14 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 						BuggsFromDate =
 								(
 									from BuggCrash in Context.Buggs_Crashes
-									where BuggCrash.Crash.TimeOfCrash >= DateFrom && BuggCrash.Crash.TimeOfCrash <= AddOneDayToDate( DateTo )
+									where BuggCrash.Crash.TimeOfCrash >= DateFrom && BuggCrash.Crash.TimeOfCrash <= DateTo.AddDays( 1 )
 									select BuggCrash
 								).AsEnumerable().ToList();
 
 						var CrashesWithIdUserMachine =
 						(
 							from Crash in Context.Crashes
-							where Crash.TimeOfCrash >= DateFrom && Crash.TimeOfCrash <= AddOneDayToDate( DateTo )
+							where Crash.TimeOfCrash >= DateFrom && Crash.TimeOfCrash <= DateTo.AddDays( 1 )
 							select new { Id = Crash.Id, UserName = Crash.UserName, MachineId = Crash.ComputerName }
 						);
 
@@ -761,63 +819,59 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 						}
 					}
 
-					var IntermediateQueryable = Results.AsQueryable();
-
 					switch( SortTerm )
 					{
 						case "CrashesInTimeFrameGroup":
-							Results = CrashRepository.OrderBy( IntermediateQueryable, BuggCrashInstance => BuggCrashInstance.CrashesInTimeFrameGroup, bSortDescending );
+							Results = EnumerableOrderBy( Results, BuggCrashInstance => BuggCrashInstance.CrashesInTimeFrameGroup, bSortDescending );
 							break;
 
 						case "CrashesInTimeFrameAll":
-							Results = CrashRepository.OrderBy( IntermediateQueryable, BuggCrashInstance => BuggCrashInstance.CrashesInTimeFrameAll, bSortDescending );
+							Results = EnumerableOrderBy( Results, BuggCrashInstance => BuggCrashInstance.CrashesInTimeFrameAll, bSortDescending );
 							break;
 
 						case "Id":
-							Results = CrashRepository.OrderBy( IntermediateQueryable, BuggCrashInstance => BuggCrashInstance.Id, bSortDescending );
+							Results = EnumerableOrderBy( Results, BuggCrashInstance => BuggCrashInstance.Id, bSortDescending );
 							break;
 
 						case "BuildVersion":
-							Results = CrashRepository.OrderBy( IntermediateQueryable, BuggCrashInstance => BuggCrashInstance.BuildVersion, bSortDescending );
+							Results = EnumerableOrderBy( Results, BuggCrashInstance => BuggCrashInstance.BuildVersion, bSortDescending );
 							break;
 
 						case "LatestCrash":
-							Results = CrashRepository.OrderBy( IntermediateQueryable, BuggCrashInstance => BuggCrashInstance.TimeOfLastCrash, bSortDescending );
+							Results = EnumerableOrderBy( Results, BuggCrashInstance => BuggCrashInstance.TimeOfLastCrash, bSortDescending );
 							break;
 
 						case "FirstCrash":
-							Results = CrashRepository.OrderBy( IntermediateQueryable, BuggCrashInstance => BuggCrashInstance.TimeOfFirstCrash, bSortDescending );
+							Results = EnumerableOrderBy( Results, BuggCrashInstance => BuggCrashInstance.TimeOfFirstCrash, bSortDescending );
 							break;
 
 						case "NumberOfCrashes":
-							Results = CrashRepository.OrderBy( IntermediateQueryable, BuggCrashInstance => BuggCrashInstance.NumberOfCrashes, bSortDescending );
+							Results = EnumerableOrderBy( Results, BuggCrashInstance => BuggCrashInstance.NumberOfCrashes, bSortDescending );
 							break;
 
 
 						case "NumberOfUsers":
-							{
-								Results = CrashRepository.OrderBy( IntermediateQueryable, BuggCrashInstance => BuggCrashInstance.NumberOfUniqueMachines, bSortDescending );
-							}
+							Results = EnumerableOrderBy( Results, BuggCrashInstance => BuggCrashInstance.NumberOfUniqueMachines, bSortDescending );
 							break;
 
 						case "Pattern":
-							Results = CrashRepository.OrderBy( IntermediateQueryable, BuggCrashInstance => BuggCrashInstance.Pattern, bSortDescending );
+							Results = EnumerableOrderBy( Results, BuggCrashInstance => BuggCrashInstance.Pattern, bSortDescending );
 							break;
 
 						case "CrashType":
-							Results = CrashRepository.OrderBy( IntermediateQueryable, BuggCrashInstance => BuggCrashInstance.CrashType, bSortDescending );
+							Results = EnumerableOrderBy( Results, BuggCrashInstance => BuggCrashInstance.CrashType, bSortDescending );
 							break;
 
 						case "Status":
-							Results = CrashRepository.OrderBy( IntermediateQueryable, BuggCrashInstance => BuggCrashInstance.Status, bSortDescending );
+							Results = EnumerableOrderBy( Results, BuggCrashInstance => BuggCrashInstance.Status, bSortDescending );
 							break;
 
 						case "FixedChangeList":
-							Results = CrashRepository.OrderBy( IntermediateQueryable, BuggCrashInstance => BuggCrashInstance.FixedChangeList, bSortDescending );
+							Results = EnumerableOrderBy( Results, BuggCrashInstance => BuggCrashInstance.FixedChangeList, bSortDescending );
 							break;
 
 						case "TTPID":
-							Results = CrashRepository.OrderBy( IntermediateQueryable, BuggCrashInstance => BuggCrashInstance.TTPID, bSortDescending );
+							Results = EnumerableOrderBy( Results, BuggCrashInstance => BuggCrashInstance.TTPID, bSortDescending );
 							break;
 
 					}

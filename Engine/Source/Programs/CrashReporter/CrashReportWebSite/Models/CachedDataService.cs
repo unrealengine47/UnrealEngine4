@@ -12,8 +12,8 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 	/// </summary>
 	public class CachedDataService : IDisposable
 	{
-		private CrashRepository LocalCrashRepository;
-		private BuggRepository BuggRepositoryInstance;
+		private CrashRepository Crashes;
+		private BuggRepository Buggs;
 
 		private Cache CacheInstance;
 
@@ -30,7 +30,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		public CachedDataService( Cache InCache, CrashRepository InCrashRepository )
 		{
 			CacheInstance = InCache;
-			LocalCrashRepository = InCrashRepository;
+			Crashes = InCrashRepository;
 		}
 
 		/// <summary>
@@ -41,7 +41,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		public CachedDataService( Cache InCache, BuggRepository InBuggRepository )
 		{
 			CacheInstance = InCache;
-			BuggRepositoryInstance = InBuggRepository;
+			Buggs = InBuggRepository;
 		}
 
 		/// <summary>
@@ -59,8 +59,8 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		/// <param name="Disposing">true if the Dispose call is from user code, and not system code.</param>
 		protected virtual void Dispose( bool Disposing )
 		{
-			LocalCrashRepository.Dispose();
-			BuggRepositoryInstance.Dispose();
+			Crashes.Dispose();
+			Buggs.Dispose();
 		}
 
 		/// <summary>
@@ -82,30 +82,6 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 				}
 
 				return CallStack;
-			}
-		}
-
-		/// <summary>
-		/// Retrieve a list of crashes from the cache, or retrieve a list from the database, and add to the cache.
-		/// </summary>
-		/// <param name="DateFrom">The date of the earliest crash to consider.</param>
-		/// <param name="DateTo">The date of the most recent crash to consider.</param>
-		/// <returns>A list of crashes between the start and end dates.</returns>
-		public List<Crash> GetCrashes( DateTime DateFrom, DateTime DateTo )
-		{
-			using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( this.GetType().ToString() ) )
-			{
-				string Key = CacheKeyPrefix + DateFrom + DateTo;
-				List<Crash> Data = (List<Crash>)CacheInstance[Key];
-				if( Data == null )
-				{
-					IQueryable<Crash> DataQuery = LocalCrashRepository.ListAll();
-					DataQuery = LocalCrashRepository.FilterByDate( DataQuery, DateFrom, DateTo );
-					Data = DataQuery.ToList();
-					CacheInstance.Insert( Key, Data );
-				}
-
-				return Data;
 			}
 		}
 
@@ -143,7 +119,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 					IdList.Remove( 64334 ); // 64334	UE4Editor_Core!FOutputDevice::Logf__VA()
 
 
-					FunctionCalls = BuggRepositoryInstance.GetFunctionCalls( IdList );
+					FunctionCalls = Buggs.GetFunctionCalls( IdList );
 					CacheInstance.Insert( Key, FunctionCalls );
 				}
 

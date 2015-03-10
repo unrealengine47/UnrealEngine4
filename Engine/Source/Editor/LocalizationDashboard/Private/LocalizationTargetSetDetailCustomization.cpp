@@ -9,6 +9,7 @@
 #include "DetailCategoryBuilder.h"
 #include "IDetailsView.h"
 #include "LocalizationCommandletTasks.h"
+#include "ObjectEditorUtils.h"
 
 #define LOCTEXT_NAMESPACE "LocalizationDashboard"
 
@@ -80,10 +81,12 @@ void FLocalizationTargetSetDetailCustomization::CustomizeDetails(IDetailLayoutBu
 	}
 
 	{
-		IDetailCategoryBuilder& DetailCategoryBuilder = DetailBuilder.EditCategory(FName("Targets"));
 		TargetObjectsPropertyHandle = DetailBuilder.GetProperty(GET_MEMBER_NAME_CHECKED(ULocalizationTargetSet,TargetObjects));
 		if (TargetObjectsPropertyHandle->IsValidHandle())
 		{
+			const FName CategoryName = FObjectEditorUtils::GetCategoryFName(TargetObjectsPropertyHandle->GetProperty());
+			IDetailCategoryBuilder& DetailCategoryBuilder = DetailBuilder.EditCategory(CategoryName);
+
 			TargetObjectsPropertyHandle->MarkHiddenByCustomization();
 			TargetsArrayPropertyHandle_OnNumElementsChanged = FSimpleDelegate::CreateSP(this, &FLocalizationTargetSetDetailCustomization::RebuildTargetsList);
 			TargetObjectsPropertyHandle->AsArray()->SetOnNumElementsChanged(TargetsArrayPropertyHandle_OnNumElementsChanged);
@@ -106,7 +109,7 @@ void FLocalizationTargetSetDetailCustomization::CustomizeDetails(IDetailLayoutBu
 
 			BuildTargetsList();
 
-			DetailCategoryBuilder.AddCustomRow( LOCTEXT("TargetsFilterString", "Targets") )
+			DetailCategoryBuilder.AddCustomRow(TargetObjectsPropertyHandle->GetPropertyDisplayName())
 				.WholeRowContent()
 				[
 					SNew(SVerticalBox)
@@ -284,12 +287,7 @@ void FLocalizationTargetSetDetailCustomization::GatherAllTargets()
 
 	// Execute gather.
 	const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(DetailLayoutBuilder->GetDetailsView().AsShared());
-	TArray<FLocalizationTargetSettings*> TargetSettings;
-	for (ULocalizationTarget* const TargetObject : TargetSet->TargetObjects)
-	{
-		TargetSettings.Add(&TargetObject->Settings);
-	}
-	LocalizationCommandletTasks::GatherTargets(ParentWindow.ToSharedRef(), TargetSettings);
+	LocalizationCommandletTasks::GatherTargets(ParentWindow.ToSharedRef(), TargetSet->TargetObjects);
 
 	for (ULocalizationTarget* const LocalizationTarget : TargetSet->TargetObjects)
 	{
@@ -316,12 +314,7 @@ void FLocalizationTargetSetDetailCustomization::ImportAllTargets()
 		FString OutputDirectory;
 		if (DesktopPlatform->OpenDirectoryDialog(ParentWindowWindowHandle, LOCTEXT("ImportAllTranslationsDialogTitle", "Import All Translations from Directory").ToString(), DefaultPath, OutputDirectory))
 		{
-			TArray<FLocalizationTargetSettings*> TargetSettings;
-			for (ULocalizationTarget* const TargetObject : TargetSet->TargetObjects)
-			{
-				TargetSettings.Add(&TargetObject->Settings);
-			}
-			LocalizationCommandletTasks::ImportTargets(ParentWindow.ToSharedRef(), TargetSettings, TOptional<FString>(OutputDirectory));
+			LocalizationCommandletTasks::ImportTargets(ParentWindow.ToSharedRef(), TargetSet->TargetObjects, TOptional<FString>(OutputDirectory));
 
 			for (ULocalizationTarget* const LocalizationTarget : TargetSet->TargetObjects)
 			{
@@ -349,12 +342,7 @@ void FLocalizationTargetSetDetailCustomization::ExportAllTargets()
 		FString OutputDirectory;
 		if (DesktopPlatform->OpenDirectoryDialog(ParentWindowWindowHandle, LOCTEXT("ExportAllTranslationsDialogTitle", "Export All Translations to Directory").ToString(), DefaultPath, OutputDirectory))
 		{
-			TArray<FLocalizationTargetSettings*> TargetSettings;
-			for (ULocalizationTarget* const TargetObject : TargetSet->TargetObjects)
-			{
-				TargetSettings.Add(&TargetObject->Settings);
-			}
-			LocalizationCommandletTasks::ExportTargets(ParentWindow.ToSharedRef(), TargetSettings, TOptional<FString>(OutputDirectory));
+			LocalizationCommandletTasks::ExportTargets(ParentWindow.ToSharedRef(), TargetSet->TargetObjects, TOptional<FString>(OutputDirectory));
 		}
 	}
 }
@@ -400,8 +388,8 @@ void FLocalizationTargetSetDetailCustomization::UpdateTargetFromReports(ULocaliz
 	//{
 	//	WordCountPropertyHandle->NotifyPreChange();
 	//}
-	LocalizationTarget->Settings.UpdateWordCountsFromCSV();
-	LocalizationTarget->Settings.UpdateStatusFromConflictReport();
+	LocalizationTarget->UpdateWordCountsFromCSV();
+	LocalizationTarget->UpdateStatusFromConflictReport();
 	//for (const TSharedPtr<IPropertyHandle>& WordCountPropertyHandle : WordCountPropertyHandles)
 	//{
 	//	WordCountPropertyHandle->NotifyPostChange();
@@ -412,12 +400,7 @@ void FLocalizationTargetSetDetailCustomization::CompileAllTargets()
 {
 	// Execute compile.
 	const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(DetailLayoutBuilder->GetDetailsView().AsShared());
-	TArray<FLocalizationTargetSettings*> TargetSettings;
-	for (ULocalizationTarget* const TargetObject : TargetSet->TargetObjects)
-	{
-		TargetSettings.Add(&TargetObject->Settings);
-	}
-	LocalizationCommandletTasks::CompileTargets(ParentWindow.ToSharedRef(), TargetSettings);
+	LocalizationCommandletTasks::CompileTargets(ParentWindow.ToSharedRef(), TargetSet->TargetObjects);
 }
 
 TSharedRef<ITableRow> FLocalizationTargetSetDetailCustomization::OnGenerateRow(TSharedPtr<IPropertyHandle> TargetObjectPropertyHandle, const TSharedRef<STableViewBase>& Table)
