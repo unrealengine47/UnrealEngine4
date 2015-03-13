@@ -107,6 +107,12 @@ struct FLocalizationTargetSettings
 	UPROPERTY(config, EditAnywhere, Category = "Gather Configuration")
 	TArray<FString> TargetDependencies;
 
+	UPROPERTY(config, EditAnywhere, Category = "Gather Configuration", AdvancedDisplay, meta=(FilePathFilter="manifest"))
+	TArray<FFilePath> AdditionalManifestDependencies;
+
+	UPROPERTY(config, EditAnywhere, Category = "Gather Configuration", AdvancedDisplay)
+	TArray<FString> RequiredModuleNames;
+
 	UPROPERTY(config, EditAnywhere, Category = "Gather Configuration")
 	FGatherTextFromTextFilesConfiguration GatherFromTextFiles;
 
@@ -115,9 +121,6 @@ struct FLocalizationTargetSettings
 
 	UPROPERTY(config, EditAnywhere, Category = "Gather Configuration")
 	FGatherTextFromMetaDataConfiguration GatherFromMetaData;
-
-	UPROPERTY(config, EditAnywhere, Category = "Gather Configuration", AdvancedDisplay, meta=(FilePathFilter="manifest"))
-	TArray<FFilePath> AdditionalManifestDependencies;
 
 	UPROPERTY(config, EditAnywhere, Category = "Cultures")
 	FCultureStatistics NativeCultureStatistics;
@@ -140,13 +143,14 @@ public:
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 
+	bool IsMemberOfEngineTargetSet() const;
 	bool UpdateWordCountsFromCSV();
 	void UpdateStatusFromConflictReport();
 	bool RenameTargetAndFiles(const FString& NewName);
 	bool DeleteFiles(const FString* const Culture = nullptr) const;
 };
 
-UCLASS(Config=Game, defaultconfig)
+UCLASS(Config=Localization, perObjectConfig, defaultconfig)
 class ULocalizationTargetSet : public UObject
 {
 	GENERATED_BODY()
@@ -154,6 +158,9 @@ class ULocalizationTargetSet : public UObject
 public:
 	UPROPERTY(EditAnywhere, Category = "Targets")
 	TArray<ULocalizationTarget*> TargetObjects;
+
+	static FName EngineTargetSetName;
+	static FName ProjectTargetSetName;
 
 private:
 	UPROPERTY(config)

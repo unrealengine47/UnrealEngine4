@@ -1511,9 +1511,10 @@ namespace UnrealBuildTool
 
 			if (!bIsBuildingLibrary)
 			{
-				// Xbox 360 LTCG does not seem to produce those.
-				if (LinkEnvironment.Config.bHasExports &&
-					(LinkEnvironment.Config.Target.Configuration != CPPTargetConfiguration.Shipping))
+				// There is anything to export
+				if (LinkEnvironment.Config.bHasExports
+					// Shipping monolithic builds don't need exports
+					&& (!((LinkEnvironment.Config.Target.Configuration == CPPTargetConfiguration.Shipping) && (LinkEnvironment.bShouldCompileMonolithic != false))))
 				{
 					// Write the import library to the output directory for nFringe support.
 					FileItem ImportLibraryFile = FileItem.GetItemByPath(ImportLibraryFilePath);
@@ -1529,15 +1530,6 @@ namespace UnrealBuildTool
 						FileItem PDBFile = FileItem.GetItemByPath(PDBFilePath);
 						Arguments.AppendFormat(" /PDB:\"{0}\"", PDBFilePath);
 						ProducedItems.Add(PDBFile);
-					}
-
-					// Write a stripped PDB file for Rocket
-					if(UnrealBuildTool.BuildingRocket())
-					{
-						string StrippedPDBFilePath = Path.Combine(LinkEnvironment.Config.OutputDirectory, Path.GetFileNameWithoutExtension(OutputFile.AbsolutePath) + "-Stripped.pdb");
-						FileItem StrippedPDBFile = FileItem.GetItemByPath(StrippedPDBFilePath);
-						Arguments.AppendFormat(" /PDBSTRIPPED:\"{0}\"", StrippedPDBFilePath);
-						ProducedItems.Add(StrippedPDBFile);
 					}
 
 					// Write the MAP file to the output directory.			

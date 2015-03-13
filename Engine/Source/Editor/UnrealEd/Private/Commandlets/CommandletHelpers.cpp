@@ -5,29 +5,25 @@
 
 namespace CommandletHelpers
 {
-	FProcHandle CreateCommandletProcess(const TCHAR* CommandletName, const TCHAR* ProjectPath, const TCHAR* Parms, bool bLaunchDetached, bool bLaunchHidden, bool bLaunchReallyHidden, uint32* OutProcessID, int32 PriorityModifier, const TCHAR* OptionalWorkingDirectory, void* PipeWrite)
+	FString BuildCommandletProcessArguments(const TCHAR* const CommandletName, const TCHAR* const ProjectPath, const TCHAR* const AdditionalArguments)
 	{
-		const FString ExecutableURL = FUnrealEdMisc::Get().GetExecutableForCommandlets();
+		check(CommandletName && FCString::Strlen(CommandletName) != 0);
 
-		FProcHandle Result;
+		FString Arguments;
 
-		// Construct arguments string.
-		if (CommandletName && FCString::Strlen(CommandletName) != 0)
+		if (ProjectPath && FCString::Strlen(ProjectPath) != 0)
 		{
-			FString Arguments;
-			const FString RunCommand = FString::Printf( TEXT("-run=%s"), CommandletName );
-			if (ProjectPath && FCString::Strlen(ProjectPath) != 0)
-			{
-				Arguments = FString::Printf( TEXT("%s %s"), ProjectPath, *RunCommand );
-			}
-			if (Parms && FCString::Strlen(Parms) != 0)
-			{
-				Arguments = FString::Printf( TEXT("%s %s"), *Arguments, Parms );
-			}
-
-			Result = FPlatformProcess::CreateProc(*ExecutableURL, *Arguments, bLaunchDetached, bLaunchHidden, bLaunchReallyHidden, OutProcessID, PriorityModifier, OptionalWorkingDirectory, PipeWrite);
+			Arguments += FString(Arguments.IsEmpty() ? TEXT("") : TEXT(" ")) + ProjectPath;
 		}
 
-		return Result;
+		const FString RunCommand = FString::Printf( TEXT("-run=%s"), CommandletName );
+		Arguments += (Arguments.IsEmpty() ? "" : " ") + RunCommand;
+
+		if (AdditionalArguments && FCString::Strlen(AdditionalArguments) != 0)
+		{
+			Arguments += FString(Arguments.IsEmpty() ? TEXT("") : TEXT(" ")) + AdditionalArguments;
+		}
+
+		return Arguments;
 	}
 }

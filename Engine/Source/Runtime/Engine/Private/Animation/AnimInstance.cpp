@@ -73,6 +73,7 @@ UAnimInstance::UAnimInstance(const FObjectInitializer& ObjectInitializer)
 {
 	RootNode = NULL;
 	RootMotionMode = ERootMotionMode::RootMotionFromMontagesOnly;
+	SlotNodeInitializationCounter = INDEX_NONE;
 }
 
 void UAnimInstance::MakeSequenceTickRecord(FAnimTickRecord& TickRecord, class UAnimSequenceBase* Sequence, bool bLooping, float PlayRate, float FinalBlendWeight, float& CurrentTime) const
@@ -291,17 +292,14 @@ void UAnimInstance::InitializeAnimation()
 	// before initialize, need to recalculate required bone list
 	RecalcRequiredBones();
 
-	// Clear cached list, we're about to re-update it.
-
-	ActiveSlotWeights.Empty();
-
+	ReinitializeSlotNodes();
 	ClearMorphTargets();
 	NativeInitializeAnimation();
 	BlueprintInitializeAnimation();
 
 	if (RootNode != NULL)
 	{
-		IncrementContextCounter();
+		IncrementGraphTraversalCounter();
 		FAnimationInitializeContext InitContext(this);
 		RootNode->Initialize(InitContext);
 	}
@@ -399,7 +397,7 @@ void UAnimInstance::UpdateAnimation(float DeltaSeconds)
 	// Update the anim graph
 	if (RootNode != NULL)
 	{
-		IncrementContextCounter();
+		IncrementGraphTraversalCounter();
 		FAnimationUpdateContext UpdateContext(this, DeltaSeconds);
 		RootNode->Update(UpdateContext);
 	}
@@ -512,7 +510,7 @@ void UAnimInstance::EvaluateAnimation(FPoseContext& Output)
 	{
 		bBoneCachesInvalidated = false;
 
-		IncrementContextCounter();
+		IncrementGraphTraversalCounter();
 		FAnimationCacheBonesContext UpdateContext(this);
 		RootNode->CacheBones(UpdateContext);
 	}
@@ -523,7 +521,7 @@ void UAnimInstance::EvaluateAnimation(FPoseContext& Output)
 		if (RootNode != NULL)
 		{
 			SCOPE_CYCLE_COUNTER(STAT_AnimGraphEvaluate);
-
+			IncrementGraphTraversalCounter();
 			RootNode->Evaluate(Output);
 		}
 		else
@@ -1137,22 +1135,16 @@ void UAnimInstance::RecalcRequiredBones()
 	bBoneCachesInvalidated = true;
 }
 
-/** Global unique context counter */
-static int16 ContextCounter = 0;
-void UAnimInstance::IncrementContextCounter()
+void UAnimInstance::IncrementGraphTraversalCounter()
 {
-	// Increase frame counter, so that SavedCacheNode will call children only once.
-	ContextCounter++;
-	// Can't be INDEX_NONE
-	if( ContextCounter == INDEX_NONE )
-	{
-		ContextCounter++;
-	}
-}
+	// Increase traversal counter, so that SavedCacheNode will call children only once.
+	GraphTraversalCounter++;
 
-int16 UAnimInstance::GetContextCounter() const
-{
-	return ContextCounter;
+	// Can't be INDEX_NONE
+	if (GraphTraversalCounter == INDEX_NONE)
+	{
+		GraphTraversalCounter++;
+	}
 }
 
 void UAnimInstance::Serialize(FArchive& Ar)
@@ -1594,14 +1586,28 @@ void UAnimInstance::SlotEvaluatePose(FName SlotNodeName, const FA2Pose & SourceP
 	}
 }
 
-void UAnimInstance::RegisterSlotNode(FName SlotNodeName)
+void UAnimInstance::ReinitializeSlotNodes()
+{
+	ActiveSlotWeights.Empty();
+	ActiveSlotRootMotionWeights.Empty();
+	
+	// Increment counter
+	SlotNodeInitializationCounter++;
+	// Can't be INDEX_NONE
+	if (SlotNodeInitializationCounter == INDEX_NONE)
+	{
+		SlotNodeInitializationCounter++;
+	}
+}
+
+void UAnimInstance::RegisterSlotNodeWithAnimInstance(FName SlotNodeName)
 {
 	// verify if same slot node name exists
 	// then warn users, this is invalid
 	for (auto Iter = ActiveSlotWeights.CreateConstIterator(); Iter; ++Iter)
 	{
 		// if same name found, we should warn user, and make sure they know about it
-		if ( SlotNodeName == Iter.Key() )
+		if (SlotNodeName == Iter.Key())
 		{
 			FMessageLog("AnimBlueprint").Warning(FText::Format(LOCTEXT("AnimInstance_SlotNode", "SLOTNODE: '{0}' already exists. Each slot node has to have unique name."), FText::FromString(SlotNodeName.ToString())));
 			return;

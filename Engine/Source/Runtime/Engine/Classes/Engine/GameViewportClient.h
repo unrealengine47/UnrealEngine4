@@ -614,6 +614,9 @@ private:
 		return EnabledStats.Num();
 	}
 
+	/** Process the 'show volumes' console command */
+	void ToggleShowVolumes();
+
 	/** Process the 'show collision' console command */
 	void ToggleShowCollision();
 
@@ -699,6 +702,9 @@ private:
 
 	/** Handle to the registered ShowCollisionOnSpawnedActors delegate */
 	FDelegateHandle ShowCollisionOnSpawnedActorsDelegateHandle;
+
+	/** Handle to the audio device created for this viewport. Each viewport (for multiple PIE) will have its own audio device. */
+	uint32 AudioDeviceHandle;
 };
 
 

@@ -7,6 +7,58 @@
 #include "Editor/PropertyEditor/Public/PropertyEditing.h"
 #include "LevelEditorGenericDetails.h"
 #include "ScopedTransaction.h"
+#include "SourceCodeNavigation.h"
+
+class SActorDetailsUneditableComponentWarning : public SCompoundWidget
+{
+public:
+	SLATE_BEGIN_ARGS(SActorDetailsUneditableComponentWarning)
+		: _WarningText()
+		, _OnHyperlinkClicked()
+	{}
+		
+		/** The rich text to show in the warning */
+		SLATE_ATTRIBUTE(FText, WarningText)
+
+		/** Called when the hyperlink in the rich text is clicked */
+		SLATE_EVENT(FSlateHyperlinkRun::FOnClick, OnHyperlinkClicked)
+
+	SLATE_END_ARGS()
+
+	/** Constructs the widget */
+	void Construct(const FArguments& InArgs)
+	{
+		ChildSlot
+		[
+			SNew(SBorder)
+			.BorderImage(FEditorStyle::Get().GetBrush("ToolPanel.GroupBorder"))
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.HAlign(HAlign_Center)
+				.VAlign(VAlign_Center)
+				.Padding(2)
+				[
+					SNew(SImage)
+					.Image(FEditorStyle::Get().GetBrush("Icons.Warning"))
+				]
+				+ SHorizontalBox::Slot()
+					.VAlign(VAlign_Center)
+					.Padding(2)
+					[
+						SNew(SRichTextBlock)
+						.DecoratorStyleSet(&FEditorStyle::Get())
+						.Justification(ETextJustify::Left)
+						.TextStyle(FEditorStyle::Get(), "DetailsView.BPMessageTextStyle")
+						.Text(InArgs._WarningText)
+						.AutoWrapText(true)
+						+ SRichTextBlock::HyperlinkDecorator(TEXT("HyperlinkDecorator"), InArgs._OnHyperlinkClicked)
+					]
+			]
+		];
+	}
+};
 
 void SActorDetails::Construct(const FArguments& InArgs, const FName TabIdentifier)
 {
@@ -72,12 +124,6 @@ void SActorDetails::Construct(const FArguments& InArgs, const FName TabIdentifie
 		[
 			DetailsView->GetNameAreaWidget().ToSharedRef()
 		]
-		+ SVerticalBox::Slot()
-		.Padding(0.0f, 0.0f, 0.0f, 2.0f)
-		.AutoHeight()
-		[
-			DetailsView->GetFilterAreaWidget().ToSharedRef()
-		]
 		+SVerticalBox::Slot()
 		[
 			SAssignNew(DetailsSplitter, SSplitter)
@@ -89,33 +135,33 @@ void SActorDetails::Construct(const FArguments& InArgs, const FName TabIdentifie
 				.AutoHeight()
 				.Padding( FMargin( 0,0,0,1) )
 				[
-					SNew( SBorder )
-					.Visibility(this, &SActorDetails::GetBlueprintComponentWarningVisibility)
-					.BorderImage( FEditorStyle::Get().GetBrush( "ToolPanel.GroupBorder" ) )
-					[
-						SNew( SHorizontalBox )
-						+ SHorizontalBox::Slot()
-						.AutoWidth()
-						.HAlign( HAlign_Center )
-						.VAlign( VAlign_Center )
-						.Padding( 2 )
-						[
-							SNew( SImage )
-							.Image( FEditorStyle::Get().GetBrush("Icons.Warning") )
-						]
-						+ SHorizontalBox::Slot()
-						.VAlign( VAlign_Center )
-						.Padding( 2 )
-						[
-							SNew(SRichTextBlock)
-							.DecoratorStyleSet(&FEditorStyle::Get())
-							.Justification(ETextJustify::Left)
-							.TextStyle(FEditorStyle::Get(), "DetailsView.BPMessageTextStyle")
-							.Text(NSLOCTEXT("SActorDetails", "BlueprintedComponentWarning", "Blueprinted components must be edited in the <a id=\"HyperlinkDecorator\" style=\"DetailsView.BPMessageHyperlinkStyle\">Blueprint</>"))
-							.AutoWrapText(true)
-							+SRichTextBlock::HyperlinkDecorator(TEXT("HyperlinkDecorator"), this, &SActorDetails::OnBlueprintWarningHyperlinkClicked)
-						]
-					]
+					SNew(SActorDetailsUneditableComponentWarning)
+					.Visibility(this, &SActorDetails::GetUCSComponentWarningVisibility)
+					.WarningText(NSLOCTEXT("SActorDetails", "BlueprintUCSComponentWarning", "Components created by the User Construction Script can only be edited in the <a id=\"HyperlinkDecorator\" style=\"DetailsView.BPMessageHyperlinkStyle\">Blueprint</>"))
+					.OnHyperlinkClicked(this, &SActorDetails::OnBlueprintedComponentWarningHyperlinkClicked)
+				]
+				+SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding( FMargin( 0,0,0,1) )
+				[
+					SNew(SActorDetailsUneditableComponentWarning)
+					.Visibility(this, &SActorDetails::GetInheritedBlueprintComponentWarningVisibility)
+					.WarningText(NSLOCTEXT("SActorDetails", "BlueprintUneditableInheritedComponentWarning", "Components flagged as not editable when inherited must be edited in the <a id=\"HyperlinkDecorator\" style=\"DetailsView.BPMessageHyperlinkStyle\">Blueprint</>"))
+					.OnHyperlinkClicked(this, &SActorDetails::OnBlueprintedComponentWarningHyperlinkClicked)
+				]
+				+SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding( FMargin( 0,0,0,1) )
+				[
+					SNew(SActorDetailsUneditableComponentWarning)
+					.Visibility(this, &SActorDetails::GetNativeComponentWarningVisibility)
+					.WarningText(NSLOCTEXT("SActorDetails", "UneditableNativeComponentWarning", "Native components are editable when declared as a UProperty in <a id=\"HyperlinkDecorator\" style=\"DetailsView.BPMessageHyperlinkStyle\">C++</>"))
+					.OnHyperlinkClicked(this, &SActorDetails::OnNativeComponentWarningHyperlinkClicked)
+				]
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				[
+					DetailsView->GetFilterAreaWidget().ToSharedRef()
 				]
 				+ SVerticalBox::Slot()
 				[
@@ -152,7 +198,7 @@ void SActorDetails::SetObjects(const TArray<UObject*>& InObjects, bool bForceRef
 
 		bool bShowingComponents = false;
 
-		if(InObjects.Num() == 1 && FKismetEditorUtilities::CanCreateBlueprintOfClass(InObjects[0]->GetClass()) && GetDefault<UEditorExperimentalSettings>()->bInWorldBPEditing)
+		if(InObjects.Num() == 1 && FKismetEditorUtilities::CanCreateBlueprintOfClass(InObjects[0]->GetClass()))
 		{
 			auto Actor = GetSelectedActorInEditor();
 			if(Actor)
@@ -463,33 +509,136 @@ void SActorDetails::UpdateComponentTreeFromEditorSelection()
 bool SActorDetails::IsPropertyEditingEnabled() const
 {
 	bool bIsEditable = true;
-	const TArray<TWeakObjectPtr<UObject> >& Objects = DetailsView->GetSelectedObjects();
-	for(auto Object : Objects)
+	const TArray<FSCSEditorTreeNodePtrType> SelectedNodes = SCSEditor->GetSelectedNodes();
+	for (const auto& Node : SelectedNodes)
 	{
-		UActorComponent* ActorComp = Cast<UActorComponent>(Object.Get());
-		if(ActorComp)
+		bIsEditable = Node->CanEditDefaults() || Node->GetNodeType() == FSCSEditorTreeNode::ENodeType::RootActorNode;
+		if (!bIsEditable)
 		{
-			bIsEditable = !ActorComp->IsCreatedByConstructionScript();
-			if(!bIsEditable)
-			{
-				break;
-			}
+			break;
 		}
 	}
 	return bIsEditable;
 }
 
-void SActorDetails::OnBlueprintWarningHyperlinkClicked( const FSlateHyperlinkRun::FMetadata& Metadata )
+void SActorDetails::OnBlueprintedComponentWarningHyperlinkClicked(const FSlateHyperlinkRun::FMetadata& Metadata)
 {
 	UBlueprint* Blueprint = SCSEditor->GetBlueprint();
-	if( Blueprint )
+	if (Blueprint)
 	{
 		// Open the blueprint
 		GEditor->EditObject(Blueprint);
 	}
 }
 
-EVisibility SActorDetails::GetBlueprintComponentWarningVisibility() const
+void SActorDetails::OnNativeComponentWarningHyperlinkClicked(const FSlateHyperlinkRun::FMetadata& Metadata)
 {
-	return IsPropertyEditingEnabled() ? EVisibility::Collapsed : EVisibility::Visible;
+	// Find the closest native parent
+	UBlueprint* Blueprint = SCSEditor->GetBlueprint();
+	UClass* ParentClass = Blueprint ? *Blueprint->ParentClass : GetActorContext()->GetClass();
+	while (ParentClass && !ParentClass->HasAllClassFlags(CLASS_Native))
+	{
+		ParentClass = ParentClass->GetSuperClass();
+	}
+
+	if (ParentClass)
+	{
+		FString NativeParentClassHeaderPath;
+		const bool bFileFound = FSourceCodeNavigation::FindClassHeaderPath(ParentClass, NativeParentClassHeaderPath)
+			&& ( IFileManager::Get().FileSize(*NativeParentClassHeaderPath) != INDEX_NONE );
+		if (bFileFound)
+		{
+			const FString AbsoluteHeaderPath = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*NativeParentClassHeaderPath);
+			FSourceCodeNavigation::OpenSourceFile(AbsoluteHeaderPath);
+		}
+	}
+}
+
+EVisibility SActorDetails::GetUCSComponentWarningVisibility() const
+{
+	bool bIsUneditableBlueprintComponent = false;
+
+	// Check to see if any selected components are inherited from blueprint
+	for (const auto& Node : SCSEditor->GetSelectedNodes())
+	{
+		if (!Node->IsNative())
+		{
+			UActorComponent* Component = Node->GetComponentTemplate();
+			bIsUneditableBlueprintComponent = Component ? Component->CreationMethod == EComponentCreationMethod::UserConstructionScript : false;
+			if (bIsUneditableBlueprintComponent)
+			{
+				break;
+			}
+		}
+	}
+
+	return bIsUneditableBlueprintComponent ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+bool NotEditableSetByBlueprint(UActorComponent* Component)
+{
+	// Determine if it is locked out from a blueprint or from the native
+	UActorComponent* Archetype = CastChecked<UActorComponent>(Component->GetArchetype());
+	while (Archetype)
+	{
+		if (Archetype->GetOuter()->IsA<UBlueprintGeneratedClass>() || Archetype->GetOuter()->GetClass()->HasAllClassFlags(CLASS_CompiledFromBlueprint))
+		{
+			if (!Archetype->bEditableWhenInherited)
+			{
+				return true;
+			}
+
+			Archetype = CastChecked<UActorComponent>(Archetype->GetArchetype());
+		}
+		else
+		{
+			Archetype = nullptr;
+		}
+	}
+
+	return false;
+}
+
+EVisibility SActorDetails::GetInheritedBlueprintComponentWarningVisibility() const
+{
+	bool bIsUneditableBlueprintComponent = false;
+
+	// Check to see if any selected components are inherited from blueprint
+	for (const auto& Node : SCSEditor->GetSelectedNodes())
+	{
+		if (!Node->IsNative())
+		{
+			if (UActorComponent* Component = Node->GetComponentTemplate())
+			{
+				if (!Component->IsEditableWhenInherited() && Component->CreationMethod == EComponentCreationMethod::SimpleConstructionScript)
+				{
+					bIsUneditableBlueprintComponent = true;
+					break;
+				}
+			}
+		}
+		else if (!Node->CanEditDefaults() && NotEditableSetByBlueprint(Node->GetComponentTemplate()))
+		{
+			bIsUneditableBlueprintComponent = true;
+			break;
+		}
+	}
+
+	return bIsUneditableBlueprintComponent ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+EVisibility SActorDetails::GetNativeComponentWarningVisibility() const
+{
+	bool bIsUneditableNative = false;
+	for (const auto& Node : SCSEditor->GetSelectedNodes())
+	{
+		// Check to see if the component is native and not editable
+		if (Node->IsNative() && !Node->CanEditDefaults() && !NotEditableSetByBlueprint(Node->GetComponentTemplate()))
+		{
+			bIsUneditableNative = true;
+			break;
+		}
+	}
+	
+	return bIsUneditableNative ? EVisibility::Visible : EVisibility::Collapsed;
 }

@@ -841,6 +841,12 @@ bool FSCSEditorTreeNodeInstancedInheritedComponent::IsDefaultSceneRoot() const
 	return false;
 }
 
+bool FSCSEditorTreeNodeInstancedInheritedComponent::CanEditDefaults() const
+{
+	UActorComponent* ComponentTemplate = GetComponentTemplate();
+	return (ComponentTemplate ? ComponentTemplate->IsEditableWhenInherited() : false);
+}
+
 FText FSCSEditorTreeNodeInstancedInheritedComponent::GetDisplayName() const
 {
 	FName VariableName = GetVariableName();
@@ -1075,47 +1081,11 @@ bool FSCSEditorTreeNodeComponent::CanEditDefaults() const
 	if (!IsNative())
 	{
 		USCS_Node* SCS_Node = GetSCSNode();
-		bCanEdit = (SCS_Node != NULL);
+		bCanEdit = (SCS_Node != nullptr);
 	}
 	else if (UActorComponent* ComponentTemplate = GetComponentTemplate())
 	{
-		// Evaluate to TRUE for native nodes if it is bound to a member variable and that variable has either EditDefaultsOnly or EditAnywhere flags set
-		check(ComponentTemplate->GetOwner());
-		UClass* OwnerClass = ComponentTemplate->GetOwner()->GetActorClass();
-		if (OwnerClass != NULL)
-		{
-			UBlueprint* Blueprint = UBlueprint::GetBlueprintFromClass(OwnerClass);
-			if (Blueprint != NULL && Blueprint->ParentClass != NULL)
-			{
-				for (TFieldIterator<UProperty> It(Blueprint->ParentClass); It; ++It)
-				{
-					UProperty* Property = *It;
-					if (UObjectProperty* ObjectProp = Cast<UObjectProperty>(Property))
-					{
-						//must be editable
-						if ((Property->PropertyFlags & (CPF_Edit)) == 0)
-						{
-							continue;
-						}
-
-						UObject* ParentCDO = Blueprint->ParentClass->GetDefaultObject();
-
-						if (!ComponentTemplate->GetClass()->IsChildOf(ObjectProp->PropertyClass))
-						{
-							continue;
-						}
-
-						UObject* Object = ObjectProp->GetObjectPropertyValue(ObjectProp->ContainerPtrToValuePtr<void>(ParentCDO));
-						bCanEdit = Object != NULL && Object->GetFName() == ComponentTemplate->GetFName();
-
-						if (bCanEdit)
-						{
-							break;
-						}
-					}
-				}
-			}
-		}
+		bCanEdit = FComponentEditorUtils::CanEditNativeComponent(ComponentTemplate);
 	}
 
 	return bCanEdit;
@@ -1698,11 +1668,11 @@ FText SSCS_RowWidget::GetIntroducedInToolTipText() const
 						IntroducedInTooltip = LOCTEXT("IntroducedInNativeError", "Unknown native source (via C++ code)");
 					}
 				}
-				else if (!TreeNode->IsNative() && ComponentTemplate->CreationMethod == EComponentCreationMethod::Native)
+				else if (TreeNode->IsInstanced() && ComponentTemplate->CreationMethod == EComponentCreationMethod::Native && !ComponentTemplate->HasAnyFlags(RF_DefaultSubObject))
 				{
 					IntroducedInTooltip = FText::Format(LOCTEXT("IntroducedInCPPErrorFmt", "{0} (via C++ code)"), FBlueprintEditorUtils::GetFriendlyClassDisplayName(BestClass));
 				}
-				else if (ComponentTemplate->CreationMethod == EComponentCreationMethod::UserConstructionScript)
+				else if (TreeNode->IsInstanced() && ComponentTemplate->CreationMethod == EComponentCreationMethod::UserConstructionScript)
 				{
 					IntroducedInTooltip = FText::Format(LOCTEXT("IntroducedInUCSErrorFmt", "{0} (via an Add Component call)"), FBlueprintEditorUtils::GetFriendlyClassDisplayName(BestClass));
 				}
@@ -2106,12 +2076,12 @@ void SSCS_RowWidget::OnDragEnter( const FGeometry& MyGeometry, const FDragDropEv
 					// Can't attach Static components to mobile ones
 					Message = LOCTEXT("DropActionToolTip_Error_CannotAttachStationary", "Cannot attach Stationary components to movable ones.");
 				}
-				else if ((!NodePtr->IsNative() && HoveredTemplate->CreationMethod == EComponentCreationMethod::Native))
+				else if ((NodePtr->IsInstanced() && HoveredTemplate->CreationMethod == EComponentCreationMethod::Native && !HoveredTemplate->HasAnyFlags(RF_DefaultSubObject)))
 				{
 					// Can't attach to post-construction C++-added components as they exist outside of the CDO and are not known at SCS execution time
 					Message = LOCTEXT("DropActionToolTip_Error_CannotAttachCPPAdded", "Cannot attach to components added in post-construction C++ code.");
 				}
-				else if (HoveredTemplate->CreationMethod == EComponentCreationMethod::UserConstructionScript)
+				else if (NodePtr->IsInstanced() && HoveredTemplate->CreationMethod == EComponentCreationMethod::UserConstructionScript)
 				{
 					// Can't attach to UCS-added components as they exist outside of the CDO and are not known at SCS execution time
 					Message = LOCTEXT("DropActionToolTip_Error_CannotAttachUCSAdded", "Cannot attach to components added in the Construction Script.");

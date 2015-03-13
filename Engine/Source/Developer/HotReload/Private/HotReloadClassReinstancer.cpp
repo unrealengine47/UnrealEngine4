@@ -232,8 +232,10 @@ void FHotReloadClassReinstancer::RecreateCDOAndSetupOldClassReinstancing(UClass*
 	FObjectDuplicationParameters Parameters(OriginalCDO, GetTransientPackage());
 	Parameters.DestClass = InOldClass;
 	Parameters.ApplyFlags |= RF_Transient | RF_ArchetypeObject;
-	CopyOfPreviousCDO = StaticDuplicateObjectEx(Parameters);
-
+	{
+		TGuardValue<bool> GuardGIsDuplicatingClassForReinstancing(GIsDuplicatingClassForReinstancing, true);
+		CopyOfPreviousCDO = StaticDuplicateObjectEx(Parameters);
+	}
 
 	// Destroy and re-create the CDO, re-running its constructor
 	ReconstructClassDefaultObject(InOldClass);
@@ -280,6 +282,14 @@ FHotReloadClassReinstancer::FHotReloadClassReinstancer(UClass* InNewClass, UClas
 	if (InNewClass)
 	{
 		SetupNewClassReinstancing(InNewClass, InOldClass);
+
+		TMap<UObject*, UObject*> ClassRedirects;
+		ClassRedirects.Add(InOldClass, InNewClass);
+
+		for (TObjectIterator<UBlueprint> BlueprintIt; BlueprintIt; ++BlueprintIt)
+		{
+			FArchiveReplaceObjectRef<UObject>(*BlueprintIt, ClassRedirects, false, true, true);
+		}
 	}
 	else
 	{
@@ -341,6 +351,37 @@ void FHotReloadClassReinstancer::UpdateDefaultProperties()
 				Ar << UnusedName;
 			}
 			return *this;
+		}
+		virtual FArchive& operator<<(FName& InName) override
+		{
+			FArchive& Ar = *this;
+			NAME_INDEX ComparisonIndex = InName.GetComparisonIndex();
+			NAME_INDEX DisplayIndex = InName.GetDisplayIndex();
+			int32 Number = InName.GetNumber();
+			Ar << ComparisonIndex;
+			Ar << DisplayIndex;
+			Ar << Number;
+			return Ar;
+		}
+		virtual FArchive& operator<<(FLazyObjectPtr& LazyObjectPtr) override
+		{
+			FArchive& Ar = *this;
+			auto UniqueID = LazyObjectPtr.GetUniqueID();
+			Ar << UniqueID;
+			return *this;
+		}
+		virtual FArchive& operator<<(FAssetPtr& AssetPtr) override
+		{
+			FArchive& Ar = *this;
+			auto UniqueID = AssetPtr.GetUniqueID();
+			Ar << UniqueID;
+			return Ar;
+		}
+		virtual FArchive& operator<<(FStringAssetReference& Value) override
+		{
+			FArchive& Ar = *this;
+			Ar << Value.AssetLongPathname;
+			return Ar;
 		}
 	};
 

@@ -785,7 +785,7 @@ FRotator APawn::GetBaseAimRotation() const
 	POVRot = GetActorRotation();
 
 	// If our Pitch is 0, then use RemoteViewPitch
-	if( POVRot.Pitch == 0.f )
+	if( FMath::IsNearlyZero(POVRot.Pitch) )
 	{
 		POVRot.Pitch = RemoteViewPitch;
 		POVRot.Pitch = POVRot.Pitch * 360.f/255.f;
@@ -946,24 +946,6 @@ void APawn::LaunchPawn(FVector LaunchVelocity, bool bXYOverride, bool bZOverride
 	{
 		Character->LaunchCharacter(LaunchVelocity, bXYOverride, bZOverride);
 	}
-}
-
-bool APawn::IsWalking() const
-{
-	// @todo: Deprecated, remove
-	return GetMovementComponent() ? GetMovementComponent()->IsMovingOnGround() : false;
-}
-
-bool APawn::IsFalling() const
-{
-	// @todo: Deprecated, remove
-	return GetMovementComponent() ? GetMovementComponent()->IsFalling() : false;
-}
-
-bool APawn::IsCrouched() const
-{
-	// @todo: Deprecated, remove
-	return GetMovementComponent() ? GetMovementComponent()->IsCrouching() : false;
 }
 
 // REPLICATION

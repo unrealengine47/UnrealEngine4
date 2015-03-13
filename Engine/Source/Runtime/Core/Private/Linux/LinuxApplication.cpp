@@ -68,6 +68,7 @@ FLinuxApplication::FLinuxApplication()
 	,	bInsideOwnWindow(false)
 	,	bIsDragWindowButtonPressed(false)
 	,	bActivateApp(false)
+	,	bLockToCurrentMouseType(false)
 {
 	bUsingHighPrecisionMouseInput = false;
 	bAllowedToDeferMessageProcessing = true;
@@ -245,19 +246,23 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 			SDL_MouseMotionEvent motionEvent = Event.motion;
 			FLinuxCursor *LinuxCursor = (FLinuxCursor*)Cursor.Get();
 
-			if(SDL_ShowCursor(-1) == 0)
+			if (LinuxCursor->IsHidden())
 			{
-				int width, height;
-				SDL_GetWindowSize( NativeWindow, &width, &height );
-				if( motionEvent.x != (width / 2) || motionEvent.y != (height / 2) )
+				// Check if the mouse got locked for dragging in viewport.
+				if (bLockToCurrentMouseType == false)
 				{
-					int xOffset, yOffset;
-					SDL_GetWindowPosition( NativeWindow, &xOffset, &yOffset );
-					LinuxCursor->SetPosition( width / 2 + xOffset, height / 2 + yOffset );
-				}
-				else
-				{
-					break;
+					int width, height;
+					SDL_GetWindowSize(NativeWindow, &width, &height);
+					if (motionEvent.x != (width / 2) || motionEvent.y != (height / 2))
+					{
+						int xOffset, yOffset;
+						SDL_GetWindowPosition(NativeWindow, &xOffset, &yOffset);
+						LinuxCursor->SetPosition(width / 2 + xOffset, height / 2 + yOffset);
+					}
+					else
+					{
+						break;
+					}
 				}
 			}
 			else
@@ -281,12 +286,7 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 
 			if(bUsingHighPrecisionMouseInput)
 			{
-					// maintain "shadow" global position
-					if (LinuxCursor->IsHidden())
-					{
-						LinuxCursor->AddOffset(motionEvent.xrel, motionEvent.yrel);
-					}
- 					MessageHandler->OnRawMouseMove(motionEvent.xrel, motionEvent.yrel);
+ 				MessageHandler->OnRawMouseMove(motionEvent.xrel, motionEvent.yrel);
 			}
 			else
 			{
@@ -326,11 +326,32 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 			if (buttonEvent.type == SDL_MOUSEBUTTONUP)
 			{
 				MessageHandler->OnMouseUp(button);
-				bIsDragWindowButtonPressed = false;
+				
+				if (buttonEvent.button == SDL_BUTTON_LEFT)
+				{
+					// Unlock the mouse dragging type.
+					bLockToCurrentMouseType = false;
+
+					bIsDragWindowButtonPressed = false;
+				}
 			}
 			else
 			{
-				bIsDragWindowButtonPressed = true;
+				if (buttonEvent.button == SDL_BUTTON_LEFT)
+				{
+					// The user clicked an object and wants to drag maybe. We can use that to disable 
+					// the resetting of the cursor. Before the user can drag objects, the pointer will change.
+					// Usually it will be EMouseCursor::CardinalCross (Default added after IRC discussion how to fix selection in Front/Top/Side views). 
+                    // If that happends and the user clicks the left mouse button, we know they want to move something.
+					// TODO Is this always true? Need more checks.
+					if (((FLinuxCursor*)Cursor.Get())->GetType() == EMouseCursor::CardinalCross || ((FLinuxCursor*)Cursor.Get())->GetType() == EMouseCursor::Default)
+					{
+						bLockToCurrentMouseType = true;
+					}
+
+					bIsDragWindowButtonPressed = true;
+				}
+
 				if (buttonEvent.clicks == 2)
 				{
 					MessageHandler->OnMouseDoubleClick(CurrentEventWindow, button);
@@ -339,7 +360,8 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 				{
 					if(CurrentlyActiveWindow != CurrentEventWindow)
 					{
-						CurrentEventWindow->SetWindowFocus();
+						SDL_RaiseWindow( CurrentEventWindow->GetHWnd() );
+						SDL_SetWindowInputFocus( CurrentEventWindow->GetHWnd() );
 
 						SDL_PushEvent(&Event);
 					}
@@ -635,41 +657,6 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 					}
 					break;
 
-				case SDL_WINDOWEVENT_DESTROY:
-					{
-						RemoveEventWindow(CurrentEventWindow->GetHWnd());
-						RemoveRevertFocusWindow(CurrentEventWindow->GetHWnd());
-
-						// After destroying the window we have to decide what to do with the
-						// focus. We should check if the current window has a parent so we can give
-						// the focus to the parent. If not we get a window from the Windows list
-						// and set the focus to the most top one.
- 						if (CurrentEventWindow->IsRegularWindow() && CurrentEventWindow->GetParent().IsValid())
- 						{
- 							CurrentEventWindow->GetParent()->BringToFront();
- 							CurrentEventWindow->GetParent()->SetWindowFocus();
- 						} 
- 						else if (CurrentEventWindow->IsRegularWindow() && RevertFocusStack.Num() > 0)
-						{
- 							TSharedPtr< FLinuxWindow > TopmostWindow = RevertFocusStack.Top();
-							if (TopmostWindow.IsValid())
-							{
-								TopmostWindow->BringToFront();
-								TopmostWindow->SetWindowFocus();
-							}
-						}
-						else if (CurrentEventWindow->IsPopupMenuWindow() && CurrentEventWindow->GetParent().IsValid() && !bIsDragWindowButtonPressed && bActivateApp)
-						{
-							CurrentEventWindow->GetParent()->BringToFront();
-							CurrentEventWindow->GetParent()->SetWindowFocus();
-						}
-
-						SDL_DestroyWindow(CurrentEventWindow->GetHWnd());
-
-						MessageHandler->OnWindowClose(CurrentEventWindow.ToSharedRef());
-					}
-					break;
-
 				case SDL_WINDOWEVENT_SHOWN:
 					{
 						if (CurrentEventWindow->IsRegularWindow())
@@ -723,6 +710,8 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 					{
 						if (CurrentEventWindow.IsValid())
 						{
+							CurrentEventWindow->OnPointerEnteredWindow(true);
+							
 							MessageHandler->OnCursorSet();
 
 							bInsideOwnWindow = true;
@@ -735,6 +724,8 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 					{
 						if (CurrentEventWindow.IsValid())
 						{
+							CurrentEventWindow->OnPointerEnteredWindow(false);
+							
 							if (GetCapture() != nullptr)
 							{
 								UpdateMouseCaptureWindow((SDL_HWindow)GetCapture());
@@ -1105,7 +1096,6 @@ void FLinuxApplication::SetHighPrecisionMouseMode( const bool Enable, const TSha
 {
 	MessageHandler->OnCursorSet();
 	bUsingHighPrecisionMouseInput = Enable;
-	((FLinuxCursor*)Cursor.Get())->ResetOffset();
 }
 
 
@@ -1228,22 +1218,6 @@ void FDisplayMetrics::GetDisplayMetrics(FDisplayMetrics& OutDisplayMetrics)
 	}
 }
 
-void FLinuxApplication::SendDestroyEvent(SDL_Window * HWnd)
-{
-	const TSharedPtr< FLinuxWindow > Window = FindWindowBySDLWindow(HWnd);
-	if (!Window.IsValid())
-	{
-		return;
-	}
-
-	SDL_Event event;
-	SDL_zero(event);
-	event.type = SDL_WINDOWEVENT;
-	event.window.event = SDL_WINDOWEVENT_DESTROY;
-	event.window.windowID = SDL_GetWindowID(Window->GetHWnd());
-	SDL_PushEvent(&event);
-}
-
 void FLinuxApplication::RemoveRevertFocusWindow(SDL_HWindow HWnd)
 {
 	for (int32 WindowIndex=0; WindowIndex < RevertFocusStack.Num(); ++WindowIndex)
@@ -1253,7 +1227,44 @@ void FLinuxApplication::RemoveRevertFocusWindow(SDL_HWindow HWnd)
 		if (Window->GetHWnd() == HWnd)
 		{
 			RevertFocusStack.RemoveAt(WindowIndex);
-			return;
+
+			// After destroying the window we have to decide what to do with the
+			// focus. We should check if the current window has a parent so we can give
+			// the focus to the parent. If not we get a window from the Windows list
+			// and set the focus to the most top one.
+			if (Window->IsRegularWindow() && Window->GetParent().IsValid())
+			{
+				SDL_RaiseWindow( Window->GetParent()->GetHWnd() );
+				SDL_SetWindowInputFocus( Window->GetParent()->GetHWnd() );
+			} 
+			else if (Window->IsRegularWindow() && RevertFocusStack.Num() > 0)
+			{
+				TSharedPtr< FLinuxWindow > TopmostWindow = RevertFocusStack.Top();
+				if (TopmostWindow.IsValid())
+				{
+					SDL_RaiseWindow( TopmostWindow->GetHWnd() );
+					SDL_SetWindowInputFocus( TopmostWindow->GetHWnd() );
+				}
+			}
+			// Check if a popup window got destroyed.
+			else if (Window->IsPopupMenuWindow() && Window->GetParent().IsValid() && bActivateApp )
+			{
+				if ( (!bIsDragWindowButtonPressed && bInsideOwnWindow) ||
+					(bIsDragWindowButtonPressed && Window->IsPointerInsideWindow()) )
+				{
+					SDL_RaiseWindow(Window->GetParent()->GetHWnd() );
+					SDL_SetWindowInputFocus(Window->GetParent()->GetHWnd() );
+
+					// TODO If we have a popup menu and a sub popup menu open, we have
+					// to fake the following. After getting destructed the condition above
+					// 'Window->IsPointerInsideWindow()' will be false for the parent popup window
+					// and the focus will be not reset. This is rather hackery and should be
+					// removed later if possible.
+					Window->GetParent()->OnPointerEnteredWindow(true);
+				}
+			}
+
+			break;
 		}
-	}	
+	}
 }

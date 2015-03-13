@@ -2271,6 +2271,28 @@ void ALandscapeProxy::UpdateBakedTextures()
 		return;
 	}
 
+	// Check if we can want to generate landscape GI data
+	static const auto DistanceFieldCVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.GenerateMeshDistanceFields"));
+	static const auto LandscapeGICVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.GenerateLandscapeGIData"));
+	if (DistanceFieldCVar->GetValueOnGameThread() == 0 || LandscapeGICVar->GetValueOnGameThread() == 0)
+	{
+		// Clear out any existing GI textures
+		for (ULandscapeComponent* Component : LandscapeComponents)
+		{
+			if (Component->GIBakedBaseColorTexture != nullptr)
+			{
+				Component->BakedTextureMaterialGuid.Invalidate();
+				Component->GIBakedBaseColorTexture = nullptr;
+				Component->MarkRenderStateDirty();
+			}
+		}
+
+		// Don't check if we need to update anything for another 60 frames
+		UpdateBakedTexturesCountdown = 60;
+
+		return;
+	}
+	
 	// Stores the components and their state hash data for a single atlas
 	struct FBakedTextureSourceInfo
 	{
@@ -2384,7 +2406,7 @@ void ALandscapeProxy::UpdateBakedTextures()
 							int32 AtlasOffsetY = FMath::RoundToInt(Component->HeightmapScaleBias.W * (float)HeightmapTexture->GetSizeY()) >> 3;
 							for (int32 y = 0; y < BakeSize; y++)
 							{
-								FMemory::Memcpy(&AtlasSamples[(y + AtlasOffsetY)*AtlasSize.Y + AtlasOffsetX], &Samples[y*BakeSize], sizeof(FColor)* BakeSize);
+								FMemory::Memcpy(&AtlasSamples[(y + AtlasOffsetY)*AtlasSize.X + AtlasOffsetX], &Samples[y*BakeSize], sizeof(FColor)* BakeSize);
 							}
 							NumGenerated++;
 						}

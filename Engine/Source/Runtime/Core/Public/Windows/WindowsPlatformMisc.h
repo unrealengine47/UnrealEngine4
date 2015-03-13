@@ -61,6 +61,21 @@ struct CORE_API FWindowsPlatformMisc
 		return false;
 	}
 
+	/** Prompts for remote debugging if debugger is not attached. Regardless of result, breaks into debugger afterwards. Returns false for use in conditionals. */
+	static FORCEINLINE bool DebugBreakAndPromptForRemoteReturningFalse()
+	{
+#if !UE_BUILD_SHIPPING
+		if (!IsDebuggerPresent())
+		{
+			PromptForRemoteDebugging(false);
+		}
+
+		DebugBreak();
+#endif
+
+		return false;
+	}
+
 	static void PumpMessages(bool bFromMainLoop);
 	static uint32 GetKeyMap( uint16* KeyCodes, FString* KeyNames, uint32 MaxMappings );
 	static uint32 GetCharKeyMap(uint16* KeyCodes, FString* KeyNames, uint32 MaxMappings);
@@ -118,9 +133,12 @@ struct CORE_API FWindowsPlatformMisc
 	/** 
 	 * Determines if we are running on the Windows version or newer
 	 *
+	 * See the 'Remarks' section of https://msdn.microsoft.com/en-us/library/windows/desktop/ms724833(v=vs.85).aspx
+	 * for a list of MajorVersion/MinorVersion version combinations for Microsoft Windows.
+	 *
 	 * @return	Returns true if the current Windows version if equal or newer than MajorVersion
 	 */
-	static bool VerifyWindowsMajorVersion(uint32 MajorVersion);
+	static bool VerifyWindowsVersion(uint32 MajorVersion, uint32 MinorVersion);
 
 	/**
 	 * Sample the displayed pixel color from anywhere on the screen using the OS
@@ -228,6 +246,7 @@ struct CORE_API FWindowsPlatformMisc
 	 */
 	static FString GetOperatingSystemId();
 
+	static EConvertibleLaptopMode GetConvertibleLaptopMode();
 };
 
 

@@ -9,6 +9,8 @@
 #include "SThrobber.h"
 #include "Commandlets/CommandletHelpers.h"
 #include "EditorStyleSet.h"
+#include "UnrealEdMisc.h"
+#include "SourceControlHelpers.h"
 
 #define LOCTEXT_NAMESPACE "LocalizationCommandletExecutor"
 
@@ -38,6 +40,7 @@ namespace
 			LocalizationCommandletExecution::FTask Task;
 			EState State;
 			FString LogOutput;
+			FString ProcessArguments;
 		};
 
 		friend class STaskRow;
@@ -65,6 +68,7 @@ namespace
 		TSharedRef<ITableRow> OnGenerateTaskListRow(TSharedPtr<FTaskListModel> TaskListModel, const TSharedRef<STableViewBase>& Table);
 		TSharedPtr<FTaskListModel> GetCurrentTaskToView() const;
 
+		FText GetCurrentTaskProcessArguments() const;
 		FText GetLogString() const;
 
 		FReply OnCopyLogClicked();
@@ -301,6 +305,18 @@ namespace
 
 		// Handle return code.
 		TSharedPtr<FTaskListModel> CurrentTaskModel = TaskListModels[CurrentTaskIndex];
+
+		// Restore engine's source control settings if necessary.
+		if (!CurrentTaskModel->Task.ShouldUseProjectFile)
+		{
+			const FString& EngineIniFile = SourceControlHelpers::GetGlobalSettingsIni();
+			const FString BackupEngineIniFile = FPaths::EngineSavedDir() / FPaths::GetCleanFilename(EngineIniFile) + TEXT(".bak");
+			if(!IFileManager::Get().Move(*EngineIniFile, *BackupEngineIniFile))
+			{
+				// TODO: Error failed to restore engine source control settings INI.
+			}
+		}
+
 		// Zero code is successful.
 		if (ReturnCode == 0)
 		{
@@ -324,10 +340,33 @@ namespace
 
 	void SLocalizationCommandletExecutor::ExecuteCommandlet(const TSharedRef<FTaskListModel>& TaskListModel)
 	{
-		CommandletProcess = FLocalizationCommandletProcess::Execute(TaskListModel->Task.ScriptPath);
+		// Handle source control settings if not using project file for commandlet executable process.
+		if (!TaskListModel->Task.ShouldUseProjectFile)
+		{
+			const FString& EngineIniFile = SourceControlHelpers::GetGlobalSettingsIni();
+
+			// Backup engine's source control settings.
+			const FString BackupEngineIniFile = FPaths::EngineSavedDir() / FPaths::GetCleanFilename(EngineIniFile) + TEXT(".bak");
+			if (COPY_OK == IFileManager::Get().Copy(*BackupEngineIniFile, *EngineIniFile))
+			{
+				// Replace engine's source control settings with project's.
+				const FString& ProjectIniFile = SourceControlHelpers::GetSettingsIni();
+				if (COPY_OK == IFileManager::Get().Copy(*EngineIniFile, *ProjectIniFile))
+				{
+					// TODO: Error failed to overwrite engine source control settings INI.
+				}
+			}
+			else
+			{
+				// TODO: Error failed to backup engine source control settings INI.
+			}
+		}
+
+		CommandletProcess = FLocalizationCommandletProcess::Execute(TaskListModel->Task.ScriptPath, TaskListModel->Task.ShouldUseProjectFile);
 		if (CommandletProcess.IsValid())
 		{
 			TaskListModel->State = FTaskListModel::EState::InProgress;
+			TaskListModel->ProcessArguments = CommandletProcess->GetProcessArguments();
 		}
 		else
 		{
@@ -483,7 +522,8 @@ namespace
 		else if (ColumnName == "TaskName")
 		{
 			return SNew(STextBlock)
-				.Text(TaskListModel->Task.Name);
+				.Text(TaskListModel->Task.Name)
+				.ToolTipText_Lambda( [this]{ return FText::FromString(TaskListModel->ProcessArguments); } );
 		}
 		else
 		{
@@ -558,6 +598,12 @@ namespace
 			return Selection.Num() > 0 ? Selection.Top() : nullptr;
 		}
 		return nullptr;
+	}
+
+	FText SLocalizationCommandletExecutor::GetCurrentTaskProcessArguments() const
+	{
+		const TSharedPtr<SLocalizationCommandletExecutor::FTaskListModel> TaskToView = GetCurrentTaskToView();
+		return TaskToView.IsValid() ? FText::FromString(TaskToView->ProcessArguments) : FText::GetEmpty();
 	}
 
 	FText SLocalizationCommandletExecutor::GetLogString() const
@@ -651,7 +697,7 @@ bool LocalizationCommandletExecution::Execute(const TSharedRef<SWindow>& ParentW
 	return CommandletExecutor->WasSuccessful();
 }
 
-TSharedPtr<FLocalizationCommandletProcess> FLocalizationCommandletProcess::Execute(const FString& ConfigFilePath)
+TSharedPtr<FLocalizationCommandletProcess> FLocalizationCommandletProcess::Execute(const FString& ConfigFilePath, const bool UseProjectFile)
 {
 	// Create pipes.
 	void* ReadPipe;
@@ -664,7 +710,7 @@ TSharedPtr<FLocalizationCommandletProcess> FLocalizationCommandletProcess::Execu
 	// Create process.
 	FString CommandletArguments;
 
-	const FString ConfigFileRelativeToGameDir = LocalizationConfigurationScript::MakePathRelativeToProjectDirectory(ConfigFilePath);
+	const FString ConfigFileRelativeToGameDir = LocalizationConfigurationScript::MakePathRelativeForCommandletProcess(ConfigFilePath, UseProjectFile);
 	CommandletArguments = FString::Printf( TEXT("-config=\"%s\""), *ConfigFileRelativeToGameDir );
 
 	ISourceControlModule& SourceControlModule = ISourceControlModule::Get();
@@ -676,7 +722,8 @@ TSharedPtr<FLocalizationCommandletProcess> FLocalizationCommandletProcess::Execu
 		}
 	}
 
-	FProcHandle CommandletProcessHandle = CommandletHelpers::CreateCommandletProcess(TEXT("GatherText"), *FPaths::GetProjectFilePath(), *CommandletArguments, true, true, true, nullptr, 0, nullptr, WritePipe);
+	const FString ProcessArguments = CommandletHelpers::BuildCommandletProcessArguments(TEXT("GatherText"), UseProjectFile ? *FPaths::GetProjectFilePath() : nullptr, *CommandletArguments);
+	FProcHandle CommandletProcessHandle = FPlatformProcess::CreateProc(*FUnrealEdMisc::Get().GetExecutableForCommandlets(), *ProcessArguments, true, true, true, nullptr, 0, nullptr, WritePipe);
 
 	// Close pipes if process failed.
 	if (!CommandletProcessHandle.IsValid())
@@ -685,7 +732,7 @@ TSharedPtr<FLocalizationCommandletProcess> FLocalizationCommandletProcess::Execu
 		return nullptr;
 	}
 
-	return MakeShareable(new FLocalizationCommandletProcess(ReadPipe, WritePipe, CommandletProcessHandle));
+	return MakeShareable(new FLocalizationCommandletProcess(ReadPipe, WritePipe, CommandletProcessHandle, ProcessArguments));
 }
 
 FLocalizationCommandletProcess::~FLocalizationCommandletProcess()

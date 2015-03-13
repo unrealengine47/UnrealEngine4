@@ -165,6 +165,14 @@ struct FAndroid_ETC2PlatformProperties : public FAndroidPlatformProperties
 	}
 };
 
+struct FAndroid_ASTCPlatformProperties : public FAndroidPlatformProperties
+{
+	static FORCEINLINE const char* PlatformName()
+	{
+		return "Android_ASTC";
+	}
+};
+
 struct FAndroid_GL4PlatformProperties : public FAndroidPlatformProperties
 {
 	static FORCEINLINE const char* PlatformName()

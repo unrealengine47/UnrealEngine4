@@ -9,6 +9,7 @@
 // Resource includes.
 #include "Runtime/Launch/Resources/Windows/Resource.h"
 #include "Runtime/Launch/Resources/Version.h"
+
 #include "AllowWindowsPlatformTypes.h"
 	#include <time.h>
 	#include <MMSystem.h>
@@ -19,6 +20,7 @@
 	#include <shellapi.h>
 	#include <Iphlpapi.h>
 #include "HideWindowsPlatformTypes.h"
+
 #include "MallocTBB.h"
 #include "ModuleManager.h"
 #include "MallocAnsi.h"
@@ -36,6 +38,13 @@
 #include <io.h>
 
 #include "AllowWindowsPlatformTypes.h"
+
+// This might not be defined by Windows when maintaining backwards-compatibility to pre-Win8 builds
+#ifndef SM_CONVERTIBLESLATEMODE
+#define SM_CONVERTIBLESLATEMODE			0x2003
+#endif
+
+
 int32 FWindowsOSVersionHelper::GetOSVersions( FString& out_OSVersionLabel, FString& out_OSSubVersionLabel )
 {
 	int32 ErrorCode = (int32)SUCCEEDED;
@@ -1659,11 +1668,12 @@ int32 FWindowsPlatformMisc::GetAppIcon()
 	return IDICON_UE4Game;
 }
 
-bool FWindowsPlatformMisc::VerifyWindowsMajorVersion(uint32 MajorVersion)
+bool FWindowsPlatformMisc::VerifyWindowsVersion(uint32 MajorVersion, uint32 MinorVersion)
 {
 	OSVERSIONINFOEX Version;
 	Version.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
 	Version.dwMajorVersion = MajorVersion;
+	Version.dwMinorVersion = MinorVersion;
 	ULONGLONG ConditionMask = 0;
 	return !!VerifyVersionInfo( &Version, VER_MAJORVERSION, VerSetConditionMask(ConditionMask,VER_MAJORVERSION,VER_GREATER_EQUAL) );
 }
@@ -1764,7 +1774,7 @@ int32 FWindowsPlatformMisc::NumberOfCoresIncludingHyperthreads()
 void FWindowsPlatformMisc::LoadPreInitModules()
 {
 	// D3D11 is not supported on WinXP, so in this case we use the OpenGL RHI
-	if(FWindowsPlatformMisc::VerifyWindowsMajorVersion(6))
+	if(FWindowsPlatformMisc::VerifyWindowsVersion(6, 0))
 	{
 		FModuleManager::Get().LoadModule(TEXT("D3D11RHI"));
 	}
@@ -2334,4 +2344,20 @@ FString FWindowsPlatformMisc::GetOperatingSystemId()
 	// more info on this key can be found here: http://stackoverflow.com/questions/99880/generating-a-unique-machine-id
 	QueryRegKey(HKEY_LOCAL_MACHINE, TEXT("Software\\Microsoft\\Cryptography"), TEXT("MachineGuid"), Result);
 	return Result;
+}
+
+
+EConvertibleLaptopMode FWindowsPlatformMisc::GetConvertibleLaptopMode()
+{
+	if (!VerifyWindowsVersion(6, 2))
+	{
+		return EConvertibleLaptopMode::NotSupported;
+	}
+
+	if (::GetSystemMetrics(SM_CONVERTIBLESLATEMODE) == 0)
+	{
+		return EConvertibleLaptopMode::Tablet;
+	}
+	
+	return EConvertibleLaptopMode::Laptop;
 }

@@ -6,6 +6,7 @@
 #include "Net/UnrealNetwork.h"
 #include "Collision.h"
 #include "Engine/DemoNetDriver.h"
+#include "AudioDeviceManager.h"
 
 #if WITH_PHYSX
 	#include "PhysicsEngine/PhysXSupport.h"
@@ -951,6 +952,29 @@ AAudioVolume* UWorld::GetAudioSettings( const FVector& ViewLocation, FReverbSett
 		}
 	}
 	return Volume;
+}
+
+void UWorld::SetAudioDeviceHandle(const uint32 InAudioDeviceHandle)
+{
+	AudioDeviceHandle = InAudioDeviceHandle;
+}
+
+FAudioDevice* UWorld::GetAudioDevice()
+{
+	FAudioDevice* AudioDevice = nullptr;
+	if (GEngine)
+	{
+		class FAudioDeviceManager* AudioDeviceManager = GEngine->GetAudioDeviceManager();
+		if (AudioDeviceManager != nullptr)
+		{
+			AudioDevice = AudioDeviceManager->GetAudioDevice(AudioDeviceHandle);
+			if (AudioDevice == nullptr)
+			{
+				AudioDevice = GEngine->GetMainAudioDevice();
+			}
+		}
+	}
+	return AudioDevice;
 }
 
 /**

@@ -179,41 +179,60 @@ namespace AutomationTool
 				}
 			}
 
+			// Change the working directory to be the Engine/Source folder. We are running from Engine/Binaries/DotNET
+			string oldCWD = Directory.GetCurrentDirectory();
+			string EngineSourceDirectory = Path.Combine(UnrealBuildTool.Utils.GetExecutingAssemblyDirectory(), "..", "..", "..", "Engine", "Source");
+			if (!Directory.Exists(EngineSourceDirectory)) // only set the directory if it exists, this should only happen if we are launching the editor from an artist sync
+			{
+				EngineSourceDirectory = Path.Combine(UnrealBuildTool.Utils.GetExecutingAssemblyDirectory(), "..", "..", "..", "Engine", "Binaries");
+			}
+
+			bool RetVal = false;
 			// check the target platforms for any differences in build settings or additional plugins
 			foreach (UnrealTargetPlatform TargetPlatformType in TargetPlatforms)
 			{
 				IUEBuildPlatform BuildPlat = UEBuildPlatform.GetBuildPlatform(TargetPlatformType, true);
 				if (BuildPlat != null && !(BuildPlat as UEBuildPlatform).HasDefaultBuildConfig(TargetPlatformType, Path.GetDirectoryName(RawProjectPath)))
 				{
-					return true;
+					RetVal = true;
+					break;
 				}
+
+
 				// find if there are any plugins
 				List<string> PluginList = new List<string>();
+				Directory.SetCurrentDirectory(EngineSourceDirectory);
 				// Use the project settings to update the plugin list for this target
 				PluginList = UProjectInfo.GetEnabledPlugins(RawProjectPath, PluginList, TargetPlatformType);
-				if (PluginList.Count > 0)
+				if (PluginList.Count > 0 && !RetVal)
 				{
 					foreach (var PluginName in PluginList)
 					{
 						// check the plugin info for this plugin itself
 						foreach (var Plugin in Plugins.AllPlugins)
 						{
-							if (Plugin.Name == PluginName)
+							if (Plugin.Name == PluginName && !Plugin.bEnabledByDefault && !RetVal)
 							{
 								foreach (var Module in Plugin.Modules)
 								{
-									if (Module.Platforms.Count > 0 && Module.Platforms.Contains(TargetPlatformType))
+									if (Module.Platforms.Count > 0 && Module.Platforms.Contains(TargetPlatformType) && !RetVal)
 									{
-										return true;
+										RetVal = true;
+										break;
 									}
 								}
 								break;
 							}
 						}
+						if (RetVal)
+						{
+							break;
+						}
 					}
 				}
+				Directory.SetCurrentDirectory(oldCWD);
 			}
-			return false;
+			return RetVal;
 		}
 
 		private static void GenerateTempTarget(string RawProjectPath)
@@ -466,11 +485,6 @@ namespace AutomationTool
 		{
 			CommandUtils.Log("Compiling targets DLL: {0}", TargetsDllFilename);
 
-			if (!DoNotCompile && GlobalCommandLine.NoCodeProject)
-			{
-				//throw new AutomationException("Building is not supported when -nocodeproject flag is provided.");
-			}
-
 			var ReferencedAssemblies = new List<string>() 
 					{ 
 						"System.dll", 
@@ -677,7 +691,7 @@ namespace AutomationTool
                         bool bInternalToolOnly;
                         bool SeparateNode;
 						bool CrossCompile;
-                        bool Tool = ThisTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, false, out bInternalToolOnly, out SeparateNode, out CrossCompile);
+                        bool Tool = ThisTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, out bInternalToolOnly, out SeparateNode, out CrossCompile);
 
                         CommandUtils.Log("            TargetName                    : " + ThisTarget.TargetName);
                         CommandUtils.Log("              Build With Editor           : " + (ThisTarget.Rules.GUBP_AlwaysBuildWithBaseEditor() ? "YES" : "NO"));
@@ -759,6 +773,15 @@ namespace AutomationTool
             }
             return null;
         }
+		public BranchUProject FindGameChecked(string GameName)
+		{
+			BranchUProject Project = FindGame(GameName);
+			if(Project == null)
+			{
+				throw new AutomationException("Cannot find project '{0}' in branch", GameName);
+			}
+			return Project;
+		}
         public SingleTargetProperties FindProgram(string ProgramName)
         {
             foreach (var Proj in BaseEngineProject.Properties.Programs)

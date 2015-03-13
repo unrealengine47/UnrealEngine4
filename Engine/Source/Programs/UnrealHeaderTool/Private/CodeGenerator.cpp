@@ -1029,7 +1029,12 @@ void FNativeClassHeaderGenerator::ExportNativeGeneratedInitCode(FClass* Class, F
 	for (int32 FuncIndex = 0; FuncIndex < FunctionsToExport.Num(); FuncIndex++)
 	{
 		UFunction* Function = FunctionsToExport[FuncIndex];
-		ExportFunction(Function, &FScope::GetTypeScope(Class).Get(), bIsNoExport);
+
+		if (!Function->IsA<UDelegateFunction>())
+		{
+			ExportFunction(Function, &FScope::GetTypeScope(Class).Get(), bIsNoExport);
+		}
+
 		CallSingletons.Logf(TEXT("                OuterClass->LinkChild(%s);\r\n"), *GetSingletonName(Function));
 	}
 
@@ -2174,6 +2179,8 @@ void FNativeClassHeaderGenerator::ExportClassesFromSourceFileWrapper(FUnrealSour
 		LINE_TERMINATOR
 		TEXT("#include \"ObjectBase.h\"") LINE_TERMINATOR
 		LINE_TERMINATOR);
+
+	GeneratedHeaderTextWithCopyright.Logf(TEXT("PRAGMA_DISABLE_DEPRECATION_WARNINGS") LINE_TERMINATOR);
 	GeneratedHeaderTextWithCopyright.Log(*GeneratedHeaderTextBeforeForwardDeclarations);
 
 	TSet<FString> ForwardDeclarationStrings;
@@ -2193,6 +2200,7 @@ void FNativeClassHeaderGenerator::ExportClassesFromSourceFileWrapper(FUnrealSour
 
 	GeneratedHeaderTextWithCopyright.Log(*GeneratedForwardDeclarations);
 	GeneratedHeaderTextWithCopyright.Log(*GeneratedHeaderText);
+	GeneratedHeaderTextWithCopyright.Logf(TEXT("PRAGMA_ENABLE_DEPRECATION_WARNINGS") LINE_TERMINATOR);
 
 	SourceFile.SetGeneratedFilename(ClassHeaderPath);
 	SourceFile.SetHasChanged(SaveHeaderIfChanged(*ClassHeaderPath, *GeneratedHeaderTextWithCopyright));
@@ -2253,21 +2261,6 @@ void FNativeClassHeaderGenerator::ExportSourceFileHeaderRecursive(FClasses& AllC
 	VisitedSet.Add(SourceFile);
 
 	TArray<FUnrealSourceFile*> DependOnList;
-
-	// Export the super class first.
-	for (auto* Class : SourceFile->GetDefinedClasses())
-	{
-		if (FClass* SuperClass = ((FClass*)Class)->GetSuperClass())
-		{
-			if (SuperClass->ClassFlags & (CLASS_NoExport | CLASS_Intrinsic))
-			{
-				continue;
-			}
-
-			DependOnList.Add(&GTypeDefinitionInfoMap[SuperClass]->GetUnrealSourceFile());
-		}
-	}
-
 	for (auto& Include : SourceFile->GetIncludes())
 	{
 		auto* SourceFile = Include.Resolve();
@@ -4728,6 +4721,9 @@ void FNativeClassHeaderGenerator::ExportGeneratedCPP()
 	GeneratedCPPEpilogue.Logf(
 		LINE_TERMINATOR
 		);
+
+	FString EnableDeprecationWarnings = FString(TEXT("PRAGMA_ENABLE_DEPRECATION_WARNINGS") LINE_TERMINATOR);
+	FString DisableDeprecationWarnings = FString(TEXT("PRAGMA_DISABLE_DEPRECATION_WARNINGS") LINE_TERMINATOR);
 	
 	FString PkgName = FPackageName::GetShortName(Package);
 	FString PkgDir;
@@ -4763,7 +4759,7 @@ void FNativeClassHeaderGenerator::ExportGeneratedCPP()
 		}
 
 		FString CppPath = ModuleInfo->GeneratedCPPFilenameBase + (GeneratedFunctionBodyTextSplit.Num() > 1 ? *FString::Printf(TEXT(".%d.cpp"), FileIdx + 1) : TEXT(".cpp"));
-		SaveHeaderIfChanged(*CppPath, *(GeneratedCPPPreamble + ModulePCHInclude + GeneratedCPPClassesIncludes + ((FileIdx > 0) ? FString() : GeneratedLinkerFixupFunction) + FileText + GeneratedCPPEpilogue));
+		SaveHeaderIfChanged(*CppPath, *(GeneratedCPPPreamble + ModulePCHInclude + GeneratedCPPClassesIncludes + DisableDeprecationWarnings + ((FileIdx > 0) ? FString() : GeneratedLinkerFixupFunction) + FileText + GeneratedCPPEpilogue + EnableDeprecationWarnings));
 
 		if (GeneratedFunctionBodyTextSplit.Num() > 1)
 		{
@@ -4920,7 +4916,9 @@ ECompilationResult::Type UnrealHeaderTool_Main(const FString& ModuleInfoFilename
 				(CurrentlyProcessing == PublicHeaders       ) ? Module.PublicUObjectHeaders        :
 				                                                Module.PrivateUObjectHeaders;
 			if (!UObjectHeaders.Num())
+			{
 				continue;
+			}
 
 			for (const FString& Filename : UObjectHeaders)
 			{
@@ -5244,11 +5242,6 @@ UClass* ProcessParsedClass(bool bClassIsAnInterface, TArray<FHeaderProvider> &De
 			{
 				ResultClass->ClassCastFlags |= ResultClass->GetSuperClass()->ClassCastFlags;
 			}
-		}
-
-		if (BaseClassNameStripped != TEXT("Object") && ResultClass->GetSuperClass())
-		{
-			DependentOn.AddUnique(FHeaderProvider(EHeaderProviderSourceType::ClassName, *BaseClassNameStripped));
 		}
 	}
 

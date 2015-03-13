@@ -23,19 +23,11 @@
 #ifndef UE_BUILD_SHIPPING_EDITOR
 	#define UE_BUILD_SHIPPING_EDITOR	(#)
 #endif
-#ifndef UE_ROCKET
-	#define UE_ROCKET					0
-	#error UBT should always define UE_ROCKET to be 0 or 1
-#endif
 #ifndef UE_GAME
 	#define UE_GAME						0
 #endif
 #ifndef UE_EDITOR
 	#define UE_EDITOR					0
-#endif
-#ifndef UE4GAME
-	// Only the UE4Game target should ever set this.
-	#define UE4GAME						0
 #endif
 
 /** 

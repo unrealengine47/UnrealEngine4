@@ -179,10 +179,13 @@ TSharedPtr<FEnvQueryResult> UEnvQueryManager::RunInstantQuery(const FEnvQueryReq
 		return NULL;
 	}
 
+	RegisterExternalQuery(QueryInstance);
 	while (QueryInstance->IsFinished() == false)
 	{
 		QueryInstance->ExecuteOneStep((double)FLT_MAX);
 	}
+
+	UnregisterExternalQuery(QueryInstance);
 
 	UE_VLOG_EQS(*QueryInstance.Get(), LogEQS, All);
 
@@ -313,6 +316,16 @@ void UEnvQueryManager::OnWorldCleanup()
 			}
 		}
 	}
+}
+
+void UEnvQueryManager::RegisterExternalQuery(TSharedPtr<FEnvQueryInstance> QueryInstance)
+{
+	ExternalQueries.Add(QueryInstance->QueryID, QueryInstance);
+}
+
+void UEnvQueryManager::UnregisterExternalQuery(TSharedPtr<FEnvQueryInstance> QueryInstance)
+{
+	ExternalQueries.Remove(QueryInstance->QueryID);
 }
 
 namespace EnvQueryTestSort
@@ -494,6 +507,8 @@ TSharedPtr<FEnvQueryInstance> UEnvQueryManager::CreateQueryInstance(const UEnvQu
 					SortedTests.Sort(EnvQueryTestSort::FSingleResult(HighestCost));
 					break;
 
+				case EEnvQueryRunMode::RandomBest5Pct:
+				case EEnvQueryRunMode::RandomBest25Pct:
 				case EEnvQueryRunMode::AllMatching:
 					SortedTests.Sort(EnvQueryTestSort::FAllMatching());
 					break;
@@ -527,7 +542,6 @@ void UEnvQueryManager::CreateOptionInstance(UEnvQueryOption* OptionTemplate, con
 	FEnvQueryOptionInstance OptionInstance;
 	OptionInstance.Generator = OptionTemplate->Generator;
 	OptionInstance.ItemType = OptionTemplate->Generator->ItemType;
-	OptionInstance.bShuffleItems = true;
 	OptionInstance.bHasNavLocations = false;
 
 	OptionInstance.Tests.AddZeroed(SortedTests.Num());
@@ -535,15 +549,6 @@ void UEnvQueryManager::CreateOptionInstance(UEnvQueryOption* OptionTemplate, con
 	{
 		UEnvQueryTest* TestOb = SortedTests[TestIndex];
 		OptionInstance.Tests[TestIndex] = TestOb;
-
-		// HACK!  TODO: Is this the correct replacement here?  or should it check just if SCORING ONLY?
-		// always randomize when asking for single result
-		// otherwise, can skip randomization if test wants to score every item
-		if ((TestOb->TestPurpose != EEnvTestPurpose::Filter) && // We ARE scoring, regardless of whether or not we're filtering
-			(Instance.Mode != EEnvQueryRunMode::SingleResult))
-		{
-			OptionInstance.bShuffleItems = false;
-		}
 	}
 
 	DEC_MEMORY_STAT_BY(STAT_AI_EQS_InstanceMemory, Instance.Options.GetAllocatedSize());
@@ -570,13 +575,25 @@ float UEnvQueryManager::FindNamedParam(int32 QueryId, FName ParamName) const
 {
 	float ParamValue = 0.0f;
 
-	for (int32 QueryIndex = 0; QueryIndex < RunningQueries.Num(); QueryIndex++)
+	const TWeakPtr<FEnvQueryInstance>* QueryInstancePtr = ExternalQueries.Find(QueryId);
+	if (QueryInstancePtr)
 	{
-		const TSharedPtr<FEnvQueryInstance>& QueryInstance = RunningQueries[QueryIndex];
-		if (QueryInstance->QueryID == QueryId)
+		TSharedPtr<FEnvQueryInstance> QueryInstance = (*QueryInstancePtr).Pin();
+		if (QueryInstance.IsValid())
 		{
 			ParamValue = QueryInstance->NamedParams.FindRef(ParamName);
-			break;
+		}
+	}
+	else
+	{
+		for (int32 QueryIndex = 0; QueryIndex < RunningQueries.Num(); QueryIndex++)
+		{
+			const TSharedPtr<FEnvQueryInstance>& QueryInstance = RunningQueries[QueryIndex];
+			if (QueryInstance->QueryID == QueryId)
+			{
+				ParamValue = QueryInstance->NamedParams.FindRef(ParamName);
+				break;
+			}
 		}
 	}
 

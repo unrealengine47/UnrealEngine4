@@ -499,6 +499,13 @@ void FMacPlatformProcess::WaitForProc( FProcHandle& ProcessHandle )
 	[(NSTask*)ProcessHandle.Get() waitUntilExit];
 }
 
+void FMacPlatformProcess::CloseProc( FProcHandle & ProcessHandle )
+{
+	SCOPED_AUTORELEASE_POOL;
+	[(NSTask*)ProcessHandle.Get() release];
+	ProcessHandle.Reset();
+}
+
 void FMacPlatformProcess::TerminateProc( FProcHandle& ProcessHandle, bool KillTree )
 {
 	SCOPED_AUTORELEASE_POOL;
@@ -529,7 +536,6 @@ void FMacPlatformProcess::TerminateProc( FProcHandle& ProcessHandle, bool KillTr
 	}
 
 	[(NSTask*)ProcessHandle.Get() terminate];
-	[(NSTask*)ProcessHandle.Get() release];
 }
 
 uint32 FMacPlatformProcess::GetCurrentProcessId()

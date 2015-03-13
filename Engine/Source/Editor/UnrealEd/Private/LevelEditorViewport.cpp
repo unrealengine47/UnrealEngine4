@@ -1845,7 +1845,7 @@ void FLevelEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* HitPr
 
 			const bool bSelectComponent = bActorAlreadySelectedExclusively && bActorIsBlueprintable && (bComponentAlreadySelected != bWasDoubleClick);
 
-			if (bSelectComponent && GetDefault<UEditorExperimentalSettings>()->bInWorldBPEditing)
+			if (bSelectComponent)
 			{
 				ClickHandlers::ClickComponent(this, ActorHitProxy, Click);
 			}
@@ -3821,25 +3821,19 @@ void FLevelEditorViewportClient::DrawBrushDetails(const FSceneView* View, FPrimi
 	}
 }
 
-/**
- * Updates the audio listener for this viewport 
- *
- * @param View	The scene view to use when calculate the listener position
- */
-void FLevelEditorViewportClient::UpdateAudioListener( const FSceneView& View )
+void FLevelEditorViewportClient::UpdateAudioListener(const FSceneView& View)
 {
-	FAudioDevice* AudioDevice = GEditor->GetAudioDevice();
+	UWorld* World = GetWorld();
 
-	// AudioDevice may not exist. For example if we are in -nosound mode
-	if( AudioDevice )
+	if (World)
 	{
-		if( GetWorld() )
+		if (FAudioDevice* AudioDevice = World->GetAudioDevice())
 		{
 			FReverbSettings ReverbSettings;
 			FInteriorSettings InteriorSettings;
 			const FVector& ViewLocation = GetViewLocation();
 
-			class AAudioVolume* AudioVolume = GetWorld()->GetAudioSettings( ViewLocation, &ReverbSettings, &InteriorSettings );
+			class AAudioVolume* AudioVolume = World->GetAudioSettings(ViewLocation, &ReverbSettings, &InteriorSettings);
 
 			FMatrix CameraToWorld = View.ViewMatrices.ViewMatrix.InverseFast();
 			FVector ProjUp = CameraToWorld.TransformVector(FVector(0, 1000, 0));
@@ -3849,8 +3843,8 @@ void FLevelEditorViewportClient::UpdateAudioListener( const FSceneView& View )
 			ListenerTransform.SetTranslation(ViewLocation);
 			ListenerTransform.NormalizeRotation();
 
-			AudioDevice->SetListener( 0, ListenerTransform, 0.f, AudioVolume, InteriorSettings );
-			AudioDevice->SetReverbSettings( AudioVolume, ReverbSettings );
+			AudioDevice->SetListener(0, ListenerTransform, 0.f, AudioVolume, InteriorSettings);
+			AudioDevice->SetReverbSettings(AudioVolume, ReverbSettings);
 		}
 	}
 }
@@ -3893,10 +3887,9 @@ void FLevelEditorViewportClient::SetupViewForRendering( FSceneViewFamily& ViewFa
 	}
 
 	// Update the listener.
-	FAudioDevice* const AudioDevice = GEditor ? GEditor->GetAudioDevice() : NULL;
-	if( AudioDevice && bHasAudioFocus )
+	if (bHasAudioFocus)
 	{
-		UpdateAudioListener( View );
+		UpdateAudioListener(View);
 	}
 }
 

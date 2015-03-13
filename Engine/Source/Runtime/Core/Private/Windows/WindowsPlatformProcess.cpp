@@ -384,6 +384,15 @@ void FWindowsPlatformProcess::WaitForProc( FProcHandle & ProcessHandle )
 	::WaitForSingleObject(ProcessHandle.Get(), INFINITE);
 }
 
+void FWindowsPlatformProcess::CloseProc(FProcHandle & ProcessHandle)
+{
+	if (ProcessHandle.IsValid())
+	{
+		::CloseHandle(ProcessHandle.Get());
+		ProcessHandle.Reset();
+	}
+}
+
 void FWindowsPlatformProcess::TerminateProc( FProcHandle & ProcessHandle, bool KillTree )
 {
 	if (KillTree)
@@ -419,8 +428,6 @@ void FWindowsPlatformProcess::TerminateProc( FProcHandle & ProcessHandle, bool K
 	}
 
 	TerminateProcess(ProcessHandle.Get(),0);
-	// Process is terminated, so we can close the process handle.
-	ProcessHandle.Close();
 }
 
 uint32 FWindowsPlatformProcess::GetCurrentProcessId()

@@ -792,13 +792,12 @@ enum ERadialImpulseFalloff
 
 /** Presets of values used in considering when put this body to sleep. */
 UENUM()
-enum ESleepFamily
+enum class ESleepFamily : uint8
 {
 	/** Engine defaults. */
-	SF_Normal,
+	Normal,
 	/** A family of values with a lower sleep threshold; good for slower pendulum-like physics. */
-	SF_Sensitive,
-	SF_MAX,
+	Sensitive,
 };
 
 
@@ -2098,6 +2097,22 @@ struct FMeshProxySettings
 	UPROPERTY(EditAnywhere, Category=ProxySettings)
 	int32 TextureHeight;
 
+	/** Whether to create normal map for the proxy mesh*/
+	UPROPERTY(EditAnywhere, Category=ProxySettings)
+	bool bExportNormalMap;
+
+	/** Whether to create metallic map for the proxy mesh*/
+	UPROPERTY(EditAnywhere, Category=ProxySettings)
+	bool bExportMetallicMap;
+
+	/** Whether to create roughness map for the proxy mesh*/
+	UPROPERTY(EditAnywhere, Category=ProxySettings)
+	bool bExportRoughnessMap;
+
+	/** Whether to create specular map for the proxy mesh*/
+	UPROPERTY(EditAnywhere, Category=ProxySettings)
+	bool bExportSpecularMap;
+
 	/** Should Simplygon recalculate normals for the proxy mesh? */
 	UPROPERTY(EditAnywhere, Category=ProxySettings)
 	bool bRecalculateNormals;
@@ -2126,6 +2141,10 @@ struct FMeshProxySettings
 		: ScreenSize(300)
 		, TextureWidth(512)
 		, TextureHeight(512)
+		, bExportNormalMap(true)
+		, bExportMetallicMap(false)
+		, bExportRoughnessMap(false)
+		, bExportSpecularMap(false)
 		, bRecalculateNormals(true)
 		, HardAngleThreshold(80.0f)
 		, MergeDistance(4)
@@ -2140,7 +2159,11 @@ struct FMeshProxySettings
 	{
 		return ScreenSize == Other.ScreenSize
 			&& TextureWidth == Other.TextureWidth
-			&& TextureHeight == Other.TextureHeight 
+			&& TextureHeight == Other.TextureHeight
+			&& bExportNormalMap == Other.bExportNormalMap
+			&& bExportMetallicMap == Other.bExportMetallicMap
+			&& bExportRoughnessMap == Other.bExportRoughnessMap
+			&& bExportSpecularMap == Other.bExportSpecularMap
 			&& bRecalculateNormals == Other.bRecalculateNormals
 			&& HardAngleThreshold == Other.HardAngleThreshold
 			&& MergeDistance == Other.MergeDistance;

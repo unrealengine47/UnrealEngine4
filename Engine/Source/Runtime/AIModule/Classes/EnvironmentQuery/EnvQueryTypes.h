@@ -3,6 +3,7 @@
 #pragma once
 
 #include "EnvironmentQuery/Items/EnvQueryItemType.h"
+#include "EnvironmentQuery/EnvQueryContext.h"
 #include "DataProviders/AIDataProvider.h"
 #include "EnvQueryTypes.generated.h"
 
@@ -124,8 +125,10 @@ namespace EEnvQueryRunMode
 {
 	enum Type
 	{
-		SingleResult,		// weight scoring first, try conditions from best result and stop after first item pass
-		AllMatching,		// conditions first (limit set of items), weight scoring later
+		SingleResult	UMETA(Tooltip="Pick first item with the best score"),
+		RandomBest5Pct	UMETA(Tooltip="Pick random item with score 95% .. 100% of max", DisplayName="Random Best 5%"),
+		RandomBest25Pct	UMETA(Tooltip="Pick random item with score 75% .. 100% of max", DisplayName="Random Best 25%"),
+		AllMatching		UMETA(Tooltip="Get all items that match conditions"),
 	};
 }
 
@@ -469,9 +472,6 @@ struct AIMODULE_API FEnvQueryOptionInstance
 	TSubclassOf<UEnvQueryItemType> ItemType;
 
 	/** if set, items will be shuffled after tests */
-	uint32 bShuffleItems : 1;
-
-	/** if set, items will be shuffled after tests */
 	uint32 bHasNavLocations : 1;
 
 	FORCEINLINE uint32 GetAllocatedSize() const { return sizeof(*this) + Tests.GetAllocatedSize(); }
@@ -623,8 +623,8 @@ protected:
 	/** sort all scores, from highest to lowest */
 	void SortScores();
 
-	/** pick one of items with highest score */
-	void PickBestItem();
+	/** pick one of items with score equal or higher than specified */
+	void PickBestItem(float MinScore);
 
 	/** discard all items but one */
 	void PickSingleItem(int32 ItemIndex);
@@ -934,24 +934,20 @@ struct AIMODULE_API FEnvBoolParam_DEPRECATED
 	void Convert(UObject* Owner, FAIDataProviderBoolValue& ValueProvider);
 };
 
-struct DEPRECATED(4.8, "FEnvFloatParam is deprecated in 4.8 and was replaced with FAIDataProviderFloatValue. Please use that type instead.") FEnvFloatParam;
-struct DEPRECATED(4.8, "FEnvIntParam is deprecated in 4.8 and was replaced with FAIDataProviderIntValue. Please use that type instead.") FEnvIntParam;
-struct DEPRECATED(4.8, "FEnvBoolParam is deprecated in 4.8 and was replaced with FAIDataProviderBoolValue. Please use that type instead.") FEnvBoolParam;
-
 USTRUCT()
-struct AIMODULE_API FEnvFloatParam : public FEnvFloatParam_DEPRECATED
+struct DEPRECATED(4.8, "FEnvFloatParam is deprecated in 4.8 and was replaced with FAIDataProviderFloatValue. Please use that type instead.") AIMODULE_API FEnvFloatParam : public FEnvFloatParam_DEPRECATED
 {
 	GENERATED_USTRUCT_BODY();
 };
 
 USTRUCT()
-struct AIMODULE_API FEnvIntParam : public FEnvIntParam_DEPRECATED
+struct DEPRECATED(4.8, "FEnvIntParam is deprecated in 4.8 and was replaced with FAIDataProviderIntValue. Please use that type instead.") AIMODULE_API FEnvIntParam : public FEnvIntParam_DEPRECATED
 {
 	GENERATED_USTRUCT_BODY();
 };
 
 USTRUCT()
-struct AIMODULE_API FEnvBoolParam : public FEnvBoolParam_DEPRECATED
+struct DEPRECATED(4.8, "FEnvBoolParam is deprecated in 4.8 and was replaced with FAIDataProviderBoolValue. Please use that type instead.") AIMODULE_API FEnvBoolParam : public FEnvBoolParam_DEPRECATED
 {
 	GENERATED_USTRUCT_BODY();
 };

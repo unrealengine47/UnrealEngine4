@@ -168,6 +168,7 @@ UGameViewportClient::~UGameViewportClient()
 		delete StatUnitData;
 		StatUnitData = NULL;
 	}
+
 }
 
 
@@ -179,6 +180,15 @@ void UGameViewportClient::PostInitProperties()
 
 void UGameViewportClient::BeginDestroy()
 {
+	if (GEngine)
+	{
+		class FAudioDeviceManager* AudioDeviceManager = GEngine->GetAudioDeviceManager();
+		if (AudioDeviceManager)
+		{
+			AudioDeviceManager->ShutdownAudioDevice(AudioDeviceHandle);
+		}
+	}
+
 	RemoveAllViewportWidgets();
 	Super::BeginDestroy();
 }
@@ -231,6 +241,33 @@ void UGameViewportClient::Init(struct FWorldContext& WorldContext, UGameInstance
 	// Create the cursor Widgets
 	UUserInterfaceSettings* UISettings = GetMutableDefault<UUserInterfaceSettings>(UUserInterfaceSettings::StaticClass());
 
+	if (GEngine)
+	{
+		FAudioDeviceManager* AudioDeviceManager = GEngine->GetAudioDeviceManager();
+		if (AudioDeviceManager)
+		{
+			FAudioDevice* NewAudioDevice = AudioDeviceManager->CreateAudioDevice(AudioDeviceHandle);
+			if (NewAudioDevice)
+			{
+				if (NewAudioDevice->Init())
+				{
+					// Set the base mix of the new device based on the world settings of the world
+					if (World)
+					{ 
+						NewAudioDevice->SetDefaultBaseSoundMix(World->GetWorldSettings()->DefaultBaseSoundMix);
+
+						// Set the world's audio device handle to use so that sounds which play in that world will use the correct audio device
+						World->SetAudioDeviceHandle(AudioDeviceHandle);
+					}
+
+					// Set this audio device handle on the world context so future world's set onto the world context
+					// will pass the audio device handle to them and audio will play on the correct audio device
+					WorldContext.AudioDeviceHandle = AudioDeviceHandle;
+				}
+			}
+		}
+	}
+	
 	AddCursor(EMouseCursor::Default, UISettings->DefaultCursor);
 	AddCursor(EMouseCursor::TextEditBeam, UISettings->TextEditBeamCursor);
 	AddCursor(EMouseCursor::Crosshairs, UISettings->CrosshairsCursor);
@@ -815,7 +852,8 @@ void UGameViewportClient::Draw(FViewport* InViewport, FCanvas* SceneCanvas)
 
 	TMap<ULocalPlayer*,FSceneView*> PlayerViewMap;
 
-	FAudioDevice* AudioDevice = GEngine->GetAudioDevice();
+	FAudioDevice* AudioDevice = GetWorld()->GetAudioDevice();
+
 	bool bReverbSettingsFound = false;
 	FReverbSettings ReverbSettings;
 	class AAudioVolume* AudioVolume = nullptr;
@@ -1280,14 +1318,13 @@ void UGameViewportClient::Precache()
 	if(!GIsEditor)
 	{
 		// Precache sounds...
-		FAudioDevice* AudioDevice = GEngine ? GEngine->GetAudioDevice() : NULL;
-		if (AudioDevice != NULL)
+		if (FAudioDevice* AudioDevice = GetWorld()->GetAudioDevice())
 		{
 			UE_LOG(LogPlayerManagement, Log, TEXT("Precaching sounds..."));
 			for(TObjectIterator<USoundWave> It;It;++It)
 			{
 				USoundWave* SoundWave = *It;
-				AudioDevice->Precache( SoundWave );
+				AudioDevice->Precache(SoundWave);
 			}
 			UE_LOG(LogPlayerManagement, Log, TEXT("Precaching sounds completed..."));
 		}
@@ -1336,6 +1373,11 @@ void UGameViewportClient::ReceivedFocus(FViewport* InViewport)
 	if (GetDefault<UInputSettings>()->bUseMouseForTouch && !GetGameViewport()->GetPlayInEditorIsSimulate())
 	{
 		FSlateApplication::Get().SetGameIsFakingTouchEvents(true);
+	}
+
+	if (GEngine && GEngine->GetAudioDeviceManager())
+	{ 
+		GEngine->GetAudioDeviceManager()->SetActiveDevice(AudioDeviceHandle);
 	}
 }
 
@@ -2149,31 +2191,7 @@ bool UGameViewportClient::HandleShowCommand( const TCHAR* Cmd, FOutputDevice& Ar
 					// TODO: Investigate why this is doesn't appear to work
 					if (AllowDebugViewmodes())
 					{
-						// Iterate over all brushes
-						for( TObjectIterator<UBrushComponent> It; It; ++It )
-						{
-							UBrushComponent* BrushComponent = *It;
-							AVolume* Owner = Cast<AVolume>( BrushComponent->GetOwner() );
-
-							// Only bother with volume brushes that belong to the world's scene
-							if( Owner && BrushComponent->GetScene() == GetWorld()->Scene )
-							{
-								// We're expecting this to be in the game at this point
-								check( Owner->GetWorld()->IsGameWorld() );
-
-								// Toggle visibility of this volume
-								if( BrushComponent->IsVisible() )
-								{
-									Owner->bHidden = true;
-									BrushComponent->SetVisibility( false );
-								}
-								else
-								{
-									Owner->bHidden = false;
-									BrushComponent->SetVisibility( true );
-								}
-							}
-						}
+						ToggleShowVolumes();
 					}
 					else
 					{
@@ -2233,6 +2251,42 @@ TOptional<EPopupMethod> UGameViewportClient::OnQueryPopupMethod() const
 	return EPopupMethod::UseCurrentWindow;
 }
 
+void UGameViewportClient::ToggleShowVolumes()
+{
+	// Don't allow 'show collision' and 'show volumes' at the same time, so turn collision off
+	if (EngineShowFlags.Volumes && EngineShowFlags.Collision)
+	{
+		EngineShowFlags.Collision = false;
+		ToggleShowCollision();
+	}
+
+	// Iterate over all brushes
+	for (TObjectIterator<UBrushComponent> It; It; ++It)
+	{
+		UBrushComponent* BrushComponent = *It;
+		AVolume* Owner = Cast<AVolume>(BrushComponent->GetOwner());
+
+		// Only bother with volume brushes that belong to the world's scene
+		if (Owner && BrushComponent->GetScene() == GetWorld()->Scene)
+		{
+			// We're expecting this to be in the game at this point
+			check(Owner->GetWorld()->IsGameWorld());
+
+			// Toggle visibility of this volume
+			if (BrushComponent->IsVisible())
+			{
+				BrushComponent->SetVisibility(false);
+				BrushComponent->SetHiddenInGame(true);
+			}
+			else
+			{
+				BrushComponent->SetVisibility(true);
+				BrushComponent->SetHiddenInGame(false);
+			}
+		}
+	}
+}
+
 void UGameViewportClient::ToggleShowCollision()
 {
 	// special case: for the Engine.Collision flag, we need to un-hide any primitive components that collide so their collision geometry gets rendered
@@ -2240,6 +2294,13 @@ void UGameViewportClient::ToggleShowCollision()
 
 	if (bIsShowingCollision)
 	{
+		// Don't allow 'show collision' and 'show volumes' at the same time, so turn collision off
+		if (EngineShowFlags.Volumes)
+		{
+			EngineShowFlags.Volumes = false;
+			ToggleShowVolumes();
+		}
+
 		NumViewportsShowingCollision++;
 		ShowCollisionOnSpawnedActorsDelegateHandle = GetWorld()->AddOnActorSpawnedHandler(FOnActorSpawned::FDelegate::CreateUObject(this, &UGameViewportClient::ShowCollisionOnSpawnedActors));
 	}

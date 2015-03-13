@@ -372,9 +372,6 @@ public:
 	uint32 GodMode:1;
 
 	UPROPERTY(EditAnywhere, config, Category=Advanced)
-	uint32 InvertwidgetZAxis:1;
-
-	UPROPERTY(EditAnywhere, config, Category=Advanced)
 	FString GameCommandLine;
 
 	/** If true, show translucent marker polygons on the builder brush and volumes. */
@@ -2418,7 +2415,7 @@ private:
 	/**
 	 * Checks map for common errors.
 	 */
-	bool Map_Check( UWorld* InWorld, const TCHAR* Str, FOutputDevice& Ar, bool bCheckDeprecatedOnly, EMapCheckNotification::Type Notification = EMapCheckNotification::DisplayResults );
+	bool Map_Check(UWorld* InWorld, const TCHAR* Str, FOutputDevice& Ar, bool bCheckDeprecatedOnly, EMapCheckNotification::Type Notification = EMapCheckNotification::DisplayResults, bool bClearLog = true);
 	bool Map_Scale( UWorld* InWorld, const TCHAR* Str, FOutputDevice& Ar );
 	bool Map_Setbrush( UWorld* InWorld, const TCHAR* Str, FOutputDevice& Ar );
 

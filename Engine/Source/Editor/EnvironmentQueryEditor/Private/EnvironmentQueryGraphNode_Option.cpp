@@ -5,6 +5,7 @@
 #include "SGraphEditorActionMenuAI.h"
 #include "EnvironmentQuery/EnvQueryTest.h"
 #include "EnvironmentQuery/EnvQueryOption.h"
+#include "EnvironmentQuery/Generators/EnvQueryGenerator_Composite.h"
 
 #define LOCTEXT_NAMESPACE "EnvironmentQueryEditor"
 
@@ -136,5 +137,18 @@ void UEnvironmentQueryGraphNode_Option::CalculateWeights()
 		TestNode->SetDisplayedWeight(NewWeight, bHasDynamic);
 	}
 }
+
+void UEnvironmentQueryGraphNode_Option::UpdateNodeData()
+{
+	UEnvQueryOption* OptionInstance = Cast<UEnvQueryOption>(NodeInstance);
+	UEnvQueryGenerator_Composite* CompositeGenerator = OptionInstance ? Cast<UEnvQueryGenerator_Composite>(OptionInstance->Generator) : nullptr;
+	if (CompositeGenerator)
+	{
+		CompositeGenerator->VerifyItemTypes();
+
+		ErrorMessage = CompositeGenerator->bHasMatchingItemType ? TEXT("") : LOCTEXT("NestedGeneratorMismatch", "Nested generators must work on exactly the same item types!").ToString();
+	}
+}
+
 
 #undef LOCTEXT_NAMESPACE

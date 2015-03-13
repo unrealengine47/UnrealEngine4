@@ -1019,7 +1019,7 @@ public class GUBP : BuildCommand
                 bool bInternalOnly;
                 bool SeparateNode;
 				bool CrossCompile;
-                if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && !bInternalOnly && !SeparateNode)
+                if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, out bInternalOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && !bInternalOnly && !SeparateNode)
                 {
                     foreach (var Plat in ProgramTarget.Rules.GUBP_ToolPlatforms(HostPlatform))
                     {
@@ -1072,7 +1072,7 @@ public class GUBP : BuildCommand
 				bool bInternalOnly;
 				bool SeparateNode;
 				bool CrossCompile;
-				if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && !bInternalOnly && !SeparateNode && CrossCompile)
+				if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, out bInternalOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && !bInternalOnly && !SeparateNode && CrossCompile)
 				{
 					foreach (var Config in ProgramTarget.Rules.GUBP_ToolConfigs(HostPlatform))
 					{
@@ -1201,7 +1201,7 @@ public class GUBP : BuildCommand
                 bool bInternalOnly;
                 bool SeparateNode;
 				bool CrossCompile;
-                if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && bInternalOnly && !SeparateNode)
+                if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, out bInternalOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && bInternalOnly && !SeparateNode)
                 {
                     foreach (var Plat in ProgramTarget.Rules.GUBP_ToolPlatforms(HostPlatform))
                     {
@@ -1227,13 +1227,27 @@ public class GUBP : BuildCommand
         public SingleInternalToolsNode(UnrealTargetPlatform InHostPlatform, SingleTargetProperties InProgramTarget)
             : base(InHostPlatform)
         {
-            ProgramTarget = InProgramTarget;
-            if (!GUBP.bBuildRocket) // more errors and more performance by just starting before the root editor is done
-            {
-                AddPseudodependency(RootEditorNode.StaticGetFullName(HostPlatform));
-            }
-            AgentSharingGroup = "ToolsGroup" + StaticGetHostPlatformSuffix(HostPlatform);
+			SetupSingleInternalToolsNode(InProgramTarget);
         }
+		public SingleInternalToolsNode(GUBP bp, UnrealTargetPlatform InHostPlatform, SingleTargetProperties InProgramTarget)
+            : base(InHostPlatform)
+        {
+			// Don't add rooteditor dependency if it isn't in the graph
+			var bRootEditorNodeDoesExit = bp.HasNode(RootEditorNode.StaticGetFullName(HostPlatform));
+			SetupSingleInternalToolsNode(InProgramTarget, !bRootEditorNodeDoesExit);
+        }
+		private void SetupSingleInternalToolsNode(SingleTargetProperties InProgramTarget, bool bSkipRootEditorPsuedoDependency = true)
+		{
+			ProgramTarget = InProgramTarget;
+			AgentSharingGroup = "ToolsGroup" + StaticGetHostPlatformSuffix(HostPlatform);
+			
+			// more errors and more performance for Rocket by just starting before the root editor is done
+			bool bSkipRootEditorPsuedoDependencyForRocket = GUBP.bBuildRocket;
+			if (!bSkipRootEditorPsuedoDependencyForRocket && !bSkipRootEditorPsuedoDependency) 
+			{
+				AddPseudodependency(RootEditorNode.StaticGetFullName(HostPlatform));
+			}
+		}
         public static string StaticGetFullName(UnrealTargetPlatform InHostPlatform, SingleTargetProperties InProgramTarget)
         {
             return "InternalTools_" + InProgramTarget.TargetName + StaticGetHostPlatformSuffix(InHostPlatform);
@@ -5600,7 +5614,7 @@ public class GUBP : BuildCommand
 					bool SeparateNode;
 					bool CrossCompile;
 
-					if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && SeparateNode)
+					if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, out bInternalOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && SeparateNode)
 					{
 						if (bInternalOnly)
 						{
@@ -5624,7 +5638,7 @@ public class GUBP : BuildCommand
 						bool SeparateNode;
 						bool CrossCompile;
 
-						if(ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, GUBP.bBuildRocket, out bInternalNodeOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && SeparateNode)
+						if(ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, out bInternalNodeOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && SeparateNode)
 						{
 							if(bInternalNodeOnly)
 							{
@@ -7328,7 +7342,7 @@ public class GUBP : BuildCommand
                 }
             }
             WriteECPerl(StepList);
-            ECProps.Add(String.Format("HasTests={0}", bHasTests));
+            RunECTool(String.Format("setProperty \"/myWorkflow/HasTests\" \"{0}\"", bHasTests));
             {
                 ECProps.Add("GUBP_LoadedProps=1");
                 string BranchDefFile = CommandUtils.CombinePaths(CommandUtils.CmdEnv.LogFolder, "BranchDef.properties");

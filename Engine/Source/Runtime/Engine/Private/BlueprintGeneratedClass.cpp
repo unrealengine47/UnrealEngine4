@@ -291,6 +291,11 @@ UInheritableComponentHandler* UBlueprintGeneratedClass::GetInheritableComponentH
 	{
 		return nullptr;
 	}
+	
+	if (InheritableComponentHandler)
+	{
+		InheritableComponentHandler->PreloadAll();
+	}
 
 	if (!InheritableComponentHandler && bCreateIfNecessary)
 	{
@@ -578,7 +583,7 @@ void UBlueprintGeneratedClass::CreatePersistentUberGraphFrame(UObject* Obj, bool
 			}
 			else
 			{
-				UE_LOG(LogBlueprint, Warning, TEXT("Function '%s' is not ready to create frame for '%s'"),
+				UE_LOG(LogBlueprint, Verbose, TEXT("Function '%s' is not ready to create frame for '%s'"),
 					*GetPathNameSafe(UberGraphFunction), *GetPathNameSafe(Obj));
 			}
 			PointerToUberGraphFrame->RawPointer = FrameMemory;
@@ -646,6 +651,8 @@ void UBlueprintGeneratedClass::Link(FArchive& Ar, bool bRelinkExistingProperties
 
 	if (UsePersistentUberGraphFrame() && UberGraphFunction)
 	{
+		Ar.Preload(UberGraphFunction);
+
 		for (auto Property : TFieldRange<UStructProperty>(this, EFieldIteratorFlags::ExcludeSuper))
 		{
 			if (Property->GetFName() == GetUberGraphFrameName())

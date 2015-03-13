@@ -344,8 +344,8 @@ namespace UnrealBuildTool
                 Result += " -fno-inline";                   // disable inlining for better debuggability (e.g. callstacks, "skip file" in gdb)
             }
 
-            // debug info
-            if (CompileEnvironment.Config.bCreateDebugInfo)
+            // debug info (bCreateDebugInfo is normally set for all configurations, and we don't want it to affect Development/Shipping performance)
+            if (CompileEnvironment.Config.bCreateDebugInfo && CompileEnvironment.Config.Target.Configuration == CPPTargetConfiguration.Debug)
             {
                 Result += " -g3";
                 Result += " -fno-omit-frame-pointer";
@@ -372,6 +372,9 @@ namespace UnrealBuildTool
             if (CompileEnvironment.Config.bIsBuildingDLL)
             {
                 Result += " -fPIC";
+                // Use local-dynamic TLS model. This generates less efficient runtime code for __thread variables, but avoids problems of running into
+                // glibc/ld.so limit (DTV_SURPLUS) for number of dlopen()'ed DSOs with static TLS (see e.g. https://www.cygwin.com/ml/libc-help/2013-11/msg00033.html)
+                Result += " -ftls-model=local-dynamic";
             }
 
             //Result += " -v";                            // for better error diagnosis
@@ -549,11 +552,6 @@ namespace UnrealBuildTool
         {
             string Arguments = GetCLArguments_Global(CompileEnvironment);
             string PCHArguments = "";
-
-            if (CompileEnvironment.Config.bIsBuildingDLL)
-            {
-                Arguments += " -fPIC";
-            }
 
             if (CompileEnvironment.Config.PrecompiledHeaderAction == PrecompiledHeaderAction.Include)
             {

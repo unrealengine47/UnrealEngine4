@@ -7,18 +7,6 @@
 
 
 /**
- * Convenience macro for declaring type traits for FTypeContainer compatible classes.
- */
-#define DECLARE_REGISTRABLE_TYPE(Type) \
-	public: \
-		static FName GetTypeName() \
-		{ \
-			static FName TypeName = TEXT(#Type); \
-			return TypeName; \
-		}
-
-
-/**
  * Enumerates the scopes for instance creation in type containers.
  */
 enum class ETypeContainerScope
@@ -43,8 +31,8 @@ enum class ETypeContainerScope
  * methods, type containers can facilitate the Inversion of Control (IoC) pattern.
  *
  * Since UE4 neither uses run-time type information nor pre-processes plain old C++ classes,
- * a special macro - DECLARE_REGISTRABLE_TYPE - needs to be inserted into a class declaration
- * in order to make it registrable with type containers.
+ * type names need to be exposed using the Expose_TNameOf macro in order to make them
+ * registrable with type containers, i.e. Expose_TNameOf(FMyClass).
  *
  * Once a type is registered with a container, instances of that type can be retrieved from it.
  * There are currently three life time scopes available for instance creation:
@@ -56,10 +44,11 @@ enum class ETypeContainerScope
  *   3. Unique instance per call (aka. class factory),
  *      using RegisterClass(ETypeContainerScope::Instance) or RegisterFactory()
  *
- * Note: Type containers depend on variadic templates and is therefore not available
- * on XboxOne at this time. It should therefore only be used for desktop applications.
+ * See the file TypeContainerTest.cpp for detailed examples on how to use each of these
+ * type registration methods.
  *
- * @todo gmp: better documentation
+ * Note: Type containers depend on variadic templates and are therefore not available
+ * on XboxOne at this time, which means they should only be used for desktop applications.
  */
 class FTypeContainer
 {
@@ -79,38 +68,17 @@ class FTypeContainer
 		virtual TSharedPtr<void> GetInstance() = 0;
 	};
 
-	/** Implements an instance provider that forwards instance requests to a factory delegate. */
-	template<class D>
-	struct TDelegateInstanceProvider
-		: public IInstanceProvider
-	{
-		/** Constructor. */
-		TDelegateInstanceProvider(D InDelegate)
-			: Delegate(InDelegate)
-		{ }
-
-		virtual ~TDelegateInstanceProvider() override { }
-
-		virtual TSharedPtr<void> GetInstance() override
-		{
-			return Delegate.Execute();
-		}
-
-		/** Factory function that creates the instances. */
-		D Delegate;
-	};
-
 	/** Implements an instance provider that forwards instance requests to a factory function. */
 	template<class T>
-	struct TFactoryInstanceProvider
+	struct TFunctionInstanceProvider
 		: public IInstanceProvider
 	{
 		/** Constructor. */
-		TFactoryInstanceProvider(TFunction<TSharedPtr<T>()> InCreateFunc)
+		TFunctionInstanceProvider(TFunction<TSharedPtr<void>()> InCreateFunc)
 			: CreateFunc(InCreateFunc)
 		{ }
 
-		virtual ~TFactoryInstanceProvider() override { }
+		virtual ~TFunctionInstanceProvider() override { }
 
 		virtual TSharedPtr<void> GetInstance() override
 		{
@@ -118,7 +86,7 @@ class FTypeContainer
 		}
 
 		/** Factory function that creates the instances. */
-		TFunction<TSharedPtr<T>()> CreateFunc;
+		TFunction<TSharedPtr<void>()> CreateFunc;
 	};
 
 
@@ -224,41 +192,19 @@ public:
 	 * Gets a shared pointer to an instance of the specified class.
 	 *
 	 * @param T The type of class to get an instance for.
-	 * @param A shared pointer to the instance, or nullptr if no instance was registered.
-	 * @see GetInstanceRef, RegisterClass, RegisterInstance
+	 * @param A shared reference to the instance.
+	 * @see RegisterClass, RegisterDelegate, RegisterFactory, RegisterInstance
 	 */
 	template<class R>
-	TSharedPtr<R> GetInstance()
+	TSharedRef<R> GetInstance()
 	{
-		const FName TypeName = R::GetTypeName();
-
 		FScopeLock Lock(&CriticalSection);
 		{
-			const TSharedPtr<IInstanceProvider>& Provider = Providers.FindRef(TypeName);
+			const TSharedPtr<IInstanceProvider>& Provider = Providers.FindRef(TNameOf<R>::GetName());
+			check(Provider.IsValid());
 
-			if (Provider.IsValid())
-			{
-				return StaticCastSharedPtr<R>(Provider->GetInstance());
-			}
+			return StaticCastSharedPtr<R>(Provider->GetInstance()).ToSharedRef();
 		}
-
-		return TSharedPtr<R>();
-	}
-
-	/**
-	 * Gets a shared reference to an instance of the specified class.
-	 *
-	 * Unlike GetInstance(), this function will assert if no instance was registered for
-	 * the requested type of class using either RegisterClass() or RegisterInstance().
-	 *
-	 * @param R The type of class that an instance is being requested for.
-	 * @param A shared pointer to the instance.
-	 * @see GetInstance, RegisterClass, RegisterInstance
-	 */
-	template<class R>
-	TSharedRef<R> GetInstanceRef()
-	{
-		return GetInstance<R>().ToSharedRef();
 	}
 
 	/**
@@ -275,78 +221,114 @@ public:
 	{
 		static_assert(TPointerIsConvertibleFromTo<T, R>::Value, "T must implement R");
 
-		if (Scope == ETypeContainerScope::Instance)
+		TSharedPtr<IInstanceProvider> Provider;
+		
+		switch(Scope)
 		{
-			RegisterFactory<R>(
-				[this]() -> TSharedPtr<R> {
-					return MakeShareable(new T(GetInstanceRef<P>()...));
-				}
+		case ETypeContainerScope::Instance:
+			Provider = MakeShareable(
+				new TFunctionInstanceProvider<T>(
+					[this]() -> TSharedPtr<void> {
+						return MakeShareable(new T(GetInstance<P>()...));
+					}
+				)
 			);
-		}
-		else
-		{
-			TSharedPtr<IInstanceProvider> Provider;
-			
-			if (Scope == ETypeContainerScope::Thread)
-			{
-				Provider = MakeShareable(
-					new TThreadInstanceProvider<T>(
-						[this]() -> TSharedPtr<void> {
-							return MakeShareable(new T(GetInstanceRef<P>()...));
-						}
-					)
-				);
-			}
-			else
-			{
-				Provider = MakeShareable(
-					new TSharedInstanceProvider<T>(
-						MakeShareable(new T(GetInstanceRef<P>()...))
-					)
-				);
-			}
+			break;
 
-			FScopeLock Lock(&CriticalSection);
-			{
-				Providers.Add(R::GetTypeName(), Provider);
-			}
+		case ETypeContainerScope::Thread:
+			Provider = MakeShareable(
+				new TThreadInstanceProvider<T>(
+					[this]() -> TSharedPtr<void> {
+						return MakeShareable(new T(GetInstance<P>()...));
+					}
+				)
+			);
+			break;
+
+		default:
+			Provider = MakeShareable(
+				new TSharedInstanceProvider<T>(
+					MakeShareable(new T(GetInstance<P>()...))
+				)
+			);
+			break;
 		}
+
+		AddProvider(TNameOf<R>::GetName(), Provider);
 	}
 
 	/**
 	 * Register a factory delegate for the specified class.
+	 *
+	 * @param R The type of class to register an instance class for.
+	 * @param D Tye type of factory delegate to register.
+	 * @param P The parameters that the delegate requires.
+	 * @param Delegate The delegate to register.
 	 */
-	template<class R, class D>
+	template<class R, class D, typename... P>
 	void RegisterDelegate(D Delegate)
 	{
-		static_assert(TAreTypesEqual<TSharedPtr<R>, typename D::RetValType>::Value, "Delegate return type must be TSharedPtr<R>");
+		static_assert(TAreTypesEqual<TSharedRef<R>, typename D::RetValType>::Value, "Delegate return type must be TSharedPtr<R>");
 
-		FScopeLock Lock(&CriticalSection);
-		{
-			Providers.Add(
-				R::GetTypeName(),
-				MakeShareable(new TDelegateInstanceProvider<D>(Delegate))
-			);
-		}
+		TSharedPtr<IInstanceProvider> Provider = MakeShareable(
+			new TFunctionInstanceProvider<R>(
+				[=]() -> TSharedPtr<void> {
+					return Delegate.Execute(GetInstance<P>()...);
+				}
+			)
+		);
+
+		AddProvider(TNameOf<R>::GetName(), Provider);
 	}
 
 	/**
 	 * Register a factory function for the specified class.
 	 *
+	 * Note: VS2013 did not like a purely variadic template function, so we split
+	 * these up into two overloads, one without and one with variadic parameters.
+	 *
 	 * @param R The type of class to register the instance for.
-	 * @param CreateFunc A factory function that will create instances.
+	 * @param CreateFunc The factory function that will create instances.
 	 * @see RegisterClass, RegisterInstance, Unregister
 	 */
 	template<class R>
-	void RegisterFactory(TFunction<TSharedPtr<R>()> CreateFunc)
+	void RegisterFactory(TFunction<TSharedRef<R>()> CreateFunc)
 	{
-		FScopeLock Lock(&CriticalSection);
-		{
-			Providers.Add(
-				R::GetTypeName(),
-				MakeShareable(new TFactoryInstanceProvider<R>(CreateFunc))
-			);
-		}
+		TSharedPtr<IInstanceProvider> Provider = MakeShareable(
+			new TFunctionInstanceProvider<R>(
+				[=]() -> TSharedPtr<void> {
+					return CreateFunc();
+				}
+			)
+		);
+
+		AddProvider(TNameOf<R>::GetName(), Provider);
+	}
+
+	/**
+	 * Register a factory function for the specified class.
+	 *
+	 * Note: VS2013 did not like a purely variadic template function, so we split
+	 * these up into two overloads, one without and one with variadic parameters.
+	 *
+	 * @param R The type of class to register the instance for.
+	 * @param P0 The first parameter that the factory function requires.
+	 * @param P Additional parameters that the factory function requires.
+	 * @param CreateFunc The factory function that will create instances.
+	 * @see RegisterClass, RegisterInstance, Unregister
+	 */
+	template<class R, typename P0, typename... P>
+	void RegisterFactory(TFunction<TSharedRef<R>(TSharedRef<P0>, TSharedRef<P>...)> CreateFunc)
+	{
+		TSharedPtr<IInstanceProvider> Provider = MakeShareable(
+			new TFunctionInstanceProvider<R>(
+				[=]() -> TSharedPtr<void> {
+					return CreateFunc(GetInstance<P0>(), GetInstance<P>()...);
+				}
+			)
+		);
+
+		AddProvider(TNameOf<R>::GetName(), Provider);
 	}
 
 	/**
@@ -362,13 +344,7 @@ public:
 	{
 		static_assert(TPointerIsConvertibleFromTo<T, R>::Value, "T must implement R");
 
-		FScopeLock Lock(&CriticalSection);
-		{
-			Providers.Add(
-				R::GetTypeName(),
-				MakeShareable(new TSharedInstanceProvider<R>(Instance))
-			);
-		}
+		AddProvider(TNameOf<R>::GetName(), MakeShareable(new TSharedInstanceProvider<R>(Instance)));
 	}
 
 	/**
@@ -380,11 +356,25 @@ public:
 	template<class R>
 	void Unregister()
 	{
-		const FName TypeName = R::GetTypeName();
-
 		FScopeLock Lock(&CriticalSection);
 		{
-			Providers.Remove(TypeName);
+			Providers.Remove(TNameOf<R>::GetName());
+		}
+	}
+
+protected:
+
+	/**
+	 * Add an instance provider to the container.
+	 *
+	 * @param Name The name of the type to add the provider for.
+	 * @param Provider The instance provider.
+	 */
+	void AddProvider(const TCHAR* Name, const TSharedPtr<IInstanceProvider>& Provider)
+	{
+		FScopeLock Lock(&CriticalSection);
+		{
+			Providers.Add(Name, Provider);
 		}
 	}
 
@@ -394,7 +384,7 @@ private:
 	FCriticalSection CriticalSection;
 
 	/** Maps class names to instance providers. */
-	TMap<FName, TSharedPtr<IInstanceProvider>> Providers;
+	TMap<const TCHAR*, TSharedPtr<IInstanceProvider>> Providers;
 };
 
 

@@ -4115,6 +4115,255 @@ void PostParsingClassSetup(UClass* Class)
 	}
 }
 
+void FHeaderParser::ParseClassProperties(const TArray<FPropertySpecifier>& InClassSpecifiers, const FString& InRequiredAPIMacroIfPresent, FClassDeclarationMetaData& OutClassData)
+{
+	OutClassData.ClassFlags = 0;
+	// Record that this class is RequiredAPI if the CORE_API style macro was present
+	if (!InRequiredAPIMacroIfPresent.IsEmpty())
+	{
+		OutClassData.ClassFlags |= CLASS_RequiredAPI;
+	}
+	OutClassData.ClassFlags |= CLASS_Native;
+
+	// Process all of the class specifiers
+	
+	bool bWithinSpecified = false;
+	bool bDeclaresConfigFile = false;
+	for (const FPropertySpecifier& PropSpecifier : InClassSpecifiers)
+	{
+		const FString& Specifier = PropSpecifier.Key;
+
+		if (Specifier == TEXT("noexport"))
+		{
+			// Don't export to C++ header.
+			OutClassData.ClassFlags |= CLASS_NoExport;
+		}
+		else if (Specifier == TEXT("intrinsic"))
+		{
+			OutClassData.ClassFlags |= CLASS_Intrinsic;
+		}
+		else if (Specifier == TEXT("ComponentWrapperClass"))
+		{
+			OutClassData.MetaData.Add(TEXT("IgnoreCategoryKeywordsInSubclasses"), TEXT("true"));
+		}
+		else if (Specifier == TEXT("within"))
+		{
+			OutClassData.ClassWithin = RequireExactlyOneSpecifierValue(PropSpecifier);
+		}
+		else if (Specifier == TEXT("editinlinenew"))
+		{
+			// Class can be constructed from the New button in editinline
+			OutClassData.ClassFlags |= CLASS_EditInlineNew;
+		}
+		else if (Specifier == TEXT("noteditinlinenew"))
+		{
+			// Class cannot be constructed from the New button in editinline
+			OutClassData.ClassFlags &= ~CLASS_EditInlineNew;
+		}
+		else if (Specifier == TEXT("placeable"))
+		{
+			if (!(OutClassData.ClassFlags & CLASS_NotPlaceable))
+			{
+				FError::Throwf(TEXT("The placeable specifier is deprecated. Classes are assumed to be placeable by default."));
+			}
+			OutClassData.ClassFlags &= ~CLASS_NotPlaceable;
+		}
+		else if (Specifier == TEXT("defaulttoinstanced"))
+		{
+			// these classed default to instanced.
+			OutClassData.ClassFlags |= CLASS_DefaultToInstanced;
+		}
+		else if (Specifier == TEXT("notplaceable"))
+		{
+			// Don't allow the class to be placed in the editor.
+			OutClassData.ClassFlags |= CLASS_NotPlaceable;
+		}
+		else if (Specifier == TEXT("hidedropdown"))
+		{
+			// Prevents class from appearing in class comboboxes in the property window
+			OutClassData.ClassFlags |= CLASS_HideDropDown;
+		}
+		else if (Specifier == TEXT("dependsOn"))
+		{
+			FError::Throwf(TEXT("The dependsOn specifier is deprecated. Please use #include \"ClassHeaderFilename.h\" instead."));
+		}
+		else if (Specifier == TEXT("MinimalAPI"))
+		{
+			OutClassData.ClassFlags |= CLASS_MinimalAPI;
+		}
+		else if (Specifier == TEXT("const"))
+		{
+			OutClassData.ClassFlags |= CLASS_Const;
+		}
+		else if (Specifier == TEXT("perObjectConfig"))
+		{
+			OutClassData.ClassFlags |= CLASS_PerObjectConfig;
+		}
+		else if (Specifier == TEXT("configdonotcheckdefaults"))
+		{
+			OutClassData.ClassFlags |= CLASS_ConfigDoNotCheckDefaults;
+		}
+		else if (Specifier == TEXT("abstract"))
+		{
+			// Hide all editable properties.
+			OutClassData.ClassFlags |= CLASS_Abstract;
+		}
+		else if (Specifier == TEXT("deprecated"))
+		{
+			OutClassData.ClassFlags |= CLASS_Deprecated;
+
+			// Don't allow the class to be placed in the editor.
+			OutClassData.ClassFlags |= CLASS_NotPlaceable;
+		}
+		else if (Specifier == TEXT("transient"))
+		{
+			// Transient class.
+			OutClassData.ClassFlags |= CLASS_Transient;
+		}
+		else if (Specifier == TEXT("nonTransient"))
+		{
+			// this child of a transient class is not transient - remove the transient flag
+			OutClassData.ClassFlags &= ~CLASS_Transient;
+		}
+		else if (Specifier == TEXT("customConstructor"))
+		{
+			// we will not export a constructor for this class, assuming it is in the CPP block
+			OutClassData.ClassFlags |= CLASS_CustomConstructor;
+		}
+		else if (Specifier == TEXT("config"))
+		{
+			// Class containing config properties - parse the name of the config file to use
+			OutClassData.ConfigName = RequireExactlyOneSpecifierValue(PropSpecifier);
+		}
+		else if (Specifier == TEXT("defaultconfig"))
+		{
+			// Save object config only to Default INIs, never to local INIs.
+			OutClassData.ClassFlags |= CLASS_DefaultConfig;
+		}
+		else if (Specifier == TEXT("globaluserconfig"))
+		{
+			// Save object config only to global user overrides, never to local INIs
+			OutClassData.ClassFlags |= CLASS_GlobalUserConfig;
+		}
+		else if (Specifier == TEXT("showCategories"))
+		{
+			RequireSpecifierValue(PropSpecifier);
+
+			for (const FString& Value : PropSpecifier.Values)
+			{
+				// if we didn't find this specific category path in the HideCategories metadata
+				if (OutClassData.HideCategories.Remove(Value) == 0)
+				{
+					TArray<FString> SubCategoryList;
+					Value.ParseIntoArray(SubCategoryList, TEXT("|"), true);
+
+					FString SubCategoryPath;
+					// look to see if any of the parent paths are excluded in the HideCategories list
+					for (int32 CategoryPathIndex = 0; CategoryPathIndex < SubCategoryList.Num() - 1; ++CategoryPathIndex)
+					{
+						SubCategoryPath += SubCategoryList[CategoryPathIndex];
+						// if we're hiding a parent category, then we need to flag this sub category for show
+						if (OutClassData.HideCategories.Contains(SubCategoryPath))
+						{
+							OutClassData.ShowSubCatgories.AddUnique(Value);
+							break;
+						}
+						SubCategoryPath += "|";
+					}
+				}
+			}
+		}
+		else if (Specifier == TEXT("hideCategories"))
+		{
+			RequireSpecifierValue(PropSpecifier);
+
+			for (const FString& Value : PropSpecifier.Values)
+			{
+				OutClassData.HideCategories.AddUnique(Value);
+			}
+		}
+		else if (Specifier == TEXT("showFunctions"))
+		{
+			RequireSpecifierValue(PropSpecifier);
+
+			for (const FString& Value : PropSpecifier.Values)
+			{
+				OutClassData.HideFunctions.Remove(Value);
+			}
+		}
+		else if (Specifier == TEXT("hideFunctions"))
+		{
+			RequireSpecifierValue(PropSpecifier);
+
+			for (const FString& Value : PropSpecifier.Values)
+			{
+				OutClassData.HideFunctions.AddUnique(Value);
+			}
+		}
+		else if (Specifier == TEXT("classGroup"))
+		{
+			RequireSpecifierValue(PropSpecifier);
+
+			for (const FString& Value : PropSpecifier.Values)
+			{
+				OutClassData.ClassGroupNames.Add(Value);
+			}
+		}
+		else if (Specifier == TEXT("autoExpandCategories"))
+		{
+			RequireSpecifierValue(PropSpecifier);
+
+			for (const FString& Value : PropSpecifier.Values)
+			{
+				OutClassData.AutoCollapseCategories.Remove(Value);
+				OutClassData.AutoExpandCategories.AddUnique(Value);
+			}
+		}
+		else if (Specifier == TEXT("autoCollapseCategories"))
+		{
+			RequireSpecifierValue(PropSpecifier);
+
+			for (const FString& Value : PropSpecifier.Values)
+			{
+				OutClassData.AutoExpandCategories.Remove(Value);
+				OutClassData.AutoCollapseCategories.AddUnique(Value);
+			}
+		}
+		else if (Specifier == TEXT("dontAutoCollapseCategories"))
+		{
+			RequireSpecifierValue(PropSpecifier);
+
+			for (const FString& Value : PropSpecifier.Values)
+			{
+				OutClassData.AutoCollapseCategories.Remove(Value);
+			}
+		}
+		else if (Specifier == TEXT("collapseCategories"))
+		{
+			// Class' properties should not be shown categorized in the editor.
+			OutClassData.ClassFlags |= CLASS_CollapseCategories;
+		}
+		else if (Specifier == TEXT("dontCollapseCategories"))
+		{
+			// Class' properties should be shown categorized in the editor.
+			OutClassData.ClassFlags &= ~CLASS_CollapseCategories;
+		}
+		else if (Specifier == TEXT("AdvancedClassDisplay"))
+		{
+			// By default the class properties are shown in advanced sections in UI
+			OutClassData.ClassFlags |= CLASS_AdvancedDisplay;
+		}
+		else if (Specifier == TEXT("ConversionRoot"))
+		{
+			OutClassData.MetaData.Add(FName(TEXT("IsConversionRoot")), "true");
+		}
+		else
+		{
+			FError::Throwf(TEXT("Unknown class specifier '%s'"), *Specifier);
+		}
+	}
+}
+
 /**
  * Compiles a class declaration.
  */
@@ -4142,15 +4391,18 @@ void FHeaderParser::CompileClassDeclaration(FClasses& AllClasses)
 	FString RequiredAPIMacroIfPresent;
 	
 	FClass* Class = ParseClassNameDeclaration(AllClasses, /*out*/ DeclaredClassName, /*out*/ RequiredAPIMacroIfPresent);
+	check(Class);
+	auto ClassDeclarationData = GClassDeclarations.FindChecked(Class->GetFName());
+
 	ClassDefinitionRanges.Add(Class, ClassDefinitionRange(&Input[InputPos], nullptr));
 
-	check(Class);
+	check(Class->ClassFlags == 0 || (Class->ClassFlags & ClassDeclarationData->ClassFlags) != 0);
 
 	Class->ClassFlags |= CLASS_Parsed;
 
 	PushNest(ENestType::NEST_Class, Class);
-
-	uint32 PreviousClassFlags = Class->ClassFlags;
+	
+	uint32 PreviousClassFlags = Class->ClassFlags;	
 
 	ResetClassData();
 
@@ -4169,16 +4421,11 @@ void FHeaderParser::CompileClassDeclaration(FClasses& AllClasses)
 	}
 
 	// Get categories inherited from the parent.
-	TArray<FString> HideCategories;
-	TArray<FString> ShowSubCatgories;
-	TArray<FString> HideFunctions;
-	TArray<FString> AutoExpandCategories;
-	TArray<FString> AutoCollapseCategories;
-	Class->GetHideCategories(HideCategories);
-	Class->GetShowCategories(ShowSubCatgories);
-	Class->GetHideFunctions(HideFunctions);
-	Class->GetAutoExpandCategories(AutoExpandCategories);
-	Class->GetAutoCollapseCategories(AutoCollapseCategories);
+	Class->GetHideCategories(ClassDeclarationData->HideCategories);
+	Class->GetShowCategories(ClassDeclarationData->ShowSubCatgories);
+	Class->GetHideFunctions(ClassDeclarationData->HideFunctions);
+	Class->GetAutoExpandCategories(ClassDeclarationData->AutoExpandCategories);
+	Class->GetAutoCollapseCategories(ClassDeclarationData->AutoCollapseCategories);
 
 	// Class attributes.
 	FClassMetaData* ClassData = GScriptHelper.FindClassData(Class);
@@ -4186,11 +4433,7 @@ void FHeaderParser::CompileClassDeclaration(FClasses& AllClasses)
 
 	ClassData->SetPrologLine(PrologFinishLine);
 
-	// Record that this class is RequiredAPI if the CORE_API style macro was present
-	if (!RequiredAPIMacroIfPresent.IsEmpty())
-	{
-		Class->ClassFlags |= CLASS_RequiredAPI;
-	}
+	Class->ClassFlags |= ClassDeclarationData->ClassFlags;
 
 	// All classes that are parsed are expected to be native
 	UClass* Super = Class->GetSuperClass();
@@ -4200,302 +4443,70 @@ void FHeaderParser::CompileClassDeclaration(FClasses& AllClasses)
 	}
 
 	Class->SetFlags(RF_Native);
-	Class->ClassFlags |= CLASS_Native;
 
 	// Process all of the class specifiers
-	TArray<FString> ClassGroupNames;
 	bool bWithinSpecified = false;
 	bool bDeclaresConfigFile = false;
-	for (const FPropertySpecifier& PropSpecifier : SpecifiersFound)
+	if (ClassDeclarationData->ClassWithin.IsEmpty() == false)
 	{
-		const FString& Specifier = PropSpecifier.Key;
-
-		if (Specifier == TEXT("noexport"))
+		UClass* RequiredWithinClass = AllClasses.FindClass(*ClassDeclarationData->ClassWithin);
+		if (!RequiredWithinClass)
 		{
-			// Don't export to C++ header.
-			Class->ClassFlags |= CLASS_NoExport;
+			FError::Throwf(TEXT("Within class '%s' not found."), *ClassDeclarationData->ClassWithin);
 		}
-		else if (Specifier == TEXT("intrinsic"))
+		if (RequiredWithinClass->IsChildOf(UInterface::StaticClass()))
 		{
-			Class->ClassFlags |= CLASS_Intrinsic;
+			FError::Throwf(TEXT("Classes cannot be 'within' interfaces"));
 		}
-		else if (Specifier == TEXT("ComponentWrapperClass"))
+		else if (Class->ClassWithin == NULL || Class->ClassWithin == UObject::StaticClass() || RequiredWithinClass->IsChildOf(Class->ClassWithin))
 		{
-			MetaData.Add(TEXT("IgnoreCategoryKeywordsInSubclasses"), TEXT("true"));
+			Class->ClassWithin = RequiredWithinClass;
 		}
-		else if (Specifier == TEXT("within"))
+		else if (Class->ClassWithin != RequiredWithinClass)
 		{
-			FString WithinNameStr = RequireExactlyOneSpecifierValue(PropSpecifier);
-
-			UClass* RequiredWithinClass = AllClasses.FindClass(*WithinNameStr);
-
-			if (!RequiredWithinClass)
+			FError::Throwf(TEXT("%s must be within %s, not %s"), *Class->GetPathName(), *Class->ClassWithin->GetPathName(), *RequiredWithinClass->GetPathName());
+		}
+		bWithinSpecified = true;
+	}
+	if (!!(Class->ClassFlags & CLASS_EditInlineNew))
+	{
+		// don't allow actor classes to be declared editinlinenew
+		if (IsActorClass(Class))
+		{
+			FError::Throwf(TEXT("Invalid class attribute: Creating actor instances via the property window is not allowed"));
+		}
+	}
+	if (ClassDeclarationData->ConfigName.IsEmpty() == false)
+	{
+		// if the user specified "inherit", we're just going to use the parent class's config filename
+		// this is not actually necessary but it can be useful for explicitly communicating config-ness
+		if (ClassDeclarationData->ConfigName == TEXT("inherit"))
+		{
+			UClass* SuperClass = Class->GetSuperClass();
+			if (!SuperClass)
 			{
-				FError::Throwf(TEXT("Within class '%s' not found."), *WithinNameStr);
+				FError::Throwf(TEXT("Cannot inherit config filename: %s has no super class"), *Class->GetName());
 			}
 
-			if (RequiredWithinClass->IsChildOf(UInterface::StaticClass()))
+			if (SuperClass->ClassConfigName == NAME_None)
 			{
-				FError::Throwf(TEXT("Classes cannot be 'within' interfaces"));
+				FError::Throwf(TEXT("Cannot inherit config filename: parent class %s is not marked config."), *SuperClass->GetPathName());
 			}
-			else if (Class->ClassWithin == NULL || Class->ClassWithin == UObject::StaticClass() || RequiredWithinClass->IsChildOf(Class->ClassWithin))
-			{
-				Class->ClassWithin = RequiredWithinClass;
-			}
-			else if (Class->ClassWithin != RequiredWithinClass)
-			{
-				FError::Throwf(TEXT("%s must be within %s, not %s"), *Class->GetPathName(), *Class->ClassWithin->GetPathName(), *RequiredWithinClass->GetPathName());
-			}
-
-			bWithinSpecified = true;
-		}
-		else if (Specifier == TEXT("editinlinenew"))
-		{
-			// don't allow actor classes to be declared editinlinenew
-			if (IsActorClass(Class))
-			{
-				FError::Throwf(TEXT("Invalid class attribute: Creating actor instances via the property window is not allowed"));
-			}
-
-			// Class can be constructed from the New button in editinline
-			Class->ClassFlags |= CLASS_EditInlineNew;
-		}
-		else if (Specifier == TEXT("noteditinlinenew"))
-		{
-			// Class cannot be constructed from the New button in editinline
-			Class->ClassFlags &= ~CLASS_EditInlineNew;
-		}
-		else if (Specifier == TEXT("placeable"))
-		{
-			if (!(Class->ClassFlags & CLASS_NotPlaceable))
-			{
-				FError::Throwf(TEXT("The placeable specifier is deprecated. Classes are assumed to be placeable by default."));
-			}
-			Class->ClassFlags &= ~CLASS_NotPlaceable;
-		}
-		else if (Specifier == TEXT("defaulttoinstanced"))
-		{
-			// these classed default to instanced.
-			Class->ClassFlags |= CLASS_DefaultToInstanced;
-		}
-		else if (Specifier == TEXT("notplaceable"))
-		{
-			// Don't allow the class to be placed in the editor.
-			Class->ClassFlags |= CLASS_NotPlaceable;
-		}
-		else if (Specifier == TEXT("hidedropdown"))
-		{
-			// Prevents class from appearing in class comboboxes in the property window
-			Class->ClassFlags |= CLASS_HideDropDown;
-		}
-		else if (Specifier == TEXT("dependsOn"))
-		{
-			FError::Throwf(TEXT("The dependsOn specifier is deprecated. Please use proper #include instead."));
-
-			// Make sure the syntax matches but don't do anything with it;
-			RequireSpecifierValue(PropSpecifier);
-		}
-		else if (Specifier == TEXT("MinimalAPI"))
-		{
-			Class->ClassFlags |= CLASS_MinimalAPI;
-		}
-		else if (Specifier == TEXT("const"))
-		{
-			Class->ClassFlags |= CLASS_Const;
-		}
-		else if (Specifier == TEXT("perObjectConfig"))
-		{
-			Class->ClassFlags |= CLASS_PerObjectConfig;
-		}
-		else if (Specifier == TEXT("configdonotcheckdefaults"))
-		{
-			Class->ClassFlags |= CLASS_ConfigDoNotCheckDefaults;
-		}
-		else if (Specifier == TEXT("abstract"))
-		{
-			// Hide all editable properties.
-			Class->ClassFlags |= CLASS_Abstract;
-		}
-		else if (Specifier == TEXT("deprecated"))
-		{
-			Class->ClassFlags |= CLASS_Deprecated;
-
-			// Don't allow the class to be placed in the editor.
-			Class->ClassFlags |= CLASS_NotPlaceable;
-		}
-		else if (Specifier == TEXT("transient"))
-		{
-			// Transient class.
-			Class->ClassFlags |= CLASS_Transient;
-		}
-		else if (Specifier == TEXT("nonTransient"))
-		{
-			// this child of a transient class is not transient - remove the transient flag
-			Class->ClassFlags &= ~CLASS_Transient;
-		}
-		else if (Specifier == TEXT("customConstructor"))
-		{
-			// we will not export a constructor for this class, assuming it is in the CPP block
-			Class->ClassFlags |= CLASS_CustomConstructor;
-		}
-		else if (Specifier == TEXT("config"))
-		{
-			// Class containing config properties - parse the name of the config file to use
-			FString ConfigNameStr = RequireExactlyOneSpecifierValue(PropSpecifier);
-
-			// if the user specified "inherit", we're just going to use the parent class's config filename
-			// this is not actually necessary but it can be useful for explicitly communicating config-ness
-			if (ConfigNameStr == TEXT("inherit"))
-			{
-				UClass* SuperClass = Class->GetSuperClass();
-				if (!SuperClass)
-					FError::Throwf(TEXT("Cannot inherit config filename: %s has no super class"), *Class->GetName());
-
-				if (SuperClass->ClassConfigName == NAME_None)
-					FError::Throwf(TEXT("Cannot inherit config filename: parent class %s is not marked config."), *SuperClass->GetPathName());
-			}
-			else
-			{
-				// otherwise, set the config name to the parsed identifier
-				Class->ClassConfigName = FName(*ConfigNameStr);
-			}
-
-			bDeclaresConfigFile = true;
-		}
-		else if (Specifier == TEXT("defaultconfig"))
-		{
-			// Save object config only to Default INIs, never to local INIs.
-			Class->ClassFlags |= CLASS_DefaultConfig;
-		}
-		else if (Specifier == TEXT("globaluserconfig"))
-		{
-			// Save object config only to global user overrides, never to local INIs
-			Class->ClassFlags |= CLASS_GlobalUserConfig;
-		}
-		else if (Specifier == TEXT("showCategories"))
-		{
-			RequireSpecifierValue(PropSpecifier);
-
-			for (const FString& Value : PropSpecifier.Values)
-			{
-				// if we didn't find this specific category path in the HideCategories metadata
-				if (HideCategories.Remove(Value) == 0)
-				{
-					TArray<FString> SubCategoryList;
-					Value.ParseIntoArray(SubCategoryList, TEXT("|"), true);
-
-					FString SubCategoryPath;
-					// look to see if any of the parent paths are excluded in the HideCategories list
-					for (int32 CategoryPathIndex = 0; CategoryPathIndex < SubCategoryList.Num()-1; ++CategoryPathIndex)
-					{
-						SubCategoryPath += SubCategoryList[CategoryPathIndex];
-						// if we're hiding a parent category, then we need to flag this sub category for show
-						if (HideCategories.Contains(SubCategoryPath))
-						{
-							ShowSubCatgories.AddUnique(Value);
-							break;
-						}
-						SubCategoryPath += "|";
-					}
-				}
-			}
-		}
-		else if (Specifier == TEXT("hideCategories"))
-		{
-			RequireSpecifierValue(PropSpecifier);
-
-			for (const FString& Value : PropSpecifier.Values)
-			{
-				HideCategories.AddUnique(Value);
-			}
-		}
-		else if (Specifier == TEXT("showFunctions"))
-		{
-			RequireSpecifierValue(PropSpecifier);
-
-			for (const FString& Value : PropSpecifier.Values)
-			{
-				HideFunctions.Remove(Value);
-			}
-		}
-		else if (Specifier == TEXT("hideFunctions"))
-		{
-			RequireSpecifierValue(PropSpecifier);
-
-			for (const FString& Value : PropSpecifier.Values)
-			{
-				HideFunctions.AddUnique(Value);
-			}
-		}
-		else if (Specifier == TEXT("classGroup"))
-		{
-			RequireSpecifierValue(PropSpecifier);
-
-			for (const FString& Value : PropSpecifier.Values)
-			{
-				ClassGroupNames.Add(Value);
-			}
-		}
-		else if (Specifier == TEXT("autoExpandCategories"))
-		{
-			RequireSpecifierValue(PropSpecifier);
-
-			for (const FString& Value : PropSpecifier.Values)
-			{
-				AutoCollapseCategories.Remove   (Value);
-				AutoExpandCategories  .AddUnique(Value);
-			}
-		}
-		else if (Specifier == TEXT("autoCollapseCategories"))
-		{
-			RequireSpecifierValue(PropSpecifier);
-
-			for (const FString& Value : PropSpecifier.Values)
-			{
-				AutoExpandCategories  .Remove   (Value);
-				AutoCollapseCategories.AddUnique(Value);
-			}
-		}
-		else if (Specifier == TEXT("dontAutoCollapseCategories"))
-		{
-			RequireSpecifierValue(PropSpecifier);
-
-			for (const FString& Value : PropSpecifier.Values)
-			{
-				AutoCollapseCategories.Remove(Value);
-			}
-		}
-		else if (Specifier == TEXT("collapseCategories"))
-		{
-			// Class' properties should not be shown categorized in the editor.
-			Class->ClassFlags |= CLASS_CollapseCategories;
-		}
-		else if (Specifier == TEXT("dontCollapseCategories"))
-		{
-			// Class' properties should be shown categorized in the editor.
-			Class->ClassFlags &= ~CLASS_CollapseCategories;
-		}
-		else if (Specifier == TEXT("AdvancedClassDisplay"))
-		{
-			// By default the class properties are shown in advanced sections in UI
-			Class->ClassFlags |= CLASS_AdvancedDisplay;
-		}
-		else if (Specifier == TEXT("ConversionRoot"))
-		{
-			MetaData.Add(FName(TEXT("IsConversionRoot")), "true");
 		}
 		else
 		{
-			FError::Throwf(TEXT("Unknown class specifier '%s'"), *Specifier);
+			// otherwise, set the config name to the parsed identifier
+			Class->ClassConfigName = FName(*ClassDeclarationData->ConfigName);
 		}
+		bDeclaresConfigFile = true;
 	}
 
-	if (ClassGroupNames       .Num()) { MetaData.Add("ClassGroupNames",        FString::Join(ClassGroupNames,        TEXT(" "))); }
-	if (AutoCollapseCategories.Num()) { MetaData.Add("AutoCollapseCategories", FString::Join(AutoCollapseCategories, TEXT(" "))); }
-	if (HideCategories        .Num()) { MetaData.Add("HideCategories",         FString::Join(HideCategories,         TEXT(" "))); }
-	if (ShowSubCatgories      .Num()) { MetaData.Add("ShowCategories",         FString::Join(ShowSubCatgories,       TEXT(" "))); }
-	if (HideFunctions         .Num()) { MetaData.Add("HideFunctions",          FString::Join(HideFunctions,          TEXT(" "))); }
-	if (AutoExpandCategories  .Num()) { MetaData.Add("AutoExpandCategories",   FString::Join(AutoExpandCategories,   TEXT(" "))); }
+	if (ClassDeclarationData->ClassGroupNames.Num()) { MetaData.Add("ClassGroupNames", FString::Join(ClassDeclarationData->ClassGroupNames, TEXT(" "))); }
+	if (ClassDeclarationData->AutoCollapseCategories.Num()) { MetaData.Add("AutoCollapseCategories", FString::Join(ClassDeclarationData->AutoCollapseCategories, TEXT(" "))); }
+	if (ClassDeclarationData->HideCategories.Num()) { MetaData.Add("HideCategories", FString::Join(ClassDeclarationData->HideCategories, TEXT(" "))); }
+	if (ClassDeclarationData->ShowSubCatgories.Num()) { MetaData.Add("ShowCategories", FString::Join(ClassDeclarationData->ShowSubCatgories, TEXT(" "))); }
+	if (ClassDeclarationData->HideFunctions.Num()) { MetaData.Add("HideFunctions", FString::Join(ClassDeclarationData->HideFunctions, TEXT(" "))); }
+	if (ClassDeclarationData->AutoExpandCategories.Num()) { MetaData.Add("AutoExpandCategories", FString::Join(ClassDeclarationData->AutoExpandCategories, TEXT(" "))); }
 
 	// Make sure both RequiredAPI and MinimalAPI aren't specified
 	if (Class->HasAllClassFlags(CLASS_MinimalAPI | CLASS_RequiredAPI))
@@ -4740,8 +4751,7 @@ void FHeaderParser::CompileInterfaceDeclaration(FClasses& AllClasses)
 
 		if (Specifier == TEXT("DependsOn"))
 		{
-			// Make sure the syntax matches but don't do anything with it
-			RequireSpecifierValue(*SpecifierIt);
+			FError::Throwf(TEXT("The dependsOn specifier is deprecated. Please use #include \"ClassHeaderFilename.h\" instead."));
 		}
 		else if (Specifier == TEXT("MinimalAPI"))
 		{
@@ -6359,53 +6369,6 @@ ECompilationResult::Type FHeaderParser::ParseRestOfModulesSourceFiles(FClasses& 
 	return ECompilationResult::Succeeded;
 }
 
-/**
- * Parses source file of subclasses of classes defined in given file.
- *
- * @param HeaderParser Current parser.
- * @param AllClasses Current classes tree.
- * @param SourceFile Given source file.
- *
- * @returns Compilation result enum.
- */
-/*
-ECompilationResult::Type ParseSourceFileSubclasses(FHeaderParser& HeaderParser, FClasses& AllClasses, FUnrealSourceFile& SourceFile)
-{
-	ECompilationResult::Type Result = ECompilationResult::Succeeded;
-
-	for (auto* Class : SourceFile.GetDefinedClasses())
-	{
-		for (auto SubClass : AllClasses.GetDerivedClasses((FClass*)Class))
-		{
-			auto* ClassDefinitionInfo = GTypeDefinitionInfoMap.Find(SubClass);
-
-			if (ClassDefinitionInfo == nullptr)
-			{
-				continue;
-			}
-
-			FUnrealSourceFile& SubclassSourceFile = (*ClassDefinitionInfo)->GetUnrealSourceFile();
-
-			//note: you must always pass in the root tree node here, since we may add new classes to the tree
-			// if an manual dependency (through dependson()) is encountered
-			ECompilationResult::Type ParseResult = FHeaderParser::ParseHeaders(AllClasses, HeaderParser, SubclassSourceFile, true);
-
-			if (ParseResult == ECompilationResult::FailedDueToHeaderChange)
-			{
-				return ParseResult;
-			}
-
-			if (ParseResult == ECompilationResult::OtherCompilationError)
-			{
-				Result = ECompilationResult::OtherCompilationError;
-			}
-		}
-	}
-
-	return Result;
-}
-*/
-
 // Parse Class's annotated headers and optionally its child classes.
 ECompilationResult::Type FHeaderParser::ParseHeaders(FClasses& AllClasses, FHeaderParser& HeaderParser, FUnrealSourceFile& SourceFile, bool bParseSubclasses)
 {
@@ -7170,13 +7133,13 @@ void FHeaderParser::SimplifiedClassParse(const TCHAR* InBuffer, TArray<FSimplifi
 			// Get class or interface name
 			if (const TCHAR* UInterfaceMacroDecl = FCString::Strfind(Str, TEXT("UINTERFACE(")))
 			{
-				Parser.ParseClassDeclaration(StartOfLine + (UInterfaceMacroDecl - Str), CurrentLine, TEXT("UINTERFACE"), /*out*/ ClassName, /*out*/ BaseClassName, /*out*/ DependentOn);
+				Parser.ParseClassDeclaration(StartOfLine + (UInterfaceMacroDecl - Str), CurrentLine, TEXT("UINTERFACE"), /*out*/ ClassName, /*out*/ BaseClassName, /*out*/ DependentOn, OutParsedClassArray);
 				OutParsedClassArray.Add(FSimplifiedParsingClassInfo(MoveTemp(ClassName), MoveTemp(BaseClassName), CurrentLine, true));
 			}
 
 			if (const TCHAR* UClassMacroDecl = FCString::Strfind(Str, TEXT("UCLASS(")))
 			{
-				Parser.ParseClassDeclaration(StartOfLine + (UClassMacroDecl - Str), CurrentLine, TEXT("UCLASS"), /*out*/ ClassName, /*out*/ BaseClassName, /*out*/ DependentOn);
+				Parser.ParseClassDeclaration(StartOfLine + (UClassMacroDecl - Str), CurrentLine, TEXT("UCLASS"), /*out*/ ClassName, /*out*/ BaseClassName, /*out*/ DependentOn, OutParsedClassArray);
 				OutParsedClassArray.Add(FSimplifiedParsingClassInfo(MoveTemp(ClassName), MoveTemp(BaseClassName), CurrentLine, false));
 			}
 		}
@@ -7188,7 +7151,7 @@ void FHeaderParser::SimplifiedClassParse(const TCHAR* InBuffer, TArray<FSimplifi
 /////////////////////////////////////////////////////
 // FHeaderPreParser
 
-void FHeaderPreParser::ParseClassDeclaration(const TCHAR* InputText, int32 InLineNumber, const TCHAR* StartingMatchID, FString& out_ClassName, FString& out_BaseClassName, TArray<FHeaderProvider>& out_ClassNames)
+void FHeaderPreParser::ParseClassDeclaration(const TCHAR* InputText, int32 InLineNumber, const TCHAR* StartingMatchID, FString& out_ClassName, FString& out_BaseClassName, TArray<FHeaderProvider>& out_RequiredIncludes, const TArray<FSimplifiedParsingClassInfo>& ParsedClassArray)
 {
 	FString ErrorMsg = TEXT("Class declaration");
 
@@ -7209,6 +7172,18 @@ void FHeaderPreParser::ParseClassDeclaration(const TCHAR* InputText, int32 InLin
 	FString RequiredAPIMacroIfPresent;
 	ParseNameWithPotentialAPIMacroPrefix(/*out*/ out_ClassName, /*out*/ RequiredAPIMacroIfPresent, StartingMatchID);
 
+	FName ClassNameWithoutPrefix(*GetClassNameWithPrefixRemoved(out_ClassName));
+	auto DeclarationDataPtr = GClassDeclarations.Find(ClassNameWithoutPrefix);
+	if (!DeclarationDataPtr)
+	{
+		// Add class declaration meta data so that we can access class flags before the class is fully parsed
+		TSharedRef<FClassDeclarationMetaData> DeclarationData = MakeShareable(new FClassDeclarationMetaData());
+		DeclarationData->MetaData = MetaData;
+		DeclarationData->ClassFlags = 0;
+		FHeaderParser::ParseClassProperties(SpecifiersFound, RequiredAPIMacroIfPresent, *DeclarationData);
+		GClassDeclarations.Add(ClassNameWithoutPrefix, DeclarationData);
+	}
+
 	// Handle inheritance
 	if (MatchSymbol(TEXT(":")))
 	{
@@ -7224,6 +7199,8 @@ void FHeaderPreParser::ParseClassDeclaration(const TCHAR* InputText, int32 InLin
 
 		out_BaseClassName = BaseClassNameToken.Identifier;
 
+		AddDependencyIfNeeded(ParsedClassArray, out_BaseClassName, out_RequiredIncludes);
+
 		// Get additional inheritance links and rack them up as dependencies if they're UObject derived
 		while (MatchSymbol(TEXT(",")))
 		{
@@ -7236,24 +7213,19 @@ void FHeaderPreParser::ParseClassDeclaration(const TCHAR* InputText, int32 InLin
 				FError::Throwf(TEXT("Expected an interface class name"));
 			}
 
-			FName InterfaceClassName(InterfaceClassNameToken.Identifier);
-			out_ClassNames.Add(FHeaderProvider(EHeaderProviderSourceType::ClassName, InterfaceClassName.ToString().Mid(1)));
+			AddDependencyIfNeeded(ParsedClassArray, FString(InterfaceClassNameToken.Identifier), out_RequiredIncludes);
 		}
 	}
+}
 
-	// Run thru the specifier list looking for dependency links
-	for (const auto& Specifier : SpecifiersFound)
-	{
-		if (Specifier.Key == TEXT("DependsOn"))
+void FHeaderPreParser::AddDependencyIfNeeded(const TArray<FSimplifiedParsingClassInfo>& ParsedClassArray, const FString& DependencyClassName, TArray<FHeaderProvider>& RequiredIncludes) const
+{
+	if (ParsedClassArray.FindByPredicate([&DependencyClassName](const FSimplifiedParsingClassInfo& Info)
 		{
-			for (auto It2 = Specifier.Values.CreateConstIterator(); It2; ++It2)
-			{
-				const FString& Value = *It2;
-
-				FName DependentOnClassName = FName(*Value);
-				out_ClassNames.Add(FHeaderProvider(EHeaderProviderSourceType::ClassName, DependentOnClassName.ToString()));
-			}
-		}
+			return Info.GetClassName() == DependencyClassName;
+		}) == nullptr)
+	{
+		RequiredIncludes.Add(FHeaderProvider(EHeaderProviderSourceType::ClassName, DependencyClassName.Mid(1)));
 	}
 }
 
@@ -7792,20 +7764,46 @@ TFunctionType* CreateFunctionImpl(const FFuncInfo& FuncInfo, UObject* Outer, FSc
 	Function->ReturnValueOffset = MAX_uint16;
 	Function->FirstPropertyToInit = nullptr;
 
+	if (!CurrentScope->IsFileScope())
+	{
+		auto* Struct = ((FStructScope*)CurrentScope)->GetStruct();
+
+		Function->Next = Struct->Children;
+		Struct->Children = Function;
+	}
+
 	return Function;
 }
 
 UFunction* FHeaderParser::CreateFunction(const FFuncInfo &FuncInfo) const
 {
-	auto* Function = CreateFunctionImpl<UFunction>(FuncInfo, GetCurrentClass(), GetCurrentScope());
-
-	Function->Next = GetCurrentClass()->Children;
-	GetCurrentClass()->Children = Function;
-
-	return Function;
+	return CreateFunctionImpl<UFunction>(FuncInfo, GetCurrentClass(), GetCurrentScope());
 }
 
 UDelegateFunction* FHeaderParser::CreateDelegateFunction(const FFuncInfo &FuncInfo) const
 {
 	return CreateFunctionImpl<UDelegateFunction>(FuncInfo, IsInAClass() ? (UObject*)GetCurrentClass() : (UObject*)GetCurrentFileScope()->GetSourceFile()->GetPackage(), GetCurrentScope());
+}
+
+bool FHeaderParser::DoesAnythingInHierarchyHaveDefaultToInstanced(UClass* TestClass)
+{
+	bool bDefaultToInstanced = false;
+
+	UClass* Search = TestClass;
+	while (!bDefaultToInstanced && (Search != NULL))
+	{
+		bDefaultToInstanced = Search->HasAnyClassFlags(CLASS_DefaultToInstanced);		
+		if (!bDefaultToInstanced && !Search->HasAnyClassFlags(CLASS_Intrinsic | CLASS_Parsed))
+		{			
+			// The class might not have been parsed yet, look for declaration data.
+			auto ClassDeclarationDataPtr = GClassDeclarations.Find(Search->GetFName());
+			if (ClassDeclarationDataPtr)
+			{
+				bDefaultToInstanced = !!((*ClassDeclarationDataPtr)->ClassFlags & CLASS_DefaultToInstanced);
+			}
+		}
+		Search = Search->GetSuperClass();
+	}
+
+	return bDefaultToInstanced;
 }

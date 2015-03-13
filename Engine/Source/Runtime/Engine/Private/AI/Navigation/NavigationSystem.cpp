@@ -523,6 +523,7 @@ void UNavigationSystem::OnInitializeActors()
 void UNavigationSystem::OnWorldInitDone(FNavigationSystem::EMode Mode)
 {
 	OperationMode = Mode;
+	DoInitialSetup();
 	
 	UWorld* World = GetWorld();
 
@@ -3321,7 +3322,7 @@ UNavigationSystem* UNavigationSystem::GetNavigationSystem(UObject* WorldContext)
 	return GetCurrent(WorldContext);
 }
 
-FVector UNavigationSystem::ProjectPointToNavigation(UObject* WorldContextObject, const FVector& Point, ANavigationData* NavData, TSubclassOf<UNavigationQueryFilter> FilterClass)
+FVector UNavigationSystem::ProjectPointToNavigation(UObject* WorldContextObject, const FVector& Point, ANavigationData* NavData, TSubclassOf<UNavigationQueryFilter> FilterClass, const FVector QueryExtent)
 {
 	FNavLocation ProjectedPoint(Point);
 
@@ -3330,7 +3331,7 @@ FVector UNavigationSystem::ProjectPointToNavigation(UObject* WorldContextObject,
 	if (NavSys)
 	{
 		ANavigationData* UseNavData = NavData ? NavData : NavSys->GetMainNavData(FNavigationSystem::DontCreate);
-		NavSys->ProjectPointToNavigation(Point, ProjectedPoint, INVALID_NAVEXTENT, UseNavData, UNavigationQueryFilter::GetQueryFilter(UseNavData, FilterClass));
+		NavSys->ProjectPointToNavigation(Point, ProjectedPoint, QueryExtent.IsNearlyZero() ? INVALID_NAVEXTENT : QueryExtent, UseNavData, UNavigationQueryFilter::GetQueryFilter(UseNavData, FilterClass));
 	}
 
 	return ProjectedPoint.Location;

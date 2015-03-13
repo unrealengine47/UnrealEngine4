@@ -254,6 +254,24 @@ namespace UnrealBuildTool
 
 			BuildConfiguration.bUseSharedPCHs = false;
 		}
+			
+		public override bool HasDefaultBuildConfig(UnrealTargetPlatform Platform, string ProjectPath)
+		{
+			string[] BoolKeys = new string[] {
+				"bBuildForArmV7", "bBuildForArm64", "bBuildForX86", "bBuildForX8664", 
+				"bBuildForES2", "bBuildForES31",
+			};
+
+			// look up iOS specific settings
+			if (!DoProjectSettingsMatchDefault(Platform, ProjectPath, "/Script/AndroidRuntimeSettings.AndroidRuntimeSettings",
+				BoolKeys, null, null))
+			{
+				return false;
+			}
+
+			// check the base settings
+			return base.HasDefaultBuildConfig(Platform, ProjectPath);
+		}
 
 		public override bool ShouldCompileMonolithicBinary(UnrealTargetPlatform InPlatform)
 		{
@@ -303,6 +321,7 @@ namespace UnrealBuildTool
 							InModule.AddPlatformSpecificDynamicallyLoadedModule("Android_ETC1TargetPlatform");
 							InModule.AddPlatformSpecificDynamicallyLoadedModule("Android_ETC2TargetPlatform");
 							InModule.AddPlatformSpecificDynamicallyLoadedModule("Android_ES31TargetPlatform");
+							InModule.AddPlatformSpecificDynamicallyLoadedModule("Android_ASTCTargetPlatform");
 							// @todo gl4android				
 							// InModule.AddPlatformSpecificDynamicallyLoadedModule("Android_GL4TargetPlatform");
                         }
@@ -331,6 +350,7 @@ namespace UnrealBuildTool
 					InModule.AddPlatformSpecificDynamicallyLoadedModule("Android_ETC1TargetPlatform");
 					InModule.AddPlatformSpecificDynamicallyLoadedModule("Android_ETC2TargetPlatform");
 					InModule.AddPlatformSpecificDynamicallyLoadedModule("Android_ES31TargetPlatform");
+					InModule.AddPlatformSpecificDynamicallyLoadedModule("Android_ASTCTargetPlatform");
 					// @todo gl4android				
 					// InModule.AddPlatformSpecificDynamicallyLoadedModule("Android_GL4TargetPlatform");
                 }

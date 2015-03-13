@@ -16,8 +16,10 @@ DECLARE_CYCLE_STAT(TEXT("Linker Preload"),STAT_LinkerPreload,STATGROUP_LinkerLoa
 DECLARE_CYCLE_STAT(TEXT("Linker Precache"),STAT_LinkerPrecache,STATGROUP_LinkerLoad);
 DECLARE_CYCLE_STAT(TEXT("Linker Serialize"),STAT_LinkerSerialize,STATGROUP_LinkerLoad);
 DECLARE_CYCLE_STAT(TEXT("Linker Load Deferred"), STAT_LinkerLoadDeferred, STATGROUP_LinkerLoad);
-DECLARE_DWORD_ACCUMULATOR_STAT(TEXT("Linker Count"), STAT_LinkerCount, STATGROUP_LinkerLoad);
-DECLARE_DWORD_ACCUMULATOR_STAT(TEXT("Live Linker Count"), STAT_LiveLinkerCount, STATGROUP_LinkerLoad);
+
+DECLARE_STATS_GROUP( TEXT( "Linker Count" ), STATGROUP_LinkerCount, STATCAT_Advanced );
+DECLARE_DWORD_ACCUMULATOR_STAT(TEXT("Linker Count"), STAT_LinkerCount, STATGROUP_LinkerCount);
+DECLARE_DWORD_ACCUMULATOR_STAT(TEXT("Live Linker Count"), STAT_LiveLinkerCount, STATGROUP_LinkerCount);
 
 /** Points to the main PackageLinker currently being serialized (Defined in Linker.cpp) */
 extern ULinkerLoad* GSerializedPackageLinker;
@@ -893,13 +895,13 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::SerializePackageFileSummary()
 			return LINKER_Failed;
 		}
 
-		// Don't load packages that were saved engine version newer than the current one.
-		if( !GEngineVersion.IsCompatibleWith(Summary.EngineVersion) )
+		// Don't load packages that are only compatible with an engine version newer than the current one.
+		if( !GEngineVersion.IsCompatibleWith(Summary.CompatibleWithEngineVersion) )
 		{
-			UE_LOG(LogLinker, Warning, TEXT("Asset '%s' has been saved with engine version newer than current and therefore can't be loaded. CurrEngineVersion: %s AssetEngineVersion: %s"), *Filename, *GEngineVersion.ToString(), *Summary.EngineVersion.ToString() );
+			UE_LOG(LogLinker, Warning, TEXT("Asset '%s' has been saved with engine version newer than current and therefore can't be loaded. CurrEngineVersion: %s AssetEngineVersion: %s"), *Filename, *GEngineVersion.ToString(), *Summary.CompatibleWithEngineVersion.ToString() );
 			return LINKER_Failed;
 		}
-		else if( !FPlatformProperties::RequiresCookedData() && !Summary.EngineVersion.IsPromotedBuild() && GEngineVersion.IsPromotedBuild() )
+		else if( !FPlatformProperties::RequiresCookedData() && !Summary.SavedByEngineVersion.IsPromotedBuild() && GEngineVersion.IsPromotedBuild() )
 		{
 			// This warning can be disabled in ini with [Core.System] ZeroEngineVersionWarning=False
 			static struct FInitZeroEngineVersionWarning
@@ -983,11 +985,11 @@ ULinkerLoad::ELinkerStatus ULinkerLoad::SerializePackageFileSummary()
 		// Loader needs to be the same version.
 		Loader->SetUE4Ver(Summary.GetFileVersionUE4());
 		Loader->SetLicenseeUE4Ver(Summary.GetFileVersionLicenseeUE4());
-		Loader->SetEngineVer(Summary.EngineVersion);
+		Loader->SetEngineVer(Summary.SavedByEngineVersion);
 
 		ArUE4Ver = Summary.GetFileVersionUE4();
 		ArLicenseeUE4Ver = Summary.GetFileVersionLicenseeUE4();
-		ArEngineVer = Summary.EngineVersion;
+		ArEngineVer = Summary.SavedByEngineVersion;
 
 		const FCustomVersionContainer& SummaryVersions = Summary.GetCustomVersionContainer();
 		Loader->SetCustomVersions(SummaryVersions);
