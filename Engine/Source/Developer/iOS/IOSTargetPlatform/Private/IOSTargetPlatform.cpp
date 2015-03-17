@@ -14,7 +14,7 @@ FIOSTargetPlatform::FIOSTargetPlatform()
 {
 #if WITH_ENGINE
 	FConfigCacheIni::LoadLocalIniFile(EngineSettings, TEXT("Engine"), true, *PlatformName());
-	TextureLODSettings.Initialize(EngineSettings, TEXT("SystemSettings"));
+	TextureLODSettings = nullptr; // TextureLODSettings are registered by the device profile.
 	StaticMeshLODSettings.Initialize(EngineSettings);
 #endif // #if WITH_ENGINE
 
@@ -187,7 +187,8 @@ int32 FIOSTargetPlatform::CheckRequirements(const FString& ProjectPath, bool bPr
 
 void FIOSTargetPlatform::PingNetworkDevices()
 {
-	if (!MessageEndpoint.IsValid())
+	// disabled for now because we find IOS devices from the USB, this is a relic from ULD, but it may be needed in the future
+/*	if (!MessageEndpoint.IsValid())
 	{
 		MessageEndpoint = FMessageEndpoint::Builder("FIOSTargetPlatform")
 			.Handling<FIOSLaunchDaemonPong>(this, &FIOSTargetPlatform::HandlePongMessage);
@@ -210,7 +211,7 @@ void FIOSTargetPlatform::PingNetworkDevices()
 			DeviceIt.RemoveCurrent();
 			DeviceLostEvent.Broadcast(Device.ToSharedRef());
 		}
-	}
+	}*/
 }
 
 
@@ -295,8 +296,6 @@ bool FIOSTargetPlatform::HandleTicker(float DeltaTime )
 /* ITargetPlatform interface
  *****************************************************************************/
 
-#if WITH_ENGINE
-
 static bool SupportsES2()
 {
 	// default to supporting ES2
@@ -337,6 +336,28 @@ static bool CookASTC()
 	return bCookASTCTextures;
 }
 
+bool FIOSTargetPlatform::SupportsFeature( ETargetPlatformFeatures Feature ) const
+{
+	switch (Feature)
+	{
+		case ETargetPlatformFeatures::Packaging:
+			return true;
+			
+		case ETargetPlatformFeatures::LowQualityLightmaps:
+			return SupportsES2() || SupportsMetal();
+			
+		case ETargetPlatformFeatures::HighQualityLightmaps:
+			return SupportsMetalMRT();
+		default:
+			break;
+	}
+	
+	return TTargetPlatformBase<FIOSPlatformProperties>::SupportsFeature(Feature);
+}
+
+
+#if WITH_ENGINE
+
 
 void FIOSTargetPlatform::GetAllPossibleShaderFormats( TArray<FName>& OutFormats ) const
 {
@@ -359,7 +380,6 @@ void FIOSTargetPlatform::GetAllPossibleShaderFormats( TArray<FName>& OutFormats 
 		OutFormats.AddUnique(NAME_SF_METAL_MRT);
 	}
 }
-
 
 void FIOSTargetPlatform::GetAllTargetedShaderFormats( TArray<FName>& OutFormats ) const
 {
@@ -425,9 +445,9 @@ void FIOSTargetPlatform::GetTextureFormats( const UTexture* Texture, TArray<FNam
 }
 
 
-const FTextureLODSettings& FIOSTargetPlatform::GetTextureLODSettings() const
+const UTextureLODSettings& FIOSTargetPlatform::GetTextureLODSettings() const
 {
-	return TextureLODSettings;
+	return *TextureLODSettings;
 }
 
 
@@ -438,3 +458,4 @@ FName FIOSTargetPlatform::GetWaveFormat( const class USoundWave* Wave ) const
 }
 
 #endif // WITH_ENGINE
+

@@ -712,17 +712,6 @@ public:
 		return TrackToSkeletonMapTable[TrackIndex].BoneTreeIndex; 
 	}
 
-	
-	/**
-	 * Crops the raw anim data either from Start to CurrentTime or CurrentTime to End depending on
-	 * value of bFromStart.  Can't be called against cooked data.
-	 *
-	 * @param	CurrentTime		marker for cropping (either beginning or end)
-	 * @param	bFromStart		whether marker is begin or end marker
-	 * @return					true if the operation was successful.
-	 */
-	ENGINE_API bool CropRawAnimData( float CurrentTime, bool bFromStart );
-
 	/** Clears any data in the AnimSequence, so it can be recycled when importing a new animation with same name over it. */
 	ENGINE_API void RecycleAnimSequence();
 
@@ -789,11 +778,28 @@ public:
 	 * Create Animation Sequence from the given animation
 	 */
 	ENGINE_API bool CreateAnimation(class UAnimSequence * Sequence);
+
 	/**
-	 * Resize Animation to Start/End. If End is bigger, it repeats last frame upto End. 
-	 * @todo implement
+	 * Crops the raw anim data either from Start to CurrentTime or CurrentTime to End depending on
+	 * value of bFromStart.  Can't be called against cooked data.
+	 *
+	 * @param	CurrentTime		marker for cropping (either beginning or end)
+	 * @param	bFromStart		whether marker is begin or end marker
+	 * @return					true if the operation was successful.
 	 */
-	ENGINE_API bool Resize(int32 Start, int32 End);
+	ENGINE_API bool CropRawAnimData( float CurrentTime, bool bFromStart );
+
+		
+	/**
+	 * Crops the raw anim data either from Start to CurrentTime or CurrentTime to End depending on
+	 * value of bFromStart.  Can't be called against cooked data.
+	 *
+	 * @param	StartFrame		StartFrame to insert (0-based)
+	 * @param	EndFrame		EndFrame to insert (0-based
+	 * @param	CopyFrame		A frame that we copy from (0-based)
+	 * @return					true if the operation was successful.
+	 */
+	ENGINE_API bool InsertFramesToRawAnimData( int32 StartFrame, int32 EndFrame, int32 CopyFrame);
 #endif
 
 	/** 
@@ -833,7 +839,6 @@ private:
 	void ResetAnimation();
 	/** Refresh Track Map from Animation Track Names **/
 	void RefreshTrackMapFromAnimTrackNames();
-#endif
 
 	/**
 	 * Utility function that helps to remove track, you can't just remove RawAnimationData
@@ -843,6 +848,10 @@ private:
 	 * Utility function that finds the correct spot to insert track to 
 	 */
 	int32 InsertTrack(const FName& BoneName);
+
+	void ResizeSequence(float NewLength, int32 NewNumFrames);
+
+#endif
 
 	friend class UAnimationAsset;
 };

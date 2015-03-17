@@ -22,7 +22,8 @@ enum ENestType
 	NEST_GlobalScope,
 	NEST_Class,
 	NEST_FunctionDeclaration,
-	NEST_Interface
+	NEST_Interface,
+	NEST_NativeInterface
 };
 
 /** Types of statements to allow within a particular nesting block. */
@@ -295,7 +296,7 @@ protected:
 	 */
 	FStructScope* GetCurrentClassScope() const
 	{
-		check(TopNest->NestType == NEST_Class || TopNest->NestType == NEST_Interface);
+		check(TopNest->NestType == NEST_Class || TopNest->NestType == NEST_Interface || TopNest->NestType == NEST_NativeInterface);
 
 		return (FStructScope*)TopNest->GetScope();
 	}
@@ -308,7 +309,7 @@ protected:
 		int32 Index = 0;
 		while (TopNest[Index].NestType != NEST_GlobalScope)
 		{
-			if (TopNest[Index].NestType == NEST_Class || TopNest->NestType == NEST_Interface)
+			if (TopNest[Index].NestType == NEST_Class || TopNest->NestType == NEST_Interface || TopNest->NestType == NEST_NativeInterface)
 			{
 				return true;
 			}
@@ -389,6 +390,12 @@ protected:
 	// Indicates that a GENERATED_UCLASS_BODY or GENERATED_BODY has been found in the UClass.
 	bool bClassHasGeneratedBody;
 
+	// Indicates that a GENERATED_UINTERFACE_BODY has been found in the UClass.
+	bool bClassHasGeneratedUInterfaceBody;
+
+	// Indicates that a GENERATED_IINTERFACE_BODY has been found in the UClass.
+	bool bClassHasGeneratedIInterfaceBody;
+
 	// public, private, etc at the current parse spot
 	EAccessSpecifier CurrentAccessSpecifier;
 
@@ -399,9 +406,6 @@ protected:
 	
 	// Special parsed struct names that have a 'T' prefix
 	TArray<FString> StructsWithTPrefix;
-
-	// List of all legal variable specifier tokens
-	TSet<FString> LegalVariableSpecifiers;
 
 	// Mapping from 'human-readable' macro substring to # of parameters for delegate declarations
 	// Index 0 is 1 parameter, Index 1 is 2, etc...
@@ -423,9 +427,6 @@ protected:
 			FScriptLocation::Compiler = NULL;
 		}
 	}
-
-	// Returns true if the token is a variable specifier
-	bool IsValidVariableSpecifier(const FToken& Token) const;
 
 	// Returns true if the token is a dynamic delegate declaration
 	bool IsValidDelegateDeclaration(const FToken& Token) const;

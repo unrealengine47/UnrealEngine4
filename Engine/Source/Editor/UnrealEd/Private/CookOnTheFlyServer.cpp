@@ -11,6 +11,7 @@
 #include "DerivedDataCacheInterface.h"
 #include "ISourceControlModule.h"
 #include "GlobalShader.h"
+#include "MaterialShader.h"
 #include "TargetPlatform.h"
 #include "IConsoleManager.h"
 #include "Developer/PackageDependencyInfo/Public/PackageDependencyInfo.h"
@@ -33,7 +34,7 @@
 // shader compiler processAsyncResults
 #include "ShaderCompiler.h"
 #include "Engine/LevelStreaming.h"
-#include "TextureLODSettings.h"
+#include "Engine/TextureLODSettings.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCook, Log, All);
 
@@ -1010,7 +1011,13 @@ uint32 UCookOnTheFlyServer::TickCookOnTheSide( const float TimeSlice, uint32 &Co
 #if DEBUG_COOKONTHEFLY
 			UE_LOG( LogCook, Display, TEXT("Processing request %s"), *BuildFilename);
 #endif
-			GOutputCookingWarnings = true;
+			static TSet<FString> CookWarningsList;
+			if ( CookWarningsList.Contains(BuildFilename) == false )
+			{
+				CookWarningsList.Add( BuildFilename );
+				GOutputCookingWarnings = true;
+			}
+			
 			//  if the package is already loaded then try to avoid reloading it :)
 			if ( ( Package == NULL ) || ( Package->IsFullyLoaded() == false ) )
 			{
@@ -2073,7 +2080,7 @@ bool UCookOnTheFlyServer::GetCurrentIniVersionStrings( const ITargetPlatform* Ta
 	PlatformIniFiles.Empty();
 
 
-	const FTextureLODSettings& LodSettings = TargetPlatform->GetTextureLODSettings();
+	const UTextureLODSettings& LodSettings = TargetPlatform->GetTextureLODSettings();
 
 	UEnum* TextureGroupEnum = FindObject<UEnum>( NULL, TEXT("Engine.TextureGroup") );
 	UEnum* TextureMipGenSettingsEnum = FindObject<UEnum>( NULL, TEXT("Engine.TextureMipGenSettings") );
@@ -2100,6 +2107,11 @@ bool UCookOnTheFlyServer::GetCurrentIniVersionStrings( const ITargetPlatform* Ta
 	GetVersionFormatNumbersForIniVersionStrings( IniVersionStrings, TEXT("AudioFormat"), TPM->GetAudioFormats() );
 	GetVersionFormatNumbersForIniVersionStrings( IniVersionStrings, TEXT("TextureFormat"), TPM->GetTextureFormats() );
 	GetVersionFormatNumbersForIniVersionStrings( IniVersionStrings, TEXT("ShaderFormat"), TPM->GetShaderFormats() );
+
+	FString MaterialShaderMapDDCVersion = FString::Printf(TEXT("MaterialShaderMapDDCVersion:%s"), *GetMaterialShaderMapDDCKey());
+	IniVersionStrings.Emplace( MoveTemp(MaterialShaderMapDDCVersion) );
+	FString GlobalDDCVersion = FString::Printf(TEXT("GlobalDDCVersion:%s"), *GetGlobalShaderMapDDCKey());
+	IniVersionStrings.Emplace( MoveTemp(GlobalDDCVersion) );
 
 	return true;
 }

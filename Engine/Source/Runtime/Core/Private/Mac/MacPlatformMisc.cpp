@@ -579,16 +579,13 @@ void FMacPlatformMisc::PumpMessages( bool bFromMainLoop )
 	{
 		ProcessGameThreadEvents();
 
-		if (MacApplication && !MacApplication->IsProcessingNSEvent() && IsInGameThread())
+		if (MacApplication && IsInGameThread())
 		{
 			if (UpdateCachedMacMenuState && bChachedMacMenuStateNeedsUpdate)
 			{
 				UpdateCachedMacMenuState();
 				bChachedMacMenuStateNeedsUpdate = false;
 			}
-
-			MacApplication->InvalidateTextLayouts();
-			MacApplication->CloseQueuedWindows();
 		}
 	}
 }
@@ -688,6 +685,11 @@ void FMacPlatformMisc::RequestExit( bool Force )
 		// Tell the platform specific code we want to exit cleanly from the main loop.
 		GIsRequestingExit = 1;
 	}
+}
+
+void FMacPlatformMisc::RequestMinimize()
+{
+	[NSApp hide : nil];
 }
 
 const TCHAR* FMacPlatformMisc::GetSystemErrorMessage(TCHAR* OutBuffer, int32 BufferCount, int32 Error)
@@ -975,6 +977,7 @@ int32 FMacPlatformMisc::NumberOfCoresIncludingHyperthreads()
 
 void FMacPlatformMisc::NormalizePath(FString& InPath)
 {
+	SCOPED_AUTORELEASE_POOL;
 	if (InPath.Len() > 1)
 	{
 		const bool bAppendSlash = InPath[InPath.Len() - 1] == '/'; // NSString will remove the trailing slash, if present, so we need to restore it after conversion
@@ -1137,6 +1140,25 @@ int32 FMacPlatformMisc::ConvertSlateYPositionToCocoa(int32 YPosition)
 	const float WholeWorkspaceOrigin = FMath::Min((ScreenFrame.size.height - (WholeWorkspace.origin.y + WholeWorkspace.size.height)), 0.0);
 	const float WholeWorkspaceHeight = WholeWorkspace.origin.y + WholeWorkspace.size.height;
 	return -((YPosition - WholeWorkspaceOrigin) - WholeWorkspaceHeight + 1);
+}
+
+int32 FMacPlatformMisc::ConvertCocoaYPositionToSlate(int32 YPosition)
+{
+    NSArray* AllScreens = [NSScreen screens];
+    NSScreen* PrimaryScreen = (NSScreen*)[AllScreens objectAtIndex: 0];
+    NSRect ScreenFrame = [PrimaryScreen frame];
+    NSRect WholeWorkspace = {{0,0},{0,0}};
+    for(NSScreen* Screen in AllScreens)
+    {
+        if(Screen)
+        {
+            WholeWorkspace = NSUnionRect(WholeWorkspace, [Screen frame]);
+        }
+    }
+    
+    CGFloat const OffsetToPrimary = ((ScreenFrame.origin.y + ScreenFrame.size.height) - (WholeWorkspace.origin.y + WholeWorkspace.size.height));
+    CGFloat const OffsetToWorkspace = (WholeWorkspace.size.height - (YPosition)) + WholeWorkspace.origin.y;
+    return OffsetToWorkspace + OffsetToPrimary;
 }
 
 

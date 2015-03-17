@@ -1544,6 +1544,37 @@ void WriteMacro(FStringOutputDevice &Output, const FString& MacroName, const FSt
 	Output.Log(*Macroize(*MacroName, *MacroContent));
 }
 
+/**
+ * Writes to output device auto-includes for the given source file.
+ *
+ * @param Out Output device.
+ * @param SourceFile Source file.
+ */
+void ExportAutoIncludes(FStringOutputDevice& Out, const FUnrealSourceFile& SourceFile)
+{
+	for (const auto& Include : SourceFile.GetIncludes())
+	{
+		if (!Include.IsAutoInclude())
+		{
+			continue;
+		}
+
+		const auto* AutoIncludedSourceFile = Include.GetResolved();
+
+		if (AutoIncludedSourceFile == nullptr)
+		{
+			continue;
+		}
+
+		Out.Logf(
+			TEXT("#ifndef %s")			LINE_TERMINATOR
+			TEXT("	#include \"%s\"")	LINE_TERMINATOR
+			TEXT("#endif")				LINE_TERMINATOR
+			LINE_TERMINATOR,
+			*AutoIncludedSourceFile->GetFileDefineName(), *AutoIncludedSourceFile->GetIncludePath());
+	}
+}
+
 void FNativeClassHeaderGenerator::ExportClassesFromSourceFileInner(FUnrealSourceFile& SourceFile)
 {
 	TArray<UEnum*>				Enums;
@@ -1551,12 +1582,14 @@ void FNativeClassHeaderGenerator::ExportClassesFromSourceFileInner(FUnrealSource
 	TArray<UDelegateFunction*>	DelegateFunctions;
 
 	GeneratedHeaderText.Logf(
-		TEXT("#ifdef %s_%s_generated_h")													LINE_TERMINATOR
+		TEXT("#ifdef %s")																	LINE_TERMINATOR
 		TEXT("#error \"%s.generated.h already included, missing '#pragma once' in %s.h\"")	LINE_TERMINATOR
 		TEXT("#endif")																		LINE_TERMINATOR
-		TEXT("#define %s_%s_generated_h")													LINE_TERMINATOR
+		TEXT("#define %s")																	LINE_TERMINATOR
 		LINE_TERMINATOR,
-		*API, *SourceFile.GetStrippedFilename(), *SourceFile.GetStrippedFilename(), *SourceFile.GetStrippedFilename(), *API, *SourceFile.GetStrippedFilename());
+		*SourceFile.GetFileDefineName(), *SourceFile.GetStrippedFilename(), *SourceFile.GetStrippedFilename(), *SourceFile.GetFileDefineName());
+
+	ExportAutoIncludes(GeneratedHeaderText, SourceFile);
 
 	// get the lists of fields that belong to this class that should be exported
 	SourceFile.GetScope()->SplitTypesIntoArrays(Enums, Structs, DelegateFunctions);
@@ -1822,7 +1855,7 @@ void FNativeClassHeaderGenerator::ExportClassesFromSourceFileInner(FUnrealSource
 		{
 			bool bIsIInterface = Class->HasAnyClassFlags(CLASS_Interface);
 
-			FString MacroName = FString::Printf(TEXT("GENERATED_%s_BODY()"), bIsIInterface ? TEXT("IINTERFACE") : TEXT("UCLASS"));
+			auto MacroName = FString::Printf(TEXT("GENERATED_%s_BODY()"), bIsIInterface ? TEXT("IINTERFACE") : TEXT("UCLASS"));
 
 			auto DeprecationWarning = bIsIInterface ? FString(TEXT("")) : GetGeneratedMacroDeprecationWarning(*MacroName);
 
@@ -1831,20 +1864,15 @@ void FNativeClassHeaderGenerator::ExportClassesFromSourceFileInner(FUnrealSource
 
 			auto Public = TEXT("public:" LINE_TERMINATOR);
 
-			FString BodyMacros;
+			auto GeneratedBodyLine = bIsIInterface ? ClassData->GetInterfaceGeneratedBodyLine() : ClassData->GetGeneratedBodyLine();
+			auto LegacyGeneratedBody = InClassMacroCalls + (bIsIInterface ? TEXT("") : StandardUObjectConstructorsMacroCall);
+			auto GeneratedBody = InClassNoPureDeclsMacroCalls + (bIsIInterface ? TEXT("") : EnhancedUObjectConstructorsMacroCall);
 
-			if (bIsIInterface)
-			{
-				BodyMacros = Macroize(*SourceFile.GetGeneratedBodyMacroName(ClassData->GetInterfaceGeneratedBodyLine()), *(DeprecationPushString + FString(Public) + InClassMacroCalls + Public + DeprecationPopString));
-			}
-			else
-			{
-				auto StandardWrappedInClassMacroCalls = Public + InClassMacroCalls + StandardUObjectConstructorsMacroCall + Public;
-				auto EnhancedWrappedInClassMacroCalls = Public + InClassNoPureDeclsMacroCalls + EnhancedUObjectConstructorsMacroCall + GetPreservedAccessSpecifierString(Class);
+			auto WrappedLegacyGeneratedBody = DeprecationWarning + DeprecationPushString + Public + LegacyGeneratedBody + Public + DeprecationPopString;
+			auto WrappedGeneratedBody = FString(DeprecationPushString) + Public + GeneratedBody + GetPreservedAccessSpecifierString(Class) + DeprecationPopString;
 
-				BodyMacros = Macroize(*SourceFile.GetGeneratedBodyMacroName(ClassData->GetGeneratedBodyLine(), true), *(DeprecationWarning + DeprecationPushString + StandardWrappedInClassMacroCalls + DeprecationPopString)) +
-					Macroize(*SourceFile.GetGeneratedBodyMacroName(ClassData->GetGeneratedBodyLine(), false), *(FString(DeprecationPushString) + EnhancedWrappedInClassMacroCalls + DeprecationPopString));
-			}
+			auto BodyMacros = Macroize(*SourceFile.GetGeneratedBodyMacroName(GeneratedBodyLine, true), *WrappedLegacyGeneratedBody) +
+				Macroize(*SourceFile.GetGeneratedBodyMacroName(GeneratedBodyLine, false), *WrappedGeneratedBody);
 
 			GeneratedHeaderText.Log(*BodyMacros);
 		}
@@ -2210,10 +2238,10 @@ void FNativeClassHeaderGenerator::ExportClassesFromSourceFileWrapper(FUnrealSour
 	ConvertToBuildIncludePath(Package, NewFileName);
 
 	auto IncludeStr = FString::Printf(
-		TEXT("#ifndef %s_%s_generated_h")													LINE_TERMINATOR
-		TEXT("    #include \"%s\"")															LINE_TERMINATOR
-		TEXT("#endif")																		LINE_TERMINATOR,
-		*API, *SourceFile.GetStrippedFilename(), *NewFileName);
+		TEXT("#ifndef %s")			LINE_TERMINATOR
+		TEXT("    #include \"%s\"")	LINE_TERMINATOR
+		TEXT("#endif")				LINE_TERMINATOR,
+		*SourceFile.GetFileDefineName(), *NewFileName);
 
 	// Keep track of all of the UObject headers for this module, in the same order that we digest them in
 	// @todo uht: We're wrapping these includes in checks for header guards, ONLY because most existing UObject headers are missing '#pragma once'
@@ -2348,7 +2376,7 @@ void FNativeClassHeaderGenerator::ExportEnums( const TArray<UEnum*>& Enums )
 	}
 }
 
-// Exports the header text for the list of structs specified (GENERATED_USTRUCT_BODY impls)
+// Exports the header text for the list of structs specified (GENERATED_BODY impls)
 void FNativeClassHeaderGenerator::ExportGeneratedStructBodyMacros(FUnrealSourceFile& SourceFile, const TArray<UScriptStruct*>& NativeStructs)
 {
 	// reverse the order.
@@ -2796,7 +2824,7 @@ void FNativeClassHeaderGenerator::ExportDelegateDefinitions(FUnrealSourceFile& S
 		}
 		else
 		{
-			FString MacroName = SourceFile.GetGeneratedMacroName(FunctionData.DelegateMacroLine, TEXT("_DELEGATE"));
+			FString MacroName = SourceFile.GetGeneratedMacroName(FunctionData.MacroLine, TEXT("_DELEGATE"));
 			WriteMacro(HeaderOutput, MacroName, DelegateOutput);
 		}
 	}
@@ -3619,8 +3647,9 @@ void FNativeClassHeaderGenerator::ExportNativeFunctionHeader( const FFuncInfo& F
  * @param FunctionData function data for the current function
  * @param Parameters list of parameters in the function
  * @param Return return parameter for the function
+ * @param DeprecationWarningOutputDevice Device to output deprecation warnings for _Validate and _Implementation functions.
  */
-void FNativeClassHeaderGenerator::ExportFunctionThunk(FStringOutputDevice& RPCWrappers, UFunction* Function, const FFuncInfo& FunctionData, const TArray<UProperty*>& Parameters, UProperty* Return)
+void FNativeClassHeaderGenerator::ExportFunctionThunk(FStringOutputDevice& RPCWrappers, UFunction* Function, const FFuncInfo& FunctionData, const TArray<UProperty*>& Parameters, UProperty* Return, FStringOutputDevice& DeprecationWarningOutputDevice)
 {
 	// export the GET macro for this parameter
 	FString ParameterList;
@@ -3767,7 +3796,7 @@ void FNativeClassHeaderGenerator::ExportFunctionThunk(FStringOutputDevice& RPCWr
 		// NOTE - We don't need to set "Result", since RPC calls don't return any values...
 		if (bShouldEnableValidateDeprecation)
 		{
-			RPCWrappers.Logf(TEXT("EMIT_CUSTOM_WARNING(\"Function %s::%s needs additional native validation function declaration %s due to its properties. Currently %s declaration is autogenerated by UHT. Since next release you'll have to provide declaration on your own. Please update your code before upgrading to the next release, otherwise your project will no longer compile.\")\r\n"), *ClassName, *FunctionName, *FunctionData.CppValidationImplName, *FunctionData.CppValidationImplName);
+			DeprecationWarningOutputDevice.Logf(TEXT("EMIT_CUSTOM_WARNING_AT_LINE(%d, \"Function %s::%s needs additional native validation function declaration %s due to its properties. Currently %s declaration is autogenerated by UHT. Since next release you'll have to provide declaration on your own. Please update your code before upgrading to the next release, otherwise your project will no longer compile.\")\r\n"), FunctionData.MacroLine, *ClassName, *FunctionName, *FunctionData.CppValidationImplName, *FunctionData.CppValidationImplName);
 		}
 		RPCWrappers.Logf(TEXT("%sif (!this->%s(%s))%s"), FCString::Spc(8), *FunctionData.CppValidationImplName, *ParameterList, LINE_TERMINATOR);
 		RPCWrappers.Logf(TEXT("%s{%s"), FCString::Spc(8), LINE_TERMINATOR);
@@ -3778,7 +3807,7 @@ void FNativeClassHeaderGenerator::ExportFunctionThunk(FStringOutputDevice& RPCWr
 
 	if (bShouldEnableImplementationDeprecation)
 	{
-		RPCWrappers.Logf(TEXT("EMIT_CUSTOM_WARNING(\"Function %s::%s needs additional native declaration %s due to its properties. Currently %s declaration is autogenerated by UHT. Since next release you'll have to provide declaration on your own. Please update your code before upgrading to the next release, otherwise your project will no longer compile.\")\r\n"), *ClassName, *FunctionName, *FunctionData.CppImplName, *FunctionData.CppImplName);
+		DeprecationWarningOutputDevice.Logf(TEXT("EMIT_CUSTOM_WARNING_AT_LINE(%d, \"Function %s::%s needs additional native declaration %s due to its properties. Currently %s declaration is autogenerated by UHT. Since next release you'll have to provide declaration on your own. Please update your code before upgrading to the next release, otherwise your project will no longer compile.\")\r\n"), FunctionData.MacroLine, *ClassName, *FunctionName, *FunctionData.CppImplName, *FunctionData.CppImplName);
 	}
 	// write out the return value
 	RPCWrappers.Log(FCString::Spc(8));
@@ -3898,10 +3927,12 @@ void FNativeClassHeaderGenerator::ExportNativeFunctions(FUnrealSourceFile& Sourc
 				FString ParameterList = GetFunctionParameterString(Function);
 
 				auto Virtual = (!FunctionData.FunctionReference->HasAnyFunctionFlags(FUNC_Static) && !(FunctionData.FunctionExportFlags & FUNCEXPORT_Final)) ? TEXT("virtual") : TEXT("");
-				AutogeneratedBlueprintFunctionDeclarations.Logf(TEXT("\t%s bool %s(%s);\r\n"), Virtual, *FunctionData.CppValidationImplName, *ParameterList);
+				FStringOutputDevice ValidDecl;
+				ValidDecl.Logf(TEXT("\t%s bool %s(%s);\r\n"), Virtual, *FunctionData.CppValidationImplName, *ParameterList);
+				AutogeneratedBlueprintFunctionDeclarations.Log(*ValidDecl);
 				if (!bHasValidate)
 				{
-					AutogeneratedBlueprintFunctionDeclarationsOnlyNotDeclared.Logf(TEXT("\t%s bool %s(%s);\r\n"), Virtual, *FunctionData.CppValidationImplName, *ParameterList);
+					AutogeneratedBlueprintFunctionDeclarationsOnlyNotDeclared.Logf(*ValidDecl);
 				}
 			}
 
@@ -3911,7 +3942,7 @@ void FNativeClassHeaderGenerator::ExportNativeFunctions(FUnrealSourceFile& Sourc
 				AutogeneratedBlueprintFunctionDeclarationsOnlyNotDeclared.Log(*FunctionDeclaration);
 			}
 
-			ExportFunctionChecks(FunctionData, MemberFunctionCheckClasses, StaticChecks, NameLookupCPP.GetNameCPP(Class));
+			ExportFunctionChecks(FunctionData, MemberFunctionCheckClasses, StaticChecks, Class->HasAnyClassFlags(CLASS_Interface) ? *(FString(TEXT("I")) + Class->GetName()) : NameLookupCPP.GetNameCPP(Class));
 		}
 
 		if (bMultiLineUFUNCTION)
@@ -3931,7 +3962,7 @@ void FNativeClassHeaderGenerator::ExportNativeFunctions(FUnrealSourceFile& Sourc
 		RPCWrappers.Logf(TEXT("%s%s{%s"), LINE_TERMINATOR, FCString::Spc(4), LINE_TERMINATOR);
 
 		auto Parameters = GetFunctionParmsAndReturn(FunctionData.FunctionReference);
-		ExportFunctionThunk(RPCWrappers, Function, FunctionData, Parameters.Parms, Parameters.Return);
+		ExportFunctionThunk(RPCWrappers, Function, FunctionData, Parameters.Parms, Parameters.Return, AutogeneratedBlueprintFunctionDeclarationsOnlyNotDeclared);
 
 		RPCWrappers.Logf(TEXT("%s}%s"), FCString::Spc(4), LINE_TERMINATOR);
 	}

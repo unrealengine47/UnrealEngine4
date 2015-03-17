@@ -86,6 +86,7 @@ struct CORE_API FMacPlatformMisc : public FGenericPlatformMisc
 	static uint32 GetKeyMap( uint16* KeyCodes, FString* KeyNames, uint32 MaxMappings );
 	static uint32 GetCharKeyMap(uint16* KeyCodes, FString* KeyNames, uint32 MaxMappings);
 	static void RequestExit(bool Force);
+	static void RequestMinimize();
 	static const TCHAR* GetSystemErrorMessage(TCHAR* OutBuffer, int32 BufferCount, int32 Error);
 	static void ClipboardCopy(const TCHAR* Str);
 	static void ClipboardPaste(class FString& Dest);
@@ -151,7 +152,16 @@ struct CORE_API FMacPlatformMisc : public FGenericPlatformMisc
 	 *
 	 * @return					Converted position
 	 */
-	static int32 ConvertSlateYPositionToCocoa(int32 YPosition);
+    static int32 ConvertSlateYPositionToCocoa(int32 YPosition);
+    
+    /**
+     * Converts Y position from Cocoa (left-bottom origin) to Slate (left-top origin) coordinates
+     *
+     * @param	YPosition		Position to convert
+     *
+     * @return					Converted position
+     */
+    static int32 ConvertCocoaYPositionToSlate(int32 YPosition);
 	
 	static void SetGracefulTerminationHandler();
 	

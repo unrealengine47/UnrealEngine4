@@ -277,8 +277,10 @@ namespace UnrealBuildTool.Android
 		{
 			switch (UE4Arch)
 			{
-				case "-armv7": return "armeabi-v7a";
-				case "-x86": return "x86";
+				case "-armv7":	return "armeabi-v7a";
+                case "-arm64":  return "arm64-v8a";
+				case "-x64":	return "x86_64";
+				case "-x86":	return "x86";
 
 				default: throw new BuildException("Unknown UE4 architecture {0}", UE4Arch);
 			}
@@ -289,9 +291,15 @@ namespace UnrealBuildTool.Android
 			switch (NDKArch)
 			{
 				case "armeabi-v7a": return "-armv7";
-				case "x86":			return "-x86";
-
-				default: throw new BuildException("Unknown NDK architecture '{0}'", NDKArch);
+                case "arm64-v8a":   return "-arm64";
+                case "x86":         return "-x86";
+                case "arm64":       return "-arm64";
+				case "x86_64":
+				case "x64":			return "-x64";
+					
+//				default: throw new BuildException("Unknown NDK architecture '{0}'", NDKArch);
+                // future-proof by returning armv7 for unknown
+                default:            return "-armv7";
 			}
 		}
 
@@ -637,6 +645,8 @@ namespace UnrealBuildTool.Android
 			Ini.GetArray("/Script/AndroidRuntimeSettings.AndroidRuntimeSettings", "ExtraPermissions", out ExtraPermissions);
 			bool bPackageForGearVR;
 			Ini.GetBool("/Script/AndroidRuntimeSettings.AndroidRuntimeSettings", "bPackageForGearVR", out bPackageForGearVR);
+			bool bEnableIAP = false;
+			Ini.GetBool("OnlineSubsystemGooglePlay.Store", "bSupportsInAppPurchasing", out bEnableIAP);
 
 			// replace some variables
 			PackageName = PackageName.Replace("[PROJECT]", ProjectName);
@@ -733,8 +743,12 @@ namespace UnrealBuildTool.Android
 			Text.AppendLine("\t<uses-permission android:name=\"android.permission.MODIFY_AUDIO_SETTINGS\"/>");
 			Text.AppendLine("\t<uses-permission android:name=\"android.permission.GET_ACCOUNTS\"/>");
             Text.AppendLine("\t<uses-permission android:name=\"android.permission.VIBRATE\"/>");
-			Text.AppendLine("\t<uses-permission android:name=\"com.android.vending.BILLING\"/>");
 //			Text.AppendLine("\t<uses-permission android:name=\"android.permission.DISABLE_KEYGUARD\"/>");
+
+			if (bEnableIAP)
+			{
+				Text.AppendLine("\t<uses-permission android:name=\"com.android.vending.BILLING\"/>");
+			}
 			if (bPackageForGearVR)
 			{
 				Text.AppendLine("\t<uses-permission android:name=\"android.permission.CAMERA\"/>");

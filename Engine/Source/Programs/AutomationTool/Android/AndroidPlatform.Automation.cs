@@ -746,9 +746,9 @@ public class AndroidPlatform : Platform
 				DeviceArch = "-armv7";
 			}
 			// go from 64 to 32-bit
-			else if (DeviceArch == "-x86_64")
+			else if (DeviceArch == "-x64")
 			{
-				if (Array.IndexOf(AppArchitectures, "-x86") == -1)
+				if (Array.IndexOf(AppArchitectures, "-x86") != -1)
 				{
 					DeviceArch = "-x86";
 				}
@@ -769,12 +769,17 @@ public class AndroidPlatform : Platform
 			{
 				DeviceArch = "-armv7";
 			}
+            else
+            {
+                // future-proof by dropping back to armv7 for unknown
+                DeviceArch = "-armv7";
+            }
 		}
 
 		// if after the fallbacks, we still don't have it, we can't continue
 		if (Array.IndexOf(AppArchitectures, DeviceArch) == -1)
 		{
-            string ErrorString = String.Format("Unable to run because you don't have an apk that is usable on {0}", Params.Device);
+			string ErrorString = String.Format("Unable to run because you don't have an apk that is usable on {0}. Looked for {1}", Params.Device, DeviceArch);
             ErrorReporter.Error(ErrorString, (int)ErrorCodes.Error_NoApkSuitableForArchitecture);
             throw new AutomationException(ErrorString);
 		}

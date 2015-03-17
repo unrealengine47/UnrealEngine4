@@ -95,6 +95,7 @@ void SActorDetails::Construct(const FArguments& InArgs, const FName TabIdentifie
 	};
 
 	DetailsView->SetIsPropertyVisibleDelegate(FIsPropertyVisible::CreateLambda(IsPropertyVisible));
+	DetailsView->SetIsPropertyReadOnlyDelegate(FIsPropertyReadOnly::CreateSP(this, &SActorDetails::IsPropertyReadOnly));
 
 	DetailsView->SetIsPropertyEditingEnabledDelegate(FIsPropertyEditingEnabled::CreateSP(this, &SActorDetails::IsPropertyEditingEnabled));
 
@@ -111,7 +112,8 @@ void SActorDetails::Construct(const FArguments& InArgs, const FName TabIdentifie
 		.EditorMode(EComponentEditorMode::ActorInstance)
 		.AllowEditing(this, &SActorDetails::GetAllowComponentTreeEditing)
 		.ActorContext(this, &SActorDetails::GetActorContext)
-		.OnSelectionUpdated(this, &SActorDetails::OnSCSEditorTreeViewSelectionChanged);
+		.OnSelectionUpdated(this, &SActorDetails::OnSCSEditorTreeViewSelectionChanged)
+		.OnItemDoubleClicked(this, &SActorDetails::OnSCSEditorTreeViewItemDoubleClicked);
 		
 	ComponentsBox->SetContent(SCSEditor.ToSharedRef());
 
@@ -467,6 +469,22 @@ void SActorDetails::OnSCSEditorTreeViewSelectionChanged(const TArray<FSCSEditorT
 	}
 }
 
+void SActorDetails::OnSCSEditorTreeViewItemDoubleClicked(const TSharedPtr<class FSCSEditorTreeNode> ClickedNode)
+{
+	if (ClickedNode.IsValid())
+	{
+		if (ClickedNode->GetNodeType() == FSCSEditorTreeNode::ComponentNode)
+		{
+			USceneComponent* SceneComponent = Cast<USceneComponent>(ClickedNode->GetComponentTemplate());
+			if (SceneComponent != nullptr)
+			{
+				const bool bActiveViewportOnly = false;
+				GEditor->MoveViewportCamerasToComponent(SceneComponent, bActiveViewportOnly);
+			}
+		}
+	}
+}
+
 void SActorDetails::UpdateComponentTreeFromEditorSelection()
 {
 	if (!DetailsView->IsLocked())
@@ -504,6 +522,27 @@ void SActorDetails::UpdateComponentTreeFromEditorSelection()
 			SCSEditor->SelectRoot();
 		}
 	}
+}
+
+bool SActorDetails::IsPropertyReadOnly(const FPropertyAndParent& PropertyAndParent) const
+{
+	bool bIsReadOnly = false;
+	const TArray<FSCSEditorTreeNodePtrType> SelectedNodes = SCSEditor->GetSelectedNodes();
+	for (const auto& Node : SelectedNodes)
+	{
+		UActorComponent* Component = Node->GetComponentTemplate();
+		if (Component && Component->CreationMethod == EComponentCreationMethod::SimpleConstructionScript)
+		{
+			TSet<const UProperty*> UCSModifiedProperties;
+			Component->GetUCSModifiedProperties(UCSModifiedProperties);
+			if (UCSModifiedProperties.Contains(&PropertyAndParent.Property) || (PropertyAndParent.ParentProperty && UCSModifiedProperties.Contains(PropertyAndParent.ParentProperty)))
+			{
+				bIsReadOnly = true;
+				break;
+			}
+		}
+	}
+	return bIsReadOnly;
 }
 
 bool SActorDetails::IsPropertyEditingEnabled() const
