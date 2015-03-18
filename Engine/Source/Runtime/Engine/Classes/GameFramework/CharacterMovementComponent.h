@@ -1028,8 +1028,13 @@ public:
 	 */
 	virtual bool StepUp(const FVector& GravDir, const FVector& Delta, const FHitResult &Hit, struct UCharacterMovementComponent::FStepDownResult* OutStepDownResult = NULL);
 
-	/** Update the base of the character, which is the obejct we are standing on. */
+	/** Update the base of the character, which is the PrimitiveComponent we are standing on. */
 	virtual void SetBase(UPrimitiveComponent* NewBase, const FName BoneName = NAME_None, bool bNotifyActor=true);
+
+	/**
+	 * Update the base of the character, using the given floor result if it is walkable, or null if not. Calls SetBase().
+	 */
+	void SetBaseFromFloor(const FFindFloorResult& FloorResult);
 
 	/** Applies repulsion force to all touched components. */
 	virtual void ApplyRepulsionForce(float DeltaSeconds);
@@ -1407,21 +1412,22 @@ protected:
 	 * Sweeps a vertical trace to find the floor for the capsule at the given location. Will attempt to perch if ShouldComputePerchResult() returns true for the downward sweep result.
 	 *
 	 * @param CapsuleLocation:		Location where the capsule sweep should originate
-	 * @param OutFloorResult:		[Out] Contains the result of the floor check.
+	 * @param OutFloorResult:		[Out] Contains the result of the floor check. The HitResult will contain the valid sweep or line test upon success, or the result of the sweep upon failure.
 	 * @param bZeroDelta:			If true, the capsule was not actively moving in this update (can be used to avoid unnecessary floor tests).
 	 * @param DownwardSweepResult:	If non-null and it contains valid blocking hit info, this will be used as the result of a downward sweep test instead of doing it as part of the update.
 	 */
 	virtual void FindFloor(const FVector& CapsuleLocation, struct FFindFloorResult& OutFloorResult, bool bZeroDelta, const FHitResult* DownwardSweepResult = NULL) const;
 
 	/**
-	 * Compute distance to the floor from bottom sphere of capsule. This is the swept distance of the capsule to the first point impacted by the lower sphere.
+	 * Compute distance to the floor from bottom sphere of capsule and store the result in OutFloorResult.
+	 * This distance is the swept distance of the capsule to the first point impacted by the lower hemisphere, or distance from the bottom of the capsule in the case of a line trace.
 	 * SweepDistance MUST be greater than or equal to the line distance.
 	 * @see FindFloor
 	 *
 	 * @param CapsuleLocation:	Location of the capsule used for the query
-	 * @param LineDistance:		If non-zero, max distance to test for a simple line check from the capsule base. Used before the sweep test, and only returns a valid result if the impact normal is a walkable normal.
+	 * @param LineDistance:		If non-zero, max distance to test for a simple line check from the capsule base. Used only if the sweep test fails to find a walkable floor, and only returns a valid result if the impact normal is a walkable normal.
 	 * @param SweepDistance:	If non-zero, max distance to use when sweeping a capsule downwards for the test.
-	 * @param OutFloorResult:	Result of the floor check.
+	 * @param OutFloorResult:	Result of the floor check. The HitResult will contain the valid sweep or line test upon success, or the result of the sweep upon failure.
 	 * @param SweepRadius:		The radius to use for sweep tests. Should be <= capsule radius.
 	 * @param DownwardSweepResult:	If non-null and it contains valid blocking hit info, this will be used as the result of a downward sweep test instead of doing it as part of the update.
 	 */
@@ -1639,8 +1645,19 @@ protected:
 	/** Call the appropriate replicated servermove() function to send a client player move to the server. */
 	virtual void CallServerMove(const class FSavedMove_Character* NewMove, const class FSavedMove_Character* OldMove);
 	
-	/** Have the server check if the client is outside an error tolerance, and set a client adjustment if so. ClientLoc will be a relative location if MovementBaseUtility::UseRelativePosition(ClientMovementBase) is true. */
-	virtual void ServerMoveHandleClientError(float TimeStamp, float DeltaTime, const FVector& Accel, const FVector& ClientLoc, UPrimitiveComponent* ClientMovementBase, FName ClientBaseBoneName, uint8 ClientMovementMode);
+	/**
+	 * Have the server check if the client is outside an error tolerance, and queue a client adjustment if so.
+	 * If either GetPredictionData_Server_Character()->bForceClientUpdate or ServerCheckClientError() are true, the client adjustment will be sent.
+	 * RelativeClientLocation will be a relative location if MovementBaseUtility::UseRelativePosition(ClientMovementBase) is true, or a world location if false.
+	 * @see ServerCheckClientError()
+	 */
+	virtual void ServerMoveHandleClientError(float ClientTimeStamp, float DeltaTime, const FVector& Accel, const FVector& RelativeClientLocation, UPrimitiveComponent* ClientMovementBase, FName ClientBaseBoneName, uint8 ClientMovementMode);
+
+	/**
+	 * Check for Server-Client disagreement in position or other movement state important enough to trigger a client correction.
+	 * @see ServerMoveHandleClientError()
+	 */
+	virtual bool ServerCheckClientError(float ClientTimeStamp, float DeltaTime, const FVector& Accel, const FVector& ClientWorldLocation, const FVector& RelativeClientLocation, UPrimitiveComponent* ClientMovementBase, FName ClientBaseBoneName, uint8 ClientMovementMode);
 
 	/* Process a move at the given time stamp, given the compressed flags representing various events that occurred (ie jump). */
 	virtual void MoveAutonomous( float ClientTimeStamp, float DeltaTime, uint8 CompressedFlags, const FVector& NewAccel);
@@ -2016,6 +2033,8 @@ public:
 	// how long server will wait for client move update before setting position
 	// @TODO: don't duplicate between server and client data (though it's used by both)
 	float MaxResponseTime;
+
+	uint32 bForceClientUpdate:1;	// Force client update on the next ServerMoveHandleClientError() call.
 
 	/** @return time delta to use for the current ServerMove() */
 	float GetServerMoveDeltaTime(float TimeStamp) const;

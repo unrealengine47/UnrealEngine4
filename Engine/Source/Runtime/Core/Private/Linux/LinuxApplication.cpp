@@ -69,7 +69,7 @@ FLinuxApplication::FLinuxApplication()
 	,	bIsDragWindowButtonPressed(false)
 	,	bActivateApp(false)
 	,	bLockToCurrentMouseType(false)
-	,	LastTimeCachedWorkArea(-1.0)
+	,	LastTimeCachedDisplays(-1.0)
 {
 	bUsingHighPrecisionMouseInput = false;
 	bAllowedToDeferMessageProcessing = true;
@@ -246,6 +246,7 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 		{
 			SDL_MouseMotionEvent motionEvent = Event.motion;
 			FLinuxCursor *LinuxCursor = (FLinuxCursor*)Cursor.Get();
+			LinuxCursor->InvalidateCaches();
 
 			if (LinuxCursor->IsHidden())
 			{
@@ -660,6 +661,9 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 
 				case SDL_WINDOWEVENT_SHOWN:
 					{
+						// (re)cache native properties
+						CurrentEventWindow->CacheNativeProperties();
+
 						if (CurrentEventWindow->IsRegularWindow())
 						{
 							CurrentEventWindow->SetWindowFocus();
@@ -681,16 +685,12 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 					{
 						int32 ClientScreenX = windowEvent.data1;
 						int32 ClientScreenY = windowEvent.data2;
-						SDL_Rect Borders;
-						if (SDL_GetWindowBordersSize(NativeWindow, &Borders) == 0)
-						{
-							ClientScreenX += Borders.x;
-							ClientScreenY += Borders.y;
-						}
-						else
-						{
-							UE_LOG(LogLinuxWindow, Verbose, TEXT("Could not get Window border sizes!"));
-						}
+
+						int32 BorderSizeX, BorderSizeY;
+						CurrentEventWindow->GetNativeBordersSize(BorderSizeX, BorderSizeY);
+						ClientScreenX += BorderSizeX;
+						ClientScreenY += BorderSizeY;
+
 						MessageHandler->OnMovedWindow(CurrentEventWindow.ToSharedRef(), ClientScreenX, ClientScreenY);
 					}
 					break;
@@ -1099,52 +1099,65 @@ void FLinuxApplication::SetHighPrecisionMouseMode( const bool Enable, const TSha
 	bUsingHighPrecisionMouseInput = Enable;
 }
 
-
-FPlatformRect FLinuxApplication::GetWorkArea( const FPlatformRect& CurrentWindow ) const
+void FLinuxApplication::RefreshDisplayCache()
 {
 	const double kCacheLifetime = 5.0;	// ask once in 5 seconds
-
+	
 	double CurrentTime = FPlatformTime::Seconds();
-	if (CurrentTime - LastTimeCachedWorkArea > kCacheLifetime)
+	if (CurrentTime - LastTimeCachedDisplays > kCacheLifetime)
 	{
-		// loop over all monitors to determine which one is the best
+		CachedDisplays.Empty();
+
 		int NumDisplays = SDL_GetNumVideoDisplays();
-		if (NumDisplays <= 0)
-		{
-			// fake something
-			return CurrentWindow;
-		}
-		
-		SDL_Rect BestDisplayBounds;
-		SDL_GetDisplayBounds(0, &BestDisplayBounds);
-		
-		// see if any other are better (i.e. cover top left)
-		for (int DisplayIdx = 1; DisplayIdx < NumDisplays; ++DisplayIdx)
+
+		for (int DisplayIdx = 0; DisplayIdx < NumDisplays; ++DisplayIdx)
 		{
 			SDL_Rect DisplayBounds;
 			SDL_GetDisplayBounds(DisplayIdx, &DisplayBounds);
 			
-			// only check top left corner for "bestness"
-			if (DisplayBounds.x <= CurrentWindow.Left && DisplayBounds.x + DisplayBounds.w > CurrentWindow.Left &&
-				DisplayBounds.y <= CurrentWindow.Top && DisplayBounds.y + DisplayBounds.h > CurrentWindow.Bottom)
-			{
-				BestDisplayBounds = DisplayBounds;
-				// there can be only one, as we don't expect overlapping displays
-				break;
-			}
+			CachedDisplays.Add(DisplayBounds);
 		}
-		
-		FPlatformRect WorkArea;
-		WorkArea.Left	= BestDisplayBounds.x;
-		WorkArea.Top	= BestDisplayBounds.y;
-		WorkArea.Right	= BestDisplayBounds.x + BestDisplayBounds.w;
-		WorkArea.Bottom	= BestDisplayBounds.y + BestDisplayBounds.h;
 
-		CachedWorkArea = WorkArea;
-		LastTimeCachedWorkArea = CurrentTime;
+		LastTimeCachedDisplays = CurrentTime;
+	}
+}
+
+FPlatformRect FLinuxApplication::GetWorkArea( const FPlatformRect& CurrentWindow ) const
+{
+	(const_cast<FLinuxApplication *>(this))->RefreshDisplayCache();
+
+	// loop over all monitors to determine which one is the best
+	int NumDisplays = CachedDisplays.Num();
+	if (NumDisplays <= 0)
+	{
+		// fake something
+		return CurrentWindow;
 	}
 
-	return CachedWorkArea;
+	SDL_Rect BestDisplayBounds = CachedDisplays[0];
+
+	// see if any other are better (i.e. cover top left)
+	for (int DisplayIdx = 1; DisplayIdx < NumDisplays; ++DisplayIdx)
+	{
+		const SDL_Rect & DisplayBounds = CachedDisplays[DisplayIdx];
+
+		// only check top left corner for "bestness"
+		if (DisplayBounds.x <= CurrentWindow.Left && DisplayBounds.x + DisplayBounds.w > CurrentWindow.Left &&
+			DisplayBounds.y <= CurrentWindow.Top && DisplayBounds.y + DisplayBounds.h > CurrentWindow.Bottom)
+		{
+			BestDisplayBounds = DisplayBounds;
+			// there can be only one, as we don't expect overlapping displays
+			break;
+		}
+	}
+
+	FPlatformRect WorkArea;
+	WorkArea.Left	= BestDisplayBounds.x;
+	WorkArea.Top	= BestDisplayBounds.y;
+	WorkArea.Right	= BestDisplayBounds.x + BestDisplayBounds.w;
+	WorkArea.Bottom	= BestDisplayBounds.y + BestDisplayBounds.h;
+
+	return WorkArea;
 }
 
 void FLinuxApplication::OnMouseCursorLock( bool bLockEnabled )
