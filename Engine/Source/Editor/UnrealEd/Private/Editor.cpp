@@ -2027,7 +2027,7 @@ void UEditorEngine::CloseEditedWorldAssets(UWorld* InWorld)
 	for (int32 Index = 0; Index < InWorld->StreamingLevels.Num(); ++Index)
 	{
 		ULevelStreaming* LevelStreaming = InWorld->StreamingLevels[Index];
-		if (LevelStreaming && LevelStreaming->LoadedLevel && LevelStreaming->LoadedLevel)
+		if (LevelStreaming && LevelStreaming->LoadedLevel)
 		{
 			ClosingWorlds.Add(CastChecked<UWorld>(LevelStreaming->LoadedLevel->GetOuter()));
 		}
@@ -2607,6 +2607,20 @@ bool FReimportManager::CanReimport( UObject* Obj ) const
 		}
 	}
 	return false;
+}
+
+void FReimportManager::UpdateReimportPaths( UObject* Obj, const TArray<FString>& InFilenames )
+{
+	if (Obj)
+	{
+		TArray<FString> UnusedExistingFilenames;
+		auto* Handler = Handlers.FindByPredicate([&](FReimportHandler* Handler){ return Handler->CanReimport(Obj, UnusedExistingFilenames); });
+		if (Handler)
+		{
+			(*Handler)->SetReimportPaths(Obj, InFilenames);
+			Obj->MarkPackageDirty();
+		}
+	}
 }
 
 bool FReimportManager::Reimport( UObject* Obj, bool bAskForNewFileIfMissing, bool bShowNotification )

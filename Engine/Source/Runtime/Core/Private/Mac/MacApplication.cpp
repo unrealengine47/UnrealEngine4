@@ -36,6 +36,8 @@ FMacApplication::FMacApplication()
 :	GenericApplication(MakeShareable(new FMacCursor()))
 ,	bUsingHighPrecisionMouseInput(false)
 ,	bUsingTrackpad(false)
+,	LastPressedMouseButton(EMouseButtons::Invalid)
+,	bIsProcessingDeferredEvents(false)
 ,	HIDInput(HIDInputInterface::Create(MessageHandler))
 ,	DraggedWindow(nullptr)
 ,	bSystemModalMode(false)
@@ -147,10 +149,14 @@ void FMacApplication::ProcessDeferredEvents(const float TimeDelta)
 	DeferredEvents.Empty();
 	EventsMutex.Unlock();
 
+	bIsProcessingDeferredEvents = true;
+
 	for (int32 Index = 0; Index < EventsToProcess.Num(); ++Index)
 	{
 		ProcessEvent(EventsToProcess[Index]);
 	}
+
+	bIsProcessingDeferredEvents = false;
 
 	InvalidateTextLayouts();
 	CloseQueuedWindows();
@@ -891,7 +897,7 @@ void FMacApplication::OnWindowDidMove(TSharedRef<FMacWindow> Window)
 
 	if ([Window->GetWindowHandle() windowMode] != EWindowMode::Fullscreen)
 	{
-		Y = FPlatformMisc::ConvertCocoaYPositionToSlate(WindowFrame.origin.y + WindowFrame.size.height) + (OpenGLFrame.size.height - WindowFrame.size.height);
+		Y = FPlatformMisc::ConvertCocoaYPositionToSlate(WindowFrame.origin.y + OpenGLFrame.size.height);
 	}
 
 	MessageHandler->OnMovedWindow(Window, X, Y);

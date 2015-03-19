@@ -9,6 +9,7 @@
 #include "EnvironmentQuery/EnvQueryContext.h"
 #include "EnvironmentQuery/EQSTestingPawn.h"
 #include "EnvironmentQuery/EnvQueryDebugHelpers.h"
+#include "EnvironmentQuery/EnvQueryInstanceBlueprintWrapper.h"
 #if WITH_EDITOR
 #include "UnrealEd.h"
 #include "Engine/Brush.h"
@@ -190,7 +191,7 @@ TSharedPtr<FEnvQueryResult> UEnvQueryManager::RunInstantQuery(const FEnvQueryReq
 	UE_VLOG_EQS(*QueryInstance.Get(), LogEQS, All);
 
 #if USE_EQS_DEBUGGER
-	EQSDebugger.StoreQuery(QueryInstance);
+	EQSDebugger.StoreQuery(GetWorld(), QueryInstance);
 #endif // USE_EQS_DEBUGGER
 
 	return QueryInstance;
@@ -286,7 +287,7 @@ void UEnvQueryManager::Tick(float DeltaTime)
 				UE_VLOG_EQS(*QueryInstance.Get(), LogEQS, All);
 
 #if USE_EQS_DEBUGGER
-				EQSDebugger.StoreQuery(QueryInstance);
+				EQSDebugger.StoreQuery(GetWorld(), QueryInstance);
 #endif // USE_EQS_DEBUGGER
 
 				QueryInstance->FinishDelegate.ExecuteIfBound(QueryInstance);
@@ -539,7 +540,6 @@ void UEnvQueryManager::CreateOptionInstance(UEnvQueryOption* OptionTemplate, con
 	FEnvQueryOptionInstance OptionInstance;
 	OptionInstance.Generator = OptionTemplate->Generator;
 	OptionInstance.ItemType = OptionTemplate->Generator->ItemType;
-	OptionInstance.bHasNavLocations = false;
 
 	OptionInstance.Tests.AddZeroed(SortedTests.Num());
 	for (int32 TestIndex = 0; TestIndex < SortedTests.Num(); TestIndex++)
@@ -597,13 +597,40 @@ float UEnvQueryManager::FindNamedParam(int32 QueryId, FName ParamName) const
 	return ParamValue;
 }
 
+//----------------------------------------------------------------------//
+// BP functions
+//----------------------------------------------------------------------//
+UEnvQueryInstanceBlueprintWrapper* UEnvQueryManager::RunEQSQuery(UObject* WorldContext, UEnvQuery* QueryTemplate, UObject* Querier, TEnumAsByte<EEnvQueryRunMode::Type> RunMode, TSubclassOf<UEnvQueryInstanceBlueprintWrapper> WrapperClass)
+{ 
+	if (QueryTemplate == nullptr)
+	{
+		return nullptr;
+	}
+
+	UEnvQueryManager* EQSManager = GetCurrent(WorldContext);
+	UEnvQueryInstanceBlueprintWrapper* QueryInstanceWrapper = nullptr;
+
+	if (EQSManager)
+	{
+		QueryInstanceWrapper = NewObject<UEnvQueryInstanceBlueprintWrapper>((UClass*)(WrapperClass)  ? (UClass*)WrapperClass : UEnvQueryInstanceBlueprintWrapper::StaticClass());
+		check(QueryInstanceWrapper);
+		FEnvQueryRequest QueryRequest(QueryTemplate, Querier);
+		// @todo named params still missing support
+		//QueryRequest.SetNamedParams(QueryParams);
+
+		QueryInstanceWrapper->SetRunMode(RunMode);
+		QueryInstanceWrapper->SetQueryID(QueryRequest.Execute(RunMode, QueryInstanceWrapper, &UEnvQueryInstanceBlueprintWrapper::OnQueryFinished));
+	}
+	
+	return QueryInstanceWrapper;
+}
 
 //----------------------------------------------------------------------//
 // FEQSDebugger
 //----------------------------------------------------------------------//
 #if USE_EQS_DEBUGGER
 
-void FEQSDebugger::StoreQuery(TSharedPtr<FEnvQueryInstance>& Query)
+void FEQSDebugger::StoreQuery(UWorld* InWorld, TSharedPtr<FEnvQueryInstance>& Query)
 {
 	StoredQueries.Remove(NULL);
 	if (!Query.IsValid())
@@ -619,7 +646,7 @@ void FEQSDebugger::StoreQuery(TSharedPtr<FEnvQueryInstance>& Query)
 		if (CurrentQuery.Instance.IsValid() && Query->QueryName == CurrentQuery.Instance->QueryName)
 		{
 			CurrentQuery.Instance = Query;
-			CurrentQuery.Timestamp = GWorld->GetTimeSeconds();
+			CurrentQuery.Timestamp = InWorld->GetTimeSeconds();
 			bFoundQuery = true;
 			break;
 		}
@@ -628,7 +655,7 @@ void FEQSDebugger::StoreQuery(TSharedPtr<FEnvQueryInstance>& Query)
 	{
 		FEnvQueryInfo Info;
 		Info.Instance = Query;
-		Info.Timestamp = GWorld->GetTimeSeconds();
+		Info.Timestamp = InWorld->GetTimeSeconds();
 		AllQueries.AddUnique(Info);
 	}
 }

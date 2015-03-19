@@ -813,13 +813,6 @@ void UEngine::Init(IEngineLoop* InEngineLoop)
 		}
 	}
 
-	// Optionally queue automation tests
-	FString AutomationCmds;
-	if (FParse::Value(FCommandLine::Get(), TEXT("AutomationTests="), AutomationCmds, false))
-	{
-		new(GEngine->DeferredCommands) FString(FString(TEXT("Automation CommandLineTests ")) + AutomationCmds);
-	}
-
 	// optionally set the vsync console variable
 	if( FParse::Param(FCommandLine::Get(), TEXT("vsync")) )
 	{
@@ -1008,11 +1001,11 @@ void UEngine::UpdateTimeAndHandleMaxTickRate()
 	FApp::UpdateLastTime();
 
 	// Calculate delta time and update time.
-	if( bUseFixedTimeStep )
+	if( bUseFixedTimeStep || bUseFixedFrameRate )
 	{
 		bTimeWasManipulated = true;
-
-		FApp::SetDeltaTime(FApp::GetFixedDeltaTime());
+		const float FrameRate = bUseFixedTimeStep ? FApp::GetFixedDeltaTime() : (1.f / FixedFrameRate);
+		FApp::SetDeltaTime(FrameRate);
 		LastTime = FApp::GetCurrentTime();
 		FApp::SetCurrentTime(FApp::GetCurrentTime() + FApp::GetDeltaTime());
 	}
@@ -1655,6 +1648,7 @@ bool UEngine::InitializeAudioDeviceManager()
 		// Initialize the audio device.
 		if (bUseSound == true)
 		{
+
 			// get the module name from the ini file
 			FString AudioDeviceModuleName;
 			GConfig->GetString(TEXT("Audio"), TEXT("AudioDeviceModuleName"), AudioDeviceModuleName, GEngineIni);
@@ -1671,6 +1665,8 @@ bool UEngine::InitializeAudioDeviceManager()
 					AudioDeviceManager = new FAudioDeviceManager();
 					AudioDeviceManager->RegisterAudioDeviceModule(AudioDeviceModule);
 
+					bool bSucceeded = false;
+
 					// Create a new audio device.
 					FAudioDevice* NewAudioDevice = AudioDeviceManager->CreateAudioDevice(MainAudioDeviceHandle);
 					if (NewAudioDevice)
@@ -1678,6 +1674,7 @@ bool UEngine::InitializeAudioDeviceManager()
 						// Initialize the audio device
 						if (NewAudioDevice->Init())
 						{
+							bSucceeded = true;
 							AudioDeviceManager->SetActiveDevice(MainAudioDeviceHandle);
 						}
 						else
@@ -1685,6 +1682,12 @@ bool UEngine::InitializeAudioDeviceManager()
 							// Shut it down if we failed to initialize
 							AudioDeviceManager->ShutdownAudioDevice(MainAudioDeviceHandle);
 						}
+					}
+
+					// if we failed to create or init a main audio device, shut down the audio device manager
+					if (!bSucceeded)
+					{
+						ShutdownAudioDeviceManager();
 					}
 				}
 			}
@@ -11581,11 +11584,10 @@ int32 UEngine::RenderStatSoundWaves(UWorld* World, FViewport* Viewport, FCanvas*
 		}
 
 		int32 ActiveInstances = WaveInstances.Num() - FirstActiveIndex;
-		int32 R, G, B;
-		R = G = B = 0;
 		int32 Max = AudioDevice->MaxChannels / 2;
 		float f = FMath::Clamp<float>((float)(ActiveInstances - Max) / (float)Max, 0.f, 1.f);
-		R = FMath::TruncToInt(f * 255);
+		int32 R = FMath::TruncToInt(f * 255);
+
 		if (ActiveInstances > Max)
 		{
 			f = FMath::Clamp<float>((float)(Max - ActiveInstances) / (float)Max, 0.5f, 1.f);
@@ -11594,7 +11596,8 @@ int32 UEngine::RenderStatSoundWaves(UWorld* World, FViewport* Viewport, FCanvas*
 		{
 			f = 1.0f;
 		}
-		G = FMath::TruncToInt(f * 255);
+		int32 G = FMath::TruncToInt(f * 255);
+		int32 B = 0;
 
 		Canvas->DrawShadowedString(X, Y, *FString::Printf(TEXT(" Total: %i"), ActiveInstances), GetSmallFont(), FColor(R, G, B));
 		Y += 12;

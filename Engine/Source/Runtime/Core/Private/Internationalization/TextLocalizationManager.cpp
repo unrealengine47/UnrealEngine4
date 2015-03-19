@@ -90,16 +90,20 @@ void EndInitTextLocalization()
 			TArray< FCultureRef > AvailableCultures;
 			I18N.GetCulturesWithAvailableLocalization(LocalizationPaths, AvailableCultures, false);
 
-			TArray<FString> PrioritizedParentCultureNames = I18N.GetCurrentCulture()->GetPrioritizedParentCultureNames();
-				
 			FString ValidCultureName;
-			for (const FString& CultureName : PrioritizedParentCultureNames)
+			ValidCultureName.Empty();
+			FCulturePtr TargetCulture = I18N.GetCulture(TargetCultureName);
+			if (TargetCulture.IsValid())
 			{
-				FCulturePtr ValidCulture = I18N.GetCulture(CultureName);
-				if (ValidCulture.IsValid() && AvailableCultures.Contains(ValidCulture.ToSharedRef()))
+				TArray<FString> PrioritizedParentCultureNames = TargetCulture->GetPrioritizedParentCultureNames();
+				for (const FString& CultureName : PrioritizedParentCultureNames)
 				{
-					ValidCultureName = CultureName;
-					break;
+					FCulturePtr ValidCulture = I18N.GetCulture(CultureName);
+					if (ValidCulture.IsValid() && AvailableCultures.Contains(ValidCulture.ToSharedRef()))
+					{
+						ValidCultureName = CultureName;
+						break;
+					}
 				}
 			}
 

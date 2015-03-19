@@ -86,7 +86,7 @@ void FLocalizationTargetDetailCustomization::CustomizeDetails(IDetailLayoutBuild
 			];
 	});
 
-	PropertyCustomizationMap.Add(GET_MEMBER_NAME_CHECKED(FLocalizationTargetSettings, Status), [&](const TSharedRef<IPropertyHandle>& MemberPropertyHandle, IDetailCategoryBuilder& DetailCategoryBuilder)
+	PropertyCustomizationMap.Add(GET_MEMBER_NAME_CHECKED(FLocalizationTargetSettings, ConflictStatus), [&](const TSharedRef<IPropertyHandle>& MemberPropertyHandle, IDetailCategoryBuilder& DetailCategoryBuilder)
 	{
 		FDetailWidgetRow& StatusRow = DetailCategoryBuilder.AddCustomRow( MemberPropertyHandle->GetPropertyDisplayName() );
 		StatusRow.NameContent()
@@ -341,7 +341,15 @@ FText FLocalizationTargetDetailCustomization::GetTargetName() const
 
 bool FLocalizationTargetDetailCustomization::IsTargetNameUnique(const FString& Name) const
 {
-	for (ULocalizationTarget* const TargetObject : TargetSet->TargetObjects)
+	TArray<ULocalizationTarget*> AllLocalizationTargets;
+	ULocalizationTargetSet* EngineTargetSet = FindObjectChecked<ULocalizationTargetSet>(ANY_PACKAGE, *ULocalizationTargetSet::EngineTargetSetName.ToString());
+	if (EngineTargetSet != TargetSet)
+	{
+		AllLocalizationTargets.Append(EngineTargetSet->TargetObjects);
+	}
+	AllLocalizationTargets.Append(TargetSet->TargetObjects);
+
+	for (ULocalizationTarget* const TargetObject : AllLocalizationTargets)
 	{
 		if (TargetObject != LocalizationTarget)
 		{
@@ -464,7 +472,14 @@ void FLocalizationTargetDetailCustomization::RebuildTargetsList()
 		return false;
 	};
 
-	for (ULocalizationTarget* const OtherTarget : TargetSet->TargetObjects)
+	TArray<ULocalizationTarget*> AllLocalizationTargets;
+	ULocalizationTargetSet* EngineTargetSet = FindObjectChecked<ULocalizationTargetSet>(ANY_PACKAGE, *ULocalizationTargetSet::EngineTargetSetName.ToString());
+	if (EngineTargetSet != TargetSet)
+	{
+		AllLocalizationTargets.Append(EngineTargetSet->TargetObjects);
+	}
+	AllLocalizationTargets.Append(TargetSet->TargetObjects);
+	for (ULocalizationTarget* const OtherTarget : AllLocalizationTargets)
 	{
 		if (OtherTarget != LocalizationTarget)
 		{
@@ -697,7 +712,7 @@ void FLocalizationTargetDetailCustomization::RefreshWordCounts()
 	if (LocalizationTarget.IsValid())
 	{
 		const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(DetailLayoutBuilder->GetDetailsView().AsShared());
-		LocalizationCommandletTasks::GenerateReportsForTarget(ParentWindow.ToSharedRef(), LocalizationTarget.Get());
+		LocalizationCommandletTasks::GenerateWordCountReportForTarget(ParentWindow.ToSharedRef(), LocalizationTarget.Get());
 
 		UpdateTargetFromReports();
 	}
