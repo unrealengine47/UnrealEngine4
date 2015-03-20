@@ -380,6 +380,11 @@ void AActor::RemoveTickPrerequisiteComponent(UActorComponent* PrerequisiteCompon
 	}
 }
 
+bool AActor::GetTickableWhenPaused()
+{
+	return PrimaryActorTick.bTickEvenWhenPaused;
+}
+
 void AActor::SetTickableWhenPaused(bool bTickableWhenPaused)
 {
 	PrimaryActorTick.bTickEvenWhenPaused = bTickableWhenPaused;
@@ -1637,7 +1642,6 @@ void AActor::FellOutOfWorld(const UDamageType& dmgType)
 	SetActorEnableCollision(false);
 	Destroy();
 }
-PRAGMA_DISABLE_OPTIMIZATION
 
 void AActor::MakeNoise(float Loudness, APawn* NoiseInstigator, FVector NoiseLocation)
 {
@@ -1659,8 +1663,6 @@ void AActor::MakeNoiseImpl(AActor* NoiseMaker, float Loudness, APawn* NoiseInsti
 		NoiseEmitterComponent->MakeNoise( NoiseMaker, Loudness, NoiseLocation );
 	}
 }
-
-PRAGMA_ENABLE_OPTIMIZATION
 
 void AActor::SetMakeNoiseDelegate(const FMakeNoiseDelegate& NewDelegate)
 {

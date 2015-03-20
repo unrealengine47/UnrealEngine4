@@ -294,7 +294,7 @@ void ULandscapeHeightfieldCollisionComponent::CreateCollisionObject()
 #if WITH_EDITOR
 			// Prepare heightfield data
 			static FName PhysicsFormatName(FPlatformProperties::GetPhysicsFormat());
-			CookCollsionData(PhysicsFormatName, false, bCheckDDC, CookedCollisionData, CookedPhysicalMaterials);
+			CookCollisionData(PhysicsFormatName, false, bCheckDDC, CookedCollisionData, CookedPhysicalMaterials);
 
 			// The World will clean up any speculatively-loaded data we didn't end up using.
 			SpeculativeDDCRequest.Reset();
@@ -328,7 +328,7 @@ void ULandscapeHeightfieldCollisionComponent::CreateCollisionObject()
 				if (!World->IsGameWorld())
 				{
 					TArray<UPhysicalMaterial*> CookedMaterialsEd;
-					if (CookCollsionData(PhysicsFormatName, true, bCheckDDC, CookedCollisionDataEd, CookedMaterialsEd))
+					if (CookCollisionData(PhysicsFormatName, true, bCheckDDC, CookedCollisionDataEd, CookedMaterialsEd))
 					{
 						FPhysXInputStream HeightFieldStream(CookedCollisionDataEd.GetData(), CookedCollisionDataEd.Num());
 						HeightfieldRef->RBHeightfieldEd = GPhysXSDK->createHeightField(HeightFieldStream);
@@ -362,7 +362,7 @@ void ULandscapeHeightfieldCollisionComponent::SpeculativelyLoadAsyncDDCCollsionD
 #endif
 }
 
-bool ULandscapeHeightfieldCollisionComponent::CookCollsionData(const FName& Format, bool bUseDefMaterial, bool bCheckDDC, TArray<uint8>& OutCookedData, TArray<UPhysicalMaterial*>& OutMaterials) const
+bool ULandscapeHeightfieldCollisionComponent::CookCollisionData(const FName& Format, bool bUseDefMaterial, bool bCheckDDC, TArray<uint8>& OutCookedData, TArray<UPhysicalMaterial*>& OutMaterials) const
 {
 #if WITH_PHYSX
 	// we have 2 versions of collision objects
@@ -515,7 +515,7 @@ bool ULandscapeHeightfieldCollisionComponent::CookCollsionData(const FName& Form
 	return false;
 }
 
-bool ULandscapeMeshCollisionComponent::CookCollsionData(const FName& Format, bool bUseDefMaterial, bool bCheckDDC, TArray<uint8>& OutCookedData, TArray<UPhysicalMaterial*>& OutMaterials) const
+bool ULandscapeMeshCollisionComponent::CookCollisionData(const FName& Format, bool bUseDefMaterial, bool bCheckDDC, TArray<uint8>& OutCookedData, TArray<UPhysicalMaterial*>& OutMaterials) const
 {
 #if WITH_PHYSX
 	
@@ -733,7 +733,7 @@ void ULandscapeMeshCollisionComponent::CreateCollisionObject()
 #if WITH_EDITOR
 			// Create cooked physics data
 			static FName PhysicsFormatName(FPlatformProperties::GetPhysicsFormat());
-			CookCollsionData(PhysicsFormatName, false, bCheckDDC, CookedCollisionData, CookedPhysicalMaterials);
+			CookCollisionData(PhysicsFormatName, false, bCheckDDC, CookedCollisionData, CookedPhysicalMaterials);
 #endif //WITH_EDITOR
 
 			if (CookedCollisionData.Num())
@@ -761,7 +761,7 @@ void ULandscapeMeshCollisionComponent::CreateCollisionObject()
 				if (!GetWorld()->IsGameWorld())
 				{
 					TArray<UPhysicalMaterial*> CookedMaterialsEd;
-					if (CookCollsionData(PhysicsFormatName, true, bCheckDDC, CookedCollisionDataEd, CookedMaterialsEd))
+					if (CookCollisionData(PhysicsFormatName, true, bCheckDDC, CookedCollisionDataEd, CookedMaterialsEd))
 					{
 						FPhysXInputStream MeshStream(CookedCollisionDataEd.GetData(), CookedCollisionDataEd.Num());
 						MeshRef->RBTriangleMeshEd = GPhysXSDK->createTriangleMesh(MeshStream);
@@ -1200,7 +1200,7 @@ void ULandscapeHeightfieldCollisionComponent::Serialize(FArchive& Ar)
 		if (Ar.IsCooking() && !HasAnyFlags(RF_ClassDefaultObject))
 		{
 			FName Format = Ar.CookingTarget()->GetPhysicsFormat(nullptr);
-			CookCollsionData(Format, false, true, CookedCollisionData, CookedPhysicalMaterials);
+			CookCollisionData(Format, false, true, CookedCollisionData, CookedPhysicalMaterials);
 			GetDerivedDataCacheRef().Put(*GetHFDDCKeyString(Format, false, HeightfieldGuid), CookedCollisionData);
 		}
 	}
@@ -1233,11 +1233,11 @@ void ULandscapeHeightfieldCollisionComponent::Serialize(FArchive& Ar)
 		else
 		{
 #if WITH_EDITORONLY_DATA			
-			// do not need this data in PIE, so don't bother duplicating it
-			if (!(Ar.GetPortFlags() & PPF_DuplicateForPIE)) 
+			// For PIE, we won't need the source height data if we already have a shared reference to the heightfield
+			if (!(Ar.GetPortFlags() & PPF_DuplicateForPIE) || !HeightfieldGuid.IsValid() || GSharedMeshRefs.FindRef(HeightfieldGuid) == nullptr)
 			{
-			CollisionHeightData.Serialize(Ar, this);
-			DominantLayerData.Serialize(Ar, this);
+				CollisionHeightData.Serialize(Ar, this);
+				DominantLayerData.Serialize(Ar, this);
 			}
 #endif//WITH_EDITORONLY_DATA
 		}

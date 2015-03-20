@@ -9,6 +9,18 @@
 
 #include "SlateTypes.generated.h"
 
+/** Used to determine how we should handle mouse wheel input events when someone scrolls. */
+UENUM()
+enum class EConsumeMouseWheel
+{
+	/** Only consume the mouse wheel event when we actually scroll some amount. */
+	WhenScrollingPossible,
+
+	/** Always consume mouse wheel event even if we don't scroll at all. */
+	Always,
+};
+
+
 /** Type of check box */
 UENUM()
 namespace ESlateCheckBoxType
@@ -1079,11 +1091,6 @@ struct SLATECORE_API FTableRowStyle : public FSlateWidgetStyle
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Appearance)
 	FSlateBrush OddRowBackgroundBrush;
 	FTableRowStyle& SetOddRowBackgroundBrush( const FSlateBrush& InOddRowBackgroundBrush ){ OddRowBackgroundBrush = InOddRowBackgroundBrush; return *this; }
-
-	/** Brush used when drawing the drag-drop indicator lines above and below rows */
-	UPROPERTY(EditAnywhere, Category = Appearance)
-	FSlateBrush DragDropLineIndicatorBrush;
-	FTableRowStyle& SetDragDropLineIndicatorBrush(const FSlateBrush& InDragDropLineIndicatorBrush){ DragDropLineIndicatorBrush = InDragDropLineIndicatorBrush; return *this; }
 
 	/** Text color used for all rows */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Appearance)

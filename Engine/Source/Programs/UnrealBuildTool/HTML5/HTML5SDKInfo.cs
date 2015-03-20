@@ -226,9 +226,21 @@ namespace UnrealBuildTool
 					}
 				}
 
+				if (string.IsNullOrEmpty(SDKPathString) && Environment.GetEnvironmentVariable("EMSCRIPTEN") != null)
+				{
+					VersionString = "-1.-1.-1";
+					SDKPathString = Environment.GetEnvironmentVariable("EMSCRIPTEN");
+				}
+
 				if (!string.IsNullOrEmpty(SDKPathString) && !string.IsNullOrEmpty(VersionString))
 				{
 					var SDKVersions = GetInstalledVersions(SDKPathString);
+
+					// Invalid SDK path
+					if (SDKVersions.Count == 0)
+					{
+						return "";
+					}
 
 					if (VersionString == "-1.-1.-1" && SDKVersions.Count > 0)
 					{

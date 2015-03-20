@@ -6,6 +6,7 @@
 #include "GenericApplication.h"
 #include "MacWindow.h"
 #include "MacTextInputMethodSystem.h"
+#include "IInputInterface.h"
 
 struct FDeferredMacEvent
 {
@@ -91,7 +92,7 @@ struct FDeferredMacEvent
 	// However, in some cases we need the original NSEvent (highlighting menus, resending unhandled key events), so we store it as well.
 	NSEvent* Event;
 
-	TSharedPtr<FMacWindow> Window;
+	TWeakPtr<FMacWindow> Window;
 
 	int32 Type;
 	FVector2D LocationInWindow;
@@ -260,6 +261,10 @@ private:
 	TArray<FSavedWindowOrderInfo> SavedWindowsOrder;
 
 	TSharedRef<class HIDInputInterface> HIDInput;
+
+	/** List of input devices implemented in external modules. */
+	TArray<TSharedPtr<class IInputDevice>> ExternalInputDevices;
+	bool bHasLoadedInputPlugins;
 
 	FCocoaWindow* DraggedWindow;
 

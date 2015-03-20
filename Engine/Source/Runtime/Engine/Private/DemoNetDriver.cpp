@@ -9,6 +9,7 @@
 #include "Engine/DemoNetConnection.h"
 #include "Engine/DemoPendingNetGame.h"
 #include "Engine/ActorChannel.h"
+#include "Engine/PackageMapClient.h"
 #include "RepLayout.h"
 #include "GameFramework/SpectatorPawn.h"
 #include "Engine/LevelStreamingKismet.h"
@@ -18,6 +19,7 @@
 #include "NetworkReplayStreaming.h"
 #include "Net/UnrealNetwork.h"
 #include "Net/NetworkProfiler.h"
+#include "Net/DataReplication.h"
 
 DEFINE_LOG_CATEGORY_STATIC( LogDemo, Log, All );
 
@@ -25,7 +27,9 @@ static TAutoConsoleVariable<float> CVarDemoRecordHz( TEXT( "demo.RecordHz" ), 10
 static TAutoConsoleVariable<float> CVarDemoTimeDilation( TEXT( "demo.TimeDilation" ), -1.0f, TEXT( "Override time dilation during demo playback (-1 = don't override)" ) );
 static TAutoConsoleVariable<float> CVarDemoSkipTime( TEXT( "demo.SkipTime" ), 0, TEXT( "Skip fixed amount of network replay time (in seconds)" ) );
 static TAutoConsoleVariable<int32> CVarEnableCheckpoints( TEXT( "demo.EnableCheckpoints" ), 0, TEXT( "Whether or not checkpoints save on the server" ) );
-static TAutoConsoleVariable<int32> CVarTestCheckpoint( TEXT( "demo.TestCheckpoint" ), 0, TEXT( "For testing only, jump to a particular checkpoint" ) );
+static TAutoConsoleVariable<int32> CVarTestCheckpoint( TEXT( "demo.TestCheckpoint" ), -1, TEXT( "For testing only, jump to a particular checkpoint" ) );
+static TAutoConsoleVariable<int32> CVarDemoFastForwardDestroyTearOffActors( TEXT( "demo.FastForwardDestroyTearOffActors" ), 1, TEXT( "If true, the driver will destroy any torn-off actors immediately while fast-forwarding a replay." ) );
+static TAutoConsoleVariable<int32> CVarDemoFastForwardSkipRepNotifies( TEXT( "demo.FastForwardSkipRepNotifies" ), 1, TEXT( "If true, the driver will optimize fast-forwarding by deferring calls to RepNotify functions until the fast-forward is complete. " ) );
 
 static const int32 MAX_DEMO_READ_WRITE_BUFFER = 1024 * 2;
 
@@ -49,7 +53,10 @@ bool UDemoNetDriver::InitBase( bool bInitAsClient, FNetworkNotify* InNotify, con
 		bIsRecordingDemoFrame	= false;
 		bDemoPlaybackDone		= false;
 		bChannelsArePaused		= false;
-		TimeToSkip = 0.0f;
+		TimeToSkip				= 0.0f;
+		bIsFastForwarding		= false;
+		FastForwardStartSeconds	= 0.0;
+		CurrentCheckpointIndex	= 0;
 
 		ResetDemoState();
 
@@ -493,10 +500,10 @@ void UDemoNetDriver::TickFlush( float DeltaSeconds )
 			}
 		}
 
-		if ( CVarTestCheckpoint.GetValueOnGameThread() > 0 )
+		if ( CVarTestCheckpoint.GetValueOnGameThread() >= 0 )
 		{
 			ReplayStreamer->GotoCheckpoint( CVarTestCheckpoint.GetValueOnGameThread(), FOnCheckpointReadyDelegate::CreateUObject( this, &UDemoNetDriver::CheckpointReady ) );
-			CVarTestCheckpoint.AsVariable()->Set( TEXT( "0" ), ECVF_SetByConsole );
+			CVarTestCheckpoint.AsVariable()->Set( TEXT( "-1" ), ECVF_SetByConsole );
 		}
 
 		if ( bDemoPlaybackDone )
@@ -520,6 +527,26 @@ void UDemoNetDriver::ProcessRemoteFunction( class AActor* Actor, class UFunction
 			InternalProcessRemoteFunction(Actor, SubObject, ClientConnections[0], Function, Parameters, OutParms, Stack, IsServer());
 		}
 	}
+}
+
+bool UDemoNetDriver::ShouldClientDestroyTearOffActors() const
+{
+	if ( CVarDemoFastForwardDestroyTearOffActors.GetValueOnGameThread() != 0 )
+	{
+		return bIsFastForwarding;
+	}
+
+	return false;
+}
+
+bool UDemoNetDriver::ShouldSkipRepNotifies() const
+{
+	if ( CVarDemoFastForwardSkipRepNotifies.GetValueOnGameThread() != 0 )
+	{
+		return bIsFastForwarding;
+	}
+
+	return false;
 }
 
 bool UDemoNetDriver::Exec( UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar )
@@ -721,17 +748,15 @@ static void SerializeGuidCache( TSharedPtr< class FNetGUIDCache > GuidCache, FAr
 
 void UDemoNetDriver::SaveCheckpoint()
 {
-	if ( DemoCurrentTime > 30.0f )
-	{
-		return;
-	}
-
 	FArchive* CheckpointArchive = ReplayStreamer->GetCheckpointArchive();
 
 	if ( CheckpointArchive == nullptr )
 	{
+		// This doesn't mean error, it means the streamer isn't ready to save checkpoints
 		return;
 	}
+
+	check( CheckpointArchive->TotalSize() == 0 );
 
 	const double StartCheckpointTime = FPlatformTime::Seconds();
 
@@ -770,14 +795,22 @@ void UDemoNetDriver::SaveCheckpoint()
 
 	bSavingCheckpoint = true;
 
-	DemoReplicateActor( World->GetWorldSettings(), CheckpointConnection, false );
+	// Replicate *only* the actors that were in the previous frame, we want to be able to re-create up to that point with this single checkpoint
+	// It's important that we don't catch any new actors that the next frame will also catch, that will cause conflict with bOpen (the open will occur twice on the same channel)
+	if ( CheckpointConnection->ActorChannels.Contains( World->GetWorldSettings() ) )
+	{
+		DemoReplicateActor( World->GetWorldSettings(), CheckpointConnection, false );
+	}
 
 	for ( int32 i = 0; i < World->NetworkActors.Num(); i++ )
 	{
 		AActor* Actor = World->NetworkActors[i];
 
-		Actor->PreReplication( *FindOrCreateRepChangedPropertyTracker( Actor ).Get() );
-		DemoReplicateActor( Actor, CheckpointConnection, false );
+		if ( CheckpointConnection->ActorChannels.Contains( Actor ) )
+		{
+			Actor->PreReplication( *FindOrCreateRepChangedPropertyTracker( Actor ).Get() );
+			DemoReplicateActor( Actor, CheckpointConnection, false );
+		}
 	}
 
 	CheckpointConnection->FlushNet();
@@ -799,7 +832,10 @@ void UDemoNetDriver::SaveCheckpoint()
 
 	const int32 TotalSize = CheckpointArchive->TotalSize();
 
-	ReplayStreamer->FlushCheckpoint( 1 );
+	if ( CheckpointArchive->TotalSize() > 0 )
+	{
+		ReplayStreamer->FlushCheckpoint( CurrentCheckpointIndex++ );
+	}
 
 	const double EndCheckpointTime = FPlatformTime::Seconds();
 
@@ -837,17 +873,6 @@ void UDemoNetDriver::TickDemoRecord( float DeltaSeconds )
 	}
 
 	LastRecordTime = CurrentSeconds;
-
-	if ( CVarEnableCheckpoints.GetValueOnGameThread() == 1 )
-	{
-		const double CHECKPOINT_DELAY = 10.0;
-
-		if ( CurrentSeconds - LastCheckpointTime > CHECKPOINT_DELAY )
-		{
-			SaveCheckpoint();
-			LastCheckpointTime = CurrentSeconds;
-		}
-	}
 
 	// Save out a frame
 	DemoFrameNum++;
@@ -900,6 +925,18 @@ void UDemoNetDriver::TickDemoRecord( float DeltaSeconds )
 	int32 EndCount = 0;
 
 	*FileAr << EndCount;
+
+	// Save a checkpoint if it's time
+	if ( CVarEnableCheckpoints.GetValueOnGameThread() == 1 )
+	{
+		const double CHECKPOINT_DELAY = 10.0;
+
+		if ( CurrentSeconds - LastCheckpointTime > CHECKPOINT_DELAY )
+		{
+			SaveCheckpoint();
+			LastCheckpointTime = CurrentSeconds;
+		}
+	}
 }
 
 void UDemoNetDriver::PauseChannels( const bool bPause )
@@ -1120,6 +1157,10 @@ void UDemoNetDriver::TickDemoPlayback( float DeltaSeconds )
 		DemoCurrentTime += TimeToSkip;
 
 		TimeToSkip = 0.0f;
+
+		bIsFastForwarding = true;
+
+		FastForwardStartSeconds = FPlatformTime::Seconds();
 	}
 
 	DemoCurrentTime += DeltaSeconds;
@@ -1133,6 +1174,30 @@ void UDemoNetDriver::TickDemoPlayback( float DeltaSeconds )
 	while ( ConditionallyReadDemoFrame() )
 	{
 		DemoFrameNum++;
+	}
+
+	if ( bIsFastForwarding )
+	{
+		bIsFastForwarding = false;
+
+		// Flush all pending RepNotifies that were built up during the fast-forward.
+		if ( ServerConnection != nullptr)
+		{
+			for ( auto& ChannelPair : ServerConnection->ActorChannels )
+			{
+				if ( ChannelPair.Value != NULL )
+				{
+					for (auto& ReplicatorPair : ChannelPair.Value->ReplicationMap)
+					{
+						ReplicatorPair.Value->CallRepNotifies();
+					}
+				}
+			}
+		}
+
+		const auto FastForwardTotalSeconds = FPlatformTime::Seconds() - FastForwardStartSeconds;
+
+		UE_LOG( LogDemo, Log, TEXT( "Fast forward took %.2f seconds." ), FastForwardTotalSeconds );
 	}
 }
 
@@ -1196,6 +1261,13 @@ void UDemoNetDriver::CheckpointReady( bool bSuccess )
 		return;
 	}
 
+	FArchive* CheckpointArchive = ReplayStreamer->GetCheckpointArchive();
+
+	if ( CheckpointArchive->TotalSize() == 0 )
+	{
+		return;
+	}
+
 	if ( SpectatorController == NULL )
 	{
 		UE_LOG( LogDemo, Warning, TEXT( "UDemoNetConnection::CheckpointReady: No spectator player controller." ) );
@@ -1215,6 +1287,7 @@ void UDemoNetDriver::CheckpointReady( bool bSuccess )
 	ConnectURL.Map = DemoFilename;
 
 #if 1
+	// Destroy all non startup actors. They will get restored with the checkpoint
 	for ( FActorIterator It( GetWorld() ); It; ++It )
 	{
 		if ( !It->IsNetStartupActor() )
@@ -1247,8 +1320,6 @@ void UDemoNetDriver::CheckpointReady( bool bSuccess )
 
 	// Create fake control channel
 	ServerConnection->CreateChannel( CHTYPE_Control, 1 );
-
-	FArchive* CheckpointArchive = ReplayStreamer->GetCheckpointArchive();
 
 	GuidCache->ObjectLookup.Empty();
 	GuidCache->NetGUIDLookup.Empty();

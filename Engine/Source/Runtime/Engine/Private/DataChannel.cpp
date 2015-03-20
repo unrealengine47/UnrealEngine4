@@ -581,6 +581,7 @@ bool UChannel::ReceivedNextBunch( FInBunch & Bunch, bool & bOutSkipAck )
 			{
 				// If we receive a reliable at this point, this means reliables are out of order, which shouldn't be possible
 				check( !HandleBunch->bReliable );
+				check( !Connection->InternalAck );	// Shouldn't be possible for 100% reliable connections
 
 				// Don't ack this packet (since we won't process all of it)
 				bOutSkipAck = true;
@@ -1441,15 +1442,14 @@ bool UActorChannel::CleanUp( const bool bForDestroy )
 		checkSlow(Connection->Driver->IsValidLowLevel());
 		if (Actor != NULL)
 		{
-			if (Actor->bTearOff)
+			if (Actor->bTearOff && !Connection->Driver->ShouldClientDestroyTearOffActors())
 			{
 				Actor->Role = ROLE_Authority;
 				Actor->SetReplicates(false);
 				bTornOff = true;
 				Actor->TornOff();
-				Actor = NULL;
 			}
-			else if (Dormant)
+			else if (Dormant && !Actor->bTearOff)
 			{
 				Connection->DormantActors.Add(Actor);
 			}

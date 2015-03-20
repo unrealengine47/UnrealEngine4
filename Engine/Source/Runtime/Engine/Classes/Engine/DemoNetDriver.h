@@ -47,7 +47,7 @@ class UDemoNetDriver
 	FString DemoSpectatorClass;
 
 	/** Our network replay streamer */
-	TSharedPtr< class INetworkReplayStreamer > ReplayStreamer;
+	TSharedPtr< class INetworkReplayStreamer >	ReplayStreamer;
 
 	uint32 GetDemoCurrentTimeInMS() { return (uint32)( (double)DemoCurrentTime * 1000 ); }
 
@@ -60,8 +60,14 @@ class UDemoNetDriver
 
 	bool		bSavingCheckpoint;
 	double		LastCheckpointTime;
+	int32		CurrentCheckpointIndex;
 
 	void		SaveCheckpoint();
+
+private:
+	bool		bIsFastForwarding;
+	double		FastForwardStartSeconds;
+
 public:
 
 	// UNetDriver interface.
@@ -73,10 +79,12 @@ public:
 	virtual bool InitListen( FNetworkNotify* InNotify, FURL& ListenURL, bool bReuseAddressAndPort, FString& Error ) override;
 	virtual void TickDispatch( float DeltaSeconds ) override;
 	virtual void TickFlush( float DeltaSeconds ) override;
-	virtual void ProcessRemoteFunction( class AActor* Actor, class UFunction* Function, void* Parameters, struct FOutParmRec* OutParms, struct FFrame* Stack, class UObject* SubObject = nullptr );
+	virtual void ProcessRemoteFunction( class AActor* Actor, class UFunction* Function, void* Parameters, struct FOutParmRec* OutParms, struct FFrame* Stack, class UObject* SubObject = nullptr ) override;
 	virtual bool IsAvailable() const override { return true; }
 	ENGINE_API void SkipTime(float InTimeToSkip);
 	bool InitConnectInternal( FString& Error );
+	virtual bool ShouldClientDestroyTearOffActors() const override;
+	virtual bool ShouldSkipRepNotifies() const override;
 
 public:
 

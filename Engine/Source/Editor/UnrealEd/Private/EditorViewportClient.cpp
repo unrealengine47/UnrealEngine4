@@ -25,6 +25,7 @@
 #include "Components/BillboardComponent.h"
 #include "EngineUtils.h"
 #include "SEditorViewport.h"
+#include "AssetEditorModeManager.h"
 
 #define LOCTEXT_NAMESPACE "EditorViewportClient"
 
@@ -277,7 +278,7 @@ FEditorViewportClient::FEditorViewportClient(FEditorModeTools* InModeTools, FPre
 {
 	if (ModeTools == nullptr)
 	{
-		ModeTools = new FEditorModeTools();
+		ModeTools = new FAssetEditorModeManager();
 		bOwnsModeTools = true;
 	}
 
@@ -3768,7 +3769,7 @@ void FEditorViewportClient::UpdateRequiredCursorVisibility()
 		// Calc the raw delta from the mouse since we started dragging to detect if there was any movement
 		FVector RawMouseDelta = MouseDeltaTracker->GetScreenDelta();
 
-		if (bMouseButtonDown && (RawMouseDelta.SizeSquared() >= MOUSE_CLICK_DRAG_DELTA || IsFlightCameraActive()) && !MouseDeltaTracker->UsingDragTool())
+		if (bMouseButtonDown && (RawMouseDelta.SizeSquared() >= MOUSE_CLICK_DRAG_DELTA || IsFlightCameraActive() || ShouldOrbitCamera()) && !MouseDeltaTracker->UsingDragTool())
 		{
 			//current system - do not show cursor when mouse is down
 			RequiredCursorVisibiltyAndAppearance.bHardwareCursorVisible = false;

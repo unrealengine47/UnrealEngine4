@@ -36,13 +36,14 @@ void UTileMapActorFactory::PostSpawnActor(UObject* Asset, AActor* NewActor)
 			RenderComponent->UnregisterComponent();
 			RenderComponent->TileMap->TileWidth = TileSet->TileWidth;
 			RenderComponent->TileMap->TileHeight = TileSet->TileHeight;
+			RenderComponent->TileMap->SelectedTileSet = TileSet;
 			RenderComponent->RegisterComponent();
 		}
 	}
 
 	if (RenderComponent->OwnsTileMap())
 	{
-		RenderComponent->TileMap->AddNewLayer();
+		RenderComponent->TileMap->InitializeNewEmptyTileMap();
 	}
 }
 
@@ -63,12 +64,13 @@ void UTileMapActorFactory::PostCreateBlueprint(UObject* Asset, AActor* CDO)
 			{
 				RenderComponent->TileMap->TileWidth = TileSet->TileWidth;
 				RenderComponent->TileMap->TileHeight = TileSet->TileHeight;
+				RenderComponent->TileMap->SelectedTileSet = TileSet;
 			}
 		}
 
 		if (RenderComponent->OwnsTileMap())
 		{
-			RenderComponent->TileMap->AddNewLayer();
+			RenderComponent->TileMap->InitializeNewEmptyTileMap();
 		}
 	}
 }

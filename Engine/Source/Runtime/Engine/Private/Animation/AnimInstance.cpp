@@ -234,6 +234,8 @@ void UAnimInstance::InitializeAnimation()
 {
 	SCOPE_CYCLE_COUNTER(STAT_AnimInitTime);
 
+	UninitializeAnimation();
+
 	// make sure your skeleton is initialized
 	// you can overwrite different skeleton
 	USkeletalMeshComponent* OwnerComponent = GetSkelMeshComponent();
@@ -306,6 +308,35 @@ void UAnimInstance::InitializeAnimation()
 
 	// we can bind rules & events now the graph has been initialized
 	BindNativeDelegates();
+}
+
+void UAnimInstance::UninitializeAnimation()
+{
+	StopAllMontages(0.f);
+
+	USkeletalMeshComponent * SkelMeshComp = GetSkelMeshComponent();
+	if (SkelMeshComp)
+	{
+		// Tick currently active AnimNotifyState
+		for(int32 Index=0; Index<ActiveAnimNotifyState.Num(); Index++)
+		{
+			const FAnimNotifyEvent& AnimNotifyEvent = ActiveAnimNotifyState[Index];
+			AnimNotifyEvent.NotifyStateClass->NotifyEnd(SkelMeshComp, Cast<UAnimSequenceBase>(AnimNotifyEvent.NotifyStateClass->GetOuter()));
+		}
+
+		TArray<FName> ParamsToClearCopy = MaterialParamatersToClear;
+		for(int i = 0; i < ParamsToClearCopy.Num(); ++i)
+		{
+			AddCurveValue(ParamsToClearCopy[i], 0.0f, ACF_DrivesMaterial);
+		}
+	}
+
+	ActiveAnimNotifyState.Empty();
+	EventCurves.Empty();
+	MorphTargetCurves.Empty();
+	MaterialParameterCurves.Empty();
+	MaterialParamatersToClear.Empty();
+	AnimNotifies.Empty();
 }
 
 #if WITH_EDITORONLY_DATA
@@ -2115,6 +2146,30 @@ void UAnimInstance::Montage_Stop(float InBlendOutTime, UAnimMontage * Montage)
 			if (MontageInstance && MontageInstance->IsActive())
 			{
 				MontageInstance->Stop(InBlendOutTime);
+			}
+		}
+	}
+}
+
+void UAnimInstance::Montage_Pause(UAnimMontage * Montage)
+{
+	if (Montage)
+	{
+		FAnimMontageInstance * MontageInstance = GetActiveInstanceForMontage(*Montage);
+		if (MontageInstance)
+		{
+			MontageInstance->Pause();
+		}
+	}
+	else
+	{
+		// If no Montage reference, do it on all active ones.
+		for (int32 InstanceIndex = 0; InstanceIndex < MontageInstances.Num(); InstanceIndex++)
+		{
+			FAnimMontageInstance * MontageInstance = MontageInstances[InstanceIndex];
+			if (MontageInstance && MontageInstance->IsActive())
+			{
+				MontageInstance->Pause();
 			}
 		}
 	}

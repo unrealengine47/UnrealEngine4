@@ -25,7 +25,7 @@ FTileMapEditorViewportClient::FTileMapEditorViewportClient(TWeakPtr<FTileMapEdit
 	check(TileMapEditorPtr.IsValid() && TileMapEditorViewportPtr.IsValid());
 
 	PreviewScene = &OwnedPreviewScene;
-	((FAssetEditorModeTools*)ModeTools)->SetPreviewScene(PreviewScene);
+	((FAssetEditorModeManager*)ModeTools)->SetPreviewScene(PreviewScene);
 
 	SetRealtime(true);
 
@@ -48,7 +48,7 @@ FTileMapEditorViewportClient::FTileMapEditorViewportClient(TWeakPtr<FTileMapEdit
 		RenderTileMapComponent = NewObject<UPaperTileMapComponent>();
 		UPaperTileMap* TileMap = GetTileMapBeingEdited();
 		RenderTileMapComponent->TileMap = TileMap;
-		GSelectedAnnotation.Set(RenderTileMapComponent);
+		RenderTileMapComponent->SelectionOverrideDelegate = UPrimitiveComponent::FSelectionOverride::CreateLambda([](const UPrimitiveComponent*) { return true; });
 
 		PreviewScene->AddComponent(RenderTileMapComponent, FTransform::Identity);
 	}

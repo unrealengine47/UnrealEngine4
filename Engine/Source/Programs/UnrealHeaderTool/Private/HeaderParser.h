@@ -45,6 +45,18 @@ namespace EDelegateSpecifierAction
 	};
 }
 
+/** The category of variable declaration being parsed */
+namespace EVariableCategory
+{
+	enum Type
+	{
+		RegularParameter,
+		ReplicatedParameter,
+		Return,
+		Member
+	};
+}
+
 /** Information for a particular nesting level. */
 class FNestInfo
 {
@@ -564,42 +576,23 @@ protected:
 	UField* FindField( UStruct* InScope, const TCHAR* InIdentifier, bool bIncludeParents=true, UClass* FieldClass=UField::StaticClass(), const TCHAR* Thing=NULL );
 	void SkipStatements( int32 SubCount, const TCHAR* ErrorTag );
 
-	/** The category of variable declaration being parsed */
-	struct EVariableCategory
-	{
-		enum Type
-		{
-			RegularParameter,
-			ReplicatedParameter,
-			Return,
-			Member
-		};
-	};
-
 	/**
 	 * Parses a variable or return value declaration and determines the variable type and property flags.
 	 *
 	 * @param   AllClasses                the class tree for CurrentPackage
 	 * @param   Scope                     struct to create the property in
 	 * @param   VarProperty               will be filled in with type and property flag data for the property declaration that was parsed
-	 * @param   ObjectFlags               will contain the object flags that should be assigned to all UProperties which are part of this declaration (will not be determined
-	 *                                    until GetVarNameAndDim is called for this declaration).
 	 * @param   Disallow                  contains a mask of variable modifiers that are disallowed in this context
-	 * @param   Thing                     used for compiler errors to provide more information about the type of parsing that was occurring
 	 * @param   OuterPropertyType         only specified when compiling the inner properties for arrays or maps.  corresponds to the FToken for the outer property declaration.
 	 * @param   PropertyDeclarationStyle  if the variable is defined with a UPROPERTY
 	 * @param   VariableCategory          what kind of variable is being parsed
 	 * @param   ParsedVarIndexRange       The source text [Start, End) index range for the parsed type.
-	 *
-	 * @return  true if the variable type was parsed
 	 */
-	bool GetVarType(
+	void GetVarType(
 		FClasses&                       AllClasses,
 		FScope*							Scope,
 		FPropertyBase&                  VarProperty,
-		EObjectFlags&                   ObjectFlags,
 		uint64                          Disallow,
-		const TCHAR*                    Thing,
 		FToken*                         OuterPropertyType,
 		EPropertyDeclarationStyle::Type PropertyDeclarationStyle,
 		EVariableCategory::Type         VariableCategory,
@@ -608,25 +601,23 @@ protected:
 	/**
 	 * Parses a variable name declaration and creates a new UProperty object.
 	 *
-	 * @param	Scope			struct to create the property in
-	 * @param	VarProperty		type and propertyflag info for the new property (inout)
-	 * @param	ObjectFlags		flags to pass on to the new property
-	 * @param	NoArrays		true if static arrays are disallowed
-	 * @param	IsFunction		true if the property is a function parameter or return value
-	 * @param	HardcodedName	name to assign to the new UProperty, if specified. primarily used for function return values,
-	 *							which are automatically called "ReturnValue"
-	 * @param	HintText		text to use in error message if error is encountered
+	 * @param	Scope				struct to create the property in
+	 * @param	VarProperty			type and propertyflag info for the new property (inout)
+	 * @param	NoArrays			true if static arrays are disallowed
+	 * @param	IsFunction			true if the property is a function parameter or return value
+	 * @param	HardcodedName		name to assign to the new UProperty, if specified. primarily used for function return values,
+	 *								which are automatically called "ReturnValue"
+	 * @param   VariableCategory	what kind of variable is being created
 	 *
 	 * @return	a pointer to the new UProperty if successful, or NULL if there was no property to parse
 	 */
 	UProperty* GetVarNameAndDim(
 		UStruct* Struct,
 		FToken& VarProperty,
-		EObjectFlags ObjectFlags,
 		bool NoArrays,
 		bool IsFunction,
 		const TCHAR* HardcodedName,
-		const TCHAR* Thing);
+		EVariableCategory::Type VariableCategory);
 	
 	/**
 	 * Returns whether the specified class can be referenced from the class currently being compiled.
