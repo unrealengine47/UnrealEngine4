@@ -656,6 +656,17 @@ namespace UnrealBuildTool
 			)
 		{
 		}
+
+		/// <summary>
+		/// Allows the target to specify modules which can be precompiled with the -PrecompileModules/-UsePrecompiledModules arguments to UBT. 
+		/// All dependencies of the specified modules will be included.
+		/// </summary>
+		/// <param name="Target">The target information, such as platform and configuration</param>
+		/// <param name="ModuleNames">List which receives module names to precompile</param>
+		public virtual void GetModulesToPrecompile(TargetInfo Target, List<string> ModuleNames)
+		{
+		}
+
         /// <summary>
         /// Return true if this target should always be built with the base editor. Usually programs like shadercompilerworker.
         /// </summary>
@@ -768,6 +779,14 @@ namespace UnrealBuildTool
         public virtual List<UnrealTargetConfiguration> GUBP_GetConfigs_MonolithicOnly(UnrealTargetPlatform HostPlatform, UnrealTargetPlatform Platform)
         {
             return new List<UnrealTargetConfiguration>{UnrealTargetConfiguration.Development};
+        }
+        /// <summary>
+        /// Return a list of configs which are precompiled for the given target platform
+        /// </summary>
+        /// <returns>a list of configs for a target platforms for the monolithic</returns>        
+        public virtual List<UnrealTargetConfiguration> GUBP_GetConfigsForPrecompiledBuilds_MonolithicOnly(UnrealTargetPlatform HostPlatform, UnrealTargetPlatform Platform)
+        {
+            return new List<UnrealTargetConfiguration>();
         }
         /// <summary>
         /// Return a list of configs for target platforms for formal builds

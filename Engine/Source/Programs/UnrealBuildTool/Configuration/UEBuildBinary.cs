@@ -227,7 +227,7 @@ namespace UnrealBuildTool
 		/// a module that depends on a module in this binary. */
 		/// </summary>
 		/// <param name="DependentLinkEnvironment">The link environment of the dependency</param>
-		public virtual void SetupDependentLinkEnvironment(ref LinkEnvironment DependentLinkEnvironment) {}
+		public virtual void SetupDependentLinkEnvironment(LinkEnvironment DependentLinkEnvironment) {}
 
 		/// <summary>
 		/// Called to allow the binary to to determine if it matches the Only module "short module name".
@@ -358,12 +358,15 @@ namespace UnrealBuildTool
 				if (Config.bHasModuleRules)
 				{
 					Module = Target.FindOrCreateModuleByName(ModuleName);
-					if (Module.Binary != null)
+					if(Module.Binary == null)
+					{
+						Module.Binary = this;
+						Module.bIncludedInTarget = true;
+					}
+					else if(Module.Binary.Config.Type != UEBuildBinaryType.StaticLibrary)
 					{
 						throw new BuildException("Module \"{0}\" linked into both {1} and {2}, which creates ambiguous linkage for dependents.", ModuleName, Module.Binary.Config.OutputFilePath, Config.OutputFilePath);
 					}
-					Module.Binary = this;
-					Module.bIncludedInTarget = true;
 				}
 
 				// We set whether the binary is being compiled monolithic here to know later - specifically
@@ -405,7 +408,7 @@ namespace UnrealBuildTool
 					ReferencedModules[ ModuleName ] = Module;
 
 					bool bOnlyDirectDependencies = false;
-					Module.GetAllDependencyModules(ref ReferencedModules, ref OrderedModules, bIncludeDynamicallyLoaded, bForceCircular, bOnlyDirectDependencies);
+					Module.GetAllDependencyModules(ReferencedModules, OrderedModules, bIncludeDynamicallyLoaded, bForceCircular, bOnlyDirectDependencies);
 
 					OrderedModules.Add( Module );
 				}
@@ -428,7 +431,7 @@ namespace UnrealBuildTool
 				foreach (var ModuleName in ModuleNames)
 				{
 					var Module = Target.FindOrCreateModuleByName(ModuleName);
-					Module.RecursivelyProcessUnboundModules(Target, ref Binaries, ExecutableBinary);
+					Module.RecursivelyProcessUnboundModules(Target, Binaries, ExecutableBinary);
 				}
 			}
 			else
@@ -521,7 +524,7 @@ namespace UnrealBuildTool
 		/// a module that depends on a module in this binary.
 		/// </summary>
 		/// <param name="DependentLinkEnvironment">The link environment of the dependency</param>
-		public override void SetupDependentLinkEnvironment(ref LinkEnvironment DependentLinkEnvironment)
+		public override void SetupDependentLinkEnvironment(LinkEnvironment DependentLinkEnvironment)
 		{
 			foreach (string OutputFilePath in Config.OutputFilePaths)
 			{
@@ -610,26 +613,33 @@ namespace UnrealBuildTool
 			{
 				var Module = Target.GetModuleByName(ModuleName);
 
-				// Compile each module.
-				Log.TraceVerbose("Compile module: " + ModuleName);
-
-				var LinkInputFiles = Module.Compile(CompileEnvironment, BinaryCompileEnvironment, Config.bCompileMonolithic);
-
-				// NOTE: Because of 'Shared PCHs', in monolithic builds the same PCH file may appear as a link input
-				// multiple times for a single binary.  We'll check for that here, and only add it once.  This avoids
-				// a linker warning about redundant .obj files. 
-				foreach (var LinkInputFile in LinkInputFiles)
+				List<FileItem> LinkInputFiles; 
+				if(Module.Binary == null || Module.Binary == this)
 				{
-					if (!BinaryLinkEnvironment.InputFiles.Contains(LinkInputFile))
+					// Compile each module.
+					Log.TraceVerbose("Compile module: " + ModuleName);
+					LinkInputFiles = Module.Compile(CompileEnvironment, BinaryCompileEnvironment, Config.bCompileMonolithic);
+
+					// NOTE: Because of 'Shared PCHs', in monolithic builds the same PCH file may appear as a link input
+					// multiple times for a single binary.  We'll check for that here, and only add it once.  This avoids
+					// a linker warning about redundant .obj files. 
+					foreach (var LinkInputFile in LinkInputFiles)
 					{
-						BinaryLinkEnvironment.InputFiles.Add(LinkInputFile);
+						if (!BinaryLinkEnvironment.InputFiles.Contains(LinkInputFile))
+						{
+							BinaryLinkEnvironment.InputFiles.Add(LinkInputFile);
+						}
 					}
+				}
+				else 
+				{
+					BinaryDependencies.Add(Module.Binary);
 				}
 
 				if (!BuildConfiguration.bRunUnrealCodeAnalyzer)
 				{
 					// Allow the module to modify the link environment for the binary.
-					Module.SetupPrivateLinkEnvironment(ref BinaryLinkEnvironment, ref BinaryDependencies, ref LinkEnvironmentVisitedModules);
+					Module.SetupPrivateLinkEnvironment(BinaryLinkEnvironment, BinaryDependencies, LinkEnvironmentVisitedModules);
 				}
 			}
 
@@ -643,7 +653,7 @@ namespace UnrealBuildTool
 			// Allow the binary dependencies to modify the link environment.
 			foreach (var BinaryDependency in BinaryDependencies)
 			{
-				BinaryDependency.SetupDependentLinkEnvironment(ref BinaryLinkEnvironment);
+				BinaryDependency.SetupDependentLinkEnvironment(BinaryLinkEnvironment);
 			}
 
 			// Set the link output file.

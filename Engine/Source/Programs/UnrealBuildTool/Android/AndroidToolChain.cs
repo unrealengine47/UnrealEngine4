@@ -308,7 +308,7 @@ namespace UnrealBuildTool
 			}
 
 			// debug info
-            if (CompileEnvironment.Config.bCreateDebugInfo && !UnrealBuildTool.BuildingRocket())
+            if (CompileEnvironment.Config.bCreateDebugInfo)
 			{
 				Result += " -g2 -gdwarf-2";
 			}
@@ -437,11 +437,6 @@ namespace UnrealBuildTool
 			Result += " -nostdlib";
 			Result += " -Wl,-shared,-Bsymbolic";
 			Result += " -Wl,--no-undefined";
-
-            if (UnrealBuildTool.BuildingRocket())
-            {
-                Result += " -Wl,--strip-debug";
-            }
 
             if (Architecture == "-armv7")
 			{
@@ -922,7 +917,7 @@ namespace UnrealBuildTool
 								else
 								{
 									// full pathed libs are compiled by us, so we depend on linking them
-									LinkAction.CommandArguments += string.Format(" \"{0}\"", AdditionalLibrary);
+									LinkAction.CommandArguments += string.Format(" \"{0}\"", Path.GetFullPath(AdditionalLibrary));
 									LinkAction.PrerequisiteItems.Add(FileItem.GetItemByPath(AdditionalLibrary));
 								}
 							}
@@ -945,10 +940,13 @@ namespace UnrealBuildTool
 		public override void AddFilesToManifest(BuildManifest Manifest, UEBuildBinary Binary)
 		{
 			// the binary will have all of the .so's in the output files, we need to trim down to the shared apk (which is what needs to go into the manifest)
-			foreach (string BinaryPath in Binary.Config.OutputFilePaths)
+			if (Binary.Config.Type != UEBuildBinaryType.StaticLibrary)
 			{
-				string ApkFile = Path.ChangeExtension(BinaryPath, ".apk");
-				Manifest.AddBuildProduct(ApkFile);
+				foreach (string BinaryPath in Binary.Config.OutputFilePaths)
+				{
+					string ApkFile = Path.ChangeExtension(BinaryPath, ".apk");
+					Manifest.AddBuildProduct(ApkFile);
+				}
 			}
 		}
 

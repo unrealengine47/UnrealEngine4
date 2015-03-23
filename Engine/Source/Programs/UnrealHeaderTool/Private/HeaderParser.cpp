@@ -3228,9 +3228,6 @@ UProperty* FHeaderParser::GetVarNameAndDim
 (
 	UStruct*                Scope,
 	FToken&                 VarProperty,
-	bool                    NoArrays,
-	bool                    IsFunction,
-	const TCHAR*            HardcodedName,
 	EVariableCategory::Type VariableCategory
 )
 {
@@ -3247,11 +3244,11 @@ UProperty* FHeaderParser::GetVarNameAndDim
 	AddModuleRelativePathToMetadata(Scope, VarProperty.MetaData);
 
 	// Get variable name.
-	if (HardcodedName != NULL)
+	if (VariableCategory == EVariableCategory::Return)
 	{
 		// Hard-coded variable name, such as with return value.
 		VarProperty.TokenType = TOKEN_Identifier;
-		FCString::Strcpy( VarProperty.Identifier, HardcodedName );
+		FCString::Strcpy( VarProperty.Identifier, TEXT("ReturnValue") );
 	}
 	else
 	{
@@ -3325,7 +3322,7 @@ UProperty* FHeaderParser::GetVarNameAndDim
 	FToken Dimensions;
 	if (MatchSymbol(TEXT("[")))
 	{
-		if (NoArrays)
+		if (VariableCategory == EVariableCategory::Return)
 		{
 			FError::Throwf(TEXT("Arrays aren't allowed in this context") );
 		}
@@ -3372,14 +3369,13 @@ UProperty* FHeaderParser::GetVarNameAndDim
 	}
 
 	// Try gathering metadata for member fields
-	if (!IsFunction)
+	if (VariableCategory == EVariableCategory::Member)
 	{
 		ParseFieldMetaData(VarProperty.MetaData, VarProperty.Identifier);
 		AddFormattedPrevCommentAsTooltipMetaData(VarProperty.MetaData);
 	}
-
 	// validate UFunction parameters
-	if (IsFunction)
+	else
 	{
 		// UFunctions with a smart pointer as input parameter wont compile anyway, because of missing P_GET_... macro.
 		// UFunctions with a smart pointer as return type will crash when called via blueprint, because they are not supported in VM.
@@ -3419,165 +3415,159 @@ UProperty* FHeaderParser::GetVarNameAndDim
 			ArrayDim = 2;
 		}
 
-		if (VarProperty.Type == CPT_Byte)
+		switch (VarProperty.Type)
 		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UByteProperty(FObjectInitializer());
-			((UByteProperty*)NewProperty)->Enum = VarProperty.Enum;
-		}
-		else if (VarProperty.Type == CPT_Int8)
-		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UInt8Property(FObjectInitializer());
-		}
-		else if (VarProperty.Type == CPT_Int16)
-		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UInt16Property(FObjectInitializer());
-		}
-		else if (VarProperty.Type == CPT_Int)
-		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UIntProperty(FObjectInitializer());
-		}
-		else if (VarProperty.Type == CPT_Int64)
-		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UInt64Property(FObjectInitializer());
-		}
-		else if (VarProperty.Type == CPT_UInt16)
-		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UUInt16Property(FObjectInitializer());
-		}
-		else if (VarProperty.Type == CPT_UInt32)
-		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UUInt32Property(FObjectInitializer());
-		}
-		else if (VarProperty.Type == CPT_UInt64)
-		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UUInt64Property(FObjectInitializer());
-		}
-		else if (VarProperty.IsBool())
-		{
-			UBoolProperty* NewBoolProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UBoolProperty(FObjectInitializer());
-			NewProperty = NewBoolProperty;
-			if (HardcodedName && FCString::Stricmp(HardcodedName, TEXT("ReturnValue")) == 0)
-			{
-				NewBoolProperty->SetBoolSize(sizeof(bool), true);
-			}
-			else
-			{
-				switch( VarProperty.Type )
+			case CPT_Byte:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UByteProperty(FObjectInitializer());
+				((UByteProperty*)NewProperty)->Enum = VarProperty.Enum;
+				break;
+
+			case CPT_Int8:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UInt8Property(FObjectInitializer());
+				break;
+
+			case CPT_Int16:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UInt16Property(FObjectInitializer());
+				break;
+
+			case CPT_Int:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UIntProperty(FObjectInitializer());
+				break;
+
+			case CPT_Int64:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UInt64Property(FObjectInitializer());
+				break;
+
+			case CPT_UInt16:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UUInt16Property(FObjectInitializer());
+				break;
+
+			case CPT_UInt32:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UUInt32Property(FObjectInitializer());
+				break;
+
+			case CPT_UInt64:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UUInt64Property(FObjectInitializer());
+				break;
+
+			case CPT_Bool:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UBoolProperty(FObjectInitializer());
+				((UBoolProperty*)NewProperty)->SetBoolSize(sizeof(bool), true);
+				break;
+
+			case CPT_Bool8:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UBoolProperty(FObjectInitializer());
+				((UBoolProperty*)NewProperty)->SetBoolSize((VariableCategory == EVariableCategory::Return) ? sizeof(bool) : sizeof(uint8), VariableCategory == EVariableCategory::Return);
+				break;
+
+			case CPT_Bool16:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UBoolProperty(FObjectInitializer());
+				((UBoolProperty*)NewProperty)->SetBoolSize((VariableCategory == EVariableCategory::Return) ? sizeof(bool) : sizeof(uint16), VariableCategory == EVariableCategory::Return);
+				break;
+
+			case CPT_Bool32:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UBoolProperty(FObjectInitializer());
+				((UBoolProperty*)NewProperty)->SetBoolSize((VariableCategory == EVariableCategory::Return) ? sizeof(bool) : sizeof(uint32), VariableCategory == EVariableCategory::Return);
+				break;
+
+			case CPT_Bool64:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UBoolProperty(FObjectInitializer());
+				((UBoolProperty*)NewProperty)->SetBoolSize((VariableCategory == EVariableCategory::Return) ? sizeof(bool) : sizeof(uint64), VariableCategory == EVariableCategory::Return);
+				break;
+
+			case CPT_Float:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UFloatProperty(FObjectInitializer());
+				break;
+
+			case CPT_Double:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UDoubleProperty(FObjectInitializer());
+				break;
+
+			case CPT_ObjectReference:
+				check(VarProperty.PropertyClass);
+				if (VarProperty.PropertyClass->IsChildOf(UClass::StaticClass()))
 				{
-				case CPT_Bool:
-					NewBoolProperty->SetBoolSize(sizeof(bool), true);
-					break;
-				case CPT_Bool8:
-					NewBoolProperty->SetBoolSize(sizeof(uint8));
-					break;
-				case CPT_Bool16:
-					NewBoolProperty->SetBoolSize(sizeof(uint16));
-					break;
-				case CPT_Bool32:
-					NewBoolProperty->SetBoolSize(sizeof(uint32));
-					break;
-				case CPT_Bool64:
-					NewBoolProperty->SetBoolSize(sizeof(uint64));
-					break;
+					NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UClassProperty(FObjectInitializer());
+					((UClassProperty*)NewProperty)->MetaClass = VarProperty.MetaClass;
 				}
-			}
-		}
-		else if (VarProperty.Type == CPT_Float)
-		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UFloatProperty(FObjectInitializer());
-		}
-		else if (VarProperty.Type == CPT_Double)
-		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UDoubleProperty(FObjectInitializer());
-		}
-		else if (VarProperty.Type == CPT_ObjectReference)
-		{
-			check(VarProperty.PropertyClass);
-			if (VarProperty.PropertyClass->IsChildOf(UClass::StaticClass()))
-			{
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UClassProperty(FObjectInitializer());
-				((UClassProperty*)NewProperty)->MetaClass = VarProperty.MetaClass;
-			}
-			else
-			{
-				if ( DoesAnythingInHierarchyHaveDefaultToInstanced( VarProperty.PropertyClass ) )
+				else
 				{
-					VarProperty.PropertyFlags |= CPF_InstancedReference;
-					AddEditInlineMetaData(VarProperty.MetaData);
+					if ( DoesAnythingInHierarchyHaveDefaultToInstanced( VarProperty.PropertyClass ) )
+					{
+						VarProperty.PropertyFlags |= CPF_InstancedReference;
+						AddEditInlineMetaData(VarProperty.MetaData);
+					}
+					NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UObjectProperty(FObjectInitializer());
 				}
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UObjectProperty(FObjectInitializer());
-			}
 
-			((UObjectPropertyBase*)NewProperty)->PropertyClass = VarProperty.PropertyClass;
-		}
-		else if (VarProperty.Type == CPT_WeakObjectReference)
-		{
-			check(VarProperty.PropertyClass);
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UWeakObjectProperty(FObjectInitializer());
-			((UObjectPropertyBase*)NewProperty)->PropertyClass = VarProperty.PropertyClass;
-		}
-		else if( VarProperty.Type == CPT_LazyObjectReference )
-		{
-			check(VarProperty.PropertyClass);
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)ULazyObjectProperty(FObjectInitializer());
-			((UObjectPropertyBase*)NewProperty)->PropertyClass = VarProperty.PropertyClass;
-		}
-		else if( VarProperty.Type == CPT_AssetObjectReference )
-		{
-			check(VarProperty.PropertyClass);
-			if (VarProperty.PropertyClass->IsChildOf(UClass::StaticClass()))
-			{
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UAssetClassProperty(FObjectInitializer());
-				((UAssetClassProperty*)NewProperty)->MetaClass = VarProperty.MetaClass;
-			}
-			else
-			{
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UAssetObjectProperty(FObjectInitializer());
-			}
-			((UObjectPropertyBase*)NewProperty)->PropertyClass = VarProperty.PropertyClass;
-		}
-		else if (VarProperty.Type == CPT_Interface)
-		{
-			check(VarProperty.PropertyClass);
-			check(VarProperty.PropertyClass->HasAnyClassFlags(CLASS_Interface));
+				((UObjectPropertyBase*)NewProperty)->PropertyClass = VarProperty.PropertyClass;
+				break;
 
-			UInterfaceProperty* InterfaceProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags) UInterfaceProperty(FObjectInitializer());
-			InterfaceProperty->InterfaceClass = VarProperty.PropertyClass;
+			case CPT_WeakObjectReference:
+				check(VarProperty.PropertyClass);
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UWeakObjectProperty(FObjectInitializer());
+				((UObjectPropertyBase*)NewProperty)->PropertyClass = VarProperty.PropertyClass;
+				break;
 
-			NewProperty = InterfaceProperty;
-		}
-		else if (VarProperty.Type == CPT_Name)
-		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UNameProperty(FObjectInitializer());
-		}
-		else if (VarProperty.Type == CPT_String)
-		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UStrProperty(FObjectInitializer());
-		}
-		else if (VarProperty.Type == CPT_Text)
-		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UTextProperty(FObjectInitializer());
-		}
-		else if (VarProperty.Type == CPT_Struct)
-		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UStructProperty(FObjectInitializer());
-			if (VarProperty.Struct->StructFlags & STRUCT_HasInstancedReference)
-			{
-				VarProperty.PropertyFlags |= CPF_ContainsInstancedReference;
-			}
-			((UStructProperty*)NewProperty)->Struct = VarProperty.Struct;
-		}
-		else if (VarProperty.Type == CPT_Delegate)
-		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UDelegateProperty(FObjectInitializer());
-		}
-		else if (VarProperty.Type == CPT_MulticastDelegate)
-		{
-			NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UMulticastDelegateProperty(FObjectInitializer());
-		}
-		else
-		{
-			FError::Throwf(TEXT("Unknown property type %i"), (uint8)VarProperty.Type );
+			case CPT_LazyObjectReference:
+				check(VarProperty.PropertyClass);
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)ULazyObjectProperty(FObjectInitializer());
+				((UObjectPropertyBase*)NewProperty)->PropertyClass = VarProperty.PropertyClass;
+				break;
+
+			case CPT_AssetObjectReference:
+				check(VarProperty.PropertyClass);
+				if (VarProperty.PropertyClass->IsChildOf(UClass::StaticClass()))
+				{
+					NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UAssetClassProperty(FObjectInitializer());
+					((UAssetClassProperty*)NewProperty)->MetaClass = VarProperty.MetaClass;
+				}
+				else
+				{
+					NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UAssetObjectProperty(FObjectInitializer());
+				}
+				((UObjectPropertyBase*)NewProperty)->PropertyClass = VarProperty.PropertyClass;
+				break;
+
+			case CPT_Interface:
+				check(VarProperty.PropertyClass);
+				check(VarProperty.PropertyClass->HasAnyClassFlags(CLASS_Interface));
+
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags) UInterfaceProperty(FObjectInitializer());
+				((UInterfaceProperty*)NewProperty)->InterfaceClass = VarProperty.PropertyClass;
+				break;
+
+			case CPT_Name:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UNameProperty(FObjectInitializer());
+				break;
+
+			case CPT_String:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UStrProperty(FObjectInitializer());
+				break;
+
+			case CPT_Text:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UTextProperty(FObjectInitializer());
+				break;
+
+			case CPT_Struct:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UStructProperty(FObjectInitializer());
+				if (VarProperty.Struct->StructFlags & STRUCT_HasInstancedReference)
+				{
+					VarProperty.PropertyFlags |= CPF_ContainsInstancedReference;
+				}
+				((UStructProperty*)NewProperty)->Struct = VarProperty.Struct;
+				break;
+
+			case CPT_Delegate:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UDelegateProperty(FObjectInitializer());
+				break;
+
+			case CPT_MulticastDelegate:
+				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UMulticastDelegateProperty(FObjectInitializer());
+				break;
+
+			default:
+				FError::Throwf(TEXT("Unknown property type %i"), (uint8)VarProperty.Type);
 		}
 
 		if( Array )
@@ -4851,7 +4841,7 @@ void FHeaderParser::ParseParameterList(FClasses& AllClasses, UFunction* Function
 			RequireSymbol(TEXT(","), TEXT("Delegate definitions require a , between the parameter type and parameter name"));
 		}
 
-		UProperty* Prop = GetVarNameAndDim(Function, Property, /*NoArrays=*/ false, /*IsFunction=*/ true, NULL, VariableCategory);
+		UProperty* Prop = GetVarNameAndDim(Function, Property, VariableCategory);
 
 		Function->NumParms++;
 
@@ -5109,7 +5099,7 @@ void FHeaderParser::CompileDelegateDeclaration(FUnrealSourceFile& SourceFile, FC
 	if (bHasReturnValue)
 	{
 		ReturnType.PropertyFlags |= CPF_Parm | CPF_OutParm | CPF_ReturnParm;
-		UProperty* ReturnProp = GetVarNameAndDim(DelegateSignatureFunction, ReturnType, /*NoArrays=*/ true, /*IsFunction=*/ true, TEXT("ReturnValue"), EVariableCategory::Return);
+		UProperty* ReturnProp = GetVarNameAndDim(DelegateSignatureFunction, ReturnType, EVariableCategory::Return);
 
 		DelegateSignatureFunction->NumParms++;
 	}
@@ -5435,7 +5425,7 @@ void FHeaderParser::CompileFunctionDeclaration(FUnrealSourceFile& SourceFile, FC
 	if (bHasReturnValue)
 	{
 		ReturnType.PropertyFlags |= CPF_Parm | CPF_OutParm | CPF_ReturnParm;
-		UProperty* ReturnProp = GetVarNameAndDim(TopFunction, ReturnType, /*NoArrays=*/ true, /*IsFunction=*/ true, TEXT("ReturnValue"), EVariableCategory::Return);
+		UProperty* ReturnProp = GetVarNameAndDim(TopFunction, ReturnType, EVariableCategory::Return);
 
 		TopFunction->NumParms++;
 	}
@@ -5990,7 +5980,7 @@ void FHeaderParser::CompileVariableDeclaration(FClasses& AllClasses, UStruct* St
 	do
 	{
 		FToken     Property    = OriginalProperty;
-		UProperty* NewProperty = GetVarNameAndDim(Struct, Property, /*NoArrays=*/ false, /*IsFunction=*/ false, NULL, EVariableCategory::Member);
+		UProperty* NewProperty = GetVarNameAndDim(Struct, Property, EVariableCategory::Member);
 
 		// Optionally consume the :1 at the end of a bitfield boolean declaration
 		if (Property.IsBool() && MatchSymbol(TEXT(":")))

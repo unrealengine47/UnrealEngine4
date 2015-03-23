@@ -172,7 +172,7 @@ namespace UnrealBuildTool
 
 		public override void AddFilesToManifest(BuildManifest Manifest, UEBuildBinary Binary)
 		{
-			if (BuildConfiguration.bCreateStubIPA)
+			if (BuildConfiguration.bCreateStubIPA && Binary.Config.Type != UEBuildBinaryType.StaticLibrary)
 			{
 				string StubFile = Path.Combine (Path.GetDirectoryName (Binary.Config.OutputFilePath), Path.GetFileNameWithoutExtension (Binary.Config.OutputFilePath) + ".stub");
 				Manifest.AddBuildProduct(StubFile);
@@ -273,7 +273,7 @@ namespace UnrealBuildTool
 			}
 
 			// Create DWARF format debug info if wanted,
-			if (CompileEnvironment.Config.bCreateDebugInfo && !UnrealBuildTool.BuildingRocket())
+			if (CompileEnvironment.Config.bCreateDebugInfo)
 			{
 				Result += " -gdwarf-2";
 			}
@@ -997,7 +997,7 @@ namespace UnrealBuildTool
 				string FinalRemoteExecutablePath = String.Format("{0}/Payload/{1}.app/{1}", RemoteShadowDirectoryMac, AppName);
 
 				// strip the debug info from the executable if needed
-				if (BuildConfiguration.bStripSymbolsOnIOS || (Target.Configuration == UnrealTargetConfiguration.Shipping) || UnrealBuildTool.BuildingRocket())
+				if (BuildConfiguration.bStripSymbolsOnIOS || (Target.Configuration == UnrealTargetConfiguration.Shipping))
 				{
 					Process StripProcess = new Process();
 					StripProcess.StartInfo.WorkingDirectory = RemoteShadowDirectoryMac;
@@ -1124,25 +1124,6 @@ namespace UnrealBuildTool
 				foreach (UEBuildBinary Binary in Target.AppBinaries)
 				{
 					BuiltBinaries.Add(Path.GetFullPath(Binary.ToString()));
-				}
-
-				// Generate static libraries for monolithic games in Rocket
-				if ((UnrealBuildTool.BuildingRocket() || UnrealBuildTool.RunningRocket()) && TargetRules.IsAGame(Target.TargetType))
-				{
-					List<UEBuildModule> Modules = Target.AppBinaries[0].GetAllDependencyModules(true, false);
-					foreach (UEBuildModuleCPP Module in Modules.OfType<UEBuildModuleCPP>())
-					{
-						if (Utils.IsFileUnderDirectory(Module.ModuleDirectory, BuildConfiguration.RelativeEnginePath) && Module.Binary == Target.AppBinaries[0])
-						{
-							if (Module.bBuildingRedistStaticLibrary)
-							{
-								foreach (var LibraryPath in Module.RedistStaticLibraryPaths)
-								{
-									BuiltBinaries.Add(Path.GetFullPath(LibraryPath));
-								}
-							}
-						}
-					}
 				}
 
 				// check to see if the DangerouslyFast mode is valid (in other words, a build has gone through since a Rebuild/Clean operation)

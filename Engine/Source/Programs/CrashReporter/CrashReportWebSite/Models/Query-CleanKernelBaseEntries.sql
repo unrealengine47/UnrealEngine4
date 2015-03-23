@@ -1,4 +1,4 @@
-ÿþï»¿USE [CrashReport]
+USE [CrashReport]
 
 UPDATE Buggs 
 SET [SummaryV2] = '' 
@@ -30,4 +30,4 @@ WHERE [Description] = 'No comment provided'
 
 
 
---OUTPUT $action, Inserted.*, Deleted.
+--OUTPUT $action, Inserted.*, Deleted.*

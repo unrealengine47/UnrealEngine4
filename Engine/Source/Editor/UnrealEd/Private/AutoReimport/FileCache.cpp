@@ -7,6 +7,48 @@
 #include "DirectoryWatcherModule.h"
 #include "AutoReimportUtilities.h"
 
+template<typename T>
+void ReadWithCustomVersions(FArchive& Ar, T& Data)
+{
+	int64 CustomVersionsOffset = 0;
+	Ar << CustomVersionsOffset;
+
+	const int64 DataStart = Ar.Tell();
+
+	Ar.Seek(CustomVersionsOffset);
+
+	// Serialize the custom versions
+	FCustomVersionContainer Vers = Ar.GetCustomVersions();
+	Vers.Serialize(Ar);
+	Ar.SetCustomVersions(Vers);
+
+	Ar.Seek(DataStart);
+
+	Ar << Data;
+}
+
+template<typename T>
+void WriteWithCustomVersions(FArchive& Ar, T& Data)
+{
+	const int64 CustomVersionsHeader = Ar.Tell();
+	int64 CustomVersionsOffset = CustomVersionsHeader;
+	// We'll come back later and fill this in
+	Ar << CustomVersionsOffset;
+
+	// Write out the data
+	Ar << Data;
+
+	CustomVersionsOffset = Ar.Tell();
+
+	// Serialize the custom versions
+	FCustomVersionContainer Vers = Ar.GetCustomVersions();
+	Vers.Serialize(Ar);
+
+	// Write out where the custom versions are in our header
+	Ar.Seek(CustomVersionsHeader);
+	Ar << CustomVersionsOffset;
+}
+
 /** Convert a FFileChangeData::EFileChangeAction into an EFileAction */
 EFileAction ToFileAction(FFileChangeData::EFileChangeAction InAction)
 {
@@ -58,6 +100,7 @@ FMD5Hash ReadFileMD5(const FString& Filename, TArray<uint8>* Buffer = nullptr)
 const FGuid FFileCacheCustomVersion::Key(0x8E7DDCB3, 0x80DA47BB, 0x9FD346A2, 0x93984DF6);
 FCustomVersionRegistration GRegisterFileCacheVersion(FFileCacheCustomVersion::Key, FFileCacheCustomVersion::Latest, TEXT("FileCacheVersion"));
 
+static const uint32 CacheFileMagicNumber = 0x03DCCB00;
 
 /** Single runnable thread used to parse file cache directories without blocking the main thread */
 struct FAsyncTaskThread : public FRunnable
@@ -165,6 +208,7 @@ TArray<FFilenameAndHash> FAsyncFileHasher::GetCompletedData()
 		if (CompletedIndex == Data.Num())
 		{
 			Data.Empty();
+			CurrentIndex.Set(0);
 		}
 	}
 
@@ -389,6 +433,28 @@ void FFileCache::Destroy()
 	UnbindWatcher();
 }
 
+bool FFileCache::HasStartedUp() const
+{
+	return !DirectoryReader.IsValid() || DirectoryReader->IsComplete();
+}
+
+bool FFileCache::MoveDetectionInitialized() const
+{
+	if (!HasStartedUp())
+	{
+		return false;
+	}
+	else if (!Config.bDetectMoves)
+	{
+		return true;
+	}
+	else
+	{
+		// We don't check AsyncFileHasher->IsComplete() here because that doesn't necessarily mean we've harvested the results off the thread
+		return !AsyncFileHasher.IsValid();
+	}
+}
+
 const FFileData* FFileCache::FindFileData(FImmutableString InFilename) const
 {
 	if (!ensure(HasStartedUp()))
@@ -426,13 +492,20 @@ TOptional<FDirectoryState> FFileCache::ReadCache() const
 		FArchive* Ar = IFileManager::Get().CreateFileReader(*Config.CacheFile);
 		if (Ar)
 		{
-			FDirectoryState Result;
+			// Serialize the magic number - the first iteration omitted version information, so we have a magic number to ignore this data
+			uint32 MagicNumber = 0;
+			*Ar << MagicNumber;
 
-			*Ar << Result;
+			if (MagicNumber == CacheFileMagicNumber)
+			{
+				FDirectoryState Result;
+				ReadWithCustomVersions(*Ar, Result);
+
+				Optional.Emplace(MoveTemp(Result));
+			}
+
 			Ar->Close();
 			delete Ar;
-
-			Optional.Emplace(MoveTemp(Result));
 		}
 	}
 
@@ -448,11 +521,18 @@ void FFileCache::WriteCache()
 		{
 			IFileManager::Get().MakeDirectory(*ParentFolder, true);	
 		}
+
+		// Write to a temp file to avoid corruption
+		FString TempFile = Config.CacheFile + TEXT(".tmp");
 		
-		FArchive* Ar = IFileManager::Get().CreateFileWriter(*Config.CacheFile);
+		FArchive* Ar = IFileManager::Get().CreateFileWriter(*TempFile);
 		if (ensureMsgf(Ar, TEXT("Unable to write file-cache for '%s' to '%s'."), *Config.Directory, *Config.CacheFile))
 		{
-			*Ar << CachedDirectoryState;
+			// Serialize the magic number
+			uint32 MagicNumber = CacheFileMagicNumber;
+			*Ar << MagicNumber;
+
+			WriteWithCustomVersions(*Ar, CachedDirectoryState);
 
 			Ar->Close();
 			delete Ar;
@@ -460,6 +540,9 @@ void FFileCache::WriteCache()
 			CachedDirectoryState.Files.Shrink();
 
 			bSavedCacheDirty = false;
+
+			const bool bMoved = IFileManager::Get().Move(*Config.CacheFile, *TempFile, true, true);
+			ensureMsgf(bMoved, TEXT("Unable to move file-cache for '%s' from '%s' to '%s'."), *Config.Directory, *TempFile, *Config.CacheFile);
 		}
 	}
 }
@@ -523,7 +606,7 @@ void FFileCache::DiffDirtyFiles(const TSet<FImmutableString>& InDirtyFiles, TArr
 			if (CachedState)
 			{
 				// Has it changed?
-				if (*CachedState != FileData)
+				if (CachedState->Timestamp != FileData.Timestamp)
 				{
 					ModifiedFiles.Add(File, FileData);
 				}
@@ -546,11 +629,11 @@ void FFileCache::DiffDirtyFiles(const TSet<FImmutableString>& InDirtyFiles, TArr
 		for (auto RemoveIt = RemovedFiles.CreateIterator(); RemoveIt; ++RemoveIt)
 		{
 			const auto* CachedState = CachedDirectoryState.Files.Find(*RemoveIt);
-			if (CachedState)
+			if (CachedState && CachedState->FileHash.IsValid())
 			{
 				for (auto AdIt = AddedFiles.CreateIterator(); AdIt; ++AdIt)
 				{				
-					if (AdIt.Value().FileHash.IsValid() && AdIt.Value().FileHash == CachedState->FileHash)
+					if (AdIt.Value().FileHash == CachedState->FileHash)
 					{
 						// Found a move destination!
 						InOutTransactions.Add(FUpdateCacheTransaction(*RemoveIt, AdIt.Key(), AdIt.Value()));
@@ -789,7 +872,7 @@ void FFileCache::ReadStateFromAsyncReader()
 		const FString& Filename = FilenameAndData.Key.Get();
 
 		const auto* CachedData = CachedDirectoryState.Files.Find(Filename);
-		if (!CachedData || *CachedData != FilenameAndData.Value)
+		if (!CachedData || CachedData->Timestamp != FilenameAndData.Value.Timestamp)
 		{
 			LocalDirtyFiles.Add(Filename);
 		}

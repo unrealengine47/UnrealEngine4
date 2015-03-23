@@ -55,6 +55,8 @@ namespace UnrealBuildTool
 
 		private static List<FileItem> BundleDependencies = new List<FileItem>();
 
+		private static List<string> BundleDylibPaths = new List<string>();
+
 		public List<string> BuiltBinaries = new List<string>();
 
 		public override void SetUpGlobalEnvironment()
@@ -686,6 +688,12 @@ namespace UnrealBuildTool
 
 			if (!bIsBuildingLibrary || LinkEnvironment.Config.bIncludeDependentLibrariesInLibrary)
 			{
+				// Add RPaths for other bundle modules
+				foreach (string BundleDylibPath in BundleDylibPaths)
+				{
+					LinkCommand += String.Format(" -rpath @executable_path/{0}/", BundleDylibPath);
+				}
+
 				// Add the additional libraries to the argument list.
 				foreach (string AdditionalLibrary in LinkEnvironment.Config.AdditionalLibraries)
 				{
@@ -784,10 +792,13 @@ namespace UnrealBuildTool
 				}
 			}
 
-			foreach (var Framework in AllFrameworks)
+			if (!bIsBuildingLibrary)
 			{
-				LinkCommand += AddFrameworkToLinkCommand(Framework.Key, Framework.Value ? "-weak_framework" : "-framework");
-				AddLibraryPathToRPaths(Framework.Key, AbsolutePath, ref RPaths, ref LinkCommand, bIsBuildingAppBundle);
+				foreach (var Framework in AllFrameworks)
+				{
+					LinkCommand += AddFrameworkToLinkCommand(Framework.Key, Framework.Value ? "-weak_framework" : "-framework");
+					AddLibraryPathToRPaths(Framework.Key, AbsolutePath, ref RPaths, ref LinkCommand, bIsBuildingAppBundle);
+				}
 			}
 
 			// Add the input files to a response file, and pass the response file on the command-line.
@@ -1279,10 +1290,12 @@ namespace UnrealBuildTool
 				BundleDependencies.Add(FileItem.GetItemByPath(Binary.ToString()));
 			}
 		}
-		
+			
 		public override void FixBundleBinariesPaths(UEBuildTarget Target, List<UEBuildBinary> Binaries)
 		{
 			base.FixBundleBinariesPaths(Target, Binaries);
+
+			BundleDylibPaths.Clear();
 
 			string BundleContentsPath = Target.OutputPath + ".app/Contents/";
 			foreach (UEBuildBinary Binary in Binaries)
@@ -1297,13 +1310,15 @@ namespace UnrealBuildTool
 					if (DylibDir.StartsWith(ExeDir))
 					{
 						// get the subdir, which is the DylibDir - ExeDir
-						// @todo: This is commented out because the code in ApplePlatformFile.cpp for finding frameworks doesn't handle subdirectories
-						// at all yet, and it doesn't seem that the subdirectory actually matters in the Mac case, because the JunkManifest doesn't
-						// run over every single .app directory to delete them anyway - and the platforms Mac supports aren't the type to need that
-						// kind of protection to be deleted if they aren't supported for a current user that has the dylibs locally.
-						// string SubDir = DylibDir.Replace(ExeDir, "");
-						string SubDir = "";
+						string SubDir = DylibDir.Replace(ExeDir, "");
 						Binary.Config.OutputFilePaths[0] = BundleContentsPath + "MacOS" + SubDir + "/" + BinaryFileName;
+
+						// Add the path to the list of search paths for the bundle
+						string TrimSubDir = SubDir.Trim('/', '\\');
+						if (TrimSubDir.Length > 0 && !BundleDylibPaths.Contains(TrimSubDir))
+						{
+							BundleDylibPaths.Add(TrimSubDir);
+						}
 					}
 				}
 				else if (!BinaryFileName.EndsWith(".a") && !Binary.Config.OutputFilePath.Contains(".app/Contents/MacOS/")) // Binaries can contain duplicates
@@ -1334,7 +1349,7 @@ namespace UnrealBuildTool
 			var LinkEnvironmentVisitedModules = new Dictionary<UEBuildModule, bool>();
 			foreach (var Module in Modules)
 			{
-				Module.SetupPrivateLinkEnvironment(ref BinaryLinkEnvironment, ref BinaryDependencies, ref LinkEnvironmentVisitedModules);
+				Module.SetupPrivateLinkEnvironment(BinaryLinkEnvironment, BinaryDependencies, LinkEnvironmentVisitedModules);
 			}
 
 			foreach (string AdditionalLibrary in BinaryLinkEnvironment.Config.AdditionalLibraries)
@@ -1434,6 +1449,11 @@ namespace UnrealBuildTool
 		public override ICollection<FileItem> PostBuild(FileItem Executable, LinkEnvironment BinaryLinkEnvironment)
 		{
 			var OutputFiles = base.PostBuild(Executable, BinaryLinkEnvironment);
+
+			if (BinaryLinkEnvironment.Config.bIsBuildingLibrary)
+			{
+				return OutputFiles;
+			}
 
 			foreach (UEBuildBundleResource Resource in BinaryLinkEnvironment.Config.AdditionalBundleResources)
 			{

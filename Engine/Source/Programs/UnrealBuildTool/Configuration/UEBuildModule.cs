@@ -524,11 +524,11 @@ namespace UnrealBuildTool
 		protected virtual void SetupPublicCompileEnvironment(
 			UEBuildBinary SourceBinary,
 			bool bIncludePathsOnly,
-			ref HashSet<string> IncludePaths,
-			ref HashSet<string> SystemIncludePaths,
-			ref List<string> Definitions,
-			ref List<UEBuildFramework> AdditionalFrameworks,
-			ref Dictionary<UEBuildModule, bool> VisitedModules
+			HashSet<string> IncludePaths,
+			HashSet<string> SystemIncludePaths,
+			List<string> Definitions,
+			List<UEBuildFramework> AdditionalFrameworks,
+			Dictionary<UEBuildModule, bool> VisitedModules
 			)
 		{
 			// There may be circular dependencies in compile dependencies, so we need to avoid reentrance.
@@ -595,7 +595,7 @@ namespace UnrealBuildTool
 					foreach(var DependencyName in PublicDependencyModuleNames)
 					{
 						var DependencyModule = Target.GetModuleByName(DependencyName);
-						DependencyModule.SetupPublicCompileEnvironment(SourceBinary,bIncludePathsOnly,ref IncludePaths,ref SystemIncludePaths,ref Definitions,ref AdditionalFrameworks,ref VisitedModules);
+						DependencyModule.SetupPublicCompileEnvironment(SourceBinary,bIncludePathsOnly, IncludePaths, SystemIncludePaths, Definitions, AdditionalFrameworks, VisitedModules);
 					}
 				}
 
@@ -604,7 +604,7 @@ namespace UnrealBuildTool
 				{
 					bool bInnerIncludePathsOnly = true;
 					var IncludePathModule = Target.GetModuleByName(IncludePathModuleName);
-					IncludePathModule.SetupPublicCompileEnvironment( SourceBinary, bInnerIncludePathsOnly, ref IncludePaths, ref SystemIncludePaths, ref Definitions, ref AdditionalFrameworks, ref VisitedModules );
+					IncludePathModule.SetupPublicCompileEnvironment( SourceBinary, bInnerIncludePathsOnly, IncludePaths, SystemIncludePaths, Definitions, AdditionalFrameworks, VisitedModules );
 				}
 
 				// Add the module's directory to the include path, so we can root #includes to it
@@ -654,10 +654,10 @@ namespace UnrealBuildTool
 
 		/** Sets up the environment for compiling this module. */
 		protected virtual void SetupPrivateCompileEnvironment(
-			ref HashSet<string> IncludePaths,
-			ref HashSet<string> SystemIncludePaths,
-			ref List<string> Definitions,
-			ref List<UEBuildFramework> AdditionalFrameworks
+			HashSet<string> IncludePaths,
+			HashSet<string> SystemIncludePaths,
+			List<string> Definitions,
+			List<UEBuildFramework> AdditionalFrameworks
 			)
 		{
 			var VisitedModules = new Dictionary<UEBuildModule, bool>();
@@ -672,13 +672,13 @@ namespace UnrealBuildTool
 
 			// Allow the module's public dependencies to modify the compile environment.
 			bool bIncludePathsOnly = false;
-			SetupPublicCompileEnvironment(Binary,bIncludePathsOnly,ref IncludePaths,ref SystemIncludePaths,ref Definitions,ref AdditionalFrameworks,ref VisitedModules);
+			SetupPublicCompileEnvironment(Binary,bIncludePathsOnly, IncludePaths, SystemIncludePaths, Definitions, AdditionalFrameworks, VisitedModules);
 
 			// Also allow the module's private dependencies to modify the compile environment.
 			foreach(var DependencyName in PrivateDependencyModuleNames)
 			{
 				var DependencyModule = Target.GetModuleByName(DependencyName);
-				DependencyModule.SetupPublicCompileEnvironment(Binary,bIncludePathsOnly,ref IncludePaths,ref SystemIncludePaths,ref Definitions,ref AdditionalFrameworks,ref VisitedModules);
+				DependencyModule.SetupPublicCompileEnvironment(Binary,bIncludePathsOnly, IncludePaths, SystemIncludePaths, Definitions, AdditionalFrameworks, VisitedModules);
 			}
 
 			// Add include paths from modules with header files that our private files need access to, but won't necessarily be importing
@@ -686,23 +686,23 @@ namespace UnrealBuildTool
 			{
 				bool bInnerIncludePathsOnly = true;
 				var IncludePathModule = Target.GetModuleByName(IncludePathModuleName);
-				IncludePathModule.SetupPublicCompileEnvironment(Binary, bInnerIncludePathsOnly, ref IncludePaths, ref SystemIncludePaths, ref Definitions, ref AdditionalFrameworks, ref VisitedModules);
+				IncludePathModule.SetupPublicCompileEnvironment(Binary, bInnerIncludePathsOnly, IncludePaths, SystemIncludePaths, Definitions, AdditionalFrameworks, VisitedModules);
 			}
 		}
 
 		/** Sets up the environment for linking any module that includes the public interface of this module. */ 
 		protected virtual void SetupPublicLinkEnvironment(
 			UEBuildBinary SourceBinary,
-			ref List<string> LibraryPaths,
-			ref List<string> AdditionalLibraries,
-			ref List<string> Frameworks,
-			ref List<string> WeakFrameworks,
-			ref List<UEBuildFramework> AdditionalFrameworks,
-			ref List<string> AdditionalShadowFiles,
-			ref List<UEBuildBundleResource> AdditionalBundleResources,
-			ref List<string> DelayLoadDLLs,
-			ref List<UEBuildBinary> BinaryDependencies,
-			ref Dictionary<UEBuildModule, bool> VisitedModules
+			List<string> LibraryPaths,
+			List<string> AdditionalLibraries,
+			List<string> Frameworks,
+			List<string> WeakFrameworks,
+			List<UEBuildFramework> AdditionalFrameworks,
+			List<string> AdditionalShadowFiles,
+			List<UEBuildBundleResource> AdditionalBundleResources,
+			List<string> DelayLoadDLLs,
+			List<UEBuildBinary> BinaryDependencies,
+			Dictionary<UEBuildModule, bool> VisitedModules
 			)
 		{
 			// There may be circular dependencies in compile dependencies, so we need to avoid reentrance.
@@ -739,8 +739,8 @@ namespace UnrealBuildTool
 							bool bIsInStaticLibrary = (DependencyModule.Binary != null && DependencyModule.Binary.Config.Type == UEBuildBinaryType.StaticLibrary);
 							if (bIsExternalModule || bIsInStaticLibrary)
 							{
-								DependencyModule.SetupPublicLinkEnvironment(SourceBinary, ref LibraryPaths, ref AdditionalLibraries, ref Frameworks, ref WeakFrameworks,
-									ref AdditionalFrameworks, ref AdditionalShadowFiles, ref AdditionalBundleResources, ref DelayLoadDLLs, ref BinaryDependencies, ref VisitedModules);
+								DependencyModule.SetupPublicLinkEnvironment(SourceBinary, LibraryPaths, AdditionalLibraries, Frameworks, WeakFrameworks,
+									AdditionalFrameworks, AdditionalShadowFiles, AdditionalBundleResources, DelayLoadDLLs, BinaryDependencies, VisitedModules);
 							}
 						}
 					}
@@ -765,14 +765,14 @@ namespace UnrealBuildTool
 
 		/** Sets up the environment for linking this module. */
 		public virtual void SetupPrivateLinkEnvironment(
-			ref LinkEnvironment LinkEnvironment,
-			ref List<UEBuildBinary> BinaryDependencies,
-			ref Dictionary<UEBuildModule, bool> VisitedModules
+			LinkEnvironment LinkEnvironment,
+			List<UEBuildBinary> BinaryDependencies,
+			Dictionary<UEBuildModule, bool> VisitedModules
 			)
 		{
 			// Allow the module's public dependencies to add library paths and additional libraries to the link environment.
-			SetupPublicLinkEnvironment(Binary,ref LinkEnvironment.Config.LibraryPaths,ref LinkEnvironment.Config.AdditionalLibraries,ref LinkEnvironment.Config.Frameworks,ref LinkEnvironment.Config.WeakFrameworks,
-				ref LinkEnvironment.Config.AdditionalFrameworks,ref LinkEnvironment.Config.AdditionalShadowFiles, ref LinkEnvironment.Config.AdditionalBundleResources,ref LinkEnvironment.Config.DelayLoadDLLs,ref BinaryDependencies,ref VisitedModules);
+			SetupPublicLinkEnvironment(Binary, LinkEnvironment.Config.LibraryPaths, LinkEnvironment.Config.AdditionalLibraries, LinkEnvironment.Config.Frameworks, LinkEnvironment.Config.WeakFrameworks,
+				LinkEnvironment.Config.AdditionalFrameworks,LinkEnvironment.Config.AdditionalShadowFiles, LinkEnvironment.Config.AdditionalBundleResources, LinkEnvironment.Config.DelayLoadDLLs, BinaryDependencies, VisitedModules);
 
 			// Also allow the module's public and private dependencies to modify the link environment.
 			List<string> AllDependencyModuleNames = new List<string>(PrivateDependencyModuleNames);
@@ -781,8 +781,8 @@ namespace UnrealBuildTool
 			foreach (var DependencyName in AllDependencyModuleNames)
 			{
 				var DependencyModule = Target.GetModuleByName(DependencyName);
-				DependencyModule.SetupPublicLinkEnvironment(Binary,ref LinkEnvironment.Config.LibraryPaths,ref LinkEnvironment.Config.AdditionalLibraries,ref LinkEnvironment.Config.Frameworks,ref LinkEnvironment.Config.WeakFrameworks,
-					ref LinkEnvironment.Config.AdditionalFrameworks,ref LinkEnvironment.Config.AdditionalShadowFiles, ref LinkEnvironment.Config.AdditionalBundleResources,ref LinkEnvironment.Config.DelayLoadDLLs,ref BinaryDependencies,ref VisitedModules);
+				DependencyModule.SetupPublicLinkEnvironment(Binary, LinkEnvironment.Config.LibraryPaths, LinkEnvironment.Config.AdditionalLibraries, LinkEnvironment.Config.Frameworks, LinkEnvironment.Config.WeakFrameworks,
+					LinkEnvironment.Config.AdditionalFrameworks, LinkEnvironment.Config.AdditionalShadowFiles, LinkEnvironment.Config.AdditionalBundleResources, LinkEnvironment.Config.DelayLoadDLLs, BinaryDependencies, VisitedModules);
 			}
 		}
 
@@ -805,7 +805,16 @@ namespace UnrealBuildTool
 		 * @param	bForceCircular	True if circular dependencies should be processed
 		 * @param	bOnlyDirectDependencies	True to return only this module's direct dependencies
 		 */
-		public virtual void GetAllDependencyModules(ref Dictionary<string, UEBuildModule> ReferencedModules, ref List<UEBuildModule> OrderedModules, bool bIncludeDynamicallyLoaded, bool bForceCircular, bool bOnlyDirectDependencies)
+		public virtual void GetAllDependencyModules(Dictionary<string, UEBuildModule> ReferencedModules, List<UEBuildModule> OrderedModules, bool bIncludeDynamicallyLoaded, bool bForceCircular, bool bOnlyDirectDependencies)
+		{
+		}
+
+		/**
+		 * Gets all of the modules precompiled along with this module
+		 * 
+		 * @param	Modules	Set of all the precompiled modules
+		 */
+		public virtual void RecursivelyAddPrecompiledModules(List<UEBuildModule> Modules)
 		{
 		}
 
@@ -818,7 +827,7 @@ namespace UnrealBuildTool
 		 * @param	bBuildOnlyModules	True to build only specific modules, false for all
 		 * @param	ModulesToBuild		The specific modules to build
 		 */
-		public virtual void RecursivelyProcessUnboundModules(UEBuildTarget Target, ref Dictionary<string, UEBuildBinary> Binaries, UEBuildBinary ExecutableBinary)
+		public virtual void RecursivelyProcessUnboundModules(UEBuildTarget Target, Dictionary<string, UEBuildBinary> Binaries, UEBuildBinary ExecutableBinary)
 		{
 		}
 
@@ -987,13 +996,7 @@ namespace UnrealBuildTool
 		/** Enable exception handling */
 		public bool bEnableExceptions = false;
 
-		/** Path to this module's redist static library */
-		public string[] RedistStaticLibraryPaths = null;
-
 		public List<string> IncludeSearchPaths = new List<string>();
-
-		/** Whether we're building the redist static library (as well as using it). */
-		public bool bBuildingRedistStaticLibrary = false;
 
 		public class ProcessedDependenciesClass
 		{
@@ -1143,12 +1146,6 @@ namespace UnrealBuildTool
 				return LinkInputFiles;
 			}
 
-			if(RedistStaticLibraryPaths != null && !bBuildingRedistStaticLibrary)
-			{
-				// The redist static library will be added in SetupPrivateLinkEnvironment
-				return LinkInputFiles;
-			}
-
 			var ModuleCompileEnvironment = CreateModuleCompileEnvironment(CompileEnvironment);
 			IncludeSearchPaths = ModuleCompileEnvironment.Config.CPPIncludeInfo.IncludePaths.ToList();
 			IncludeSearchPaths.AddRange(ModuleCompileEnvironment.Config.CPPIncludeInfo.SystemIncludePaths.ToList());
@@ -1269,7 +1266,7 @@ namespace UnrealBuildTool
 					Log.TraceVerbose("Module '{0}' was not allowed to use Shared PCHs, because we're compiling to a library in monolithic mode", this.Name );
 				}
 
-				bool bUseSharedPCHFiles  = BuildConfiguration.bUseSharedPCHs && (bDisableSharedPCHFiles == false) && !UnrealBuildTool.BuildingRocket();
+				bool bUseSharedPCHFiles  = BuildConfiguration.bUseSharedPCHs && (bDisableSharedPCHFiles == false) && GlobalCompileEnvironment.SharedPCHHeaderFiles.Count > 0;
 
 				if( bUseSharedPCHFiles )
 				{
@@ -1289,7 +1286,7 @@ namespace UnrealBuildTool
 						var DirectDependencyModules = new List<UEBuildModule>();
 						{ 
 							var ReferencedModules = new Dictionary<string, UEBuildModule>( StringComparer.InvariantCultureIgnoreCase );
-							this.GetAllDependencyModules( ref ReferencedModules, ref DirectDependencyModules, bIncludeDynamicallyLoaded:false, bForceCircular:false, bOnlyDirectDependencies:true );
+							this.GetAllDependencyModules( ReferencedModules, DirectDependencyModules, bIncludeDynamicallyLoaded:false, bForceCircular:false, bOnlyDirectDependencies:true );
 						}
 
 						int LargestSharedPCHHeaderFileIndex = -1;
@@ -1524,23 +1521,6 @@ namespace UnrealBuildTool
 
 			// Compile MM files directly.
 			LinkInputFiles.AddRange(CPPCompileEnvironment.CompileFiles( Target, SourceFilesToBuild.MMFiles, Name).ObjectFiles);
-
-			// If we're building Rocket, generate a static library for this module
-			if(RedistStaticLibraryPaths != null)
-			{
-				// Create a link environment for it
-				LinkEnvironment RedistLinkEnvironment = new LinkEnvironment();
-				RedistLinkEnvironment.InputFiles.AddRange(LinkInputFiles);
-				RedistLinkEnvironment.Config.Target                = CompileEnvironment.Config.Target;
-				RedistLinkEnvironment.Config.bIsBuildingDLL        = false;
-				RedistLinkEnvironment.Config.bIsBuildingLibrary    = true;
-				RedistLinkEnvironment.Config.IntermediateDirectory = Binary.Config.IntermediateDirectory;
-				RedistLinkEnvironment.Config.OutputFilePaths       = RedistStaticLibraryPaths != null ? (string[])RedistStaticLibraryPaths.Clone() : null;
-
-				// Replace the items built so far with the library
-				RedistLinkEnvironment.LinkExecutable(false);
-				LinkInputFiles.Clear();
-			}
 
 			// Compile RC files.
 			LinkInputFiles.AddRange(CPPCompileEnvironment.CompileRCFiles(Target, SourceFilesToBuild.RCFiles).ObjectFiles);
@@ -1817,7 +1797,7 @@ namespace UnrealBuildTool
 			Result.Config.Definitions.AddRange(Definitions);
 
 			// Setup the compile environment for the module.
-			SetupPrivateCompileEnvironment(ref Result.Config.CPPIncludeInfo.IncludePaths, ref Result.Config.CPPIncludeInfo.SystemIncludePaths, ref Result.Config.Definitions, ref Result.Config.AdditionalFrameworks);
+			SetupPrivateCompileEnvironment(Result.Config.CPPIncludeInfo.IncludePaths, Result.Config.CPPIncludeInfo.SystemIncludePaths, Result.Config.Definitions, Result.Config.AdditionalFrameworks);
 
 			// @hack to skip adding definitions to compile environment, they will be baked into source code files
 			if (bSkipDefinitionsForCompileEnvironment)
@@ -1827,23 +1807,6 @@ namespace UnrealBuildTool
 			}
 
 			return Result;
-		}
-
-		public override void SetupPrivateLinkEnvironment(
-			ref LinkEnvironment LinkEnvironment,
-			ref List<UEBuildBinary> BinaryDependencies,
-			ref Dictionary<UEBuildModule, bool> VisitedModules
-			)
-		{
-			base.SetupPrivateLinkEnvironment(ref LinkEnvironment,ref BinaryDependencies,ref VisitedModules);
-
-			if(RedistStaticLibraryPaths != null)
-			{
-				foreach (string LibVar in RedistStaticLibraryPaths)
-				{
-					LinkEnvironment.Config.AdditionalLibraries.Add(Path.GetFullPath(LibVar));
-				}
-			}
 		}
 
 		public HashSet<FileItem> _AllClassesHeaders     = new HashSet<FileItem>();
@@ -1920,7 +1883,7 @@ namespace UnrealBuildTool
 			return CachedModuleUHTInfo;
 		}
 	
-		public override void GetAllDependencyModules( ref Dictionary<string, UEBuildModule> ReferencedModules, ref List<UEBuildModule> OrderedModules, bool bIncludeDynamicallyLoaded, bool bForceCircular, bool bOnlyDirectDependencies )
+		public override void GetAllDependencyModules( Dictionary<string, UEBuildModule> ReferencedModules, List<UEBuildModule> OrderedModules, bool bIncludeDynamicallyLoaded, bool bForceCircular, bool bOnlyDirectDependencies )
 		{
 			var AllModuleNames = new List<string>();
 			AllModuleNames.AddRange(PrivateDependencyModuleNames);
@@ -1945,11 +1908,33 @@ namespace UnrealBuildTool
 						if( !bOnlyDirectDependencies )
 						{ 
 							// Recurse into dependent modules first
-							Module.GetAllDependencyModules(ref ReferencedModules, ref OrderedModules, bIncludeDynamicallyLoaded, bForceCircular, bOnlyDirectDependencies);
+							Module.GetAllDependencyModules(ReferencedModules, OrderedModules, bIncludeDynamicallyLoaded, bForceCircular, bOnlyDirectDependencies);
 						}
 
 						OrderedModules.Add( Module );
 					}
+				}
+			}
+		}
+
+		public override void RecursivelyAddPrecompiledModules(List<UEBuildModule> Modules)
+		{
+			if(!Modules.Contains(this))
+			{
+				Modules.Add(this);
+
+				// Get the dependent modules
+				List<string> DependentModuleNames = new List<string>();
+				DependentModuleNames.AddRange(PrivateDependencyModuleNames);
+				DependentModuleNames.AddRange(PublicDependencyModuleNames);
+				DependentModuleNames.AddRange(DynamicallyLoadedModuleNames);
+				DependentModuleNames.AddRange(PlatformSpecificDynamicallyLoadedModuleNames);
+
+				// Find modules for each of them, and add their dependencies too
+				foreach(string DependentModuleName in DependentModuleNames)
+				{
+					UEBuildModule DependentModule = Target.FindOrCreateModuleByName(DependentModuleName);
+					DependentModule.RecursivelyAddPrecompiledModules(Modules);
 				}
 			}
 		}
@@ -1975,7 +1960,7 @@ namespace UnrealBuildTool
 			}
 		}
 
-		public override void RecursivelyProcessUnboundModules(UEBuildTarget Target, ref Dictionary<string, UEBuildBinary> Binaries, UEBuildBinary ExecutableBinary)
+		public override void RecursivelyProcessUnboundModules(UEBuildTarget Target, Dictionary<string, UEBuildBinary> Binaries, UEBuildBinary ExecutableBinary)
 		{
 			try
 			{
@@ -2047,7 +2032,7 @@ namespace UnrealBuildTool
 							DependencyModule.bIncludedInTarget = true;
 
 							// Also add binaries for this module's dependencies
-							DependencyModule.RecursivelyProcessUnboundModules( Target, ref Binaries, ExecutableBinary );
+							DependencyModule.RecursivelyProcessUnboundModules( Target, Binaries, ExecutableBinary );
 						}
 					}
 
@@ -2086,12 +2071,9 @@ namespace UnrealBuildTool
 		public static string GetGeneratedCodeDirectoryForModule(UEBuildTarget Target, string ModuleDirectory, string ModuleName)
 		{
 			string BaseDirectory = null;
-			if ((Target.ShouldCompileMonolithic() || Target.TargetType == TargetRules.TargetType.Program) && 
-				(!UnrealBuildTool.BuildingRocket()) &&
-				(!UnrealBuildTool.RunningRocket() || Utils.IsFileUnderDirectory(ModuleDirectory, UnrealBuildTool.GetUProjectPath())))
+			if (Target.ShouldCompileMonolithic() || Target.TargetType == TargetRules.TargetType.Program || UnrealBuildTool.RunningRocket())
 			{
-				// Monolithic configurations and programs have their intermediate headers stored under their
-				// respective project folders with the exception of rocket which always stores engine modules in the engine folder.
+				// Monolithic configurations, programs and Rocket games have their intermediate headers stored under their respective project folders.
 				string RootDirectory = UnrealBuildTool.GetUProjectPath();
 				if (String.IsNullOrEmpty(RootDirectory))
 				{
@@ -2214,12 +2196,12 @@ namespace UnrealBuildTool
 		}
 
 		public override void SetupPrivateLinkEnvironment(
-			ref LinkEnvironment LinkEnvironment,
-			ref List<UEBuildBinary> BinaryDependencies,
-			ref Dictionary<UEBuildModule, bool> VisitedModules
+			LinkEnvironment LinkEnvironment,
+			List<UEBuildBinary> BinaryDependencies,
+			Dictionary<UEBuildModule, bool> VisitedModules
 			)
 		{
-			base.SetupPrivateLinkEnvironment(ref LinkEnvironment,ref BinaryDependencies,ref VisitedModules);
+			base.SetupPrivateLinkEnvironment(LinkEnvironment, BinaryDependencies, VisitedModules);
 
 			// Setup the link environment for linking a CLR binary.
 			LinkEnvironment.Config.CLRMode = CPPCLRMode.CLREnabled;

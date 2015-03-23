@@ -99,7 +99,7 @@ protected:
 	UMaterialInterface* DefaultMaterial;
 
 	// The alternate material to use on a sprite instance if not overridden (this is only used for Diced render geometry, and will be the opaque material in that case, slot 1)
-	UPROPERTY(Category=Sprite, EditAnywhere, BlueprintReadOnly)
+	UPROPERTY(Category=Rendering, EditAnywhere, BlueprintReadOnly)
 	UMaterialInterface* AlternateMaterial;
 
 	// List of sockets on this sprite
@@ -183,7 +183,7 @@ public:
 	FVector ConvertTextureSpaceToPivotSpace(FVector Input) const;
 	FVector ConvertPivotSpaceToTextureSpace(FVector Input) const;
 	FVector2D ConvertWorldSpaceToTextureSpace(const FVector& WorldPoint) const;
-	FVector2D ConvertWorldSpaceDeltaToTextureSpace(const FVector& WorldDelta) const;
+	FVector2D ConvertWorldSpaceDeltaToTextureSpace(const FVector& WorldDelta, bool bIgnoreRotation = false) const;
 
 	// World space WRT the sprite editor *only*
 	FVector ConvertTextureSpaceToWorldSpace(const FVector2D& SourcePoint) const;

@@ -75,7 +75,7 @@ public:
 	virtual void Tick( const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime ) override;
 	virtual void OnFocusLost(const FFocusEvent& InFocusEvent) override;
 	virtual bool SupportsKeyboardFocus() const override;
-
+	virtual FCursorReply OnCursorQuery(const FGeometry& MyGeometry, const FPointerEvent& CursorEvent) const override;
 	// End of SWidget interface
 
 	// SNodePanel::SNode interface
@@ -108,7 +108,7 @@ public:
 	void DropCancelled();
 
 	/** Returns the size of this notifies duration in screen space */
-	float GetDurationSize() { return NotifyDurationSizeX;}
+	float GetDurationSize() const { return NotifyDurationSizeX;}
 
 	/** Sets the position the mouse was at when this node was last hit */
 	void SetLastMouseDownPosition(const FVector2D& CursorPosition) {LastMouseDownPosition = CursorPosition;}
@@ -326,7 +326,11 @@ protected:
 	void AddNewNotify(const FText& NewNotifyName, ETextCommit::Type CommitInfo);
 	void OnSetTriggerWeightNotifyClicked(int32 NotifyIndex);
 	void SetTriggerWeight(const FText& TriggerWeight, ETextCommit::Type CommitInfo, int32 NotifyIndex);
-	
+	void OnSetNotifyTimeClicked(int32 NotifyIndex);
+	void SetNotifyTime(const FText& NotifyTimeText, ETextCommit::Type CommitInfo, int32 NotifyIndex);
+	void OnSetNotifyFrameClicked(int32 NotifyIndex);
+	void SetNotifyFrame(const FText& NotifyFrameText, ETextCommit::Type CommitInfo, int32 NotifyIndex);
+
 	// Whether we have one node selected
 	bool IsSingleNodeSelected();
 	// Checks the clipboard for an anim notify buffer, and returns whether there's only one notify
@@ -1022,8 +1026,7 @@ FText SAnimNotifyNode::GetNotifyText() const
 FText SAnimNotifyNode::GetNodeTooltip() const
 {
 	const float Time = NotifyEvent->GetTime();
-	const float Percentage = Time / Sequence->SequenceLength;
-	const FText Frame = FText::AsNumber( (int32)(Percentage * Sequence->GetNumberOfFrames()) );
+	const FText Frame = FText::AsNumber(Sequence->GetFrameAtTime(NotifyEvent->GetTime()));
 	const FText Seconds = FText::AsNumber( Time );
 
 	FText ToolTipText;
@@ -1573,6 +1576,25 @@ bool SAnimNotifyNode::SupportsKeyboardFocus() const
 	// Need to support focus on the node so we can end drag transactions if the user alt-tabs
 	// from the editor while in the proceess of dragging a state notify duration marker.
 	return true;
+}
+
+FCursorReply SAnimNotifyNode::OnCursorQuery(const FGeometry& MyGeometry, const FPointerEvent& CursorEvent) const
+{
+	// Show resize cursor if the cursor is hoverring over either of the scrub handles of a notify state node
+	if(IsHovered() && GetDurationSize() > 0.0f)
+	{
+		FVector2D RelMouseLocation = MyGeometry.AbsoluteToLocal(CursorEvent.GetScreenSpacePosition());
+
+		const float HandleHalfWidth = ScrubHandleSize.X / 2.0f;
+		const float DistFromFirstHandle = FMath::Abs(RelMouseLocation.X - NotifyScrubHandleCentre);
+		const float DistFromSecondHandle = FMath::Abs(RelMouseLocation.X - (NotifyScrubHandleCentre + NotifyDurationSizeX));
+
+		if(DistFromFirstHandle < HandleHalfWidth || DistFromSecondHandle < HandleHalfWidth || CurrentDragHandle != ENotifyStateHandleHit::None)
+		{
+			return FCursorReply::Cursor(EMouseCursor::ResizeLeftRight);
+		}
+	}
+	return FCursorReply::Unhandled();
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -2150,14 +2172,34 @@ TSharedPtr<SWidget> SAnimNotifyTrack::SummonContextMenu(const FGeometry& MyGeome
 				SelectNotifyNode(NotifyIndex, MouseEvent.IsControlDown());
 			}
 
+			FAnimNotifyEvent* Event = AnimNotifies[NotifyIndex];
+
+			FNumberFormattingOptions Options;
+			Options.MinimumFractionalDigits = 5;
+
+			// Add item to directly set notify time
+			const FText CurrentTime = FText::AsNumber(Event->GetTime(), &Options);
+			const FText TimeMenuText = FText::Format(LOCTEXT("TimeMenuText", "Set Notify Begin Time: {0}..."), CurrentTime);
+
+			NewAction.ExecuteAction.BindRaw(this, &SAnimNotifyTrack::OnSetNotifyTimeClicked, NotifyIndex);
+			NewAction.CanExecuteAction.BindRaw(this, &SAnimNotifyTrack::IsSingleNodeSelected);
+
+			MenuBuilder.AddMenuEntry(TimeMenuText, LOCTEXT("SetTimeToolTip", "Set the time of this notify directly"), FSlateIcon(), NewAction);
+
+			// Add item to directly set notify frame
+			const FText Frame = FText::AsNumber(Sequence->GetFrameAtTime(Event->GetTime()));
+			const FText FrameMenuText = FText::Format(LOCTEXT("FrameMenuText", "Set Notify Frame: {0}..."), Frame);
+
+			NewAction.ExecuteAction.BindRaw(this, &SAnimNotifyTrack::OnSetNotifyFrameClicked, NotifyIndex);
+			NewAction.CanExecuteAction.BindRaw(this, &SAnimNotifyTrack::IsSingleNodeSelected);
+
+			MenuBuilder.AddMenuEntry(FrameMenuText, LOCTEXT("SetFrameToolTip", "Set the frame of this notify directly"), FSlateIcon(), NewAction);
+
 			// add menu to get threshold weight for triggering this notify
 			NewAction.ExecuteAction.BindRaw(
 				this, &SAnimNotifyTrack::OnSetTriggerWeightNotifyClicked, NotifyIndex);
 			NewAction.CanExecuteAction.BindRaw(
 				this, &SAnimNotifyTrack::IsSingleNodeSelected);
-
-			FNumberFormattingOptions Options;
-			Options.MinimumFractionalDigits = 5;
 
 			const FText Threshold = FText::AsNumber( AnimNotifies[NotifyIndex]->TriggerWeightThreshold, &Options );
 			const FText MinTriggerWeightText = FText::Format( LOCTEXT("MinTriggerWeight", "Min Trigger Weight: {0}..."), Threshold );
@@ -2954,6 +2996,107 @@ void SAnimNotifyTrack::GetNotifyMenuData(TArray<FAssetData>& NotifyAssetData, TA
 	{
 		return A.NotifyName < B.NotifyName;
 	});
+}
+
+void SAnimNotifyTrack::OnSetNotifyTimeClicked(int32 NotifyIndex)
+{
+	if(AnimNotifies.IsValidIndex(NotifyIndex))
+	{
+		FString DefaultText = FString::Printf(TEXT("%0.6f"), AnimNotifies[NotifyIndex]->GetTime());
+
+		// Show dialog to enter time
+		TSharedRef<STextEntryPopup> TextEntry =
+			SNew(STextEntryPopup)
+			.Label(LOCTEXT("NotifyTimeClickedLabel", "Notify Time"))
+			.DefaultText(FText::FromString(DefaultText))
+			.OnTextCommitted(this, &SAnimNotifyTrack::SetNotifyTime, NotifyIndex);
+
+		FSlateApplication::Get().PushMenu(
+			AsShared(), // Menu being summoned from a menu that is closing: Parent widget should be k2 not the menu thats open or it will be closed when the menu is dismissed
+			TextEntry,
+			FSlateApplication::Get().GetCursorPos(),
+			FPopupTransitionEffect(FPopupTransitionEffect::TypeInPopup)
+			);
+
+		TextEntry->FocusDefaultWidget();
+	}
+}
+
+void SAnimNotifyTrack::SetNotifyTime(const FText& NotifyTimeText, ETextCommit::Type CommitInfo, int32 NotifyIndex)
+{
+	if(CommitInfo == ETextCommit::OnEnter || CommitInfo == ETextCommit::OnUserMovedFocus)
+	{
+		if(AnimNotifies.IsValidIndex(NotifyIndex))
+		{
+			FAnimNotifyEvent* Event = AnimNotifies[NotifyIndex];
+
+			float NewTime = FMath::Clamp(FCString::Atof(*NotifyTimeText.ToString()), 0.0f, Sequence->SequenceLength - Event->GetDuration());
+
+			Event->SetTime(NewTime);
+
+			Event->RefreshTriggerOffset(Sequence->CalculateOffsetForNotify(Event->GetTime()));
+			if(Event->GetDuration() > 0.0f)
+			{
+				Event->RefreshEndTriggerOffset(Sequence->CalculateOffsetForNotify(Event->GetTime() + Event->GetDuration()));
+			}
+		}
+	}
+
+	FSlateApplication::Get().DismissAllMenus();
+}
+
+void SAnimNotifyTrack::OnSetNotifyFrameClicked(int32 NotifyIndex)
+{
+	if(AnimNotifies.IsValidIndex(NotifyIndex))
+	{
+		FAnimNotifyEvent* Event = AnimNotifies[NotifyIndex];
+
+		//const float Time = Event->GetTime();
+		//const float Percentage = Time / Sequence->SequenceLength;
+		const FText Frame = FText::AsNumber(Sequence->GetFrameAtTime(Event->GetTime()));
+
+		FString DefaultText = FString::Printf(TEXT("%s"), *Frame.ToString());
+
+		// Show dialog to enter frame
+		TSharedRef<STextEntryPopup> TextEntry =
+			SNew(STextEntryPopup)
+			.Label(LOCTEXT("NotifyFrameClickedLabel", "Notify Frame"))
+			.DefaultText(FText::FromString(DefaultText))
+			.OnTextCommitted(this, &SAnimNotifyTrack::SetNotifyFrame, NotifyIndex);
+
+		FSlateApplication::Get().PushMenu(
+			AsShared(), // Menu being summoned from a menu that is closing: Parent widget should be k2 not the menu thats open or it will be closed when the menu is dismissed
+			TextEntry,
+			FSlateApplication::Get().GetCursorPos(),
+			FPopupTransitionEffect(FPopupTransitionEffect::TypeInPopup)
+			);
+
+		TextEntry->FocusDefaultWidget();
+	}
+}
+
+void SAnimNotifyTrack::SetNotifyFrame(const FText& NotifyFrameText, ETextCommit::Type CommitInfo, int32 NotifyIndex)
+{
+	if(CommitInfo == ETextCommit::OnEnter || CommitInfo == ETextCommit::OnUserMovedFocus)
+	{
+		if(AnimNotifies.IsValidIndex(NotifyIndex))
+		{
+			FAnimNotifyEvent* Event = AnimNotifies[NotifyIndex];
+
+			int32 Frame = FCString::Atof(*NotifyFrameText.ToString());
+			float NewTime = FMath::Clamp(Sequence->GetTimeAtFrame(Frame), 0.0f, Sequence->SequenceLength - Event->Duration);
+
+			Event->SetTime(NewTime);
+
+			Event->RefreshTriggerOffset(Sequence->CalculateOffsetForNotify(Event->GetTime()));
+			if(Event->GetDuration() > 0.0f)
+			{
+				Event->RefreshEndTriggerOffset(Sequence->CalculateOffsetForNotify(Event->GetTime() + Event->GetDuration()));
+			}
+		}
+	}
+
+	FSlateApplication::Get().DismissAllMenus();
 }
 
 //////////////////////////////////////////////////////////////////////////

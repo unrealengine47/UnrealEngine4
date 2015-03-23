@@ -3,10 +3,11 @@
 #include "UnrealEd.h"
 #include "PropertyEditing.h"
 #include "ProceduralFoliageComponentDetails.h"
-#include "ProceduralFoliage.h"
+#include "ProceduralFoliageSpawner.h"
 #include "ProceduralFoliageComponent.h"
 #include "InstancedFoliage.h"
 #include "FoliageEdMode.h"
+#include "ScopedTransaction.h"
 
 TSharedRef<IDetailCustomization> FProceduralFoliageComponentDetails::MakeInstance()
 {
@@ -51,7 +52,7 @@ void FProceduralFoliageComponentDetails::CustomizeDetails( IDetailLayoutBuilder&
 	[
 		SNew(SButton)
 		.OnClicked( this, &FProceduralFoliageComponentDetails::OnResimulateClicked )
-		.ToolTipText( NSLOCTEXT("ProceduralFoliageComponentDetails","ResimulateButton_Tooltip", "Resimulates the ProceduralFoliage asset and replaces previously spawned instances" ) )
+		.ToolTipText( NSLOCTEXT("ProceduralFoliageComponentDetails","ResimulateButton_Tooltip", "Runs the procedural foliage spawner simulation. Replaces any existing instances spawned by a previous simulation." ) )
 		.IsEnabled( this, &FProceduralFoliageComponentDetails::IsResimulateEnabled )
 		[
 			SNew( STextBlock )
@@ -63,16 +64,17 @@ void FProceduralFoliageComponentDetails::CustomizeDetails( IDetailLayoutBuilder&
 
 FReply FProceduralFoliageComponentDetails::OnResimulateClicked()
 {
-	TSet<UProceduralFoliage*> UniqueProceduralFoliages;
+	TSet<UProceduralFoliageSpawner*> UniqueFoliageSpawners;
 	for( TWeakObjectPtr<UProceduralFoliageComponent>& Component : SelectedComponents )
 	{
-		if( Component.IsValid() && Component->ProceduralFoliage )
+		if( Component.IsValid() && Component->FoliageSpawner )
 		{
-			if( !UniqueProceduralFoliages.Contains( Component->ProceduralFoliage ) )
+			if( !UniqueFoliageSpawners.Contains( Component->FoliageSpawner ) )
 			{
-				UniqueProceduralFoliages.Add( Component->ProceduralFoliage );
+				UniqueFoliageSpawners.Add(Component->FoliageSpawner);
 			}
 
+			FScopedTransaction Transaction(NSLOCTEXT("ProceduralFoliageComponentDetails", "Resimulate_Transaction", "Procedural Foliage Simulation"));
 			TArray <FDesiredFoliageInstance> DesiredFoliageInstances;
 			if (Component->SpawnProceduralContent(DesiredFoliageInstances))
 			{
@@ -87,7 +89,7 @@ bool FProceduralFoliageComponentDetails::IsResimulateEnabled() const
 {
 	for(const TWeakObjectPtr<UProceduralFoliageComponent>& Component : SelectedComponents)
 	{
-		if(Component.IsValid() && Component->ProceduralFoliage)
+		if(Component.IsValid() && Component->FoliageSpawner)
 		{
 			return true;
 		}

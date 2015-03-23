@@ -805,7 +805,7 @@ void UStruct::SerializeTaggedProperties(FArchive& Ar, uint8* Data, UStruct* Defa
 				if (InAr.UE4Ver() < VER_UE4_STRUCT_GUID_IN_PROPERTY_TAG)
 				{
 					// Old Implementation
-					return !StructProperty->UseBinaryOrNativeSerialization(InAr);
+					return StructProperty && !StructProperty->UseBinaryOrNativeSerialization(InAr);
 				}
 				return PropertyTag.StructGuid.IsValid() && StructProperty && StructProperty->Struct && (PropertyTag.StructGuid == StructProperty->Struct->GetCustomGuid());
 			};
@@ -2110,13 +2110,18 @@ void UScriptStruct::Link(FArchive& Ar, bool bRelinkExistingProperties)
 bool UScriptStruct::CompareScriptStruct(const void* A, const void* B, uint32 PortFlags) const
 {
 	check(A);
+
+	if (nullptr == B) // if the comparand is NULL, we just call this no-match
+	{
+		return false;
+	}
+
 	if (StructFlags & STRUCT_IdenticalNative)
 	{
 		UScriptStruct::ICppStructOps* TheCppStructOps = GetCppStructOps();
 		check(TheCppStructOps);
 		bool bResult = false;
-		if (!B || // if the comparand is NULL, we just call this no-match
-			TheCppStructOps->Identical(A, B, PortFlags, bResult))
+		if (TheCppStructOps->Identical(A, B, PortFlags, bResult))
 		{
 			return bResult;
 		}
