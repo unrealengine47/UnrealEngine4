@@ -164,6 +164,17 @@ private:
 
 	/** Handler for 'Deselect All' command  */
 	void OnDeselectAllInstances();
+	
+	/** Toggle all meshes on/off */
+	ECheckBoxState GetState_AllMeshes() const;
+	void OnCheckStateChanged_AllMeshes(ECheckBoxState InState);
+
+	/** Text for foliage meshes list header */
+	FText GetMeshesHeaderText() const;
+	
+	/** Mesh list sorting support */
+	EColumnSortMode::Type GetMeshColumnSortMode() const;
+	void OnMeshesColumnSortModeChanged(EColumnSortPriority::Type InPriority, const FName& InColumnName, EColumnSortMode::Type InSortMode);
 
 private:
 	/** Foliage mesh tree widget  */

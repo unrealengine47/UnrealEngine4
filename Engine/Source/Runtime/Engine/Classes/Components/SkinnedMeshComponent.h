@@ -655,7 +655,7 @@ public:
 	 *
 	 * @param NewMasterBoneComponent New MasterPoseComponent
 	 */
-	UFUNCTION(BlueprintCallable, Category="Components|SkinnedMesh")
+	UFUNCTION(BlueprintCallable, Category="Components|SkinnedMesh", meta=(UnsafeDuringActorConstruction="true"))
 	void SetMasterPoseComponent(USkinnedMeshComponent* NewMasterBoneComponent);
 
 	/** 
@@ -889,6 +889,11 @@ private:
 	 */
 	template <bool bExtraBoneInfluencesT, bool bCachedMatrices>
 	FVector GetTypedSkinnedVertexPosition(const FSkelMeshChunk& Chunk, const FSkeletalMeshVertexBuffer& VertexBufferGPUSkin, int32 VertIndex, bool bSoftVertex, const TArray<FMatrix> & RefToLocals = TArray<FMatrix>()) const;
+
+	/**
+	 * Gets called when register, verifies all ActiveVertexAnimation is still valid 
+	 */
+	virtual void RefreshActiveVertexAnims() {};
 
 	// Animation update rate control.
 public:

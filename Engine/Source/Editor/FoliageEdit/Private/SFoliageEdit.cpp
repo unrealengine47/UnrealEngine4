@@ -283,9 +283,20 @@ void SFoliageEdit::Construct(const FArguments& InArgs)
 			.AutoHeight()
 			[
 				SNew(SHeaderRow)
-
+				+ SHeaderRow::Column(TEXT("ToggleMeshes"))
+				[
+					SNew(SCheckBox)
+					.IsChecked(this, &SFoliageEdit::GetState_AllMeshes)
+					.OnCheckStateChanged(this, &SFoliageEdit::OnCheckStateChanged_AllMeshes)
+				]
+				.HeaderContentPadding(FMargin(0,1,0,1))
+				.FixedWidth(24)
+								
 				+ SHeaderRow::Column(TEXT("Meshes"))
-				.DefaultLabel(LOCTEXT("Meshes", "Meshes"))
+				.HeaderContentPadding(FMargin(10,1,0,1))
+				.DefaultLabel(this, &SFoliageEdit::GetMeshesHeaderText)
+				.SortMode(this, &SFoliageEdit::GetMeshColumnSortMode)
+				.OnSort(this, &SFoliageEdit::OnMeshesColumnSortModeChanged)
 			]
 
 			+ SVerticalBox::Slot()
@@ -883,6 +894,57 @@ void SFoliageEdit::OnDeselectAllInstances()
 		UFoliageType* FoliageType = MeshUIPtr->Settings;
 		FoliageEditMode->SelectInstances(FoliageType, false);
 	}
+}
+
+ECheckBoxState SFoliageEdit::GetState_AllMeshes() const
+{
+	bool bHasChecked = false;
+	bool bHasUnchecked = false;
+
+	const auto& MeshUIList = FoliageEditMode->GetFoliageMeshList();
+	for (const auto& MeshUIPtr : MeshUIList)
+	{
+		if (MeshUIPtr->Settings->IsSelected)
+		{
+			bHasChecked = true;
+		}
+		else
+		{
+			bHasUnchecked = true;
+		}
+
+		if (bHasChecked && bHasUnchecked)
+		{
+			return ECheckBoxState::Undetermined; 
+		}
+	}
+
+	return bHasChecked ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+}
+
+void SFoliageEdit::OnCheckStateChanged_AllMeshes(ECheckBoxState InState)
+{
+	auto& MeshUIList = FoliageEditMode->GetFoliageMeshList();
+	for (auto& MeshUIPtr : MeshUIList)
+	{
+		MeshUIPtr->Settings->IsSelected = (InState == ECheckBoxState::Checked);
+	}
+}
+
+FText SFoliageEdit::GetMeshesHeaderText() const
+{
+	int32 NumMeshes = FoliageEditMode->GetFoliageMeshList().Num();
+	return FText::Format(LOCTEXT("FoliageMeshCount", "Meshes - {0}"), FText::AsNumber(NumMeshes));
+}
+
+EColumnSortMode::Type SFoliageEdit::GetMeshColumnSortMode() const
+{
+	return FoliageEditMode->GetFoliageMeshListSortMode();
+}
+
+void SFoliageEdit::OnMeshesColumnSortModeChanged(EColumnSortPriority::Type InPriority, const FName& InColumnName, EColumnSortMode::Type InSortMode)
+{
+	FoliageEditMode->OnFoliageMeshListSortModeChanged(InSortMode);
 }
 
 #undef LOCTEXT_NAMESPACE

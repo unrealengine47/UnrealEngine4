@@ -1048,6 +1048,14 @@ int32 FEngineLoop::PreInit( const TCHAR* CmdLine )
 	}
 #endif //WITH_EDITOR
 
+	// initialize task graph sub-system with potential multiple threads
+	FTaskGraphInterface::Startup( FPlatformMisc::NumberOfCores() );
+	FTaskGraphInterface::Get().AttachToThread( ENamedThreads::GameThread );
+
+#if STATS
+	FThreadStats::StartThread();
+#endif
+
 	if (FPlatformProcess::SupportsMultithreading())
 	{
 		GThreadPool	= FQueuedThreadPool::Allocate();
@@ -1399,18 +1407,19 @@ int32 FEngineLoop::PreInit( const TCHAR* CmdLine )
 
 	if (GUseThreadedRendering)
 	{
-#if PLATFORM_SUPPORTS_RHI_THREAD
-		const bool DefaultUseRHIThread = true;
-		GUseRHIThread = DefaultUseRHIThread;
-		if (FParse::Param(FCommandLine::Get(),TEXT("rhithread")))
+		if (GRHISupportsRHIThread)
 		{
-			GUseRHIThread = true;
+			const bool DefaultUseRHIThread = true;
+			GUseRHIThread = DefaultUseRHIThread;
+			if (FParse::Param(FCommandLine::Get(),TEXT("rhithread")))
+			{
+				GUseRHIThread = true;
+			}
+			else if (FParse::Param(FCommandLine::Get(),TEXT("norhithread")))
+			{
+				GUseRHIThread = false;
+			}
 		}
-		else if (FParse::Param(FCommandLine::Get(),TEXT("norhithread")))
-		{
-			GUseRHIThread = false;
-		}
-#endif
 		StartRenderingThread();
 	}
 	
@@ -2753,14 +2762,6 @@ bool FEngineLoop::AppInit( )
 	FApp::InitializeSession();
 #endif
 
-	// initialize task graph sub-system with potential multiple threads
-	FTaskGraphInterface::Startup(FPlatformMisc::NumberOfCores());
-	FTaskGraphInterface::Get().AttachToThread(ENamedThreads::GameThread);
-
-#if STATS
-	FThreadStats::StartThread();
-#endif
-
 #if WITH_ENGINE
 	// Earliest place to init the online subsystems
 	// Code needs GConfigFile to be valid
@@ -2835,7 +2836,7 @@ void FEngineLoop::AppPreExit( )
 	FCoreDelegates::OnExit.Broadcast();
 
 	// Clean up the thread pool
-	if (GThreadPool != NULL)
+	if (GThreadPool != nullptr)
 	{
 		GThreadPool->Destroy();
 	}

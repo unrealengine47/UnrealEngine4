@@ -216,7 +216,6 @@ uint32 GRenderThreadTime = 0;
 
 
 
-#if PLATFORM_SUPPORTS_RHI_THREAD
 /** The RHI thread runnable object. */
 class FRHIThread : public FRunnable
 {
@@ -250,8 +249,6 @@ public:
 		check(Thread);
 	}
 };
-
-#endif
 
 /** The rendering thread main loop */
 void RenderingThreadMain( FEvent* TaskGraphBoundSyncEvent )
@@ -337,7 +334,7 @@ public:
 	 */
 	FEvent* TaskGraphBoundSyncEvent;
 
-	FRenderingThread() : FRunnable()
+	FRenderingThread()
 	{
 		TaskGraphBoundSyncEvent	= FPlatformProcess::GetSynchEventFromPool(true);
 		RHIFlushResources();
@@ -350,7 +347,7 @@ public:
 	}
 
 	// FRunnable interface.
-	virtual bool Init(void) 
+	virtual bool Init(void) override
 	{ 
 		GRenderThreadId = FPlatformTLS::GetCurrentThreadId();
 
@@ -360,7 +357,7 @@ public:
 		return true; 
 	}
 
-	virtual void Exit(void) 
+	virtual void Exit(void) override
 	{
 		// Release rendering context ownership on the current thread
 		RHIReleaseThreadOwnership();
@@ -368,11 +365,7 @@ public:
 		GRenderThreadId = 0;
 	}
 
-	virtual void Stop(void)
-	{
-	}
-
-	virtual uint32 Run(void)
+	virtual uint32 Run(void) override
 	{
 		FPlatformProcess::SetupGameOrRenderThread(true);
 
@@ -514,7 +507,6 @@ void StartRenderingThread()
 	check(!GIsThreadedRendering && GUseThreadedRendering);
 
 	check(!GRHIThread)
-#if PLATFORM_SUPPORTS_RHI_THREAD
 	if (GUseRHIThread)
 	{
 		if (!FTaskGraphInterface::Get().IsThreadProcessingTasks(ENamedThreads::RHIThread))
@@ -530,7 +522,6 @@ void StartRenderingThread()
 		check(GRHIThread);
 		GRHICommandList.LatchBypass();
 	}
-#endif
 
 	// Turn on the threaded rendering flag.
 	GIsThreadedRendering = true;
@@ -593,7 +584,6 @@ void StopRenderingThread()
 		// The rendering thread may have already been stopped during the call to GFlushStreamingFunc or FlushRenderingCommands.
 		if ( GIsThreadedRendering )
 		{
-#if PLATFORM_SUPPORTS_RHI_THREAD
 			if (GRHIThread)
 			{
 				DECLARE_CYCLE_STAT(TEXT("Wait For RHIThread Finish"), STAT_WaitForRHIThreadFinish, STATGROUP_TaskGraphTasks);
@@ -602,8 +592,6 @@ void StopRenderingThread()
 				FTaskGraphInterface::Get().WaitUntilTaskCompletes(FlushTask, ENamedThreads::GameThread_Local);
 				GRHIThread = nullptr;
 			}
-#endif
-
 
 			check( GRenderingThread );
 			check(!GIsRenderingThreadSuspended);

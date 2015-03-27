@@ -11,7 +11,7 @@
 #include "NotificationManager.h"
 #include "IInputProcessor.h"
 #include "ToolboxModule.h"
-
+#include "TabCommands.h"
 
 class FEventRouter
 {
@@ -759,6 +759,7 @@ FSlateApplication::FSlateApplication()
 	FInputCoreModule& InputCore = FModuleManager::LoadModuleChecked<FInputCoreModule>(TEXT("InputCore"));
 
 	FGenericCommands::Register();
+	FTabCommands::Register();
 
 	NormalExecutionGetter.BindRaw( this, &FSlateApplication::IsNormalExecution );
 	PointerIndexLastPositionMap.Add(CursorPointerIndex, FVector2D::ZeroVector);
@@ -766,6 +767,9 @@ FSlateApplication::FSlateApplication()
 
 FSlateApplication::~FSlateApplication()
 {
+	FTabCommands::Unregister();
+	FGenericCommands::Unregister();
+	
 	if (SlateTextField != nullptr)
 	{
 		delete SlateTextField;
@@ -935,7 +939,6 @@ struct FDrawWindowArgs
 		, WidgetsUnderCursor( InWidgetsUnderCursor )
 	{}
 
-	TArray<FGenericWindow*, TInlineAllocator<10> > OutDrawnWindows;
 	FSlateDrawBuffer& OutDrawBuffer;
 	const FWidgetPath& WidgetsUnderCursor;
 };
@@ -1032,11 +1035,6 @@ void FSlateApplication::DrawWindowAndChildren( const TSharedRef<SWindow>& Window
 		{
 			MaxLayerId = WidgetReflector->VisualizeCursorAndKeys( WindowElementList, MaxLayerId );
 		}
-
-		// Keep track of windows that we're actually going to be presenting, so we can mark
-		// them as 'drawn' afterwards.
-		FGenericWindow* NativeWindow = WindowToDraw->GetNativeWindow().Get();
-		DrawWindowArgs.OutDrawnWindows.Add( NativeWindow );
 
 		// Draw the child windows
 		const TArray< TSharedRef<SWindow> >& WindowChildren = WindowToDraw->GetChildWindows();

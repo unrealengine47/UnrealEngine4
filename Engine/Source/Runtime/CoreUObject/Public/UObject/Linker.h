@@ -1,13 +1,10 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
-/*=============================================================================
-	Linker.h: Unreal object linker.
-=============================================================================*/
-
 #pragma once
 
 #include "ObjectBase.h"
 #include "EngineVersion.h"
+
 
 DECLARE_LOG_CATEGORY_EXTERN(LogLinker, Log, All);
 
@@ -17,6 +14,7 @@ extern TMap<class UPackage*, class ULinkerLoad*>		GObjLoaders;
 extern TMap<class UPackage*, class ULinkerLoad*>		GObjPendingLoaders;
 /** List of loaders that have new imports **/
 extern TSet<class ULinkerLoad*>							GObjLoadersWithNewImports;
+
 
 /**
  * Wrapper for index into a ULnker's ImportMap or ExportMap.
@@ -957,7 +955,7 @@ class ULinker : public UObject, public FLinkerTables
 	 * 
 	 * @param	Ar	the archive to read/write into
 	 */
-	void Serialize( FArchive& Ar );
+	void Serialize( FArchive& Ar ) override;
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 
 	/**
@@ -1433,7 +1431,7 @@ public:
 	/**
 	 * If this archive is a ULinkerLoad or ULinkerSave, returns a pointer to the ULinker portion.
 	 */
-	virtual ULinker* GetLinker() { return this; }
+	virtual ULinker* GetLinker() override { return this; }
 
 	/**
 	 * Creates and returns a ULinkerLoad object.
@@ -1449,7 +1447,7 @@ public:
 	void Verify();
 
 	COREUOBJECT_API FName GetExportClassPackage( int32 i );
-	virtual FString GetArchiveName() const;
+	virtual FString GetArchiveName() const override;
 
 	/**
 	 * Recursively gathers the dependencies of a given export (the recursive chain of imports
@@ -1530,7 +1528,7 @@ public:
 	 *					If Object is a UClass and the class default object has already been created, calls
 	 *					Preload for the class default object as well.
 	 */
-	void Preload( UObject* Object );
+	void Preload( UObject* Object ) override;
 
 	/**
 	 * Before loading a persistent object from disk, this function can be used to discover
@@ -1571,12 +1569,12 @@ public:
 	/**
 	 * Called when an object begins serializing property data using script serialization.
 	 */
-	virtual void MarkScriptSerializationStart( const UObject* Obj );
+	virtual void MarkScriptSerializationStart( const UObject* Obj ) override;
 
 	/**
 	 * Called when an object stops serializing property data using script serialization.
 	 */
-	virtual void MarkScriptSerializationEnd( const UObject* Obj );
+	virtual void MarkScriptSerializationEnd( const UObject* Obj ) override;
 
 	/**
 	 * Looks for an existing linker for the given package, without trying to make one if it doesn't exist
@@ -1683,7 +1681,7 @@ private:
 	 * @param	PrecacheSize	Number of bytes to precache
 	 * @return	false if precache operation is still pending, true otherwise
 	 */
-	virtual bool Precache( int64 PrecacheOffset, int64 PrecacheSize );
+	virtual bool Precache( int64 PrecacheOffset, int64 PrecacheSize ) override;
 	
 #if WITH_EDITOR
 	/**
@@ -1692,14 +1690,14 @@ private:
 	 * @param	Owner		UObject owning the bulk data
 	 * @param	BulkData	Bulk data object to associate
 	 */
-	virtual void AttachBulkData( UObject* Owner, FUntypedBulkData* BulkData );
+	virtual void AttachBulkData( UObject* Owner, FUntypedBulkData* BulkData ) override;
 	/**
 	 * Detaches the passed in bulk data object from the linker.
 	 *
 	 * @param	BulkData	Bulk data object to detach
 	 * @param	bEnsureBulkDataIsLoaded	Whether to ensure that the bulk data is loaded before detaching
 	 */
-	virtual void DetachBulkData( FUntypedBulkData* BulkData, bool bEnsureBulkDataIsLoaded );
+	virtual void DetachBulkData( FUntypedBulkData* BulkData, bool bEnsureBulkDataIsLoaded ) override;
 	/**
 	 * Detaches all attached bulk  data objects.
 	 *
@@ -1716,16 +1714,16 @@ public:
 	virtual void Detach( bool bEnsureAllBulkDataIsLoaded );
 private:
 
-	void Seek( int64 InPos );
-	int64 Tell();
-	int64 TotalSize();
+	void Seek( int64 InPos ) override;
+	int64 Tell() override;
+	int64 TotalSize() override;
 	// this fixes the warning : 'ULinkerSave::Serialize' hides overloaded virtual function
 	using ULinker::Serialize;
-	void Serialize( void* V, int64 Length );
-	virtual FArchive& operator<<( UObject*& Object );
-	virtual FArchive& operator<<( FLazyObjectPtr& LazyObjectPtr);
-	virtual FArchive& operator<<( FAssetPtr& AssetPtr);
-	virtual FArchive& operator<<( FName& Name );
+	void Serialize( void* V, int64 Length ) override;
+	virtual FArchive& operator<<( UObject*& Object ) override;
+	virtual FArchive& operator<<( FLazyObjectPtr& LazyObjectPtr) override;
+	virtual FArchive& operator<<( FAssetPtr& AssetPtr) override;
+	virtual FArchive& operator<<( FName& Name ) override;
 
 	/**
 	 * Safely verify that an import in the ImportMap points to a good object. This decides whether or not

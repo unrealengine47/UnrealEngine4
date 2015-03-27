@@ -138,7 +138,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		/// <summary> Helper method, display this Bugg as a human readable string. Debugging purpose. </summary>
 		public override string ToString()
 		{
-			return string.Format( "Id={0} NOC={1} TLC={2} BV={3} Pattern={4}", Id, NumberOfCrashes, TimeOfLastCrash, BuildVersion, Pattern != null ? Pattern.Length : 0 );
+			return string.Format( "Id={0} NOC={1} TLC={2} BV={3} NOM={4} Pattern={5}", Id, NumberOfCrashes, TimeOfLastCrash, BuildVersion, NumberOfUniqueMachines, Pattern != null ? Pattern.Length : 0 );
 		}
 
 		/// <summary>
@@ -253,14 +253,6 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 			{
 				this.ToJiraSummary = "No valid callstack found"; 
 			}
-
-// 			Crash NewCrash = CrashesForBugg.FirstOrDefault();
-// 			if( NewCrash != null )
-// 			{
-// 				CallStackContainer CallStack = NewCrash.GetCallStack();
-// 				this.ToJiraSummary = CallStack.CallStackEntries.Count > 1 ? CallStack.CallStackEntries[0].FunctionName : "No valid callstack found";
-// 				this.ToJiraFunctionCalls = CallStack.GetFunctionCalls();
-// 			}
 
 			// ToJiraVersions
 			this.ToJiraVersions = new List<object>();

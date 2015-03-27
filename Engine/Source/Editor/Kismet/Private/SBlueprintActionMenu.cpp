@@ -155,9 +155,13 @@ private:
 	ECheckBoxState GetFavoritedState() const
 	{
 		ECheckBoxState FavoriteState = ECheckBoxState::Unchecked;
-		if (GEditor->EditorUserSettings->BlueprintFavorites->IsFavorited(ActionPtr.Pin()))
+		if (ActionPtr.IsValid() && (GEditor != nullptr))
 		{
-			FavoriteState = ECheckBoxState::Checked;
+			const UEditorUserSettings& EditorSettings = GEditor->GetEditorUserSettings();
+			if (UBlueprintPaletteFavorites* BlueprintFavorites = EditorSettings.BlueprintFavorites)
+			{
+				FavoriteState = BlueprintFavorites->IsFavorited(ActionPtr.Pin()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+			}
 		}
 		return FavoriteState;
 	}
@@ -449,13 +453,20 @@ void SBlueprintActionMenu::ConstructActionContext(FBlueprintActionContext& Conte
 	TSharedPtr<FBlueprintEditor> BlueprintEditor = EditorPtr.Pin();
 	bool const bIsContextSensitive = BlueprintEditor->GetIsContextSensitive();
 
-	UBlueprint* Blueprint = BlueprintEditor->GetBlueprintObj();
-	ContextDescOut.Blueprints.Add(Blueprint);
 	// we still want context from the graph (even if the user has unchecked
 	// "Context Sensitive"), otherwise the user would be presented with nodes
 	// that can't be placed in the graph... if the user isn't being presented
 	// with a valid node, then fix it up in filtering
 	ContextDescOut.Graphs.Add(GraphObj);
+
+	UBlueprint* Blueprint = BlueprintEditor->GetBlueprintObj();
+	const bool bBlueprintIsValid = IsValid(Blueprint) && Blueprint->GeneratedClass && (Blueprint->GeneratedClass->ClassGeneratedBy == Blueprint);
+	if (!ensure(bBlueprintIsValid))  // to track UE-11597 and UE-11595
+	{
+		return;
+	}
+
+	ContextDescOut.Blueprints.Add(Blueprint);
 
 	if (bIsContextSensitive)
 	{

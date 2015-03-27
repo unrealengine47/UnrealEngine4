@@ -165,20 +165,12 @@ public:
 		Timing(InRHI, 1)
 	{
 		// Initialize Buffered timestamp queries 
-#if PLATFORM_SUPPORTS_RHI_THREAD
-		Timing.InitDynamicRHI();
-#else
 		Timing.InitResource(); // can't do this from the RHI thread
-#endif
 	}
 
 	virtual ~FD3D11EventNode()
 	{
-#if PLATFORM_SUPPORTS_RHI_THREAD
-		Timing.ReleaseDynamicRHI();
-#else
 		Timing.ReleaseResource();  // can't do this from the RHI thread
-#endif
 	}
 
 	/** 
@@ -211,26 +203,14 @@ public:
 		RootEventTiming(InRHI, 1),
 		DisjointQuery(InRHI)
 	{
-#if PLATFORM_SUPPORTS_RHI_THREAD
-		RootEventTiming.InitDynamicRHI();
-		DisjointQuery.InitDynamicRHI();
-#else
-		// can't do these on the RHI thread
 		RootEventTiming.InitResource();
 		DisjointQuery.InitResource();
-#endif
 	}
 
 	~FD3D11EventNodeFrame()
 	{
-#if PLATFORM_SUPPORTS_RHI_THREAD
-		RootEventTiming.ReleaseDynamicRHI();
-		DisjointQuery.ReleaseDynamicRHI();
-#else
-		// can't do these on the RHI thread
 		RootEventTiming.ReleaseResource();
 		DisjointQuery.ReleaseResource();
-#endif
 	}
 
 	/** Start this frame of per tracking */
@@ -259,22 +239,12 @@ public:
 	FD3D11GPUProfile(FD3D11DynamicRHI* D3D11RHI)
 	: DisjointQuery(D3D11RHI)
 	{
-#if PLATFORM_SUPPORTS_RHI_THREAD
-		DisjointQuery.InitDynamicRHI();
-#else
-		// can't do these on the RHI thread
-		DisjointQuery.InitResource();
-#endif
+		  DisjointQuery.InitResource();
 	}
 
 	~FD3D11GPUProfile()
 	{
-#if PLATFORM_SUPPORTS_RHI_THREAD
-		DisjointQuery.ReleaseDynamicRHI();
-#else
-		// can't do these on the RHI thread
-		DisjointQuery.ReleaseResource();
-#endif
+		  DisjointQuery.ReleaseResource();
 	}
 
 	FD3D11DisjointTimeStampQuery DisjointQuery;
@@ -333,7 +303,7 @@ struct FD3DGPUProfiler : public FGPUProfiler
 };
 
 /** The interface which is implemented by the dynamically bound RHI. */
-class FD3D11DynamicRHI : public FDynamicRHI
+class FD3D11DynamicRHI : public FDynamicRHI, public IRHICommandContext
 {
 public:
 
@@ -343,7 +313,7 @@ public:
 	TMap<FD3D11LockedKey,FD3D11LockedData> OutstandingLocks;
 
 	/** Initialization constructor. */
-	FD3D11DynamicRHI(IDXGIFactory* InDXGIFactory,D3D_FEATURE_LEVEL InFeatureLevel,int32 InChosenAdapter);
+	FD3D11DynamicRHI(IDXGIFactory1* InDXGIFactory1,D3D_FEATURE_LEVEL InFeatureLevel,int32 InChosenAdapter);
 
 	/** Destructor */
 	virtual ~FD3D11DynamicRHI() {}
@@ -380,9 +350,9 @@ public:
 		return Direct3DDeviceIMContext;
 	}
 
-	IDXGIFactory* GetFactory() const
+	IDXGIFactory1* GetFactory() const
 	{
-		return DXGIFactory;
+		return DXGIFactory1;
 	}
 private:
 	template <EShaderFrequency ShaderFrequency>
@@ -431,7 +401,7 @@ public:
 
 protected:
 	/** The global D3D interface. */
-	TRefCountPtr<IDXGIFactory> DXGIFactory;
+	TRefCountPtr<IDXGIFactory1> DXGIFactory1;
 
 	/** The global D3D device's immediate context */
 	TRefCountPtr<FD3D11DeviceContext> Direct3DDeviceIMContext;
@@ -644,10 +614,6 @@ protected:
 	void ReadSurfaceDataNoMSAARaw(FTextureRHIParamRef TextureRHI,FIntRect Rect,TArray<uint8>& OutData, FReadSurfaceDataFlags InFlags);
 
 	void ReadSurfaceDataMSAARaw(FRHICommandList_RecursiveHazardous& RHICmdList, FTextureRHIParamRef TextureRHI, FIntRect Rect, TArray<uint8>& OutData, FReadSurfaceDataFlags InFlags);
-
-#if PLATFORM_SUPPORTS_RHI_THREAD
-	void SetupRecursiveResources();
-#endif
 
 	friend struct FD3DGPUProfiler;
 };

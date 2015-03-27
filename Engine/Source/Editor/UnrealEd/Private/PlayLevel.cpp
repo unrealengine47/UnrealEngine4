@@ -1786,7 +1786,7 @@ void UEditorEngine::RequestEndPlayMap()
 				if (ThisContext.WorldType == EWorldType::PIE)
 				{
 					FSlatePlayInEditorInfo* const SlatePlayInEditorSession = SlatePlayInEditorMap.Find(ThisContext.ContextHandle);
-					if ((SlatePlayInEditorSession != nullptr) && (SlatePlayInEditorSession->EditorPlayer.IsValid() == true) && (SlatePlayInEditorSession->EditorPlayer.Get()->PlayerController != nullptr ) )
+					if ((SlatePlayInEditorSession != nullptr) && (SlatePlayInEditorSession->EditorPlayer.IsValid() == true) )
 					{
 						if( SlatePlayInEditorSession->EditorPlayer.Get()->PlayerController != nullptr )
 						{
@@ -2651,8 +2651,12 @@ UGameInstance* UEditorEngine::CreatePIEGameInstance(int32 PIEInstance, bool bInS
 	
 	if (!PieWorldContext->RunAsDedicated)
 	{
+		const ULevelEditorPlaySettings* PlayInSettings = GetDefault<ULevelEditorPlaySettings>();
+		bool bCreateNewAudioDevice = PlayInSettings->IsCreateAudioDeviceForEveryPlayer();
+
 		ViewportClient = NewObject<UGameViewportClient>(this, GameViewportClientClass);
-		ViewportClient->Init(*PieWorldContext, GameInstance);
+		ViewportClient->Init(*PieWorldContext, GameInstance, bCreateNewAudioDevice);
+
 		GameViewport = ViewportClient;
 		GameViewport->bIsPlayInEditorViewport = true;
 		PieWorldContext->GameViewport = ViewportClient;

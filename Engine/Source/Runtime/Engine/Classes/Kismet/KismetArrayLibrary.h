@@ -3,8 +3,8 @@
 #pragma once
 #include "KismetArrayLibrary.generated.h"
 
-UCLASS(MinimalAPI)
-class UKismetArrayLibrary : public UBlueprintFunctionLibrary
+UCLASS()
+class ENGINE_API UKismetArrayLibrary : public UBlueprintFunctionLibrary
 {
 	GENERATED_UCLASS_BODY()
 	/** 
@@ -12,6 +12,7 @@ class UKismetArrayLibrary : public UBlueprintFunctionLibrary
 	 *
 	 *@param	TargetArray		The array to add item to
 	 *@param	NewItem			The item to add to the array
+	 *@return	The index of the newly added item
 	*/
 	UFUNCTION(BlueprintCallable, CustomThunk, meta=(FriendlyName = "Add", CompactNodeTitle = "ADD", ArrayParm = "TargetArray|ArrayProperty", ArrayTypeDependentParams = "NewItem", AutoCreateRefTerm = "NewItem"), Category="Utilities|Array")
 	static int32 Array_Add(const TArray<int32>& TargetArray, const UArrayProperty* ArrayProperty, const int32& NewItem);
@@ -19,8 +20,9 @@ class UKismetArrayLibrary : public UBlueprintFunctionLibrary
 	/**
 	*Add item to array (unique)
 	*
-	*@param	TargetArray		The array to add item to
-	*@param	NewItem			The item to add to the array
+	*@param		TargetArray		The array to add item to
+	*@param		NewItem			The item to add to the array
+	*@return	The index of the newly added item, or INDEX_NONE if the item is already present in the array
 	*/
 	UFUNCTION(BlueprintCallable, CustomThunk, meta = (FriendlyName = "Add Unique", CompactNodeTitle = "ADDUNIQUE", ArrayParm = "TargetArray|ArrayProperty", ArrayTypeDependentParams = "NewItem", AutoCreateRefTerm = "NewItem"), Category = "Utilities|Array")
 	static int32 Array_AddUnique(const TArray<int32>& TargetArray, const UArrayProperty* ArrayProperty, const int32& NewItem);
@@ -166,21 +168,21 @@ class UKismetArrayLibrary : public UBlueprintFunctionLibrary
 	static void SetArrayPropertyByName(UObject* Object, FName PropertyName, const TArray<int32>& Value);
 
 	// Native functions that will be called by the below custom thunk layers, which read off the property address, and call the appropriate native handler
-	ENGINE_API static int32 GenericArray_Add(void* TargetArray, const UArrayProperty* ArrayProp, const void* NewItem);
-	ENGINE_API static int32 GenericArray_AddUnique(void* TargetArray, const UArrayProperty* ArrayProp, const void* NewItem);
-	ENGINE_API static void GenericArray_Shuffle(void* TargetArray, const UArrayProperty* ArrayProp);
-	ENGINE_API static void GenericArray_Append(void* TargetArray, const UArrayProperty* TargetArrayProp, void* SourceArray, const UArrayProperty* SourceArrayProperty);
-	ENGINE_API static void GenericArray_Insert(void* TargetArray, const UArrayProperty* ArrayProp, const void* NewItem, int32 Index);
-	ENGINE_API static void GenericArray_Remove(void* TargetArray, const UArrayProperty* ArrayProp, int32 IndexToRemove);
-	ENGINE_API static bool GenericArray_RemoveItem(void* TargetArray, const UArrayProperty* ArrayProp, const void* Item);
-	ENGINE_API static void GenericArray_Clear(void* TargetArray, const UArrayProperty* ArrayProp);
-	ENGINE_API static void GenericArray_Resize(void* TargetArray, const UArrayProperty* ArrayProp, int32 Size);
-	ENGINE_API static int32 GenericArray_Length(void* TargetArray, const UArrayProperty* ArrayProp);
-	ENGINE_API static int32 GenericArray_LastIndex(void* TargetArray, const UArrayProperty* ArrayProp);
-	ENGINE_API static void GenericArray_Get(void* TargetArray, const UArrayProperty* ArrayProp, int32 Index, void* Item);
-	ENGINE_API static void GenericArray_Set(void* TargetArray, const UArrayProperty* ArrayProp, int32 Index, const void* NewItem, bool bSizeToFit);
-	ENGINE_API static int32 GenericArray_Find(void* TargetArray, const UArrayProperty* ArrayProperty, const void* ItemToFind);
-	ENGINE_API static void GenericArray_SetArrayPropertyByName(UObject* OwnerObject, FName ArrayPropertyName, const void* SrcArrayAddr);
+	static int32 GenericArray_Add(void* TargetArray, const UArrayProperty* ArrayProp, const void* NewItem);
+	static int32 GenericArray_AddUnique(void* TargetArray, const UArrayProperty* ArrayProp, const void* NewItem);
+	static void GenericArray_Shuffle(void* TargetArray, const UArrayProperty* ArrayProp);
+	static void GenericArray_Append(void* TargetArray, const UArrayProperty* TargetArrayProp, void* SourceArray, const UArrayProperty* SourceArrayProperty);
+	static void GenericArray_Insert(void* TargetArray, const UArrayProperty* ArrayProp, const void* NewItem, int32 Index);
+	static void GenericArray_Remove(void* TargetArray, const UArrayProperty* ArrayProp, int32 IndexToRemove);
+	static bool GenericArray_RemoveItem(void* TargetArray, const UArrayProperty* ArrayProp, const void* Item);
+	static void GenericArray_Clear(void* TargetArray, const UArrayProperty* ArrayProp);
+	static void GenericArray_Resize(void* TargetArray, const UArrayProperty* ArrayProp, int32 Size);
+	static int32 GenericArray_Length(void* TargetArray, const UArrayProperty* ArrayProp);
+	static int32 GenericArray_LastIndex(void* TargetArray, const UArrayProperty* ArrayProp);
+	static void GenericArray_Get(void* TargetArray, const UArrayProperty* ArrayProp, int32 Index, void* Item);
+	static void GenericArray_Set(void* TargetArray, const UArrayProperty* ArrayProp, int32 Index, const void* NewItem, bool bSizeToFit);
+	static int32 GenericArray_Find(void* TargetArray, const UArrayProperty* ArrayProperty, const void* ItemToFind);
+	static void GenericArray_SetArrayPropertyByName(UObject* OwnerObject, FName ArrayPropertyName, const void* SrcArrayAddr);
 
 private:
 	static void GenericArray_HandleBool(const UProperty* Property, void* ItemPtr);
