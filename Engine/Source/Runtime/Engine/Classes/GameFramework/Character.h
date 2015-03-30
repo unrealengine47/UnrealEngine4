@@ -425,7 +425,7 @@ protected:
 	 * @Return Whether the character can jump in the current state. 
 	 */
 
-	UFUNCTION(BlueprintNativeEvent, Category="Pawn|Character|InternalEvents", meta=(FriendlyName="CanJump"))
+	UFUNCTION(BlueprintNativeEvent, Category="Pawn|Character|InternalEvents", meta=(DisplayName="CanJump"))
 	bool CanJumpInternal() const;
 	virtual bool CanJumpInternal_Implementation() const;
 
@@ -516,11 +516,27 @@ public:
 
 	/**
 	 * Event fired when the Character is walking off a surface and is about to fall because CharacterMovement->CurrentFloor became unwalkable.
-	 * If CharacterMovement->MovementMode does not change (from Walking) during this event then the character will start falling.
+	 * If CharacterMovement->MovementMode does not change during this event then the character will automatically start falling afterwards.
+	 * @note Z velocity is zero during walking movement, and will be here as well. Another velocity can be computed here if desired and will be used when starting to fall.
+	 *
+	 * @param  PreviousFloorImpactNormal Normal of the previous walkable floor.
+	 * @param  PreviousFloorContactNormal Normal of the contact with the previous walkable floor.
+	 * @param  PreviousLocation	Previous character location before movement off the ledge.
+	 * @param  TimeTick	Time delta of movement update resulting in moving off the ledge.
 	 */
 	UFUNCTION(BlueprintNativeEvent, Category="Pawn|Character")
-	void OnWalkingOffLedge();
-	virtual void OnWalkingOffLedge_Implementation();
+	void OnWalkingOffLedge(const FVector& PreviousFloorImpactNormal, const FVector& PreviousFloorContactNormal, const FVector& PreviousLocation, float TimeDelta);
+	virtual void OnWalkingOffLedge_Implementation(const FVector& PreviousFloorImpactNormal, const FVector& PreviousFloorContactNormal, const FVector& PreviousLocation, float TimeDelta);
+
+
+	// Deprecated, use the new version that takes multiple parameters.
+	DEPRECATED(4.8, "OnWalkingOffLedge() is deprecated and will not be called, use the new version that takes multiple parameters.")
+	void OnWalkingOffLedge() {}
+
+	// Deprecated, use the new version that takes multiple parameters.
+	DEPRECATED(4.8, "OnWalkingOffLedge_Implementation() is deprecated and will not be called, use the new version that takes multiple parameters.")
+	virtual void OnWalkingOffLedge_Implementation() {}
+
 
 	/** Called when pawn's movement is blocked
 		@PARAM Impact describes the blocking hit. */
@@ -559,7 +575,7 @@ public:
 	 * @param	HalfHeightAdjust		difference between default collision half-height, and actual crouched capsule half-height.
 	 * @param	ScaledHalfHeightAdjust	difference after component scale is taken in to account.
 	 */
-	UFUNCTION(BlueprintImplementableEvent, meta=(FriendlyName = "OnEndCrouch"))
+	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName = "OnEndCrouch"))
 	void K2_OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust);
 
 	/**
@@ -574,7 +590,7 @@ public:
 	 * @param	HalfHeightAdjust		difference between default collision half-height, and actual crouched capsule half-height.
 	 * @param	ScaledHalfHeightAdjust	difference after component scale is taken in to account.
 	 */
-	UFUNCTION(BlueprintImplementableEvent, meta=(FriendlyName = "OnStartCrouch"))
+	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName = "OnStartCrouch"))
 	void K2_OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust);
 
 	/**
@@ -593,12 +609,16 @@ public:
 	 * @param	PrevCustomMode		Custom mode before the change (applicable if PrevMovementMode is Custom)
 	 * @param	NewCustomMode		New custom mode (applicable if NewMovementMode is Custom)
 	 */
-	UFUNCTION(BlueprintImplementableEvent, meta=(FriendlyName = "OnMovementModeChanged"))
+	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName = "OnMovementModeChanged"))
 	void K2_OnMovementModeChanged(EMovementMode PrevMovementMode, EMovementMode NewMovementMode, uint8 PrevCustomMode, uint8 NewCustomMode);
 
-	/** Event for implementing custom character movement mode. Called by CharacterMovement if MovementMode is set to Custom. */
-	UFUNCTION(BlueprintImplementableEvent, meta=(FriendlyName= "UpdateCustomMovement"))
-	virtual void K2_UpdateCustomMovement(float DeltaTime);
+	/**
+	 * Event for implementing custom character movement mode. Called by CharacterMovement if MovementMode is set to Custom.
+	 * @note C++ code should override UCharacterMovementComponent::PhysCustom() instead.
+	 * @see UCharacterMovementComponent::PhysCustom()
+	 */
+	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName = "UpdateCustomMovement"))
+	void K2_UpdateCustomMovement(float DeltaTime);
 
 	/**
 	 * Event triggered at the end of a CharacterMovementComponent movement update.

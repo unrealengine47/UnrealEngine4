@@ -33,6 +33,18 @@ FModuleManager& FModuleManager::Get()
 	if( ModuleManager == NULL )
 	{
 		ModuleManager = new FModuleManager();
+
+		// Ensure that dependency dlls can be found in restricted sub directories
+		const TCHAR* RestrictedFolderNames[] = { TEXT("NoRedist"), TEXT("NotForLicensees"), TEXT("CarefullyRedist") };
+		FString ModuleDir = FPlatformProcess::GetModulesDirectory();
+		for (const TCHAR* RestrictedFolderName : RestrictedFolderNames)
+		{
+			FString RestrictedFolder = ModuleDir / RestrictedFolderName;
+			if (FPaths::DirectoryExists(RestrictedFolder))
+			{
+				ModuleManager->AddBinariesDirectory(*RestrictedFolder, false);
+			}
+		}
 	}
 
 	return *ModuleManager;
@@ -175,7 +187,7 @@ void FModuleManager::AddModule( const FName InModuleName )
 									// need to reject some files here that are not numbered...release executables, do have a suffix, so we need to make sure we don't find the debug version
 									check(FoundFilePath.Len() > Prefix.Len() + Suffix.Len());
 									FString Center = FoundFilePath.Mid(Prefix.Len(), FoundFilePath.Len() - Prefix.Len() - Suffix.Len());
-									check(Center.StartsWith(TEXT("-"))); // a minus sign is still considered numeric, so we can leave it.
+									check(Center.StartsWith(TEXT("-"), ESearchCase::CaseSensitive)); // a minus sign is still considered numeric, so we can leave it.
 									if (!Center.IsNumeric())
 									{
 										// this is a debug DLL or something, it is not a numbered hot DLL
@@ -866,17 +878,6 @@ void FModuleManager::FindModulePathsInDirectory(const FString& InDirectoryName, 
 			}
 		}
 	}
-
-	// Also recurse into restricted sub-folders, if they exist
-	const TCHAR* RestrictedFolderNames[] = { TEXT("NoRedist"), TEXT("NotForLicensees"), TEXT("CarefullyRedist") };
-	for(const TCHAR* RestrictedFolderName: RestrictedFolderNames)
-	{
-		FString RestrictedFolder = InDirectoryName / RestrictedFolderName;
-		if(FPaths::DirectoryExists(RestrictedFolder))
-		{
-			FindModulePathsInDirectory(RestrictedFolder, bIsGameDirectory, NamePattern, OutModulePaths);
-		}
-	}
 }
 
 
@@ -985,6 +986,17 @@ void FModuleManager::AddBinariesDirectory(const TCHAR *InDirectory, bool bIsGame
 	}
 
 	FPlatformProcess::AddDllDirectory(InDirectory);
+
+	// Also recurse into restricted sub-folders, if they exist
+	const TCHAR* RestrictedFolderNames[] = { TEXT("NoRedist"), TEXT("NotForLicensees"), TEXT("CarefullyRedist") };
+	for (const TCHAR* RestrictedFolderName : RestrictedFolderNames)
+	{
+		FString RestrictedFolder = FPaths::Combine(InDirectory, RestrictedFolderName);
+		if (FPaths::DirectoryExists(RestrictedFolder))
+		{
+			AddBinariesDirectory(*RestrictedFolder, bIsGameDirectory);
+		}
+	}
 }
 
 

@@ -637,7 +637,7 @@ namespace UnrealBuildTool
 				Arguments.Append(" -Wno-microsoft");								
 
 				// @todo clang: Hack due to how we have our 'DummyPCH' wrappers setup when using unity builds.  This warning should not be disabled!!
-				// Arguments.Append(" -Wno-msvc-include");
+				Arguments.Append(" -Wno-msvc-include");
 
 				// @todo clang: Kind of a shame to turn these off.  We'd like to catch unused variables, but it is tricky with how our assertion macros work.
 				Arguments.Append(" -Wno-inconsistent-missing-override");
@@ -648,6 +648,7 @@ namespace UnrealBuildTool
 				Arguments.Append(" -Wno-unused-value");
 
 				Arguments.Append(" -Wno-inline-new-delete");	// @todo clang: We declare operator new as inline.  Clang doesn't seem to like that.
+				Arguments.Append(" -Wno-implicit-exception-spec-mismatch");
 
 				// Sometimes we compare 'this' pointers against nullptr, which Clang warns about by default
 				Arguments.Append(" -Wno-undefined-bool-conversion" );
@@ -1686,7 +1687,7 @@ namespace UnrealBuildTool
         public override void AddFilesToManifest(BuildManifest Manifest, UEBuildBinary Binary)
         {
             // ok, this is pretty awful, we want the import libraries that go with the editor, only on the PC
-            if (Binary.Target.bPrecompileModules &&
+            if (Binary.Target.bPrecompile &&
                 Path.GetFileNameWithoutExtension(Binary.Config.OutputFilePath).StartsWith("UE4Editor-", StringComparison.InvariantCultureIgnoreCase) &&
                 Path.GetExtension(Binary.Config.OutputFilePath).EndsWith("dll", StringComparison.InvariantCultureIgnoreCase) &&
                 Binary.Config.Type == UEBuildBinaryType.DynamicLinkLibrary)

@@ -8,11 +8,12 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Web;
-
+using System.Web.UI.MobileControls;
 using Naspinski.IQueryableSearch;
 
 using Tools.CrashReporter.CrashReportCommon;
 using Tools.CrashReporter.CrashReportWebSite.Controllers;
+using System.Web.Mvc;
 
 namespace Tools.CrashReporter.CrashReportWebSite.Models
 {
@@ -58,6 +59,20 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		protected virtual void Dispose( bool Disposing )
 		{
 			Context.Dispose();
+		}
+
+		/// <summary>
+		/// Retrieves a list of distinct UE4 Branches from the CrashRepository
+		/// </summary>
+		/// <returns></returns>
+		public static List<SelectListItem> GetBranches()
+		{
+			CrashReportDataContext Context = new CrashReportDataContext();
+
+			var lm = Context.Crashes.Where( n => n.Branch.Contains( "UE4" ) ).Select( n => n.Branch ).Distinct().ToList();
+			var list = lm.Select( listitem => new SelectListItem { Selected = false, Text = listitem, Value = listitem } ).ToList();
+			list.Insert( 0, new SelectListItem { Selected = true, Text = "", Value = "" } );
+			return list;
 		}
 		
 		/// <summary>
@@ -117,7 +132,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		/// <returns>A container of all known crashes.</returns>
 		public IQueryable<Crash> ListAll()
 		{
-			return Context.Crashes.AsQueryable();
+			return Context.Crashes.AsQueryable().Where( c => c.Branch != null );
 		}
 
 		/// <summary>
@@ -192,137 +207,16 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 			{
 				UsersMapping UniqueUser = null;
 
-				//IEnumerable<Crash> Results = null;
+				IEnumerable<Crash> Results = null;
 				int Skip = ( FormData.Page - 1 ) * FormData.PageSize;
 				int Take = FormData.PageSize;
 
-				var ResultsAll = ListAll();
-
-				// Filter by Crash Type
-				if( FormData.CrashType != "All" )
-				{
-					switch( FormData.CrashType )
-					{
-						case "Crashes":
-							ResultsAll = ResultsAll.Where( CrashInstance => CrashInstance.CrashType == 1 );
-							break;
-						case "Assert":
-							ResultsAll = ResultsAll.Where( CrashInstance => CrashInstance.CrashType == 2 );
-							break;
-						case "Ensure":
-							ResultsAll = ResultsAll.Where( CrashInstance => CrashInstance.CrashType == 3 );
-							break;
-						case "CrashesAsserts":
-							ResultsAll = ResultsAll.Where( CrashInstance => CrashInstance.CrashType == 1 || CrashInstance.CrashType == 2 );
-							break;
-					}
-				}			
+				var ResultsAll = ConstructQuery(FormData);
 
 				// Filter by data and get as enumerable.
-                IQueryable<Crash> Results = FilterByDate(ResultsAll, FormData.DateFrom, FormData.DateTo);
+				Results = FilterByDate(ResultsAll, FormData.DateFrom, FormData.DateTo);
 
-				// Grab Results 
-				if( !string.IsNullOrEmpty( FormData.SearchQuery ) )
-				{
-					string DecodedQuery = HttpUtility.HtmlDecode( FormData.SearchQuery ).ToLower();
-					using( FScopedLogTimer LogTimer2 = new FScopedLogTimer( "CrashRepository.GetResults.FindUserFromQuery" + "(Query=" + DecodedQuery + ")" ) )
-					{						
-						if( !string.IsNullOrEmpty( DecodedQuery ) )
-						{
-							// Check if we are looking for user name.
-							string[] Params = DecodedQuery.Split( new string[] { "user:" }, StringSplitOptions.None );
-							if( Params.Length == 2 )
-							{
-								/*IQueryable<UsersMapping>*/
-								// Make sure that type of [dbo].[UsersMapping] is the same as [analyticsdb-01.dmz.epicgames.net].[CrashReport].[dbo].[UsersMapping]
-								IEnumerable<UsersMapping> FoundUsers = Context.ExecuteQuery<UsersMapping>
-								( @"SELECT * FROM [analyticsdb-01.dmz.epicgames.net].[CrashReport].[dbo].[UsersMapping] WHERE lower(UserName) = {0} OR lower(UserEmail) = {0}", Params[1] );
 
-								foreach( UsersMapping TheUser in FoundUsers )
-								{
-									UniqueUser = TheUser;
-									break;
-								}
-								if( UniqueUser != null )
-								{
-									Results = Results.Where( CrashInstance => CrashInstance.EpicAccountId == UniqueUser.EpicAccountId );
-								}
-								else
-								{
-									Results = Results.Where( CrashInstance => CrashInstance.EpicAccountId == "SomeValueThatIsNotPresentInTheDatabase" );
-								}
-							}
-							else
-							{
-                                Results = Results.Where(CrashInstance => CrashInstance.UserName == DecodedQuery);
-							}
-						}
-					}
-				}
-
-				// Start Filtering the results
-                if (!string.IsNullOrEmpty(FormData.EpicIdQuery))
-                {
-                    var DecodedQuery = HttpUtility.HtmlDecode(FormData.EpicIdQuery).ToLower();
-                    Results = Results.Where(crashInstance => crashInstance.EpicAccountId == DecodedQuery);
-                }
-
-                if (!string.IsNullOrEmpty(FormData.MachineIdQuery))
-                {
-                    var DecodedQuery = HttpUtility.HtmlDecode(FormData.MachineIdQuery).ToLower();
-                    Results = Results.Where(crashInstance => crashInstance.ComputerName == DecodedQuery);
-                }
-
-                if (!string.IsNullOrEmpty(FormData.JiraQuery))
-                {
-                    var DecodedQuery = HttpUtility.HtmlDecode(FormData.JiraQuery).ToLower();
-                    Results = Results.Where(crashInstance => crashInstance.TTPID == DecodedQuery);
-                }
-				// Filter by BranchName
-				if( !string.IsNullOrEmpty( FormData.BranchName ) )
-				{
-					if( FormData.BranchName.StartsWith( "-" ) )
-					{
-						Results =
-						(
-							from CrashDetail in Results
-							where !CrashDetail.Branch.Contains( FormData.BranchName.Substring( 1 ) )
-							select CrashDetail
-						);
-					}
-					else
-					{
-						Results =
-						(
-							from CrashDetail in Results
-							where CrashDetail.Branch.Contains( FormData.BranchName )
-							select CrashDetail
-						);
-					}
-				}
-
-				// Filter by GameName
-				if( !string.IsNullOrEmpty( FormData.GameName ) )
-				{
-					if( FormData.GameName.StartsWith( "-" ) )
-					{
-						Results =
-						(
-							from CrashDetail in Results
-							where !CrashDetail.GameName.Contains( FormData.GameName.Substring( 1 ) )
-							select CrashDetail
-						);
-					}
-					else
-					{
-						Results =
-						(
-							from CrashDetail in Results
-							where CrashDetail.GameName.Contains( FormData.GameName )
-							select CrashDetail
-						);
-					}
-				}
 
 				// Get UserGroup ResultCounts
 				Dictionary<string, int> GroupCounts = GetCountsByGroupFromCrashes( Results );
@@ -351,11 +245,11 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 						}
 					}
 
-					//Results = NewResults;
+					Results = NewResults;					
 				}
 
 				// Pass in the results and return them sorted properly
-				//Results = GetSortedResults( Results, FormData.SortTerm, ( FormData.SortOrder == "Descending" ) );
+				Results = GetSortedResults( Results, FormData.SortTerm, ( FormData.SortOrder == "Descending" ) );
 
 				// Get the Count for pagination
 				int ResultCount = 0;
@@ -384,13 +278,13 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 					PagingInfo = new PagingInfo { CurrentPage = FormData.Page, PageSize = FormData.PageSize, TotalResults = ResultCount },
 					SortOrder = FormData.SortOrder,
 					SortTerm = FormData.SortTerm,
-                    BranchNames = DatabaseHelper.GetBranches(),
 					UserGroup = FormData.UserGroup,
 					CrashType = FormData.CrashType,
 					SearchQuery = FormData.SearchQuery,
-                    EpicIdQuery = FormData.EpicIdQuery,
-                    MachineIdQuery = FormData.MachineIdQuery,
-                    JiraQuery = FormData.JiraQuery,
+					UsernameQuery = FormData.UsernameQuery,
+					EpicIdQuery = FormData.EpicIdQuery,
+					MachineIdQuery = FormData.MachineIdQuery,
+					JiraQuery = FormData.JiraQuery,
 					DateFrom = (long)( FormData.DateFrom - CrashesViewModel.Epoch ).TotalMilliseconds,
 					DateTo = (long)( FormData.DateTo - CrashesViewModel.Epoch ).TotalMilliseconds,
 					BranchName = FormData.BranchName,
@@ -455,13 +349,14 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		/// <param name="DateFrom">The earliest date to filter by.</param>
 		/// <param name="DateTo">The latest date to filter by.</param>
 		/// <returns>The set of crashes between the earliest and latest date.</returns>
-		public IQueryable<Crash> FilterByDate( IQueryable<Crash> Results, DateTime DateFrom, DateTime DateTo )
+		public IEnumerable<Crash> FilterByDate( IQueryable<Crash> Results, DateTime DateFrom, DateTime DateTo )
 		{
 			using( FAutoScopedLogTimer LogTimer = new FAutoScopedLogTimer( this.GetType().ToString() + " SQL" ) )
 			{
 				IQueryable<Crash> CrashesInTimeFrame = Results
 					.Where( MyCrash => MyCrash.TimeOfCrash >= DateFrom && MyCrash.TimeOfCrash <= DateTo.AddDays( 1 ) );
-                return CrashesInTimeFrame;
+				IEnumerable<Crash> CrashesInTimeFrameEnumerable = CrashesInTimeFrame.ToList();
+				return CrashesInTimeFrameEnumerable;
 			}
 		}
 
@@ -595,7 +490,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 			NewCrash.ChangeListVersion = NewCrashInfo.BuiltFromCL.ToString();
 			NewCrash.CommandLine = NewCrashInfo.CommandLine;
 			NewCrash.EngineMode = NewCrashInfo.EngineMode;
-		    NewCrash.ComputerName = NewCrashInfo.MachineGuid;
+			NewCrash.ComputerName = NewCrashInfo.MachineGuid;
 
 			// Valid MachineID and UserName, updated crash from non-UE4 release
 			if(!string.IsNullOrEmpty(NewCrashInfo.UserName))
@@ -707,6 +602,137 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 			NewCrash.BuildPattern( Context );
 
 			return NewID;
+		}
+
+		private IQueryable<Crash> ConstructQuery(FormHelper FormData)
+		{
+			var results = ListAll();
+
+			// Grab Results 
+			if (!string.IsNullOrEmpty(FormData.SearchQuery))
+			{
+				if (!string.IsNullOrEmpty(FormData.UsernameQuery))
+				{
+					//We only use SearchQuery now for CallStack searching - if there's a searchquery value and a Username value, we need to get rid of the 
+					//Username so that we can create a broader search range
+					FormData.UsernameQuery = "";
+				}
+				string DecodedQuery = HttpUtility.HtmlDecode(FormData.SearchQuery).ToLower();
+				using (FScopedLogTimer LogTimer2 = new FScopedLogTimer("CrashRepository.GetResults.FindUserFromQuery" + "(Query=" + DecodedQuery + ")"))
+				{
+					results = results.Where(item => item.RawCallStack.Contains(FormData.SearchQuery));
+				}
+			}
+
+			// Filter by Crash Type
+			if (FormData.CrashType != "All")
+			{
+				switch (FormData.CrashType)
+				{
+					case "Crashes":
+						results = results.Where(CrashInstance => CrashInstance.CrashType == 1);
+						break;
+					case "Assert":
+						results = results.Where(CrashInstance => CrashInstance.CrashType == 2);
+						break;
+					case "Ensure":
+						results = results.Where(CrashInstance => CrashInstance.CrashType == 3);
+						break;
+					case "CrashesAsserts":
+						results = results.Where(CrashInstance => CrashInstance.CrashType == 1 || CrashInstance.CrashType == 2);
+						break;
+				}
+			}
+
+			if (!string.IsNullOrEmpty(FormData.UsernameQuery))
+			{
+				results =
+					(
+						from CrashDetail in results
+						where CrashDetail.UserName.Equals(FormData.UsernameQuery)
+						select CrashDetail
+						);
+			}
+
+			// Start Filtering the results
+			if (!string.IsNullOrEmpty(FormData.EpicIdQuery))
+			{
+				var DecodedQuery = HttpUtility.HtmlDecode(FormData.EpicIdQuery).ToLower();
+				results =
+						(
+							from CrashDetail in results
+							where CrashDetail.EpicAccountId.Equals(FormData.EpicIdQuery)
+							select CrashDetail
+						);
+			}
+
+			if (!string.IsNullOrEmpty(FormData.MachineIdQuery))
+			{
+				var DecodedQuery = HttpUtility.HtmlDecode(FormData.MachineIdQuery).ToLower();
+				results =
+						(
+							from CrashDetail in results
+							where CrashDetail.ComputerName.Equals(FormData.MachineIdQuery)
+							select CrashDetail
+						);
+			}
+
+			if (!string.IsNullOrEmpty(FormData.JiraQuery))
+			{
+				var DecodedQuery = HttpUtility.HtmlDecode(FormData.JiraQuery).ToLower();
+				results =
+					(
+						from CrashDetail in results
+						where CrashDetail.TTPID.Equals(FormData.JiraQuery)
+						select CrashDetail
+					);
+			}
+			// Filter by BranchName
+			if (!string.IsNullOrEmpty(FormData.BranchName))
+			{
+				if (FormData.BranchName.StartsWith("-"))
+				{
+					results =
+					(
+						from CrashDetail in results
+						where !CrashDetail.Branch.Contains(FormData.BranchName.Substring(1))
+						select CrashDetail
+					);
+				}
+				else
+				{
+					results =
+					(
+						from CrashDetail in results
+						where CrashDetail.Branch.Equals(FormData.BranchName)
+						select CrashDetail
+					);
+				}
+			}
+
+			// Filter by GameName
+			if (!string.IsNullOrEmpty(FormData.GameName))
+			{
+				if (FormData.GameName.StartsWith("-"))
+				{
+					results =
+					(
+						from CrashDetail in results
+						where !CrashDetail.GameName.Contains(FormData.GameName.Substring(1))
+						select CrashDetail
+					);
+				}
+				else
+				{
+					results =
+					(
+						from CrashDetail in results
+						where CrashDetail.GameName.Contains(FormData.GameName)
+						select CrashDetail
+					);
+				}
+			}
+			return results;
 		}
 	}
 }

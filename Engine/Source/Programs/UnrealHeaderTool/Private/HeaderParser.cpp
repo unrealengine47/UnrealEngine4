@@ -13,6 +13,9 @@
 #include "Manifest.h"
 #include "UnitConversion.h"
 
+double GPluginOverheadTime = 0.0;
+double GHeaderCodeGenTime = 0.0;
+
 /*-----------------------------------------------------------------------------
 	Constants & declarations.
 -----------------------------------------------------------------------------*/
@@ -410,6 +413,35 @@ namespace
 
 		// Unreachable
 		return nullptr;
+	}
+
+	bool IsPropertySupportedByBlueprint(const UProperty* Property)
+	{
+		if (Property == NULL)
+		{
+			return false;
+		}
+		if (auto ArrayProperty = Cast<const UArrayProperty>(Property))
+		{
+			return IsPropertySupportedByBlueprint(ArrayProperty->Inner);
+		}
+
+		const bool bSupportedType = Property->IsA<UInterfaceProperty>()
+			|| Property->IsA<UClassProperty>()
+			|| Property->IsA<UAssetClassProperty>() //?
+			|| Property->IsA<UObjectPropertyBase>()
+			|| Property->IsA<UStructProperty>()
+			|| Property->IsA<UFloatProperty>()
+			|| Property->IsA<UIntProperty>()
+			|| Property->IsA<UByteProperty>()
+			|| Property->IsA<UNameProperty>()
+			|| Property->IsA<UBoolProperty>()
+			|| Property->IsA<UStrProperty>()
+			|| Property->IsA<UTextProperty>()
+			|| Property->IsA<UMulticastDelegateProperty>()
+			|| Property->IsA<UDelegateProperty>();
+
+		return bSupportedType;
 	}
 }
 	
@@ -2805,7 +2837,7 @@ void FHeaderParser::GetVarType
 			// Struct keyword in front of a struct is legal, we 'consume' it
 			bUnconsumedStructKeyword = false;
 		}
-		else if (UScriptStruct* Struct = FindObject<UScriptStruct>( ANY_PACKAGE, *IdentifierStripped ))
+		else if ( FindObject<UScriptStruct>( ANY_PACKAGE, *IdentifierStripped ) != nullptr)
 		{
 			bHandledType = true;
 
@@ -5651,6 +5683,11 @@ void FHeaderParser::CompileFunctionDeclaration(FUnrealSourceFile& SourceFile, FC
 			{
 				FError::Throwf(TEXT("Static array cannot be exposed to blueprint. Function: %s Parameter %s\n"), *TopFunction->GetName(), *Param->GetName());
 			}
+
+			if (!IsPropertySupportedByBlueprint(Param))
+			{
+				FError::Throwf(TEXT("Type '%s' is not supported by blueprint. Function: %s Parameter %s\n"), *Param->GetCPPType(), *TopFunction->GetName(), *Param->GetName());
+			}
 		}
 	}
 
@@ -6023,6 +6060,11 @@ void FHeaderParser::CompileVariableDeclaration(FClasses& AllClasses, UStruct* St
 		if (NewProperty->HasAnyPropertyFlags(CPF_BlueprintVisible) && (NewProperty->ArrayDim > 1))
 		{
 			FError::Throwf(TEXT("Static array cannot be exposed to blueprint %s.%s"), *Struct->GetName(), *NewProperty->GetName());
+		}
+
+		if (NewProperty->HasAnyPropertyFlags(CPF_BlueprintVisible) && !IsPropertySupportedByBlueprint(NewProperty))
+		{
+			FError::Throwf(TEXT("Type '%s' is not supported by blueprint. %s.%s"), *NewProperty->GetCPPType(), *Struct->GetName(), *NewProperty->GetName());
 		}
 
 	} while( MatchSymbol(TEXT(",")) );
@@ -6538,7 +6580,7 @@ void FHeaderParser::ExportNativeHeaders(
 {
 	// Build a list of header filenames
 	TArray<FString>	ClassHeaderFilenames;
-	new(ClassHeaderFilenames) FString(TEXT(""));
+	new (ClassHeaderFilenames) FString();
 
 	auto SourceFiles = GetSourceFilesWithInheritanceOrdering(CurrentPackage, AllClasses);
 
@@ -6721,23 +6763,28 @@ ECompilationResult::Type FHeaderParser::ParseAllHeadersInside(
 			// from the feedback context.
 			Warn->SetContext(NULL);
 
-			ExportNativeHeaders(
-				CurrentPackage,
-				ModuleClasses,
-				Module.SaveExportedHeaders
+			double ExportTime = 0.0;
+			{
+				FScopedDurationTimer Timer(ExportTime);
+				ExportNativeHeaders(
+					CurrentPackage,
+					ModuleClasses,
+					Module.SaveExportedHeaders
 #if WITH_HOT_RELOAD_CTORS
-				, bExportVTableConstructors
+					, bExportVTableConstructors
 #endif // WITH_HOT_RELOAD_CTORS
-			);
+				);
+			}
+			GHeaderCodeGenTime += ExportTime;
 
 			// Done with header generation
 			if (HeaderParser.LinesParsed > 0)
 			{
-				UE_LOG(LogCompile, Log,  TEXT("Success: Parsed %i line(s), %i statement(s).\r\n"), HeaderParser.LinesParsed, HeaderParser.StatementsParsed );
+				UE_LOG(LogCompile, Log, TEXT("Success: Parsed %i line(s), %i statement(s) in %.2f secs.\r\n"), HeaderParser.LinesParsed, HeaderParser.StatementsParsed, ExportTime);
 			}
 			else
 			{
-				UE_LOG(LogCompile, Log,  TEXT("Success: Everything is up to date") );
+				UE_LOG(LogCompile, Log, TEXT("Success: Everything is up to date (in %.2f secs)"), ExportTime);
 			}
 		}
 	}
@@ -6753,6 +6800,8 @@ ECompilationResult::Type FHeaderParser::ParseAllHeadersInside(
 
 	if (Result == ECompilationResult::Succeeded && ScriptPlugins.Num())
 	{
+		FScopedDurationTimer PluginTimeTracker(GPluginOverheadTime);
+
 		auto RootNode = &ModuleClasses.GetClassTree();
 		for (auto Plugin : ScriptPlugins)
 		{

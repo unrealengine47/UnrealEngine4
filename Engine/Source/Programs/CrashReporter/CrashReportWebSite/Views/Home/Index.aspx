@@ -111,7 +111,7 @@ Crash Reports
                 <div id="SearchBox">
                     <div id="fieldSeperator">
                         <p class="searchText">Username</p>
-			            <input id="SearchQuery" name="SearchQuery" type="text" value="<%=Model.SearchQuery %>" width="1000" title="For searching for an user use 'user:[name]'" />
+			            <input id="SearchQuery" name="UsernameQuery" type="text" value="<%=Model.UsernameQuery %>" width="1000" title="For searching for an user use 'user:[name]'" />
                     </div>
                     <div id="fieldSeperator">
                         <p class="searchText">EpicID</p>

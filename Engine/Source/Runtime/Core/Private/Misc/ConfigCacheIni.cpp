@@ -1253,26 +1253,29 @@ void FConfigFile::SaveSourceToBackupFile()
 
 void FConfigFile::ProcessSourceAndCheckAgainstBackup()
 {
-	FString BetweenRunsDir = (FPaths::GameIntermediateDir() / TEXT("Config/CoalescedSourceConfigs/"));
-	FString BackupFilename = FString::Printf( TEXT( "%s%s.ini" ), *BetweenRunsDir, *Name.ToString() );
-
-	FConfigFile BackupFile;
-	ProcessIniContents(*BackupFilename, *BackupFilename, &BackupFile, false, false, false);
-
-	for( TMap<FString,FConfigSection>::TIterator SectionIterator(*SourceConfigFile); SectionIterator; ++SectionIterator )
+	if (!FPlatformProperties::RequiresCookedData())
 	{
-		const FString& SectionName = SectionIterator.Key();
-		const FConfigSection& SourceSection = SectionIterator.Value();
-		const FConfigSection* BackupSection = BackupFile.Find( SectionName );
+		FString BetweenRunsDir = (FPaths::GameIntermediateDir() / TEXT("Config/CoalescedSourceConfigs/"));
+		FString BackupFilename = FString::Printf( TEXT( "%s%s.ini" ), *BetweenRunsDir, *Name.ToString() );
 
-		if( BackupSection && SourceSection != *BackupSection )
+		FConfigFile BackupFile;
+		ProcessIniContents(*BackupFilename, *BackupFilename, &BackupFile, false, false, false);
+
+		for( TMap<FString,FConfigSection>::TIterator SectionIterator(*SourceConfigFile); SectionIterator; ++SectionIterator )
 		{
-			this->Remove( SectionName );
-			this->Add( SectionName, SourceSection );
-		}
-	}
+			const FString& SectionName = SectionIterator.Key();
+			const FConfigSection& SourceSection = SectionIterator.Value();
+			const FConfigSection* BackupSection = BackupFile.Find( SectionName );
 
-	SaveSourceToBackupFile();
+			if( BackupSection && SourceSection != *BackupSection )
+			{
+				this->Remove( SectionName );
+				this->Add( SectionName, SourceSection );
+			}
+		}
+
+		SaveSourceToBackupFile();
+	}
 }
 
 
@@ -2800,7 +2803,7 @@ static void GetSourceIniHierarchyFilenames(const TCHAR* InBaseIniName, const TCH
 
 	// [[[[ PROJECT USER OVERRIDES ]]]]
 	// Game/Config/User* ini (Checkpointed here at the end)
-	HierarchyCheckpointPath = FString::Printf(TEXT("%s/User%s.ini"), SourceConfigDir, InBaseIniName);
+	HierarchyCheckpointPath = FString::Printf(TEXT("%sUser%s.ini"), SourceConfigDir, InBaseIniName);
 	OutHierarchy.Add(FIniFilename(HierarchyCheckpointPath, false, GenerateHierarchyCacheKey(OutHierarchy, HierarchyCheckpointPath, InBaseIniName)));
 	
 }

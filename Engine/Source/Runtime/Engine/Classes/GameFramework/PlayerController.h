@@ -207,6 +207,14 @@ class ENGINE_API APlayerController : public AController
 	UPROPERTY()
 	float LastSpectatorStateSynchTime;
 
+	/** Last location synced on the server for a spectator. */
+	UPROPERTY(Transient)
+	FVector LastSpectatorSyncLocation;
+
+	/** Last rotation synced on the server for a spectator. */
+	UPROPERTY(Transient)
+	FRotator LastSpectatorSyncRotation;
+
 	/** Cap set by server on bandwidth from client to server in bytes/sec (only has impact if >=2600) */
 	UPROPERTY()
 	int32 ClientCap;
@@ -237,8 +245,17 @@ class ENGINE_API APlayerController : public AController
 	/** Whether this controller is using streaming volumes.  **/
 	uint32 bIsUsingStreamingVolumes:1;
 
-	/** Only valid in Spectating state. True if PlayerController is currently waiting for the match to start */
+	/** True if PlayerController is currently waiting for the match to start or to respawn. Only valid in Spectating state. */
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category=PlayerController)
 	uint32 bPlayerIsWaiting:1;
+
+	/** Indicate that the Spectator is waiting to join/respawn. */
+	UFUNCTION(server, reliable, WithValidation, Category=PlayerController)
+	void ServerSetSpectatorWaiting(bool bWaiting);
+
+	/** Indicate that the Spectator is waiting to join/respawn. */
+	UFUNCTION(client, reliable, Category=PlayerController)
+	void ClientSetSpectatorWaiting(bool bWaiting);
 
 	/** index identifying players using the same base connection (splitscreen clients)
 	 * Used by netcode to match replicated PlayerControllers to the correct splitscreen viewport and child connection
@@ -313,6 +330,9 @@ class ENGINE_API APlayerController : public AController
 	/** Trace channel currently being used for determining what world object was clicked on. */
 	UPROPERTY(BlueprintReadWrite, Category=MouseInterface)
 	TEnumAsByte<ECollisionChannel> CurrentClickTraceChannel;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=MouseInterface, meta=(DisplayName="Trace Distance"))
+	float HitResultTraceDistance;
 
 	FForceFeedbackValues ForceFeedbackValues;
 
@@ -438,18 +458,18 @@ public:
 	bool GetHitResultUnderFingerForObjects(ETouchIndex::Type FingerIndex, const  TArray<TEnumAsByte<EObjectTypeQuery> > & ObjectTypes, bool bTraceComplex, FHitResult& HitResult) const;
 
 	/** Convert current mouse 2D position to World Space 3D position and direction. Returns false if unable to determine value. **/
-	UFUNCTION(BlueprintCallable, Category="Game|Player", meta=(FriendlyName="ConvertMouseLocationToWorldSpace"))
+	UFUNCTION(BlueprintCallable, Category="Game|Player", meta=(DisplayName="ConvertMouseLocationToWorldSpace"))
 	bool DeprojectMousePositionToWorld(FVector& WorldLocation, FVector& WorldDirection) const;
 
 	/** Convert current mouse 2D position to World Space 3D position and direction. Returns false if unable to determine value. **/
-	UFUNCTION(BlueprintCallable, Category = "Game|Player", meta = (FriendlyName = "ConvertScreenLocationToWorldSpace"))
+	UFUNCTION(BlueprintCallable, Category = "Game|Player", meta = (DisplayName = "ConvertScreenLocationToWorldSpace"))
 	bool DeprojectScreenPositionToWorld(float ScreenX, float ScreenY, FVector& WorldLocation, FVector& WorldDirection) const;
 
 	/**
 	 * Convert a World Space 3D position into a 2D Screen Space position.
 	 * @return true if the world coordinate was successfully projected to the screen.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Game|Player", meta = ( FriendlyName = "ConvertWorldLocationToScreenLocation" ))
+	UFUNCTION(BlueprintCallable, Category = "Game|Player", meta = ( DisplayName = "ConvertWorldLocationToScreenLocation" ))
 	bool ProjectWorldLocationToScreen(FVector WorldLocation, FVector2D& ScreenLocation) const;
 	
 	/**
@@ -919,9 +939,9 @@ public:
 	UFUNCTION(reliable, server, WithValidation)
 	void ServerRestartPlayer();
 
-	/** When spectating, pings the server to make sure spectating should continue. */
+	/** When spectating, updates spectator location/rotation and pings the server to make sure spectating should continue. */
 	UFUNCTION(unreliable, server, WithValidation)
-	void ServerSetSpectatorLocation(FVector NewLoc);
+	void ServerSetSpectatorLocation(FVector NewLoc, FRotator NewRot);
 
 	/** Calls ServerSetSpectatorLocation but throttles it to reduce bandwidth and only calls it when necessary. */
 	void SafeServerUpdateSpectatorState();

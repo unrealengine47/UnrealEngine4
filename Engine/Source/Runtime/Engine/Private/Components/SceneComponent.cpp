@@ -1205,6 +1205,12 @@ void FSceneComponentInstanceData::ApplyToComponent(UActorComponent* Component, c
 	}
 }
 
+void FSceneComponentInstanceData::AddReferencedObjects(FReferenceCollector& Collector)
+{
+	FActorComponentInstanceData::AddReferencedObjects(Collector);
+	Collector.AddReferencedObjects(AttachedInstanceComponents);
+}
+
 void FSceneComponentInstanceData::FindAndReplaceInstances(const TMap<UObject*, UObject*>& OldToNewInstanceMap)
 {
 	for (USceneComponent*& ChildComponent : AttachedInstanceComponents)
@@ -1772,7 +1778,7 @@ void USceneComponent::SetVisibility(bool bNewVisibility, bool bPropagateToChildr
 
 		while (ComponentStack.Num() > 0)
 		{
-			USceneComponent* const CurrentComp = ComponentStack.Pop();
+			USceneComponent* const CurrentComp = ComponentStack.Pop(/*bAllowShrinking=*/ false);
 			if (CurrentComp)
 			{
 				ComponentStack.Append(CurrentComp->AttachChildren);
@@ -1805,7 +1811,7 @@ void USceneComponent::SetHiddenInGame(bool NewHiddenGame, bool bPropagateToChild
 
 		while (ComponentStack.Num() > 0)
 		{
-			USceneComponent* const CurrentComp = ComponentStack.Pop();
+			USceneComponent* const CurrentComp = ComponentStack.Pop(/*bAllowShrinking=*/ false);
 			if (CurrentComp)
 			{
 				ComponentStack.Append(CurrentComp->AttachChildren);

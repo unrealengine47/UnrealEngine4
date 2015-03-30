@@ -784,7 +784,7 @@ bool UEdGraphSchema_K2::FunctionCanBeUsedInDelegate(const UFunction* InFunction)
 	return true;
 }
 
-FString UEdGraphSchema_K2::GetFriendlySignatureName(const UFunction* Function)
+FText UEdGraphSchema_K2::GetFriendlySignatureName(const UFunction* Function)
 {
 	return UK2Node_CallFunction::GetUserFacingFunctionName( Function );
 }
@@ -3212,7 +3212,6 @@ FText UEdGraphSchema_K2::GetCategoryText(const FString& Category, const bool bFo
 	}
 	else
 	{
-		ensureMsgf(false, TEXT("Unhandled blueprint type ('%s'), failed to find type description."), *Category);
 		return FText::FromString(Category);
 	}
 }
@@ -5513,7 +5512,7 @@ void UEdGraphSchema_K2::SplitPin(UEdGraphPin* Pin) const
 			SubPin->ParentPin = Pin;
 
 			// CreatePin puts the Pin in the array, but we are going to insert it later, so pop it back out
-			GraphNode->Pins.Pop();
+			GraphNode->Pins.Pop(/*bAllowShrinking=*/ false);
 
 			Pin->SubPins.Add(SubPin);
 		}

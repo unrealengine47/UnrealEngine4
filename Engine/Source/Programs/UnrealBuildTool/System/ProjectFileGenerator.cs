@@ -141,6 +141,9 @@ namespace UnrealBuildTool
 		/// True if all documentation languages should be included in generated projects, otherwise only "INT" will be included
 		bool bAllDocumentationLanguages = false;
 
+		/// True if build targets should pass the -useprecompiled argument
+		public static bool bUsePrecompiled = false;
+
 		/// True if we should include engine source in the generated solution
 		protected bool IncludeEngineSource = true;
 
@@ -755,6 +758,10 @@ namespace UnrealBuildTool
 
 						case "-ALLLANGUAGES":
 							bAllDocumentationLanguages = true;
+							break;
+
+						case "-USEPRECOMPILED":
+							bUsePrecompiled = true;
 							break;
 					}
 				}
@@ -1671,6 +1678,12 @@ namespace UnrealBuildTool
 				{
 					// This is an engine target
 					IsEngineTarget = true;
+				}
+
+				if (IsEngineTarget && bGeneratingRocketProjectFiles)
+				{
+					// Rocket project file must never include engine targets.
+					continue;
 				}
 
 				bool WantProjectFileForTarget = true;

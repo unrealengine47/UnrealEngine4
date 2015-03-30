@@ -38,6 +38,8 @@
 
 void FSkeletalMeshComponentPreClothTickFunction::ExecuteTick(float DeltaTime, enum ELevelTick TickType, ENamedThreads::Type CurrentThread, const FGraphEventRef& MyCompletionGraphEvent)
 {
+	QUICK_SCOPE_CYCLE_COUNTER(FSkeletalMeshComponentPreClothTickFunction_ExecuteTick);
+
 	if ((TickType == LEVELTICK_All) && Target && !Target->HasAnyFlags(RF_PendingKill | RF_Unreachable))
 	{
 		Target->PreClothTick(DeltaTime);
@@ -827,7 +829,7 @@ void USkeletalMeshComponent::InitArticulated(FPhysScene* PhysScene)
 	if(Aggregate && Aggregate->getNbActors() > 0 && PhysScene)
 	{
 		// Get the scene type from the SkeletalMeshComponent's BodyInstance
-		const uint32 SceneType = BodyInstance.UseAsyncScene() ? PST_Async : PST_Sync;
+		const uint32 SceneType = (bHasBodiesInAsyncScene && PhysScene->HasAsyncScene()) ? PST_Async : PST_Sync;
 		{
 			PxScene* PScene = PhysScene->GetPhysXScene(SceneType);
 			SCOPED_SCENE_WRITE_LOCK(PScene);

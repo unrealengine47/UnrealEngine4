@@ -120,6 +120,7 @@ FSimpleMulticastDelegate								FEditorDelegates::LoadSelectedAssetsIfNeeded;
 FSimpleMulticastDelegate								FEditorDelegates::DisplayLoadErrors;
 FEditorDelegates::FOnEditorModeTransitioned				FEditorDelegates::EditorModeEnter;
 FEditorDelegates::FOnEditorModeTransitioned				FEditorDelegates::EditorModeExit;
+FEditorDelegates::FOnPIEEvent							FEditorDelegates::PreBeginPIE;
 FEditorDelegates::FOnPIEEvent							FEditorDelegates::BeginPIE;
 FEditorDelegates::FOnPIEEvent							FEditorDelegates::EndPIE;
 FEditorDelegates::FOnPIEEvent							FEditorDelegates::PausePIE;
@@ -4704,11 +4705,6 @@ FString UEditorEngine::GetFriendlyName( const UProperty* Property, UStruct* Owne
 	if ( !DidFindText )
 	{
 		FString DefaultFriendlyName = Property->GetMetaData(TEXT("DisplayName"));
-		if (DefaultFriendlyName.IsEmpty())
-		{
-			// Fallback for old blueprint variables that were saved as friendly name
-			DefaultFriendlyName = Property->GetMetaData(TEXT("FriendlyName"));
-		}
 		if ( DefaultFriendlyName.IsEmpty() )
 		{
 			const bool bIsBool = Cast<const UBoolProperty>(Property) != NULL;

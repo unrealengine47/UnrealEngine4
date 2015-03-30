@@ -16,6 +16,8 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		/// <summary>The user search query.</summary>
 		public string SearchQuery = "";
 
+	    public string UsernameQuery = "";
+
         public string EpicIdQuery = "";
 
         public string MachineIdQuery = "";
@@ -126,6 +128,8 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 		{
 			// Set up Default values if there is no QueryString and set values to the Query string if it is there.
 			GetFormParameter( Request, Form, "SearchQuery", SearchQuery, out SearchQuery );
+
+            GetFormParameter(Request, Form, "UsernameQuery", UsernameQuery, out UsernameQuery);
 
             GetFormParameter(Request, Form, "EpicIdQuery", EpicIdQuery, out EpicIdQuery);
 

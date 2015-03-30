@@ -148,7 +148,7 @@ public class GUBP : BuildCommand
 		string Args = "";
         if (bBuildRocket)
         {
-            Args = (bUseRocketInsteadOfBuildRocket ? "-Rocket" : "-BuildRocket -PrecompileModules");
+            Args = (bUseRocketInsteadOfBuildRocket ? "-Rocket" : "-BuildRocket -Precompile");
         }
         return Args;
     }
@@ -198,6 +198,7 @@ public class GUBP : BuildCommand
 			public List<UnrealTargetPlatform> ExcludePlatformsForEditor = new List<UnrealTargetPlatform>();
 			public bool bNoAutomatedTesting = false;
 			public bool bNoDocumentation = false;
+			public bool bNoInstalledEngine = false;
 			public bool bMakeFormalBuildWithoutLabelPromotable = false;
 			public int QuantumOverride = 0;
         }
@@ -825,7 +826,7 @@ public class GUBP : BuildCommand
         {
             var Agenda = new UE4Build.BuildAgenda();
 
-            string AddArgs = "-nobuilduht -precompilemodules";
+            string AddArgs = "-nobuilduht -precompile";
             if (bp.bOrthogonalizeEditorPlatforms)
             {
                 AddArgs += " -skipnonhostplatforms";
@@ -1405,7 +1406,7 @@ public class GUBP : BuildCommand
         {
 			Projects = new List<BranchInfo.BranchUProject>(InProjects);
 			AddDependency(ToolsNode.StaticGetFullName(InHostPlatform)); // for UnrealPak
-			AgentSharingGroup = "BuildInstall" + StaticGetHostPlatformSuffix(HostPlatform);
+            AgentSharingGroup = "FeaturePacks"  + StaticGetHostPlatformSuffix(InHostPlatform);
         }
 
 		public static string GetOutputFile(BranchInfo.BranchUProject Project)
@@ -1455,7 +1456,7 @@ public class GUBP : BuildCommand
 
 		public override int CISFrequencyQuantumShift(GUBP bp)
 		{
-			return base.CISFrequencyQuantumShift(bp) + 3;
+			return base.CISFrequencyQuantumShift(bp) + 2;
 		}
 		public override void DoBuild(GUBP bp)
         {
@@ -1503,7 +1504,7 @@ public class GUBP : BuildCommand
         BranchInfo.BranchUProject GameProj;
         UnrealTargetPlatform TargetPlatform;
 		bool WithXp;
-		bool Precompiled; // If true, just builds targets which generate static libraries for the -UsePrecompiledModules option to UBT. If false, just build those that don't.
+		bool Precompiled; // If true, just builds targets which generate static libraries for the -UsePrecompiled option to UBT. If false, just build those that don't.
 
         public GamePlatformMonolithicsNode(GUBP bp, UnrealTargetPlatform InHostPlatform, BranchInfo.BranchUProject InGameProj, UnrealTargetPlatform InTargetPlatform, bool InWithXp = false, bool InPrecompiled = false)
             : base(InHostPlatform)
@@ -1676,7 +1677,7 @@ public class GUBP : BuildCommand
 
 			if(Precompiled)
 			{
-				Args += " -precompilemodules";
+				Args += " -precompile";
 			}
 
 			if (WithXp)
@@ -4067,7 +4068,7 @@ public class GUBP : BuildCommand
             {
                 Opts = (Opts & ~ERunOptions.AllowSpew) | ERunOptions.NoLoggingOfRunCommand;
             }
-            return RunAndLog("ectool", Args, Options: Opts);
+            return RunAndLog("ectool", "--timeout 900 " + Args, Options: Opts);
         }
     }
     void WriteECPerl(List<string> Args)

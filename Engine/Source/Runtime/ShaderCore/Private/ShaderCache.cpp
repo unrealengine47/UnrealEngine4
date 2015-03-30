@@ -6,6 +6,7 @@
 
 #include "ShaderCore.h"
 #include "ShaderCache.h"
+#include "Shader.h"
 #include "RHI.h"
 #include "RenderingThread.h"
 
@@ -33,8 +34,8 @@ FAutoConsoleVariableRef FShaderCache::CVarUseShaderPredraw(
 	ECVF_ReadOnly|ECVF_RenderThreadSafe
 	);
 
-// The actual draw loggging is even more expensive as it has to cache all the RHI draw state & is disabled by default if you aren't a developer.
-int32 FShaderCache::bUseShaderDrawLog = (PLATFORM_MAC && !WITH_EDITOR && !UE_BUILD_SHIPPING) ? 1 : 0;
+// The actual draw loggging is even more expensive as it has to cache all the RHI draw state & is disabled by default.
+int32 FShaderCache::bUseShaderDrawLog = 0;
 FAutoConsoleVariableRef FShaderCache::CVarUseShaderDrawLog(
 	TEXT("r.UseShaderDrawLog"),
 	bUseShaderDrawLog,
@@ -185,7 +186,7 @@ FVertexShaderRHIRef FShaderCache::GetVertexShader(EShaderPlatform Platform, FSHA
 	FShaderCacheKey Key;
 	Key.Platform = Platform;
 	Key.Frequency = SF_Vertex;
-	Key.Hash = Hash;
+	Key.SHAHash = Hash;
 	Key.bActive = true;
 	FVertexShaderRHIRef Shader = CachedVertexShaders.FindRef(Key);
 	if(!IsValidRef(Shader))
@@ -206,7 +207,7 @@ FPixelShaderRHIRef FShaderCache::GetPixelShader(EShaderPlatform Platform, FSHAHa
 	FShaderCacheKey Key;
 	Key.Platform = Platform;
 	Key.Frequency = SF_Pixel;
-	Key.Hash = Hash;
+	Key.SHAHash = Hash;
 	Key.bActive = true;
 	FPixelShaderRHIRef Shader = CachedPixelShaders.FindRef(Key);
 	if(!IsValidRef(Shader))
@@ -227,7 +228,7 @@ FGeometryShaderRHIRef FShaderCache::GetGeometryShader(EShaderPlatform Platform, 
 	FShaderCacheKey Key;
 	Key.Platform = Platform;
 	Key.Frequency = SF_Geometry;
-	Key.Hash = Hash;
+	Key.SHAHash = Hash;
 	Key.bActive = true;
 	FGeometryShaderRHIRef Shader = CachedGeometryShaders.FindRef(Key);
 	if(!IsValidRef(Shader))
@@ -248,7 +249,7 @@ FHullShaderRHIRef FShaderCache::GetHullShader(EShaderPlatform Platform, FSHAHash
 	FShaderCacheKey Key;
 	Key.Platform = Platform;
 	Key.Frequency = SF_Hull;
-	Key.Hash = Hash;
+	Key.SHAHash = Hash;
 	Key.bActive = true;
 	FHullShaderRHIRef Shader = CachedHullShaders.FindRef(Key);
 	if(!IsValidRef(Shader))
@@ -269,7 +270,7 @@ FDomainShaderRHIRef FShaderCache::GetDomainShader(EShaderPlatform Platform, FSHA
 	FShaderCacheKey Key;
 	Key.Platform = Platform;
 	Key.Frequency = SF_Domain;
-	Key.Hash = Hash;
+	Key.SHAHash = Hash;
 	Key.bActive = true;
 	FDomainShaderRHIRef Shader = CachedDomainShaders.FindRef(Key);
 	if(!IsValidRef(Shader))
@@ -291,7 +292,7 @@ FComputeShaderRHIRef FShaderCache::GetComputeShader(EShaderPlatform Platform, TA
 	Key.Platform = Platform;
 	Key.Frequency = SF_Compute;
 	// @todo WARNING: RHI is responsible for hashing Compute shaders due to the way OpenGLDrv implements compute!
-	FSHA1::HashBuffer(Code.GetData(), Code.Num(), Key.Hash.Hash);
+	FSHA1::HashBuffer(Code.GetData(), Code.Num(), Key.SHAHash.Hash);
 	Key.bActive = true;
 	FComputeShaderRHIRef Shader = CachedComputeShaders.FindRef(Key);
 	if(!IsValidRef(Shader))
@@ -308,14 +309,37 @@ FComputeShaderRHIRef FShaderCache::GetComputeShader(EShaderPlatform Platform, TA
 
 void FShaderCache::InternalLogShader(EShaderPlatform Platform, EShaderFrequency Frequency, FSHAHash Hash, TArray<uint8> const& Code)
 {
-	FShaderCacheKey Key;
-	Key.Hash = Hash;
-	Key.Platform = Platform;
-	Key.Frequency = Frequency;
-	Key.bActive = true;
-	ENQUEUE_UNIQUE_RENDER_COMMAND_TWOPARAMETER(LogShader, FShaderCacheKey,Key,Key, TArray<uint8>,Code,Code, {
-		FShaderCache::GetShaderCache()->SubmitShader(Key, Code);
-	});
+	bool bUsable = FShaderResource::ArePlatformsCompatible(GMaxRHIShaderPlatform, Platform);
+	switch (Frequency)
+	{
+		case SF_Geometry:
+			bUsable &= RHISupportsGeometryShaders(GMaxRHIShaderPlatform);
+			break;
+			
+		case SF_Hull:
+		case SF_Domain:
+			bUsable &= RHISupportsTessellation(GMaxRHIShaderPlatform);
+			break;
+			
+		case SF_Compute:
+			bUsable &= RHISupportsComputeShaders(GMaxRHIShaderPlatform);
+			break;
+			
+		default:
+			break;
+	}
+	
+	if ( bUsable )
+	{
+		FShaderCacheKey Key;
+		Key.SHAHash = Hash;
+		Key.Platform = Platform;
+		Key.Frequency = Frequency;
+		Key.bActive = true;
+		ENQUEUE_UNIQUE_RENDER_COMMAND_TWOPARAMETER(LogShader, FShaderCacheKey,Key,Key, TArray<uint8>,Code,Code, {
+			FShaderCache::GetShaderCache()->SubmitShader(Key, Code);
+		});
+	}
 }
 
 void FShaderCache::InternalLogVertexDeclaration(const FVertexDeclarationElementList& VertexElements, FVertexDeclarationRHIParamRef VertexDeclaration)
@@ -340,35 +364,35 @@ void FShaderCache::InternalLogBoundShaderState(EShaderPlatform Platform, FVertex
 	{
 		Info.VertexShader.Platform = Platform;
 		Info.VertexShader.Frequency = SF_Vertex;
-		Info.VertexShader.Hash = VertexShader->GetHash();
+		Info.VertexShader.SHAHash = VertexShader->GetHash();
 		Info.VertexShader.bActive = true;
 	}
 	if(PixelShader)
 	{
 		Info.PixelShader.Platform = Platform;
 		Info.PixelShader.Frequency = SF_Pixel;
-		Info.PixelShader.Hash = PixelShader->GetHash();
+		Info.PixelShader.SHAHash = PixelShader->GetHash();
 		Info.PixelShader.bActive = true;
 	}
 	if(GeometryShader)
 	{
 		Info.GeometryShader.Platform = Platform;
 		Info.GeometryShader.Frequency = SF_Geometry;
-		Info.GeometryShader.Hash = GeometryShader->GetHash();
+		Info.GeometryShader.SHAHash = GeometryShader->GetHash();
 		Info.GeometryShader.bActive = true;
 	}
 	if(HullShader)
 	{
 		Info.HullShader.Platform = Platform;
 		Info.HullShader.Frequency = SF_Hull;
-		Info.HullShader.Hash = HullShader->GetHash();
+		Info.HullShader.SHAHash = HullShader->GetHash();
 		Info.HullShader.bActive = true;
 	}
 	if(DomainShader)
 	{
 		Info.DomainShader.Platform = Platform;
 		Info.DomainShader.Frequency = SF_Domain;
-		Info.DomainShader.Hash = DomainShader->GetHash();
+		Info.DomainShader.SHAHash = DomainShader->GetHash();
 		Info.DomainShader.bActive = true;
 	}
 	
@@ -449,10 +473,9 @@ void FShaderCache::InternalLogSamplerState(FSamplerStateInitializerRHI const& In
 {
 	if ( bUseShaderDrawLog )
 	{
-		SamplerStates.Add(State, Init);
-		
 		FShaderPlatformCache& PlatformCache = Caches.FindOrAdd(GMaxRHIShaderPlatform);
-		PlatformCache.SamplerStates.Add(Init);
+		FSetElementId ID = PlatformCache.SamplerStates.Add(Init);
+		SamplerStates.Add(State, ID.AsInteger());
 	}
 }
 
@@ -460,14 +483,14 @@ void FShaderCache::InternalLogTexture(FShaderTextureKey const& Init, FTextureRHI
 {
 	if ( bUseShaderPredraw || bUseShaderDrawLog )
 	{
-		Textures.Add(State, Init);
-		CachedTextures.Add(Init, State);
-		
 		FShaderPlatformCache& PlatformCache = Caches.FindOrAdd(GMaxRHIShaderPlatform);
 		FShaderResourceKey Key;
 		Key.Tex = Init;
 		Key.Format = Init.Format;
-		PlatformCache.Resources.Add(Key);
+		FSetElementId ID = PlatformCache.Resources.Add(Key);
+		
+		Textures.Add(State, ID.AsInteger());
+		CachedTextures.Add(Init, State);
 	}
 }
 
@@ -475,8 +498,13 @@ void FShaderCache::InternalLogSRV(FShaderResourceViewRHIParamRef SRV, FTextureRH
 {
 	if ( bUseShaderPredraw || bUseShaderDrawLog )
 	{
+		FShaderPlatformCache& PlatformCache = Caches.FindOrAdd(GMaxRHIShaderPlatform);
+		
+		FSetElementId ID = FSetElementId::FromInteger(Textures.FindChecked(Texture));
+		FShaderResourceKey TexKey = PlatformCache.Resources[ID];
+		
 		FShaderResourceKey Key;
-		Key.Tex = Textures.FindChecked(Texture);
+		Key.Tex = TexKey.Tex;
 		Key.BaseMip = StartMip;
 		Key.MipLevels = NumMips;
 		Key.Format = Format;
@@ -484,7 +512,6 @@ void FShaderCache::InternalLogSRV(FShaderResourceViewRHIParamRef SRV, FTextureRH
 		SRVs.Add(SRV, Key);
 		CachedSRVs.Add(Key, FShaderResourceViewBinding(SRV, nullptr, Texture));
 		
-		FShaderPlatformCache& PlatformCache = Caches.FindOrAdd(GMaxRHIShaderPlatform);
 		PlatformCache.Resources.Add(Key);
 	}
 }
@@ -522,8 +549,12 @@ void FShaderCache::InternalRemoveTexture(FTextureRHIParamRef Texture)
 {
 	if ( bUseShaderPredraw || bUseShaderDrawLog )
 	{
-		auto Key = Textures.FindRef(Texture);
-		CachedTextures.Remove(Key);
+		FShaderPlatformCache& PlatformCache = Caches.FindOrAdd(GMaxRHIShaderPlatform);
+		
+		FSetElementId ID = FSetElementId::FromInteger(Textures.FindChecked(Texture));
+		FShaderResourceKey TexKey = PlatformCache.Resources[ID];
+		
+		CachedTextures.Remove(TexKey.Tex);
 		Textures.Remove(Texture);
 	}
 }
@@ -533,6 +564,7 @@ void FShaderCache::InternalSetBlendState(FBlendStateRHIParamRef State)
 	if ( (bUseShaderPredraw || bUseShaderDrawLog) && !bIsPreDraw )
 	{
 		CurrentDrawKey.BlendState = BlendStates.FindChecked(State);
+		CurrentDrawKey.Hash = 0;
 	}
 }
 
@@ -541,6 +573,7 @@ void FShaderCache::InternalSetRasterizerState(FRasterizerStateRHIParamRef State)
 	if ( (bUseShaderPredraw || bUseShaderDrawLog) && !bIsPreDraw )
 	{
 		CurrentDrawKey.RasterizerState = RasterizerStates.FindChecked(State);
+		CurrentDrawKey.Hash = 0;
 	}
 }
 
@@ -549,6 +582,7 @@ void FShaderCache::InternalSetDepthStencilState(FDepthStencilStateRHIParamRef St
 	if ( (bUseShaderPredraw || bUseShaderDrawLog) && !bIsPreDraw )
 	{
 		CurrentDrawKey.DepthStencilState = DepthStencilStates.FindChecked(State);
+		CurrentDrawKey.Hash = 0;
 	}
 }
 
@@ -574,7 +608,9 @@ void FShaderCache::InternalSetRenderTargets( uint32 NumSimultaneousRenderTargets
 			if ( Target.Texture )
 			{
 				FShaderRenderTargetKey Key;
-				Key.Texture = Textures.FindChecked(Target.Texture);
+				FSetElementId ID = FSetElementId::FromInteger(Textures.FindChecked(Target.Texture));
+				FShaderResourceKey TexKey = PlatformCache.Resources[ID];
+				Key.Texture = TexKey.Tex;
 				check(Key.Texture.MipLevels == Target.Texture->GetNumMips());
 				Key.MipLevel = Key.Texture.MipLevels > Target.MipIndex ? Target.MipIndex : 0;
 				Key.ArrayIndex = Target.ArraySliceIndex;
@@ -589,13 +625,16 @@ void FShaderCache::InternalSetRenderTargets( uint32 NumSimultaneousRenderTargets
 		if ( NewDepthStencilTargetRHI && NewDepthStencilTargetRHI->Texture )
 		{
 			FShaderRenderTargetKey Key;
-			Key.Texture = Textures.FindChecked(NewDepthStencilTargetRHI->Texture);
+			FSetElementId ID = FSetElementId::FromInteger(Textures.FindChecked(NewDepthStencilTargetRHI->Texture));
+			FShaderResourceKey TexKey = PlatformCache.Resources[ID];
+			Key.Texture = TexKey.Tex;
 			CurrentDrawKey.DepthStencilTarget = PlatformCache.RenderTargets.Add(Key).AsInteger();
 		}
 		else
 		{
 			CurrentDrawKey.DepthStencilTarget = FShaderDrawKey::NullState;
 		}
+		CurrentDrawKey.Hash = 0;
 	}
 }
 
@@ -606,15 +645,13 @@ void FShaderCache::InternalSetSamplerState(EShaderFrequency Frequency, uint32 In
 		check(Index < GetFeatureLevelMaxTextureSamplers(GMaxRHIFeatureLevel));
 		if ( State )
 		{
-			FSamplerStateInitializerRHI Key = SamplerStates.FindChecked(State);
-			
-			FShaderPlatformCache& PlatformCache = Caches.FindOrAdd(GMaxRHIShaderPlatform);
-			CurrentDrawKey.SamplerStates[Frequency][Index] = PlatformCache.SamplerStates.FindId(Key).AsInteger();
+			CurrentDrawKey.SamplerStates[Frequency][Index] = SamplerStates.FindChecked(State);
 		}
 		else
 		{
 			CurrentDrawKey.SamplerStates[Frequency][Index] = FShaderDrawKey::NullState;
 		}
+		CurrentDrawKey.Hash = 0;
 	}
 }
 
@@ -633,16 +670,15 @@ void FShaderCache::InternalSetTexture(EShaderFrequency Frequency, uint32 Index, 
 				Tex = State->GetTextureReference()->GetReferencedTexture();
 			}
 			
-			Key.Tex = Textures.FindChecked(Tex);
-			Key.Format = Key.Tex.Format;
-			
 			FShaderPlatformCache& PlatformCache = Caches.FindOrAdd(GMaxRHIShaderPlatform);
-			CurrentDrawKey.Resources[Frequency][Index] = PlatformCache.Resources.FindId(Key).AsInteger();
+			FSetElementId ID = FSetElementId::FromInteger(Textures.FindChecked(Tex));
+			CurrentDrawKey.Resources[Frequency][Index] = ID.AsInteger();
 		}
 		else
 		{
 			CurrentDrawKey.Resources[Frequency][Index] = FShaderDrawKey::NullState;
 		}
+		CurrentDrawKey.Hash = 0;
 	}
 }
 
@@ -662,6 +698,7 @@ void FShaderCache::InternalSetSRV(EShaderFrequency Frequency, uint32 Index, FSha
 		{
 			CurrentDrawKey.Resources[Frequency][Index] = FShaderDrawKey::NullState;
 		}
+		CurrentDrawKey.Hash = 0;
 	}
 }
 
@@ -676,6 +713,7 @@ void FShaderCache::InternalSetBoundShaderState(FBoundShaderStateRHIParamRef Stat
 		{
 			BoundShaderState = ShaderStates.FindChecked(State);
 		}
+		CurrentDrawKey.Hash = 0;
 	}
 }
 
@@ -698,12 +736,20 @@ void FShaderCache::InternalLogDraw(uint8 IndexType)
 	{
 		FShaderPlatformCache& PlatformCache = Caches.FindOrAdd(GMaxRHIShaderPlatform);
 		CurrentDrawKey.IndexType = IndexType;
-		FSetElementId Id = PlatformCache.DrawStates.Add(CurrentDrawKey);
+		FSetElementId Id = PlatformCache.DrawStates.FindId(CurrentDrawKey);
+		if ( !Id.IsValidId() )
+		{
+			Id = PlatformCache.DrawStates.Add(CurrentDrawKey);
+		}
+		
 		TSet<int32>& ShaderDrawSet = PlatformCache.ShaderDrawStates.FindOrAdd(BoundShaderState);
-		ShaderDrawSet.Add(Id.AsInteger());
+		if( !ShaderDrawSet.Contains(Id.AsInteger()) )
+		{
+			ShaderDrawSet.Add(Id.AsInteger());
+		}
 		
 		// No need to predraw this shader draw key - we've already done it
-		ShadersToDraw.FindRef(BoundShaderState).Remove(PlatformCache.DrawStates.FindId(CurrentDrawKey).AsInteger());
+		ShadersToDraw.FindRef(BoundShaderState).Remove(Id.AsInteger());
 	}
 }
 
@@ -850,7 +896,7 @@ void FShaderCache::SubmitShader(FShaderCacheKey const& Key, TArray<uint8> const&
 				FVertexShaderRHIRef Shader = RHICreateVertexShader(Code);
 				if(IsValidRef(Shader))
 				{
-					Shader->SetHash(Key.Hash);
+					Shader->SetHash(Key.SHAHash);
 					CachedVertexShaders.Add(Key, Shader);
 					PrebindShader(Key);
 					PlatformCache.Shaders.Add(Key);
@@ -863,7 +909,7 @@ void FShaderCache::SubmitShader(FShaderCacheKey const& Key, TArray<uint8> const&
 				FPixelShaderRHIRef Shader = RHICreatePixelShader(Code);
 				if(IsValidRef(Shader))
 				{
-					Shader->SetHash(Key.Hash);
+					Shader->SetHash(Key.SHAHash);
 					CachedPixelShaders.Add(Key, Shader);
 					PrebindShader(Key);
 					PlatformCache.Shaders.Add(Key);
@@ -876,7 +922,7 @@ void FShaderCache::SubmitShader(FShaderCacheKey const& Key, TArray<uint8> const&
 				FGeometryShaderRHIRef Shader = RHICreateGeometryShader(Code);
 				if(IsValidRef(Shader))
 				{
-					Shader->SetHash(Key.Hash);
+					Shader->SetHash(Key.SHAHash);
 					CachedGeometryShaders.Add(Key, Shader);
 					PrebindShader(Key);
 					PlatformCache.Shaders.Add(Key);
@@ -889,7 +935,7 @@ void FShaderCache::SubmitShader(FShaderCacheKey const& Key, TArray<uint8> const&
 				FHullShaderRHIRef Shader = RHICreateHullShader(Code);
 				if(IsValidRef(Shader))
 				{
-					Shader->SetHash(Key.Hash);
+					Shader->SetHash(Key.SHAHash);
 					CachedHullShaders.Add(Key, Shader);
 					PrebindShader(Key);
 					PlatformCache.Shaders.Add(Key);
@@ -902,7 +948,7 @@ void FShaderCache::SubmitShader(FShaderCacheKey const& Key, TArray<uint8> const&
 				FDomainShaderRHIRef Shader = RHICreateDomainShader(Code);
 				if(IsValidRef(Shader))
 				{
-					Shader->SetHash(Key.Hash);
+					Shader->SetHash(Key.SHAHash);
 					CachedDomainShaders.Add(Key, Shader);
 					PrebindShader(Key);
 					PlatformCache.Shaders.Add(Key);
@@ -918,10 +964,11 @@ void FShaderCache::SubmitShader(FShaderCacheKey const& Key, TArray<uint8> const&
 				if (IsValidRef(Shader))
 				{
 					// @todo WARNING: The RHI is responsible for hashing Compute shaders, unlike other stages because of how OpenGLDrv implements compute.
-					// Shader->SetHash(Key.Hash);
-					CachedComputeShaders.Add(Key, Shader);
-					PrebindShader(Key);
-					PlatformCache.Shaders.Add(Key);
+					FShaderCacheKey ComputeKey = Key;
+					ComputeKey.SHAHash = Shader->GetHash();
+					CachedComputeShaders.Add(ComputeKey, Shader);
+					PrebindShader(ComputeKey);
+					PlatformCache.Shaders.Add(ComputeKey);
 				}
 			}
 			break;
