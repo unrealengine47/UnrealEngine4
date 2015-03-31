@@ -194,11 +194,16 @@ void USkeletalMeshComponent::BlendPhysicsBones( TArray<FBoneIndexType>& InRequir
 
 
 
-bool USkeletalMeshComponent::ShouldBlendPhysicsBones()
+bool USkeletalMeshComponent::ShouldBlendPhysicsBones() const
 {
-	for (int32 BodyIndex = 0; BodyIndex < Bodies.Num(); ++BodyIndex)
+	return Bodies.Num() > 0 && (DoAnyPhysicsBodiesHaveWeight() || bBlendPhysics);
+}
+
+bool USkeletalMeshComponent::DoAnyPhysicsBodiesHaveWeight() const
+{
+	for (const FBodyInstance* Body : Bodies)
 	{
-		if (Bodies[BodyIndex]->PhysicsBlendWeight > 0.f)
+		if (Body->PhysicsBlendWeight > 0.f)
 		{
 			return true;
 		}
@@ -351,10 +356,10 @@ void USkeletalMeshComponent::UpdateKinematicBonesToAnim(const TArray<FTransform>
 						ensure(!BoneTransform.ContainsNaN());
 
 						// If kinematic and not teleporting, set kinematic target
-						PxRigidDynamic* PRigidDynamic = BodyInst->GetPxRigidDynamic();
-						if (!IsRigidBodyNonKinematic(PRigidDynamic) && !bTeleport)
+						PxRigidDynamic* PRigidDynamic = BodyInst->GetPxRigidDynamic_AssumesLocked();
+						if (!IsRigidBodyNonKinematic_AssumesLocked(PRigidDynamic) && !bTeleport)
 						{
-							PhysScene->SetKinematicTarget(BodyInst, BoneTransform, true);
+							PhysScene->SetKinematicTarget_AssumesLocked(BodyInst, BoneTransform, true);
 						}
 						// Otherwise, set global pose
 						else

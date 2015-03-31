@@ -558,6 +558,8 @@ void UK2Node::ReconstructSinglePin(UEdGraphPin* NewPin, UEdGraphPin* OldPin, ERe
 {
 	UBlueprint* Blueprint = GetBlueprint();
 
+	check(NewPin && OldPin);
+
 	// Copy over modified persistent data
 	NewPin->CopyPersistentDataFromOldPin(*OldPin);
 

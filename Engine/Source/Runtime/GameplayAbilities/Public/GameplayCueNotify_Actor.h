@@ -27,11 +27,14 @@ class GAMEPLAYABILITIES_API AGameplayCueNotify_Actor : public AActor
 	/** Does this GameplayCueNotify handle this type of GameplayCueEvent? */
 	virtual bool HandlesEvent(EGameplayCueEvent::Type EventType) const;
 
+	UFUNCTION()
 	virtual void OnOwnerDestroyed();
 
-	virtual void PostInitProperties();
+	virtual void BeginPlay() override;
 
-	virtual void Serialize(FArchive& Ar);
+	virtual void PostInitProperties() override;
+
+	virtual void Serialize(FArchive& Ar) override;
 
 	virtual void HandleGameplayCue(AActor* MyTarget, EGameplayCueEvent::Type EventType, FGameplayCueParameters Parameters);
 
@@ -65,6 +68,10 @@ class GAMEPLAYABILITIES_API AGameplayCueNotify_Actor : public AActor
 	/** We will auto destroy this GameplayCueActor when the OnRemove event fires (after OnRemove is called). */
 	UPROPERTY(EditDefaultsOnly, Category = GameplayCue)
 	bool	bAutoDestroyOnRemove;
+
+	/** If bAutoDestroyOnRemove is true, the actor will stay alive for this many seconds before being auto destroyed. */
+	UPROPERTY(EditAnywhere, Category = GameplayCue)
+	float AutoDestroyDelay;
 
 	/** Does this Cue override other cues, or is it called in addition to them? E.g., If this is Damage.Physical.Slash, we wont call Damage.Physical afer we run this cue. */
 	UPROPERTY(EditDefaultsOnly, Category = GameplayCue)

@@ -1320,25 +1320,6 @@ FCollisionShape UPrimitiveComponent::GetCollisionShape(float Inflation) const
 	return FCollisionShape::MakeBox(Bounds.BoxExtent + Inflation);
 }
 
-bool UPrimitiveComponent::CheckStaticMobilityAndWarn(const FText& ActionText) const
-{
-	// static things can move before they are registered (e.g. immediately after streaming), but not after.
-	if (Mobility == EComponentMobility::Static)
-	{
-		AActor* Actor = GetOwner();
-		if (Actor && Actor->IsActorInitialized())
-		{
-			static const FText WarnText = LOCTEXT("InvalidStaticMove", "Mobility of {0} : {1} has to be 'Movable' if you'd like to {2}. ");
-			FMessageLog("PIE").Warning(FText::Format(WarnText,
-				FText::FromString(GetNameSafe(GetOwner())), FText::FromString(GetName()), ActionText));
-
-			return true;
-		}
-	}
-
-	return false;
-}
-
 bool UPrimitiveComponent::MoveComponent( const FVector& Delta, const FRotator& NewRotation, bool bSweep, FHitResult* OutHit, EMoveComponentFlags MoveFlags)
 {
 	SCOPE_CYCLE_COUNTER(STAT_MoveComponentTime);
@@ -1365,7 +1346,6 @@ bool UPrimitiveComponent::MoveComponent( const FVector& Delta, const FRotator& N
 	AActor* const Actor = GetOwner();
 
 	// static things can move before they are registered (e.g. immediately after streaming), but not after.
-	// TODO: Static components without an owner can move, should they be able to?
 	static const FText WarnText = LOCTEXT("InvalidMove", "move");
 	if (CheckStaticMobilityAndWarn(WarnText))
 	{
@@ -1764,8 +1744,6 @@ bool UPrimitiveComponent::SweepComponent(struct FHitResult& OutHit, const FVecto
 
 bool UPrimitiveComponent::ComponentOverlapComponent(class UPrimitiveComponent* PrimComp, const FVector Pos, const FRotator Rot, const struct FCollisionQueryParams& Params)
 {
-	//@TODO: BOX2D: Implement UPrimitiveComponent::ComponentOverlapComponent
-
 	// if target is skeletalmeshcomponent and do not support singlebody physics
 	USkeletalMeshComponent * OtherComp = Cast<USkeletalMeshComponent>(PrimComp);
 	if (OtherComp)
@@ -1773,63 +1751,14 @@ bool UPrimitiveComponent::ComponentOverlapComponent(class UPrimitiveComponent* P
 		UE_LOG(LogCollision, Log, TEXT("ComponentOverlapMulti : (%s) Does not support skeletalmesh with Physics Asset"), *PrimComp->GetPathName());
 		return false;
 	}
-#if WITH_PHYSX
-	// will have to do per component - default single body or physicsinstance 
-	const PxRigidActor* TargetRigidBody = (PrimComp)? PrimComp->BodyInstance.GetPxRigidActor():NULL;
-	if (TargetRigidBody==NULL || TargetRigidBody->getNbShapes()==0)
+
+	if(FBodyInstance* BI = PrimComp->GetBodyInstance())
 	{
-		return false;
+		TArray<FBodyInstance*> Bodies;
+		Bodies.Add(GetBodyInstance());
+		return BI->OverlapTestForBodies(Pos, Rot.Quaternion(), Bodies);
 	}
 
-	// calculate the test global pose of the actor
-	PxTransform PTestGlobalPose = U2PTransform(FTransform(Rot, Pos));
-	// Get all the shapes from the actor
-	TArray<PxShape*> PTargetShapes;
-	PTargetShapes.AddZeroed(TargetRigidBody->getNbShapes());
-	int32 NumTargetShapes = TargetRigidBody->getShapes(PTargetShapes.GetData(), PTargetShapes.Num());
-
-	bool bHaveOverlap = false;
-
-	for (int32 TargetShapeIdx=0; TargetShapeIdx<PTargetShapes.Num(); ++TargetShapeIdx)
-	{
-		const PxShape * PTargetShape = PTargetShapes[TargetShapeIdx];
-		check (PTargetShape);
-
-		// Calc shape global pose
-		PxTransform PShapeGlobalPose = PTestGlobalPose.transform(PTargetShape->getLocalPose());
-
-		GET_GEOMETRY_FROM_SHAPE(PGeom, PTargetShape);
-
-		if(PGeom != NULL)
-		{
-			bHaveOverlap = BodyInstance.OverlapPhysX(*PGeom, PShapeGlobalPose);
-
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-			if((GetWorld()->DebugDrawTraceTag != NAME_None) && (GetWorld()->DebugDrawTraceTag == Params.TraceTag))
-			{
-				TArray<FOverlapResult> Overlaps;
-				if (bHaveOverlap)
-				{
-					FOverlapResult Result;
-					Result.Actor = PrimComp->GetOwner();
-					Result.Component = PrimComp;
-					Result.bBlockingHit = true;
-					Overlaps.Add(Result);
-				}
-
-				DrawGeomOverlaps(GetWorld(), *PGeom, PShapeGlobalPose, Overlaps, DebugLineLifetime);
-			}
-#endif //!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-
-			if (bHaveOverlap)
-			{
-				break;
-			}
-		}
-	}
-
-	return bHaveOverlap;
-#endif //WITH_PHYSX
 	return false;
 }
 

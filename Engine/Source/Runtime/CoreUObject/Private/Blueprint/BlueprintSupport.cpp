@@ -341,7 +341,10 @@ bool ULinkerLoad::DeferPotentialCircularImport(const int32 Index)
 			{
 				UObject* PlaceholderOuter = LinkerRoot;
 				FString  PlaceholderNamePrefix = TEXT("PLACEHOLDER_");
-				UClass*  PlaceholderType  = nullptr;
+				UClass*  PlaceholderType = nullptr;
+#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
+				ULinkerPlaceholderClass* Outer = nullptr;
+#endif //USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 				FLinkerPlaceholderBase* (*PlaceholderCastFunc)(UObject* RawUObject) = nullptr;
 
 				bool const bIsBlueprintClass = ImportClass->IsChildOf<UClass>();
@@ -370,6 +373,10 @@ bool ULinkerLoad::DeferPotentialCircularImport(const int32 Index)
 							PlaceholderOuter = ImportMap[OuterImportIndex].XObject;
 							PlaceholderType  = ULinkerPlaceholderFunction::StaticClass();
 							PlaceholderCastFunc = &PlaceholderCast<ULinkerPlaceholderFunction>;
+#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
+							Outer = dynamic_cast<ULinkerPlaceholderClass*>(PlaceholderOuter);
+							check(Outer);
+#endif //USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 						}
 					}
 				}
@@ -396,6 +403,12 @@ bool ULinkerLoad::DeferPotentialCircularImport(const int32 Index)
 					// ClassAddReferencedObjects/ClassConstructor members set)
 					PlaceholderObj->Bind();
 					PlaceholderObj->StaticLink(/*bRelinkExistingProperties =*/true);
+#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
+					if (Outer)
+					{
+						Outer->AddChildObject(PlaceholderObj);
+					}
+#endif //USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 
 					Import.XObject = PlaceholderObj;
 				}
@@ -689,6 +702,7 @@ private:
 };
 /** A global set that tracks structs currently being ran through (and unfinished by) ULinkerLoad::ResolveDeferredDependencies() */
 TSet<UObject*> FUnresolvedStructTracker::UnresolvedStructs;
+UPackage* LoadPackageInternal(UPackage* InOuter, const TCHAR* InLongPackageName, uint32 LoadFlags, ULinkerLoad* ImportLinker);
 
 void ULinkerLoad::ResolveDeferredDependencies(UStruct* LoadStruct)
 {
@@ -758,6 +772,13 @@ void ULinkerLoad::ResolveDeferredDependencies(UStruct* LoadStruct)
 				// deferred dependencies in the struct 
 				if (Import.SourceLinker != nullptr)
 				{
+					// Make sure meta data is loaded first, so that we have structure field names available to any blueprints that load:
+					if (!Import.SourceLinker->LinkerRoot->HasAnyFlags(RF_WasLoaded))
+					{
+						uint32 InternalLoadFlags = LoadFlags & (LOAD_NoVerify | LOAD_NoWarn | LOAD_Quiet);
+						LoadPackageInternal(nullptr, *(Import.SourceLinker->Filename), InternalLoadFlags, this);
+					}
+
 					Import.SourceLinker->ResolveDeferredDependencies(StructObj);
 				}
 			}

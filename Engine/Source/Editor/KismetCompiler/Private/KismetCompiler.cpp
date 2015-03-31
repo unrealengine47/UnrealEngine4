@@ -24,6 +24,7 @@
 #include "Engine/DynamicBlueprintBinding.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Engine/InheritableComponentHandler.h"
+#include "BlueprintCompilerCppBackendInterface.h"
 
 static bool bDebugPropertyPropagation = false;
 
@@ -1586,16 +1587,14 @@ void FKismetCompilerContext::FinishCompilingFunction(FKismetFunctionContext& Con
 				Function->ReturnValueOffset = Property->GetOffset_ForUFunction();
 			}
 		}
-
-		if (!Property->HasAnyPropertyFlags(CPF_ZeroConstructor) && !Function->FirstPropertyToInit)
+		else
 		{
-			Function->FirstPropertyToInit = Property;
-			Function->FunctionFlags |= FUNC_HasDefaults;
-		}
-
-		if (!Property->HasAnyPropertyFlags(CPF_Parm) && Function->FirstPropertyToInit)
-		{
-			break;
+			if (!Property->HasAnyPropertyFlags(CPF_ZeroConstructor))
+			{
+				Function->FirstPropertyToInit = Property;
+				Function->FunctionFlags |= FUNC_HasDefaults;
+				break;
+			}
 		}
 	}
 
@@ -3576,7 +3575,7 @@ void FKismetCompilerContext::Compile()
 		// Generate code thru the backend(s)
 		if ((bDisplayCpp && bIsFullCompile) || CompileOptions.DoesRequireCppCodeGeneration())
 		{
-			TUniquePtr<IKismetCppBackend> Backend_CPP(IKismetCppBackend::Create(Schema, *this));
+			TUniquePtr<IBlueprintCompilerCppBackend> Backend_CPP(IBlueprintCompilerCppBackendModuleInterface::Get().Create(*this));
 
 			// The C++ backend is currently only for debugging, so it's only run if the output will be visible
 			Backend_CPP->GenerateCodeFromClass(NewClass, CompileOptions.NewCppClassName, FunctionList, !bIsFullCompile);
