@@ -195,22 +195,25 @@ public:
 		const typename LightMapPolicyType::ElementDataType& LightMapElementData
 		) const
 	{
-		FScene::EBasePassDrawListType DrawType = FScene::EBasePass_Default;		
- 
+		FScene::EBasePassDrawListType DrawType = FScene::EBasePass_Default;
+
 		if (StaticMesh->IsMasked(Parameters.FeatureLevel))
 		{
-			DrawType = FScene::EBasePass_Masked;	
+			DrawType = FScene::EBasePass_Masked;
 		}
 
-		// Find the appropriate draw list for the static mesh based on the light-map policy type.
-		TStaticMeshDrawList<TBasePassDrawingPolicy<LightMapPolicyType> >& DrawList =
-			Scene->GetBasePassDrawList<LightMapPolicyType>(DrawType);
+		if (Scene)
+		{
 
-		// Add the static mesh to the draw list.
-		DrawList.AddMesh(
-			StaticMesh,
-			typename TBasePassDrawingPolicy<LightMapPolicyType>::ElementDataType(LightMapElementData),
-			TBasePassDrawingPolicy<LightMapPolicyType>(
+			// Find the appropriate draw list for the static mesh based on the light-map policy type.
+			TStaticMeshDrawList<TBasePassDrawingPolicy<LightMapPolicyType> >& DrawList =
+				Scene->GetBasePassDrawList<LightMapPolicyType>(DrawType);
+
+			// Add the static mesh to the draw list.
+			DrawList.AddMesh(
+				StaticMesh,
+				typename TBasePassDrawingPolicy<LightMapPolicyType>::ElementDataType(LightMapElementData),
+				TBasePassDrawingPolicy<LightMapPolicyType>(
 				StaticMesh->VertexFactory,
 				StaticMesh->MaterialRenderProxy,
 				*Parameters.Material,
@@ -218,11 +221,12 @@ public:
 				LightMapPolicy,
 				Parameters.BlendMode,
 				Parameters.TextureMode,
-				Parameters.ShadingModel != MSM_Unlit && Scene && Scene->SkyLight && Scene->SkyLight->bWantsStaticShadowing && !Scene->SkyLight->bHasStaticLighting,
+				Parameters.ShadingModel != MSM_Unlit && Scene->SkyLight && Scene->SkyLight->bWantsStaticShadowing && !Scene->SkyLight->bHasStaticLighting,
 				IsTranslucentBlendMode(Parameters.BlendMode) && Scene->HasAtmosphericFog()
 				),
-			Scene->GetFeatureLevel()
-			);
+				Scene->GetFeatureLevel()
+				);
+		}
 	}
 };
 
@@ -306,8 +310,7 @@ public:
 		// Then rendering in the base pass with additive complexity blending, depth tests on, and depth writes off.
 		if(View.Family->EngineShowFlags.ShaderComplexity)
 		{
-			// Note, this is a reversed Z depth surface, using CF_GreaterEqual.
-			RHICmdList.SetDepthStencilState(TStaticDepthStencilState<false,CF_GreaterEqual>::GetRHI());
+			RHICmdList.SetDepthStencilState(TStaticDepthStencilState<false,CF_DepthFunction>::GetRHI());
 		}
 #endif
 		const FScene* Scene = Parameters.PrimitiveSceneProxy ? Parameters.PrimitiveSceneProxy->GetPrimitiveSceneInfo()->Scene : NULL;
@@ -347,8 +350,7 @@ public:
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 		if(View.Family->EngineShowFlags.ShaderComplexity)
 		{
-			// Note, this is a reversed Z depth surface, using CF_GreaterEqual.
-			RHICmdList.SetDepthStencilState(TStaticDepthStencilState<true,CF_GreaterEqual>::GetRHI());
+			RHICmdList.SetDepthStencilState(TStaticDepthStencilState<true,CF_DepthFunction>::GetRHI());
 		}
 #endif
 	}

@@ -412,7 +412,301 @@ namespace
 		}
 
 		// Unreachable
+		check(false);
 		return nullptr;
+	}
+
+	// Check to see if anything in the class hierarchy passed in has CLASS_DefaultToInstanced
+	bool DoesAnythingInHierarchyHaveDefaultToInstanced(UClass* TestClass)
+	{
+		bool bDefaultToInstanced = false;
+
+		UClass* Search = TestClass;
+		while (!bDefaultToInstanced && (Search != NULL))
+		{
+			bDefaultToInstanced = Search->HasAnyClassFlags(CLASS_DefaultToInstanced);
+			if (!bDefaultToInstanced && !Search->HasAnyClassFlags(CLASS_Intrinsic | CLASS_Parsed))
+			{
+				// The class might not have been parsed yet, look for declaration data.
+				auto ClassDeclarationDataPtr = GClassDeclarations.Find(Search->GetFName());
+				if (ClassDeclarationDataPtr)
+				{
+					bDefaultToInstanced = !!((*ClassDeclarationDataPtr)->ClassFlags & CLASS_DefaultToInstanced);
+				}
+			}
+			Search = Search->GetSuperClass();
+		}
+
+		return bDefaultToInstanced;
+	}
+
+	UProperty* CreateVariableProperty(FPropertyBase& VarProperty, UObject* Scope, FName Name, EObjectFlags ObjectFlags, EVariableCategory::Type VariableCategory)
+	{
+		switch (VarProperty.Type)
+		{
+			case CPT_Byte:
+			{
+				auto* Result = new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UByteProperty(FObjectInitializer());
+				Result->Enum = VarProperty.Enum;
+				return Result;
+			}
+
+			case CPT_Int8:
+				return new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UInt8Property(FObjectInitializer());
+
+			case CPT_Int16:
+				return new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UInt16Property(FObjectInitializer());
+
+			case CPT_Int:
+				return new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UIntProperty(FObjectInitializer());
+
+			case CPT_Int64:
+				return new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UInt64Property(FObjectInitializer());
+
+			case CPT_UInt16:
+				return new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UUInt16Property(FObjectInitializer());
+
+			case CPT_UInt32:
+				return new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UUInt32Property(FObjectInitializer());
+
+			case CPT_UInt64:
+				return new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UUInt64Property(FObjectInitializer());
+
+			case CPT_Bool:
+			{
+				auto* Result = new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UBoolProperty(FObjectInitializer());
+				Result->SetBoolSize(sizeof(bool), true);
+				return Result;
+			}
+
+			case CPT_Bool8:
+			{
+				auto* Result = new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UBoolProperty(FObjectInitializer());
+				Result->SetBoolSize((VariableCategory == EVariableCategory::Return) ? sizeof(bool) : sizeof(uint8), VariableCategory == EVariableCategory::Return);
+				return Result;
+			}
+
+			case CPT_Bool16:
+			{
+				auto* Result = new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UBoolProperty(FObjectInitializer());
+				Result->SetBoolSize((VariableCategory == EVariableCategory::Return) ? sizeof(bool) : sizeof(uint16), VariableCategory == EVariableCategory::Return);
+				return Result;
+			}
+
+			case CPT_Bool32:
+			{
+				auto* Result = new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UBoolProperty(FObjectInitializer());
+				Result->SetBoolSize((VariableCategory == EVariableCategory::Return) ? sizeof(bool) : sizeof(uint32), VariableCategory == EVariableCategory::Return);
+				return Result;
+			}
+
+			case CPT_Bool64:
+			{
+				auto* Result = new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UBoolProperty(FObjectInitializer());
+				Result->SetBoolSize((VariableCategory == EVariableCategory::Return) ? sizeof(bool) : sizeof(uint64), VariableCategory == EVariableCategory::Return);
+				return Result;
+			}
+
+			case CPT_Float:
+				return new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UFloatProperty(FObjectInitializer());
+
+			case CPT_Double:
+				return new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UDoubleProperty(FObjectInitializer());
+
+			case CPT_ObjectReference:
+				check(VarProperty.PropertyClass);
+
+				if (VarProperty.PropertyClass->IsChildOf(UClass::StaticClass()))
+				{
+					auto* Result = new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UClassProperty(FObjectInitializer());
+					Result->MetaClass     = VarProperty.MetaClass;
+					Result->PropertyClass = VarProperty.PropertyClass;
+					return Result;
+				}
+				else
+				{
+					if (DoesAnythingInHierarchyHaveDefaultToInstanced(VarProperty.PropertyClass))
+					{
+						VarProperty.PropertyFlags |= CPF_InstancedReference;
+						AddEditInlineMetaData(VarProperty.MetaData);
+					}
+
+					auto* Result = new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UObjectProperty(FObjectInitializer());
+					Result->PropertyClass = VarProperty.PropertyClass;
+					return Result;
+				}
+
+			case CPT_WeakObjectReference:
+			{
+				check(VarProperty.PropertyClass);
+
+				auto* Result = new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UWeakObjectProperty(FObjectInitializer());
+				Result->PropertyClass = VarProperty.PropertyClass;
+				return Result;
+			}
+
+			case CPT_LazyObjectReference:
+			{
+				check(VarProperty.PropertyClass);
+
+				auto* Result = new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) ULazyObjectProperty(FObjectInitializer());
+				Result->PropertyClass = VarProperty.PropertyClass;
+				return Result;
+			}
+
+			case CPT_AssetObjectReference:
+				check(VarProperty.PropertyClass);
+
+				if (VarProperty.PropertyClass->IsChildOf(UClass::StaticClass()))
+				{
+					auto* Result = new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UAssetClassProperty(FObjectInitializer());
+					Result->MetaClass     = VarProperty.MetaClass;
+					Result->PropertyClass = VarProperty.PropertyClass;
+					return Result;
+				}
+				else
+				{
+					auto* Result = new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UAssetObjectProperty(FObjectInitializer());
+					Result->PropertyClass = VarProperty.PropertyClass;
+					return Result;
+				}
+
+			case CPT_Interface:
+			{
+				check(VarProperty.PropertyClass);
+				check(VarProperty.PropertyClass->HasAnyClassFlags(CLASS_Interface));
+
+				auto* Result = new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags)  UInterfaceProperty(FObjectInitializer());
+				Result->InterfaceClass = VarProperty.PropertyClass;
+				return Result;
+			}
+
+			case CPT_Name:
+				return new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UNameProperty(FObjectInitializer());
+
+			case CPT_String:
+				return new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UStrProperty(FObjectInitializer());
+
+			case CPT_Text:
+				return new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UTextProperty(FObjectInitializer());
+
+			case CPT_Struct:
+			{
+				if (VarProperty.Struct->StructFlags & STRUCT_HasInstancedReference)
+				{
+					VarProperty.PropertyFlags |= CPF_ContainsInstancedReference;
+				}
+
+				auto* Result = new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UStructProperty(FObjectInitializer());
+				Result->Struct = VarProperty.Struct;
+				return Result;
+			}
+
+			case CPT_Delegate:
+				return new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UDelegateProperty(FObjectInitializer());
+
+			case CPT_MulticastDelegate:
+				return new (EC_InternalUseOnlyConstructor, Scope, Name, ObjectFlags) UMulticastDelegateProperty(FObjectInitializer());
+
+			default:
+				FError::Throwf(TEXT("Unknown property type %i"), (uint8)VarProperty.Type);
+		}
+
+		// Unreachable
+		check(false);
+		return nullptr;
+	}
+
+	/**
+	 * Ensures at script compile time that the metadata formatting is correct
+	 * @param	InKey			the metadata key being added
+	 * @param	InValue			the value string that will be associated with the InKey
+	 */
+	void ValidateMetaDataFormat(UField* Field, const FString& InKey, const FString& InValue)
+	{
+		if ((InKey == TEXT("UIMin")) || (InKey == TEXT("UIMax")) || (InKey == TEXT("ClampMin")) || (InKey == TEXT("ClampMax")))
+		{
+			if (!InValue.IsNumeric())
+			{
+				FError::Throwf(TEXT("Metadata value for '%s' is non-numeric : '%s'"), *InKey, *InValue);
+			}
+		}
+		else if (InKey == /*FBlueprintMetadata::MD_Protected*/ TEXT("BlueprintProtected"))
+		{
+			if (UFunction* Function = Cast<UFunction>(Field))
+			{
+				if (Function->HasAnyFunctionFlags(FUNC_Static))
+				{
+					// Determine if it's a function library
+					UClass* Class = Cast<UClass>(Function->GetOuterUClass());
+					while (Class != nullptr && Class->GetSuperClass() != UObject::StaticClass())
+					{
+						Class = Class->GetSuperClass();
+					}
+
+					if (Class != nullptr && Class->GetName() == TEXT("BlueprintFunctionLibrary"))
+					{
+						FError::Throwf(TEXT("%s doesn't make sense on static method '%s' in a blueprint function library"), *InKey, *Function->GetName());
+					}
+				}
+			}
+		}
+		else if (InKey == TEXT("DevelopmentStatus"))
+		{
+			const FString EarlyAccessValue(TEXT("EarlyAccess"));
+			const FString ExperimentalValue(TEXT("Experimental"));
+			if ((InValue != EarlyAccessValue) && (InValue != ExperimentalValue))
+			{
+				FError::Throwf(TEXT("'%s' metadata was '%s' but it must be %s or %s"), *InKey, *InValue, *ExperimentalValue, *EarlyAccessValue);
+			}
+		}
+		else if (InKey == TEXT("Units"))
+		{
+			// Check for numeric property
+			if (!Cast<UNumericProperty>(Field))
+			{
+				FError::Throwf(TEXT("'Units' meta data can only be applied to numeric properties"));
+			}
+			else if (!FUnitConversion::UnitFromString(*InValue))
+			{
+				FError::Throwf(TEXT("Unrecognized units (%s) specified for numeric property '%s'"), *InValue, *Field->GetDisplayNameText().ToString());
+			}
+		}
+	}
+
+	// Ensures at script compile time that the metadata formatting is correct
+	void ValidateMetaDataFormat(UField* Field, const TMap<FName, FString>& MetaData)
+	{
+		for (const auto& Pair : MetaData)
+		{
+			ValidateMetaDataFormat(Field, Pair.Key.ToString(), Pair.Value);
+		}
+	}
+
+	// Validates the metadata, then adds it to the class data
+	void AddMetaDataToClassData(UField* Field, const TMap<FName, FString>& InMetaData)
+	{
+		// Evaluate any key redirects on the passed in pairs
+		TMap<FName, FString> RemappedPairs;
+		RemappedPairs.Empty(InMetaData.Num());
+
+		for (const auto& Pair : InMetaData)
+		{
+			FName CurrentKey = Pair.Key;
+			FName NewKey = UMetaData::GetRemappedKeyName(CurrentKey);
+
+			if (NewKey != NAME_None)
+			{
+				UE_LOG(LogCompile, Warning, TEXT("Remapping old metadata key '%s' to new key '%s', please update the declaration."), *CurrentKey.ToString(), *NewKey.ToString());
+				CurrentKey = NewKey;
+			}
+
+			RemappedPairs.Add(CurrentKey, Pair.Value);
+		}
+
+		// Finish validating and associate the metadata with the field
+		ValidateMetaDataFormat(Field, RemappedPairs);
+		FClassMetaData::AddMetaData(Field, RemappedPairs);
 	}
 
 	bool IsPropertySupportedByBlueprint(const UProperty* Property)
@@ -3447,160 +3741,7 @@ UProperty* FHeaderParser::GetVarNameAndDim
 			ArrayDim = 2;
 		}
 
-		switch (VarProperty.Type)
-		{
-			case CPT_Byte:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UByteProperty(FObjectInitializer());
-				((UByteProperty*)NewProperty)->Enum = VarProperty.Enum;
-				break;
-
-			case CPT_Int8:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UInt8Property(FObjectInitializer());
-				break;
-
-			case CPT_Int16:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UInt16Property(FObjectInitializer());
-				break;
-
-			case CPT_Int:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UIntProperty(FObjectInitializer());
-				break;
-
-			case CPT_Int64:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UInt64Property(FObjectInitializer());
-				break;
-
-			case CPT_UInt16:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UUInt16Property(FObjectInitializer());
-				break;
-
-			case CPT_UInt32:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UUInt32Property(FObjectInitializer());
-				break;
-
-			case CPT_UInt64:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UUInt64Property(FObjectInitializer());
-				break;
-
-			case CPT_Bool:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UBoolProperty(FObjectInitializer());
-				((UBoolProperty*)NewProperty)->SetBoolSize(sizeof(bool), true);
-				break;
-
-			case CPT_Bool8:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UBoolProperty(FObjectInitializer());
-				((UBoolProperty*)NewProperty)->SetBoolSize((VariableCategory == EVariableCategory::Return) ? sizeof(bool) : sizeof(uint8), VariableCategory == EVariableCategory::Return);
-				break;
-
-			case CPT_Bool16:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UBoolProperty(FObjectInitializer());
-				((UBoolProperty*)NewProperty)->SetBoolSize((VariableCategory == EVariableCategory::Return) ? sizeof(bool) : sizeof(uint16), VariableCategory == EVariableCategory::Return);
-				break;
-
-			case CPT_Bool32:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UBoolProperty(FObjectInitializer());
-				((UBoolProperty*)NewProperty)->SetBoolSize((VariableCategory == EVariableCategory::Return) ? sizeof(bool) : sizeof(uint32), VariableCategory == EVariableCategory::Return);
-				break;
-
-			case CPT_Bool64:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UBoolProperty(FObjectInitializer());
-				((UBoolProperty*)NewProperty)->SetBoolSize((VariableCategory == EVariableCategory::Return) ? sizeof(bool) : sizeof(uint64), VariableCategory == EVariableCategory::Return);
-				break;
-
-			case CPT_Float:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UFloatProperty(FObjectInitializer());
-				break;
-
-			case CPT_Double:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UDoubleProperty(FObjectInitializer());
-				break;
-
-			case CPT_ObjectReference:
-				check(VarProperty.PropertyClass);
-				if (VarProperty.PropertyClass->IsChildOf(UClass::StaticClass()))
-				{
-					NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UClassProperty(FObjectInitializer());
-					((UClassProperty*)NewProperty)->MetaClass = VarProperty.MetaClass;
-				}
-				else
-				{
-					if ( DoesAnythingInHierarchyHaveDefaultToInstanced( VarProperty.PropertyClass ) )
-					{
-						VarProperty.PropertyFlags |= CPF_InstancedReference;
-						AddEditInlineMetaData(VarProperty.MetaData);
-					}
-					NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UObjectProperty(FObjectInitializer());
-				}
-
-				((UObjectPropertyBase*)NewProperty)->PropertyClass = VarProperty.PropertyClass;
-				break;
-
-			case CPT_WeakObjectReference:
-				check(VarProperty.PropertyClass);
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UWeakObjectProperty(FObjectInitializer());
-				((UObjectPropertyBase*)NewProperty)->PropertyClass = VarProperty.PropertyClass;
-				break;
-
-			case CPT_LazyObjectReference:
-				check(VarProperty.PropertyClass);
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)ULazyObjectProperty(FObjectInitializer());
-				((UObjectPropertyBase*)NewProperty)->PropertyClass = VarProperty.PropertyClass;
-				break;
-
-			case CPT_AssetObjectReference:
-				check(VarProperty.PropertyClass);
-				if (VarProperty.PropertyClass->IsChildOf(UClass::StaticClass()))
-				{
-					NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UAssetClassProperty(FObjectInitializer());
-					((UAssetClassProperty*)NewProperty)->MetaClass = VarProperty.MetaClass;
-				}
-				else
-				{
-					NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UAssetObjectProperty(FObjectInitializer());
-				}
-				((UObjectPropertyBase*)NewProperty)->PropertyClass = VarProperty.PropertyClass;
-				break;
-
-			case CPT_Interface:
-				check(VarProperty.PropertyClass);
-				check(VarProperty.PropertyClass->HasAnyClassFlags(CLASS_Interface));
-
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags) UInterfaceProperty(FObjectInitializer());
-				((UInterfaceProperty*)NewProperty)->InterfaceClass = VarProperty.PropertyClass;
-				break;
-
-			case CPT_Name:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UNameProperty(FObjectInitializer());
-				break;
-
-			case CPT_String:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UStrProperty(FObjectInitializer());
-				break;
-
-			case CPT_Text:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UTextProperty(FObjectInitializer());
-				break;
-
-			case CPT_Struct:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UStructProperty(FObjectInitializer());
-				if (VarProperty.Struct->StructFlags & STRUCT_HasInstancedReference)
-				{
-					VarProperty.PropertyFlags |= CPF_ContainsInstancedReference;
-				}
-				((UStructProperty*)NewProperty)->Struct = VarProperty.Struct;
-				break;
-
-			case CPT_Delegate:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UDelegateProperty(FObjectInitializer());
-				break;
-
-			case CPT_MulticastDelegate:
-				NewProperty = new(EC_InternalUseOnlyConstructor, NewScope, PropertyName, ObjectFlags)UMulticastDelegateProperty(FObjectInitializer());
-				break;
-
-			default:
-				FError::Throwf(TEXT("Unknown property type %i"), (uint8)VarProperty.Type);
-		}
+		NewProperty = CreateVariableProperty(VarProperty, NewScope, PropertyName, ObjectFlags, VariableCategory);
 
 		if( Array )
 		{
@@ -5727,98 +5868,6 @@ void FHeaderParser::CompileFunctionDeclaration(FUnrealSourceFile& SourceFile, FC
 	}
 }
 
-/**
- * Ensures at script compile time that the metadata formatting is correct
- * @param	InKey			the metadata key being added
- * @param	InValue			the value string that will be associated with the InKey
- */
-void FHeaderParser::ValidateMetaDataFormat(UField* Field, const FString& InKey, const FString& InValue)
-{
-	if ((InKey == TEXT("UIMin")) || (InKey == TEXT("UIMax")) || (InKey == TEXT("ClampMin")) || (InKey == TEXT("ClampMax")))
-	{
-		if (!InValue.IsNumeric())
-		{
-			FError::Throwf(TEXT("Metadata value for '%s' is non-numeric : '%s'"), *InKey, *InValue);
-		}
-	}
-	else if (InKey == /*FBlueprintMetadata::MD_Protected*/ TEXT("BlueprintProtected"))
-	{
-		if (UFunction* Function = Cast<UFunction>(Field))
-		{
-			if (Function->HasAnyFunctionFlags(FUNC_Static))
-			{
-				// Determine if it's a function library
-				UClass* Class = Cast<UClass>(Function->GetOuterUClass());
-				while (Class != nullptr && Class->GetSuperClass() != UObject::StaticClass())
-				{
-					Class = Class->GetSuperClass();
-				}
-
-				if (Class != nullptr && Class->GetName() == TEXT("BlueprintFunctionLibrary"))
-				{
-					FError::Throwf(TEXT("%s doesn't make sense on static method '%s' in a blueprint function library"), *InKey, *Function->GetName());
-				}
-			}
-		}
-	}
-	else if (InKey == TEXT("DevelopmentStatus"))
-	{
-		const FString EarlyAccessValue(TEXT("EarlyAccess"));
-		const FString ExperimentalValue(TEXT("Experimental"));
-		if ((InValue != EarlyAccessValue) && (InValue != ExperimentalValue))
-		{
-			FError::Throwf(TEXT("'%s' metadata was '%s' but it must be %s or %s"), *InKey, *InValue, *ExperimentalValue, *EarlyAccessValue);
-		}
-	}
-	else if (InKey == TEXT("Units"))
-	{
-		// Check for numeric property
-		if (!Cast<UNumericProperty>(Field))
-		{
-			FError::Throwf(TEXT("'Units' meta data can only be applied to numeric properties"));
-		}
-		else if (!FUnitConversion::UnitFromString(*InValue))
-		{
-			FError::Throwf(TEXT("Unrecognized units (%s) specified for numeric property '%s'"), *InValue, *Field->GetDisplayNameText().ToString());
-		}
-	}
-}
-
-// Validates the metadata, then adds it to the class data
-void FHeaderParser::AddMetaDataToClassData(UField* Field, const TMap<FName, FString>& InMetaData)
-{
-	// Evaluate any key redirects on the passed in pairs
-	TMap<FName, FString> RemappedPairs;
-	RemappedPairs.Empty(InMetaData.Num());
-
-	for (TMap<FName, FString>::TConstIterator It(InMetaData); It; ++It)
-	{
-		FName CurrentKey = It.Key();
-		FName NewKey = UMetaData::GetRemappedKeyName(CurrentKey);
-
-		if (NewKey != NAME_None)
-		{
-			UE_LOG(LogCompile, Warning, TEXT("Remapping old metadata key '%s' to new key '%s', please update the declaration."), *CurrentKey.ToString(), *NewKey.ToString());
-			CurrentKey = NewKey;
-		}
-
-		RemappedPairs.Add(CurrentKey, It.Value());
-	}
-
-	// Finish validating and associate the metadata with the field
-	ValidateMetaDataFormat(Field, RemappedPairs);
-	FClassMetaData::AddMetaData(Field, RemappedPairs);
-}
-
-// Ensures at script compile time that the metadata formatting is correct
-void FHeaderParser::ValidateMetaDataFormat(UField* Field, const TMap<FName, FString>& MetaData)
-{
-	for (TMap<FName, FString>::TConstIterator It(MetaData); It; ++It)
-	{
-		ValidateMetaDataFormat(Field, It.Key().ToString(), It.Value());
-	}
-}
-
 /** Parses optional metadata text. */
 void FHeaderParser::ParseFieldMetaData(TMap<FName, FString>& MetaData, const TCHAR* FieldName)
 {
@@ -7846,27 +7895,4 @@ UFunction* FHeaderParser::CreateFunction(const FFuncInfo &FuncInfo) const
 UDelegateFunction* FHeaderParser::CreateDelegateFunction(const FFuncInfo &FuncInfo) const
 {
 	return CreateFunctionImpl<UDelegateFunction>(FuncInfo, IsInAClass() ? (UObject*)GetCurrentClass() : (UObject*)GetCurrentFileScope()->GetSourceFile()->GetPackage(), GetCurrentScope());
-}
-
-bool FHeaderParser::DoesAnythingInHierarchyHaveDefaultToInstanced(UClass* TestClass)
-{
-	bool bDefaultToInstanced = false;
-
-	UClass* Search = TestClass;
-	while (!bDefaultToInstanced && (Search != NULL))
-	{
-		bDefaultToInstanced = Search->HasAnyClassFlags(CLASS_DefaultToInstanced);		
-		if (!bDefaultToInstanced && !Search->HasAnyClassFlags(CLASS_Intrinsic | CLASS_Parsed))
-		{			
-			// The class might not have been parsed yet, look for declaration data.
-			auto ClassDeclarationDataPtr = GClassDeclarations.Find(Search->GetFName());
-			if (ClassDeclarationDataPtr)
-			{
-				bDefaultToInstanced = !!((*ClassDeclarationDataPtr)->ClassFlags & CLASS_DefaultToInstanced);
-			}
-		}
-		Search = Search->GetSuperClass();
-	}
-
-	return bDefaultToInstanced;
 }

@@ -163,7 +163,18 @@ public:
 	 */
 	void SetRecipientThread( const ENamedThreads::Type& NamedThread )
 	{
-		RecipientThread = NamedThread;
+		if (NamedThread == ENamedThreads::GameThread_Local)
+		{
+			RecipientThread = ENamedThreads::GameThread;
+		}
+		else if (NamedThread == ENamedThreads::RenderThread_Local)
+		{
+			RecipientThread = ENamedThreads::RenderThread;
+		}
+		else
+		{
+			RecipientThread = NamedThread;
+		}		
 	}
 
 public:
@@ -781,12 +792,7 @@ protected:
 
 		for (int32 HandlerIndex = 0; HandlerIndex < Handlers.Num(); ++HandlerIndex)
 		{
-			IMessageHandlerPtr& Handler = Handlers[HandlerIndex];
-
-			if (Handler->GetHandledMessageType() == Context->GetMessageType())
-			{
-				Handler->HandleMessage(Context);
-			}
+			Handlers[HandlerIndex]->HandleMessage(Context);
 		}
 	}
 

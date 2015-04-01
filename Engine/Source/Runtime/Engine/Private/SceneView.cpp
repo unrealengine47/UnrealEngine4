@@ -426,6 +426,7 @@ FSceneView::FSceneView(const FSceneViewInitOptions& InitOptions)
 
 	// Derive the view's near clipping distance and plane.
 	// The GetFrustumFarPlane() is the near plane because of reverse Z projection.
+	checkf(RHIHasInvertedZBuffer(), TEXT("Fix Near Clip distance!"));
 	bHasNearClippingPlane = ViewProjectionMatrix.GetFrustumFarPlane(NearClippingPlane);
 	if(ViewMatrices.ProjMatrix.M[2][3] > DELTA)
 	{
@@ -482,7 +483,7 @@ float FSceneView::GetLODDistanceFactor() const
 {
 	bool bCompensateForFOV = bUseFieldOfViewForLOD && CVarCompensateForFOV.GetValueOnAnyThread() != 0;
 	float ScreenScaleX = bCompensateForFOV ? ViewMatrices.ProjMatrix.M[0][0] : 1.0f;
-	float ScreenScaleY = bCompensateForFOV ? ViewMatrices.ProjMatrix.M[1][1] : (ViewRect.Width() / ViewRect.Height());
+	float ScreenScaleY = bCompensateForFOV ? ViewMatrices.ProjMatrix.M[1][1] : (static_cast<float>(ViewRect.Width()) / ViewRect.Height());
 
 	const float ScreenMultiple = FMath::Max(ViewRect.Width() / 2.0f * ScreenScaleX,
 		ViewRect.Height() / 2.0f * ScreenScaleY);
@@ -1304,7 +1305,7 @@ void FSceneView::EndFinalPostprocessSettings(const FSceneViewInitOptions& ViewIn
 		{
 			// ...and if this is the viewport associated with the highres screenshot UI
 			auto ConfigViewport = Config.TargetViewport.Pin();
-			if (ConfigViewport.IsValid() && Family && Family->RenderTarget == ConfigViewport->GetViewport())
+			if (ConfigViewport.IsValid() && Family->RenderTarget == ConfigViewport->GetViewport())
 			{
 				static const FName ParamName = "RegionRect";
 				FLinearColor NormalizedCaptureRegion;

@@ -549,7 +549,7 @@ void FEditorViewportClient::FocusViewportOnBox( const FBox& BoundingBox, bool bI
 				*/
 				float NewOrthoZoom;
 				uint32 MinAxisSize = (AspectToUse > 1.0f) ? Viewport->GetSizeXY().Y : Viewport->GetSizeXY().X;
-				float Zoom = Radius / (MinAxisSize / 2);
+				float Zoom = Radius / (MinAxisSize / 2.0f);
 
 				NewOrthoZoom = Zoom * (Viewport->GetSizeXY().X*15.0f);
 				NewOrthoZoom = FMath::Clamp<float>( NewOrthoZoom, MIN_ORTHOZOOM, MAX_ORTHOZOOM );
@@ -627,14 +627,28 @@ FSceneView* FEditorViewportClient::CalcSceneView(FSceneViewFamily* ViewFamily)
 
 			if (bConstrainAspectRatio)
 			{
-				ViewInitOptions.ProjectionMatrix = FReversedZPerspectiveMatrix(
-					MatrixFOV,
-					MatrixFOV,
-					1.0f,
-					AspectRatio,
-					MinZ,
-					MaxZ
-					);
+				if (RHIHasInvertedZBuffer())
+				{
+					ViewInitOptions.ProjectionMatrix = FReversedZPerspectiveMatrix(
+						MatrixFOV,
+						MatrixFOV,
+						1.0f,
+						AspectRatio,
+						MinZ,
+						MaxZ
+						);
+				}
+				else
+				{
+					ViewInitOptions.ProjectionMatrix = FPerspectiveMatrix(
+						MatrixFOV,
+						MatrixFOV,
+						1.0f,
+						AspectRatio,
+						MinZ,
+						MaxZ
+						);
+				}
 			}
 			else
 			{
@@ -654,18 +668,33 @@ FSceneView* FEditorViewportClient::CalcSceneView(FSceneViewFamily* ViewFamily)
 					YAxisMultiplier = 1.0f;
 				}
 
-				ViewInitOptions.ProjectionMatrix = FReversedZPerspectiveMatrix(
-					MatrixFOV,
-					MatrixFOV,
-					XAxisMultiplier,
-					YAxisMultiplier,
-					MinZ,
-					MaxZ
-					);
+				if (RHIHasInvertedZBuffer())
+				{
+					ViewInitOptions.ProjectionMatrix = FReversedZPerspectiveMatrix(
+						MatrixFOV,
+						MatrixFOV,
+						XAxisMultiplier,
+						YAxisMultiplier,
+						MinZ,
+						MaxZ
+						);
+				}
+				else
+				{
+					ViewInitOptions.ProjectionMatrix = FPerspectiveMatrix(
+						MatrixFOV,
+						MatrixFOV,
+						XAxisMultiplier,
+						YAxisMultiplier,
+						MinZ,
+						MaxZ
+						);
+				}
 			}
 		}
 		else
 		{
+			checkf(RHIHasInvertedZBuffer(), TEXT("Check all the Rotation Matrix transformations!"));
 			float ZScale = 0.5f / HALF_WORLD_MAX;
 			float ZOffset = HALF_WORLD_MAX;
 
@@ -2180,7 +2209,7 @@ void FEditorViewportClient::StartTrackingDueToInput( const struct FInputEventSta
 			bIsTracking = false;
 		}
 
-		bDraggingByHandle = (Widget->GetCurrentAxis() != EAxisList::None);
+		bDraggingByHandle = (Widget && Widget->GetCurrentAxis() != EAxisList::None);
 
 		if( Event == IE_Pressed )
 		{
@@ -2189,7 +2218,7 @@ void FEditorViewportClient::StartTrackingDueToInput( const struct FInputEventSta
 		}
 
 		// Start new tracking. Potentially reset the widget so that StartTracking can pick a new axis.
-		if ( !bDraggingByHandle || InputState.IsCtrlButtonPressed() ) 
+		if ( Widget && ( !bDraggingByHandle || InputState.IsCtrlButtonPressed() ) ) 
 		{
 			bWidgetAxisControlledByDrag = false;
 			Widget->SetCurrentAxis( EAxisList::None );
@@ -2241,7 +2270,7 @@ void FEditorViewportClient::ProcessClickInViewport( const FInputEventState& Inpu
 		const int32	HitY = InputStateViewport->GetMouseY();
 		
 		// Calc the raw delta from the mouse to detect if there was any movement
-		FVector RawMouseDelta = MouseDeltaTracker->GetScreenDelta();
+		FVector RawMouseDelta = MouseDeltaTracker->GetRawDelta();
 
 		// Note: We are using raw mouse movement to double check distance moved in low performance situations.  In low performance situations its possible 
 		// that we would get a mouse down and a mouse up before the next tick where GEditor->MouseMovment has not been updated.  
@@ -2573,6 +2602,8 @@ void FEditorViewportClient::OnOrthoZoom( const struct FInputEventState& InputSta
 			break;
 		case LVT_OrthoFreelook:
 			//@TODO: CAMERA: How to handle this
+			break;
+		case LVT_Perspective:
 			break;
 		}
 	}
@@ -3212,6 +3243,9 @@ FVector FEditorViewportClient::TranslateDelta( FKey InKey, float InDelta, bool I
 					case LVT_OrthoNegativeYZ:
 						vec = FVector(0.f, -X * UnitsPerPixel, Y * UnitsPerPixel);
 						break;
+					case LVT_OrthoFreelook:
+					case LVT_Perspective:
+						break;
 					}
 				}
 			}
@@ -3362,6 +3396,9 @@ bool FEditorViewportClient::InputGesture(FViewport* InViewport, EGestureEvent::T
 						break;
 					case LVT_OrthoNegativeYZ:
 						CurrentGestureDragDelta += FVector(0, AdjustedGestureDelta.X, AdjustedGestureDelta.Y);
+						break;
+					case LVT_OrthoFreelook:
+					case LVT_Perspective:
 						break;
 				}
 
@@ -3767,7 +3804,7 @@ void FEditorViewportClient::UpdateRequiredCursorVisibility()
 	else
 	{
 		// Calc the raw delta from the mouse since we started dragging to detect if there was any movement
-		FVector RawMouseDelta = MouseDeltaTracker->GetScreenDelta();
+		FVector RawMouseDelta = MouseDeltaTracker->GetRawDelta();
 
 		if (bMouseButtonDown && (RawMouseDelta.SizeSquared() >= MOUSE_CLICK_DRAG_DELTA || IsFlightCameraActive() || ShouldOrbitCamera()) && !MouseDeltaTracker->UsingDragTool())
 		{

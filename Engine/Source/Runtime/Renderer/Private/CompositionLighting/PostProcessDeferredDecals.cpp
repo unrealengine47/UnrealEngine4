@@ -339,6 +339,7 @@ public:
 		FGlobalShader(Initializer)
 	{
 		DeferredParameters.Bind(Initializer.ParameterMap);
+		MaskComparison.Bind(Initializer.ParameterMap,TEXT("MaskComparison"));
 	}
 	FStencilDecalMaskPS() {}
 
@@ -348,17 +349,19 @@ public:
 
 		FGlobalShader::SetParameters(RHICmdList, ShaderRHI, View);
 		DeferredParameters.Set(RHICmdList, ShaderRHI, View);
+		SetShaderValue(RHICmdList, ShaderRHI, MaskComparison, View.Family->EngineShowFlags.ShaderComplexity ? -1.0f : 0.5f);
 	}
 
 	virtual bool Serialize(FArchive& Ar)
 	{
 		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
-		Ar << DeferredParameters;
+		Ar << DeferredParameters << MaskComparison;
 		return bShaderHasOutdatedParameters;
 	}
 
 private:
 	FDeferredPixelShaderParameters DeferredParameters;
+	FShaderParameter MaskComparison;
 };
 
 IMPLEMENT_SHADER_TYPE(,FStencilDecalMaskPS,TEXT("DeferredDecal"),TEXT("StencilDecalMaskMain"),SF_Pixel);
@@ -401,37 +404,34 @@ void StencilDecalMask(FRHICommandList& RHICmdList, const FViewInfo& View)
 /**
  * A vertex shader for projecting a deferred decal onto the scene.
  */
-class FDeferredDecalVS : public FMaterialShader
+class FDeferredDecalVS : public FGlobalShader
 {
-	DECLARE_SHADER_TYPE(FDeferredDecalVS,Material);
+	DECLARE_SHADER_TYPE(FDeferredDecalVS,Global);
 public:
 
-	/**
-	  * Makes sure only shaders for materials that are explicitly flagged
-	  * as 'UsedAsDeferredDecal' in the Material Editor gets compiled into
-	  * the shader cache.
-	  */
-	static bool ShouldCache(EShaderPlatform Platform, const FMaterial* Material)
+	static bool ShouldCache(EShaderPlatform Platform)
 	{
-		return Material->IsUsedWithDeferredDecal() && IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM4);
+		return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM4);
 	}
 
 	FDeferredDecalVS( )	{ }
 	FDeferredDecalVS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
-		: FMaterialShader(Initializer)
+		: FGlobalShader(Initializer)
 	{
 		FrustumComponentToClip.Bind(Initializer.ParameterMap, TEXT("FrustumComponentToClip"));
 	}
 
 	void SetParameters(FRHICommandList& RHICmdList, const FSceneView& View, const FMatrix& InFrustumComponentToClip)
 	{
-		FMaterialShader::SetParameters(RHICmdList, GetVertexShader(), View);
-		SetShaderValue(RHICmdList, GetVertexShader(), FrustumComponentToClip, InFrustumComponentToClip);
+		const FVertexShaderRHIParamRef ShaderRHI = GetVertexShader();
+
+		FGlobalShader::SetParameters(RHICmdList, ShaderRHI, View);
+		SetShaderValue(RHICmdList, ShaderRHI, FrustumComponentToClip, InFrustumComponentToClip);
 	}
 
 	virtual bool Serialize(FArchive& Ar)
 	{
-		bool bShaderHasOutdatedParameters = FMaterialShader::Serialize(Ar);
+		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
 		Ar << FrustumComponentToClip;
 		return bShaderHasOutdatedParameters;
 	}
@@ -440,7 +440,7 @@ private:
 	FShaderParameter FrustumComponentToClip;
 };
 
-IMPLEMENT_MATERIAL_SHADER_TYPE(,FDeferredDecalVS,TEXT("DeferredDecal"),TEXT("MainVS"),SF_Vertex);
+IMPLEMENT_SHADER_TYPE(,FDeferredDecalVS,TEXT("DeferredDecal"),TEXT("MainVS"),SF_Vertex);
 
 /**
  * A pixel shader for projecting a deferred decal onto the scene.
@@ -620,16 +620,34 @@ private:
 static TGlobalResource<FUnitCubeVertexBuffer> GUnitCubeVertexBuffer;
 static TGlobalResource<FUnitCubeIndexBuffer> GUnitCubeIndexBuffer;
 
-void SetShader(const FRenderingCompositePassContext& Context, const FTransientDecalRenderData& DecalData, FShader* VertexShader)
+void SetShader(const FRenderingCompositePassContext& Context, bool bShaderComplexity, const FTransientDecalRenderData& DecalData, FShader* VertexShader)
 {
 	const FSceneView& View = Context.View;
-	
+
 	const FMaterialShaderMap* MaterialShaderMap = DecalData.MaterialResource->GetRenderingThreadShaderMap();
-	FDeferredDecalPS* PixelShader = MaterialShaderMap->GetShader<FDeferredDecalPS>();
 
-	Context.RHICmdList.SetLocalBoundShaderState(Context.RHICmdList.BuildLocalBoundShaderState(GetVertexDeclarationFVector3(), VertexShader->GetVertexShader(), FHullShaderRHIRef(), FDomainShaderRHIRef(), PixelShader->GetPixelShader(), FGeometryShaderRHIRef()));
+	auto PixelShader = MaterialShaderMap->GetShader<FDeferredDecalPS>();
 
-	PixelShader->SetParameters(Context.RHICmdList, View, DecalData.MaterialProxy, *DecalData.DecalProxy);
+	if(bShaderComplexity)
+	{
+		const FViewInfo &ViewInfo = (const FViewInfo &)View;
+
+		TShaderMapRef<FShaderComplexityAccumulatePS> VisualizePixelShader(ViewInfo.ShaderMap);
+		const uint32 NumPixelShaderInstructions = PixelShader->GetNumInstructions();
+		const uint32 NumVertexShaderInstructions = VertexShader->GetNumInstructions();
+
+		static FGlobalBoundShaderState BoundShaderState;
+		SetGlobalBoundShaderState(Context.RHICmdList, Context.GetFeatureLevel(), BoundShaderState, GetVertexDeclarationFVector3(), VertexShader, *VisualizePixelShader);
+
+		VisualizePixelShader->SetParameters(Context.RHICmdList, NumVertexShaderInstructions, NumPixelShaderInstructions, View.GetFeatureLevel());
+	}
+	else
+	{
+		// first Bind, then SetParameters()
+		Context.RHICmdList.SetLocalBoundShaderState(Context.RHICmdList.BuildLocalBoundShaderState(GetVertexDeclarationFVector3(), VertexShader->GetVertexShader(), FHullShaderRHIRef(), FDomainShaderRHIRef(), PixelShader->GetPixelShader(), FGeometryShaderRHIRef()));
+
+		PixelShader->SetParameters(Context.RHICmdList, View, DecalData.MaterialProxy, *DecalData.DecalProxy);
+ 	}
 }
 
 bool RenderPreStencil(FRenderingCompositePassContext& Context, const FMaterialShaderMap* MaterialShaderMap, const FMatrix& ComponentToWorldMatrix, const FMatrix& FrustumComponentToClip)
@@ -653,7 +671,7 @@ bool RenderPreStencil(FRenderingCompositePassContext& Context, const FMaterialSh
 		}
 	}
 
-	FDeferredDecalVS* VertexShader = MaterialShaderMap->GetShader<FDeferredDecalVS>();
+	TShaderMapRef<FDeferredDecalVS> VertexShader(Context.GetShaderMap());
 	
 	Context.RHICmdList.SetLocalBoundShaderState(Context.RHICmdList.BuildLocalBoundShaderState(GetVertexDeclarationFVector3(), VertexShader->GetVertexShader(), FHullShaderRHIRef(), FDomainShaderRHIRef(), NULL, FGeometryShaderRHIRef()));
 
@@ -671,6 +689,7 @@ bool RenderPreStencil(FRenderingCompositePassContext& Context, const FMaterialSh
 	>::GetRHI() );
 
 	// Carmack's reverse on the bounds
+	//@todo-martinm
 	Context.RHICmdList.SetDepthStencilState(TStaticDepthStencilState<
 		false,CF_LessEqual,
 		true,CF_Equal,SO_Keep,SO_Keep,SO_Increment,
@@ -679,7 +698,7 @@ bool RenderPreStencil(FRenderingCompositePassContext& Context, const FMaterialSh
 	>::GetRHI());
 
 	// Render decal mask
-	Context.RHICmdList.DrawIndexedPrimitive(GUnitCubeIndexBuffer.IndexBufferRHI, PT_TriangleList, 0, 0, 8, 0, GUnitCubeIndexBuffer.GetIndexCount() / 3, 0);
+	Context.RHICmdList.DrawIndexedPrimitive(GUnitCubeIndexBuffer.IndexBufferRHI, PT_TriangleList, 0, 0, 8, 0, GUnitCubeIndexBuffer.GetIndexCount() / 3, 1);
 
 	return true;
 }
@@ -699,11 +718,11 @@ FRCPassPostProcessDeferredDecals::FRCPassPostProcessDeferredDecals(uint32 InRend
 
 void FRCPassPostProcessDeferredDecals::Process(FRenderingCompositePassContext& Context)
 {
-	
 	FRHICommandListImmediate& RHICmdList = Context.RHICmdList;
 
-	bool bDBuffer = IsDBufferEnabled();
-	float bDecalPreStencil = CVarStencilSizeThreshold.GetValueOnRenderThread() >= 0;
+	const bool bShaderComplexity = Context.View.Family->EngineShowFlags.ShaderComplexity;
+	const bool bDBuffer = IsDBufferEnabled();
+	const bool bDecalPreStencil = CVarStencilSizeThreshold.GetValueOnRenderThread() >= 0;
 
 	SCOPED_DRAW_EVENT(RHICmdList, PostProcessDeferredDecals);
 
@@ -747,13 +766,13 @@ void FRCPassPostProcessDeferredDecals::Process(FRenderingCompositePassContext& C
 
 			// could be optimized
 			SetRenderTarget(RHICmdList, GSceneRenderTargets.DBufferA->GetRenderTargetItem().TargetableTexture, FTextureRHIParamRef());
-			RHICmdList.Clear(true, FLinearColor(0, 0, 0, 1), false, 0, false, 0, FIntRect());
+			RHICmdList.Clear(true, FLinearColor(0, 0, 0, 1), false, (float)ERHIZBuffer::FarPlane, false, 0, FIntRect());
 			SetRenderTarget(RHICmdList, GSceneRenderTargets.DBufferB->GetRenderTargetItem().TargetableTexture, FTextureRHIParamRef());
 			// todo: some hardware would like to have 0 or 1 for faster clear, we chose 128/255 to represent 0 (8 bit cannot represent 0.5f)
-			RHICmdList.Clear(true, FLinearColor(128.0f / 255.0f, 128.0f / 255.0f, 128.0f / 255.0f, 1), false, 0, false, 0, FIntRect());
+			RHICmdList.Clear(true, FLinearColor(128.0f / 255.0f, 128.0f / 255.0f, 128.0f / 255.0f, 1), false, (float)ERHIZBuffer::FarPlane, false, 0, FIntRect());
 			SetRenderTarget(RHICmdList, GSceneRenderTargets.DBufferC->GetRenderTargetItem().TargetableTexture, FTextureRHIParamRef());
 			// R:roughness, G:roughness opacity
-			RHICmdList.Clear(true, FLinearColor(0, 1, 0, 1), false, 0, false, 0, FIntRect());
+			RHICmdList.Clear(true, FLinearColor(0, 1, 0, 1), false, (float)ERHIZBuffer::FarPlane, false, 0, FIntRect());
 		}
 	}
 
@@ -882,7 +901,7 @@ void FRCPassPostProcessDeferredDecals::Process(FRenderingCompositePassContext& C
 			DBufferCIndex,
 			ResolveBufferMax,
 		};
-
+	
 		FTextureRHIParamRef TargetsToResolve[ResolveBufferMax] = { nullptr };
 
 		for (int32 DecalIndex = 0; DecalIndex < SortedDecals.Num(); DecalIndex++)
@@ -898,18 +917,6 @@ void FRCPassPostProcessDeferredDecals::Process(FRenderingCompositePassContext& C
 			FTranslationMatrix PreViewTranslation(View.ViewMatrices.PreViewTranslation);
 			FMatrix FrustumComponentToClip = DecalScaleTransform * ComponentToWorldMatrix * PreViewTranslation * View.ViewMatrices.TranslatedViewProjectionMatrix;
 
-			bool bThisDecalUsesStencil = false;
-
-			if(bStencilDecals)
-			{
-				if(bDecalPreStencil)
-				{
-					bThisDecalUsesStencil = RenderPreStencil(Context, MaterialShaderMap, ComponentToWorldMatrix, FrustumComponentToClip);
-					WasInsideDecal = -1;
-					LastDecalBlendMode = -1;
-				}
-			}
-
 			// can be optimized as we test against a sphere around the box instead of the box itself
 			const float ConservativeRadius = FMath::Sqrt(
 				ComponentToWorldMatrix.GetScaledAxis( EAxis::X ).SizeSquared() * FMath::Square(GDefaultDecalSize.X) +
@@ -919,6 +926,13 @@ void FRCPassPostProcessDeferredDecals::Process(FRenderingCompositePassContext& C
 			EDecalBlendMode DecalBlendMode = DecalData.DecalBlendMode;
 
 			ERenderTargetMode CurrentRenderTargetMode = ComputeRenderTargetMode(DecalBlendMode);
+
+			if(bShaderComplexity)
+			{
+				CurrentRenderTargetMode = RTM_SceneColor;
+				// we want additive blending for the ShaderComplexity mode
+				DecalBlendMode = DBM_Emissive;
+			}
 
 			// fewer rendertarget switches if possible
 			if(CurrentRenderTargetMode != LastRenderTargetMode)
@@ -962,6 +976,23 @@ void FRCPassPostProcessDeferredDecals::Process(FRenderingCompositePassContext& C
 						break;
 				}
 				Context.SetViewportAndCallRHI(DestRect);
+
+				// we need to reset the stream source after any call to SetRenderTarget (at least for Metal, which doesn't queue up VB assignments)
+				RHICmdList.SetStreamSource(0, GUnitCubeVertexBuffer.VertexBufferRHI, sizeof(FVector4), 0);
+			}
+
+			bool bThisDecalUsesStencil = false;
+
+			if (bStencilDecals)
+			{
+				if (bDecalPreStencil)
+				{
+					// note this is after a SetStreamSource (in if CurrentRenderTargetMode != LastRenderTargetMode) call as it needs to get the VB input
+					bThisDecalUsesStencil = RenderPreStencil(Context, MaterialShaderMap, ComponentToWorldMatrix, FrustumComponentToClip);
+
+					WasInsideDecal = -1;
+					LastDecalBlendMode = -1;
+				}
 			}
 
 			const bool bBlendStateChange = DecalData.DecalBlendMode != LastDecalBlendMode;// Has decal mode changed.
@@ -978,12 +1009,9 @@ void FRCPassPostProcessDeferredDecals::Process(FRenderingCompositePassContext& C
 				SetDecalBlendState(RHICmdList, SMFeatureLevel, RenderStage, (EDecalBlendMode)LastDecalBlendMode, DecalData.bHasNormal);
 			}
 
-			// we need to reset the stream source after any call to SetRenderTarget (at least for Metal, which doesn't queue up VB assignments)
-			RHICmdList.SetStreamSource(0, GUnitCubeVertexBuffer.VertexBufferRHI, sizeof(FVector4), 0);
-
 			{
-				FDeferredDecalVS* VertexShader = MaterialShaderMap->GetShader<FDeferredDecalVS>();
-				SetShader(Context, DecalData, VertexShader);
+				TShaderMapRef<FDeferredDecalVS> VertexShader(Context.GetShaderMap());
+				SetShader(Context, bShaderComplexity, DecalData, *VertexShader);
 
 				VertexShader->SetParameters(RHICmdList, View, FrustumComponentToClip);
 
@@ -1024,16 +1052,14 @@ void FRCPassPostProcessDeferredDecals::Process(FRenderingCompositePassContext& C
 					else
 					{
 						// Render frontfaces with depth tests on to get the speedup from HiZ since the camera is outside the light function geometry
-						// Note, this is a reversed Z depth surface, using CF_GreaterEqual.
 						if(bStencilDecals)
 						{
 							// Render frontfaces with depth tests on to get the speedup from HiZ since the camera is outside the light function geometry
 							// Enable stencil testing, only write to pixels with stencil of 0
-							// Note, this is a reversed Z depth surface, using CF_GreaterEqual.
 							if ( bThisDecalUsesStencil )
 							{
 								RHICmdList.SetDepthStencilState(TStaticDepthStencilState<
-									false,CF_GreaterEqual,
+									false,CF_DepthFunction,
 									true,CF_Equal,SO_Zero,SO_Zero,SO_Zero,
 									true,CF_Equal,SO_Zero,SO_Zero,SO_Zero,
 									0xff, 0x7f
@@ -1042,7 +1068,7 @@ void FRCPassPostProcessDeferredDecals::Process(FRenderingCompositePassContext& C
 							else
 							{
 								RHICmdList.SetDepthStencilState(TStaticDepthStencilState<
-									false,CF_GreaterEqual,
+									false,CF_DepthFunction,
 									true,CF_Equal,SO_Keep,SO_Keep,SO_Keep,
 									false,CF_Always,SO_Keep,SO_Keep,SO_Keep,
 									0x80,0x00>::GetRHI(), 0);
@@ -1051,13 +1077,11 @@ void FRCPassPostProcessDeferredDecals::Process(FRenderingCompositePassContext& C
 						}
 						else
 						{
-							RHICmdList.SetDepthStencilState(TStaticDepthStencilState<false, CF_GreaterEqual>::GetRHI(), 0);
+							RHICmdList.SetDepthStencilState(TStaticDepthStencilState<false, CF_DepthFunction>::GetRHI(), 0);
 						}
 						RHICmdList.SetRasterizerState(View.bReverseCulling ? TStaticRasterizerState<FM_Solid, CM_CW>::GetRHI() : TStaticRasterizerState<FM_Solid, CM_CCW>::GetRHI());
 					}
 				}
-
-				SetShader(Context, DecalData, VertexShader);
 
 				RHICmdList.DrawIndexedPrimitive(GUnitCubeIndexBuffer.IndexBufferRHI, PT_TriangleList, 0, 0, 8, 0, GUnitCubeIndexBuffer.GetIndexCount() / 3, 1);
 			}
@@ -1065,7 +1089,7 @@ void FRCPassPostProcessDeferredDecals::Process(FRenderingCompositePassContext& C
 
 		// we don't modify stencil but if out input was having stencil for us (after base pass - we need to clear)
 		// Clear stencil to 0, which is the assumed default by other passes
-		RHICmdList.Clear(false, FLinearColor::White, false, 0, true, 0, FIntRect());
+		RHICmdList.Clear(false, FLinearColor::White, false, (float)ERHIZBuffer::FarPlane, true, 0, FIntRect());
 
 		// resolve the targets we wrote to.
 		FResolveParams ResolveParams;

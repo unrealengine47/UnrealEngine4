@@ -1369,6 +1369,9 @@ bool FEdModeLandscape::InputDelta(FEditorViewportClient* InViewportClient, FView
 				UISettings->NewLandscape_Location += Transform.TransformVector(FVector(((float)ActualDelta / 2), 0, 0));
 			}
 				break;
+			case  ELandscapeEdge::Y_Negative:
+			case  ELandscapeEdge::Y_Positive:
+				break;
 			}
 
 			switch (DraggingEdge)
@@ -1396,6 +1399,9 @@ bool FEdModeLandscape::InputDelta(FEditorViewportClient* InViewportClient, FView
 				const int32 ActualDelta = UISettings->NewLandscape_ComponentCount.Y - InitialComponentCountY;
 				UISettings->NewLandscape_Location += Transform.TransformVector(FVector(0, (float)ActualDelta / 2, 0));
 			}
+				break;
+			case  ELandscapeEdge::X_Negative:
+			case  ELandscapeEdge::X_Positive:
 				break;
 			}
 
@@ -1529,13 +1535,11 @@ void FEdModeLandscape::SetCurrentTool(int32 ToolIndex)
 		}
 	}
 
-	if (CurrentTool)
-	{
-		CurrentTool->EnterTool();
+	CurrentTool->EnterTool();
 
-		CurrentTool->SetEditRenderType();
-		//bool MaskEnabled = CurrentTool->SupportsMask() && CurrentToolTarget.LandscapeInfo.IsValid() && CurrentToolTarget.LandscapeInfo->SelectedRegion.Num();
-	}
+	CurrentTool->SetEditRenderType();
+	//bool MaskEnabled = CurrentTool->SupportsMask() && CurrentToolTarget.LandscapeInfo.IsValid() && CurrentToolTarget.LandscapeInfo->SelectedRegion.Num();
+
 	CurrentToolMode->CurrentToolName = CurrentTool->GetToolName();
 
 	// Set Brush
@@ -2121,7 +2125,7 @@ FVector FEdModeLandscape::GetWidgetLocation() const
 			// Apply Landscape transformation when it is available
 			ULandscapeInfo* Info = CurrentGizmoActor->TargetLandscapeInfo;
 			return CurrentGizmoActor->GetActorLocation()
-				+ FRotationMatrix(Info->GetLandscapeProxy()->GetActorRotation()).TransformPosition(FVector(0, 0, CurrentGizmoActor->GetLength()));
+				+ FQuatRotationMatrix(Info->GetLandscapeProxy()->GetActorQuat()).TransformPosition(FVector(0, 0, CurrentGizmoActor->GetLength()));
 		}
 		return CurrentGizmoActor->GetActorLocation();
 	}

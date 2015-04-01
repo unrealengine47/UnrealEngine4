@@ -12,6 +12,26 @@ UWidgetNavigation::UWidgetNavigation(const FObjectInitializer& ObjectInitializer
 
 #if WITH_EDITOR
 
+FWidgetNavigationData& UWidgetNavigation::GetNavigationData(EUINavigation Nav)
+{
+	switch ( Nav )
+	{
+	case EUINavigation::Up:
+		return Up;
+	case EUINavigation::Down:
+		return Down;
+	case EUINavigation::Left:
+		return Left;
+	case EUINavigation::Right:
+		return Right;
+	}
+
+	// Should never happen
+	check(false);
+
+	return Up;
+}
+
 EUINavigationRule UWidgetNavigation::GetNavigationRule(EUINavigation Nav)
 {
 	switch ( Nav )
@@ -24,11 +44,34 @@ EUINavigationRule UWidgetNavigation::GetNavigationRule(EUINavigation Nav)
 		return Left.Rule;
 	case EUINavigation::Right:
 		return Right.Rule;
+	case EUINavigation::Next:
+	case EUINavigation::Previous:
+		break;
 	}
 	return EUINavigationRule::Escape;
 }
 
 #endif
+
+void UWidgetNavigation::ResolveExplictRules(UWidgetTree* WidgetTree)
+{
+	if ( Up.Rule == EUINavigationRule::Explicit )
+	{
+		Up.Widget = WidgetTree->FindWidget(Up.WidgetToFocus);
+	}
+	if ( Down.Rule == EUINavigationRule::Explicit )
+	{
+		Down.Widget = WidgetTree->FindWidget(Down.WidgetToFocus);
+	}
+	if ( Left.Rule == EUINavigationRule::Explicit )
+	{
+		Left.Widget = WidgetTree->FindWidget(Left.WidgetToFocus);
+	}
+	if ( Right.Rule == EUINavigationRule::Explicit )
+	{
+		Right.Widget = WidgetTree->FindWidget(Right.WidgetToFocus);
+	}
+}
 
 void UWidgetNavigation::UpdateMetaData(TSharedRef<FNavigationMetaData> MetaData)
 {
@@ -58,6 +101,14 @@ void UWidgetNavigation::UpdateMetaDataEntry(TSharedRef<FNavigationMetaData> Meta
 		break;
 	case EUINavigationRule::Wrap:
 		MetaData->SetNavigationWrap(Nav);
+		break;
+	case EUINavigationRule::Explicit:
+		if ( NavData.Widget.IsValid() )
+		{
+			MetaData->SetNavigationExplicit(Nav, NavData.Widget.Get()->GetCachedWidget());
+		}
+		break;
+	case EUINavigationRule::Custom:
 		break;
 	}
 }

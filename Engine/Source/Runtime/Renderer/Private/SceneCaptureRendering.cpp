@@ -116,7 +116,7 @@ static void UpdateSceneCaptureContent_RenderThread(FRHICommandListImmediate& RHI
 		FIntRect ViewRect = View.ViewRect;
 		FIntRect UnconstrainedViewRect = View.UnconstrainedViewRect;
 		SetRenderTarget(RHICmdList, Target->GetRenderTargetTexture(), NULL);
-		RHICmdList.Clear(true, FLinearColor::Black, false, 1.0f, false, 0, ViewRect);
+		RHICmdList.Clear(true, FLinearColor::Black, false, (float)ERHIZBuffer::FarPlane, false, 0, ViewRect);
 
 		// Render the scene normally
 		{
@@ -125,7 +125,7 @@ static void UpdateSceneCaptureContent_RenderThread(FRHICommandListImmediate& RHI
 			if (bNeedsFlippedRenderTarget)
 			{
 				// Hijack the render target
-				SceneRenderer->ViewFamily.RenderTarget = &FlippedRenderTarget;
+				SceneRenderer->ViewFamily.RenderTarget = &FlippedRenderTarget; //-V506
 			}
 			SceneRenderer->Render(RHICmdList);
 			if (bNeedsFlippedRenderTarget)
@@ -202,14 +202,28 @@ FSceneRenderer* FScene::CreateSceneRenderer( USceneCaptureComponent* SceneCaptur
 			YAxisMultiplier = 1.0f;
 		}
 
-		ViewInitOptions.ProjectionMatrix = FReversedZPerspectiveMatrix (
-			FOV,
-			FOV,
-			XAxisMultiplier,
-			YAxisMultiplier,
-			GNearClippingPlane,
-			GNearClippingPlane
-			);
+		if (RHIHasInvertedZBuffer())
+		{
+			ViewInitOptions.ProjectionMatrix = FReversedZPerspectiveMatrix(
+				FOV,
+				FOV,
+				XAxisMultiplier,
+				YAxisMultiplier,
+				GNearClippingPlane,
+				GNearClippingPlane
+				);
+		}
+		else
+		{
+			ViewInitOptions.ProjectionMatrix = FPerspectiveMatrix(
+				FOV,
+				FOV,
+				XAxisMultiplier,
+				YAxisMultiplier,
+				GNearClippingPlane,
+				GNearClippingPlane
+				);
+		}
 	}
 
 	FSceneView* View = new FSceneView(ViewInitOptions);

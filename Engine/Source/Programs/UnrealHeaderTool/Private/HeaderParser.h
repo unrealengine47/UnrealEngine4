@@ -631,21 +631,6 @@ protected:
 	static bool HasMemberProperties( const UStruct* Scope );
 
 	/**
-	 * Ensures at script compile time that the metadata formatting is correct
-	 * @param	InKey			the metadata key being added
-	 * @param	InValue			the value string that will be associated with the InKey
-	 */
-	void ValidateMetaDataFormat(UField* Field, const FString& InKey, const FString& InValue);
-
-	/**
-	 * Ensures at script compile time that the metadata formatting is correct
-	 */
-	void ValidateMetaDataFormat(UField* Field, const TMap<FName, FString>& MetaData);
-
-	// Validates the metadata, then adds it to the class data
-	void AddMetaDataToClassData(UField* Field, const TMap<FName, FString>& InMetaData);
-
-	/**
 	 * Parses optional metadata text.
 	 *
 	 * @param	MetaData	the metadata map to store parsed metadata in
@@ -743,9 +728,6 @@ protected:
 	 * @return FNAME_Replace_Not_Safe_For_Threading or FNAME_Add
 	 */
 	EFindName GetFindFlagForPropertyName(const TCHAR* PropertyName);
-
-	// Check to see if anything in the class hierarchy passed in has CLASS_DefaultToInstanced
-	static bool DoesAnythingInHierarchyHaveDefaultToInstanced(UClass* TestClass);
 
 	static void ValidatePropertyIsDeprecatedIfNecessary(FPropertyBase& VarProperty, FToken* OuterPropertyType);
 

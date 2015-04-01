@@ -492,14 +492,14 @@ void UGameplayAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const
 	}
 
 	// check to see if this is an NonInstanced or if the ability is active.
-	FGameplayAbilitySpec* Spec = ActorInfo->AbilitySystemComponent->FindAbilitySpecFromHandle(Handle);
+	FGameplayAbilitySpec* Spec = ActorInfo ? ActorInfo->AbilitySystemComponent->FindAbilitySpecFromHandle(Handle) : nullptr;
 	if ((Spec != nullptr) ? Spec->IsActive() : IsActive())
 	{
 		// Give blueprint a chance to react
 		K2_OnEndAbility();
 
 		// Stop any timers or latent actions for the ability
-		UWorld* MyWorld = ActorInfo->AbilitySystemComponent->GetOwner()->GetWorld();
+		UWorld* MyWorld = ActorInfo ? ActorInfo->AbilitySystemComponent->GetOwner()->GetWorld() : nullptr;
 		if (MyWorld)
 		{
 			MyWorld->GetLatentActionManager().RemoveActionsForObject(this);
@@ -1179,6 +1179,48 @@ bool UGameplayAbility::IsTriggered() const
 	// Assume that if there is triggered data, then we are triggered. 
 	// If we need to support abilities that can be both, this will need to be expanded.
 	return AbilityTriggers.Num() > 0;
+}
+
+bool UGameplayAbility::IsPredictingClient() const
+{
+	if (GetCurrentActorInfo()->OwnerActor.IsValid())
+	{
+		bool bIsLocallyControlled = GetCurrentActorInfo()->IsLocallyControlled();
+		bool bIsAuthority = GetCurrentActorInfo()->IsNetAuthority();
+
+		if (!bIsAuthority && bIsLocallyControlled && GetNetExecutionPolicy() == EGameplayAbilityNetExecutionPolicy::LocalPredicted)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool UGameplayAbility::IsForRemoteClient() const
+{
+	if (GetCurrentActorInfo()->OwnerActor.IsValid())
+	{
+		bool bIsLocallyControlled = GetCurrentActorInfo()->IsLocallyControlled();
+		bool bIsAuthority = GetCurrentActorInfo()->IsNetAuthority();
+
+		if (bIsAuthority && !bIsLocallyControlled)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool UGameplayAbility::IsLocallyControlled() const
+{
+	if (GetCurrentActorInfo()->OwnerActor.IsValid())
+	{
+		return GetCurrentActorInfo()->IsLocallyControlled();
+	}
+
+	return false;
 }
 
 bool UGameplayAbility::HasAuthority(const FGameplayAbilityActivationInfo* ActivationInfo) const

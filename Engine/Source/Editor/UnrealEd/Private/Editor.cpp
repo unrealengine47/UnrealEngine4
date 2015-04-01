@@ -4227,9 +4227,6 @@ bool UEditorEngine::IsPackageValidForAutoAdding(UPackage* InPackage, const FStri
 	{
 		const FString CleanFilename = FPaths::GetCleanFilename(InFilename);
 
-		// Assume package is valid to start
-		bPackageIsValid = true;
-
 		// Determine if the package has been saved before or not; if it has, it's not valid for auto-adding
 		bPackageIsValid = !FPaths::FileExists(InFilename);
 
@@ -7255,7 +7252,7 @@ namespace EditorUtilities
 
 		// The actor's classes should be compatible, right?
 		UClass* ActorClass = SourceActor->GetClass();
-		check( ActorClass == TargetActor->GetClass() );
+		check( TargetActor->GetClass()->IsChildOf(ActorClass) );
 
 		// Get archetype instances for propagation (if requested)
 		TArray<UObject*> ArchetypeInstances;
@@ -7278,7 +7275,7 @@ namespace EditorUtilities
 				const bool bIsBlueprintReadonly = !!(Options & ECopyOptions::FilterBlueprintReadOnly) && !!( Property->PropertyFlags & CPF_BlueprintReadOnly );
 				const bool bIsIdentical = Property->Identical_InContainer( SourceActor, TargetActor );
 
-				if( !bIsTransient && !bIsIdentical && !bIsComponentContainer && !bIsComponentProp && !bIsBlueprintReadonly && Property->GetName() != TEXT( "Tag" ) )
+				if( !bIsTransient && !bIsIdentical && !bIsComponentContainer && !bIsComponentProp && !bIsBlueprintReadonly)
 				{
 					const bool bIsSafeToCopy = !( Options & ECopyOptions::OnlyCopyEditOrInterpProperties ) || ( Property->HasAnyPropertyFlags( CPF_Edit | CPF_Interp ) );
 					if( bIsSafeToCopy )
@@ -7339,13 +7336,6 @@ namespace EditorUtilities
 						}
 
 						++CopiedPropertyCount;
-
-						if( Property->GetFName() == FName( TEXT( "RelativeScale3D" ) ) ||
-							Property->GetFName() == FName( TEXT( "RelativeLocation" ) ) ||
-							Property->GetFName() == FName( TEXT( "RelativeRotation" ) ) )
-						{
-							bTransformChanged = true;
-						}
 					}
 				}
 			}
@@ -7399,9 +7389,9 @@ namespace EditorUtilities
 					const bool bIsIdentical = Property->Identical_InContainer( SourceComponent, TargetComponent );
 					const bool bIsComponent = !!( Property->PropertyFlags & ( CPF_InstancedReference | CPF_ContainsInstancedReference ) );
 					const bool bIsTransform =
-						Property->GetFName() == FName( TEXT( "RelativeScale3D" ) ) ||
-						Property->GetFName() == FName( TEXT( "RelativeLocation" ) ) ||
-						Property->GetFName() == FName( TEXT( "RelativeRotation" ) );
+						Property->GetFName() == GET_MEMBER_NAME_CHECKED(USceneComponent, RelativeScale3D) ||
+						Property->GetFName() == GET_MEMBER_NAME_CHECKED(USceneComponent, RelativeLocation) ||
+						Property->GetFName() == GET_MEMBER_NAME_CHECKED(USceneComponent, RelativeRotation);
 
 					if( !bIsTransient && !bIsIdentical && !bIsComponent && !SourceUCSModifiedProperties.Contains(Property)
 						&& ( !bIsTransform || SourceComponent != SourceActor->GetRootComponent() || ( !SourceActor->HasAnyFlags( RF_ClassDefaultObject | RF_ArchetypeObject ) && !TargetActor->HasAnyFlags( RF_ClassDefaultObject | RF_ArchetypeObject ) ) ) )

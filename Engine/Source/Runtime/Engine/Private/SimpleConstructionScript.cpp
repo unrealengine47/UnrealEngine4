@@ -591,7 +591,7 @@ USCS_Node* USimpleConstructionScript::FindSCSNode(const FName InName) const
 
 	for( USCS_Node* SCSNode : AllNodes )
 	{
-		if (SCSNode->GetVariableName() == InName)
+		if (SCSNode->GetVariableName() == InName || (SCSNode->ComponentTemplate && SCSNode->ComponentTemplate->GetFName() == InName))
 		{
 			ReturnSCSNode = SCSNode;
 			break;
@@ -929,7 +929,7 @@ void USimpleConstructionScript::ValidateNodeTemplates(FCompilerResultsLog& Messa
 
 		if (GetLinkerUE4Version() < VER_UE4_REMOVE_INPUT_COMPONENTS_FROM_BLUEPRINTS)
 		{
-			if (!Node->bIsNative_DEPRECATED && Node->ComponentTemplate->IsA<UInputComponent>())
+			if (!Node->bIsNative_DEPRECATED && Node->ComponentTemplate && Node->ComponentTemplate->IsA<UInputComponent>())
 			{
 				RemoveNodeAndPromoteChildren(Node);
 			}

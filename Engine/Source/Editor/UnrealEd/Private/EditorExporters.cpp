@@ -516,19 +516,18 @@ void ULevelExporterT3D::ExportComponentExtra(const FExportObjectInnerContext* Co
 {
 	for (UActorComponent* ActorComponent : Components)
 	{
-		if (ActorComponent != NULL)
+		if (ActorComponent != nullptr && ActorComponent->GetWorld() != nullptr)
 		{
-			AActor* ActorOwner = ActorComponent->GetOwner();
-			if (ActorOwner != NULL)
+			// Go through all FoliageActors in the world, since we support cross-level bases
+			for (TActorIterator<AInstancedFoliageActor> It(ActorComponent->GetWorld()); It; ++It)
 			{
-				ULevel* ComponentLevel = Cast<ULevel>(ActorOwner->GetOuter());
-				AInstancedFoliageActor* IFA = AInstancedFoliageActor::GetInstancedFoliageActorForLevel(ComponentLevel);
-				if (IFA)
+				AInstancedFoliageActor* IFA = *It;
+				if (!IFA->IsPendingKill())
 				{
 					auto FoliageInstanceMap = IFA->GetInstancesForComponent(ActorComponent);
 					for (const auto& MapEntry : FoliageInstanceMap)
 					{
-						Ar.Logf(TEXT("%sBegin Foliage StaticMesh=%s Component=%s%s"), FCString::Spc(TextIndent), *MapEntry.Key->GetPathName(), *ActorComponent->GetName(), LINE_TERMINATOR);
+						Ar.Logf(TEXT("%sBegin Foliage FoliageType=%s Component=%s%s"), FCString::Spc(TextIndent), *MapEntry.Key->GetPathName(), *ActorComponent->GetName(), LINE_TERMINATOR);
 						for (const FFoliageInstancePlacementInfo* Inst : MapEntry.Value)
 						{
 							Ar.Logf(TEXT("%sLocation=%f,%f,%f Rotation=%f,%f,%f PreAlignRotation=%f,%f,%f DrawScale3D=%f,%f,%f Flags=%u%s"), FCString::Spc(TextIndent+3),
@@ -1201,7 +1200,7 @@ bool GenerateExportMaterialPropertyData(
 
 		// if PF_FloatRGB was used as render target format, the gamma conversion during rendering is deactivated
 		// if we want it not in linear space we need to convert
-		ReadPixelFlags.SetLinearToGamma(Format == PF_FloatRGB && !bForceLinear);
+		ReadPixelFlags.SetLinearToGamma(Format == PF_FloatRGB && !bForceLinear); //-V560 //remove after implementing todo (near to Format variable declaration)
 
 		if(!RenderTarget->GetRenderTargetResource()->ReadPixels(OutBMP, ReadPixelFlags))
 		{

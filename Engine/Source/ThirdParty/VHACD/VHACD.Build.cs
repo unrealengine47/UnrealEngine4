@@ -15,7 +15,15 @@ public class VHACD : ModuleRules
 		{
             VHACDLibPath = VHACDLibPath + "lib/Win64/VS" + WindowsPlatform.GetVisualStudioCompilerVersionName() + "/";
             PublicLibraryPaths.Add(VHACDLibPath);
-            PublicAdditionalLibraries.Add("VHACD.lib");
+
+            if (Target.Configuration == UnrealTargetConfiguration.Debug && BuildConfiguration.bDebugBuildsActuallyUseDebugCRT)
+            {
+                PublicAdditionalLibraries.Add("VHACDd.lib");
+            }
+            else
+            {
+                PublicAdditionalLibraries.Add("VHACD.lib");
+            }
 		}
         else if (Target.Platform == UnrealTargetPlatform.Mac)
 		{
@@ -29,6 +37,17 @@ public class VHACD : ModuleRules
 				PublicAdditionalLibraries.Add(LibPath + "libVHACD_LIB.a");
 			}
 			PublicFrameworks.AddRange(new string[] { "OpenCL" });
+		}
+		else if (Target.Platform == UnrealTargetPlatform.Linux)
+		{
+			if (Target.IsMonolithic)
+			{
+				PublicAdditionalLibraries.Add(VHACDDirectory + "Lib/Linux/" + Target.Architecture + "/libVHACD.a");
+			}
+			else
+			{
+				PublicAdditionalLibraries.Add(VHACDDirectory + "Lib/Linux/" + Target.Architecture + "/libVHACD_fPIC.a");
+			}
 		}
 	}
 }
