@@ -8,6 +8,7 @@
 
 UEnvQueryGenerator_PathingGrid::UEnvQueryGenerator_PathingGrid(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
 {
+	ProjectionData.SetNavmeshOnly();
 	GridSize.DefaultValue = 1000.0f;
 	SpaceBetween.DefaultValue = 100.0f;
 	PathToItem.DefaultValue = true;
@@ -37,7 +38,7 @@ void UEnvQueryGenerator_PathingGrid::ProjectAndFilterNavPoints(TArray<FNavLocati
 	bool bPathToItem = PathToItem.GetValue();
 	float RangeMultiplierValue = ScanRangeMultiplier.GetValue();
 
-	ARecastNavMesh* NavMeshData = (ARecastNavMesh*)FEQSHelpers::FindNavMeshForQuery(QueryInstance);
+	ARecastNavMesh* NavMeshData = const_cast<ARecastNavMesh*>(static_cast<const ARecastNavMesh*>(FEQSHelpers::FindNavigationDataForQuery(QueryInstance)));
 	if (!NavMeshData)
 	{
 		return;
@@ -47,12 +48,15 @@ void UEnvQueryGenerator_PathingGrid::ProjectAndFilterNavPoints(TArray<FNavLocati
 	QueryInstance.PrepareContext(GenerateAround, ContextLocations);
 
 	TSharedPtr<FNavigationQueryFilter> NavigationFilterOb = (NavigationFilter != nullptr)
-		? UNavigationQueryFilter::GetQueryFilter(NavMeshData, NavigationFilter)->GetCopy()
+		? UNavigationQueryFilter::GetQueryFilter(*NavMeshData, NavigationFilter)->GetCopy()
 		: NavMeshData->GetDefaultQueryFilter()->GetCopy();
 	NavigationFilterOb->SetBacktrackingEnabled(!bPathToItem);
 	
 	{
 		TArray<NavNodeRef> Polys;
+		TArray<FNavLocation> HitLocations;
+		const FVector ProjectionExtent(ProjectionData.ExtentX, ProjectionData.ExtentX, (ProjectionData.ProjectDown + ProjectionData.ProjectUp) / 2);
+
 		for (int32 ContextIdx = 0; ContextIdx < ContextLocations.Num() && Points.Num(); ContextIdx++)
 		{
 			float CollectDistanceSq = 0.0f;
@@ -73,7 +77,27 @@ void UEnvQueryGenerator_PathingGrid::ProjectAndFilterNavPoints(TArray<FNavLocati
 
 			for (int32 Idx = Points.Num() - 1; Idx >= 0; Idx--)
 			{
-				const bool bHasPath = PathGridHelpers::HasPath(NodePoolData, Points[Idx].NodeRef);
+				bool bHasPath = PathGridHelpers::HasPath(NodePoolData, Points[Idx].NodeRef);
+				if (!bHasPath && Points[Idx].NodeRef != INVALID_NAVNODEREF)
+				{
+					// try projecting it again, maybe it will match valid poly on different height
+					HitLocations.Reset();
+					FVector TestPt(Points[Idx].Location.X, Points[Idx].Location.Y, ContextLocations[ContextIdx].Z);
+
+					NavMeshData->ProjectPointMulti(TestPt, HitLocations, ProjectionExtent, TestPt.Z - ProjectionData.ProjectDown, TestPt.Z + ProjectionData.ProjectUp, NavigationFilterOb, nullptr);
+					for (int32 HitIdx = 0; HitIdx < HitLocations.Num(); HitIdx++)
+					{
+						const bool bHasPathTest = PathGridHelpers::HasPath(NodePoolData, HitLocations[HitIdx].NodeRef);
+						if (bHasPathTest)
+						{
+							Points[Idx] = HitLocations[HitIdx];
+							Points[Idx].Location.Z += ProjectionData.PostProjectionVerticalOffset;
+							bHasPath = true;
+							break;
+						}
+					}
+				}
+
 				if (!bHasPath)
 				{
 					Points.RemoveAt(Idx);

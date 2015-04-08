@@ -5,22 +5,6 @@
 #include "AssetEditorSelectedItem.h"
 
 //////////////////////////////////////////////////////////////////////////
-// HSpriteSelectableObjectHitProxy
-
-struct HSpriteSelectableObjectHitProxy : public HHitProxy
-{
-	DECLARE_HIT_PROXY(PAPER2DEDITOR_API);
-
-	TSharedPtr<FSelectedItem> Data;
-
-	HSpriteSelectableObjectHitProxy(TSharedPtr<FSelectedItem> InData)
-		: HHitProxy(HPP_UI)
-		, Data(InData)
-	{
-	}
-};
-
-//////////////////////////////////////////////////////////////////////////
 // FSpriteSelectedSocket
 
 class FSpriteSelectedSocket : public FSelectedItem
@@ -38,7 +22,6 @@ public:
 	virtual bool Equals(const FSelectedItem& OtherItem) const override;
 	virtual void ApplyDelta(const FVector2D& Delta, const FRotator& Rotation, const FVector& Scale3D, FWidget::EWidgetMode MoveMode) override;
 	FVector GetWorldPos() const override;
-	virtual void SplitEdge() override;
 	// End of FSelectedItem interface
 };
 

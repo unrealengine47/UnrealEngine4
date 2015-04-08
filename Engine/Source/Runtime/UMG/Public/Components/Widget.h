@@ -5,6 +5,7 @@
 #include "SlateWrapperTypes.h"
 #include "WidgetTransform.h"
 #include "DynamicPropertyPath.h"
+#include "UObject/UObjectThreadContext.h"
 
 #include "Widget.generated.h"
 
@@ -352,7 +353,7 @@ public:
 	virtual void SetIsDesignTime(bool bInDesignTime);
 
 	/** Mark this object as modified, also mark the slot as modified. */
-	virtual bool Modify(bool bAlwaysMarkDirty = true);
+	virtual bool Modify(bool bAlwaysMarkDirty = true) override;
 
 	/**
 	 * Recurses up the list of parents and returns true if this widget is a descendant of the PossibleParent
@@ -373,7 +374,7 @@ public:
 #if WITH_EDITOR
 	FORCEINLINE bool CanSafelyRouteEvent()
 	{
-		return !( IsDesignTime() || GIsRoutingPostLoad || GIntraFrameDebuggingGameThread || HasAnyFlags(RF_Unreachable) );
+		return !(IsDesignTime() || GIntraFrameDebuggingGameThread || HasAnyFlags(RF_Unreachable) || FUObjectThreadContext::Get().IsRoutingPostLoad);
 	}
 #else
 	FORCEINLINE bool CanSafelyRouteEvent() { return true; }

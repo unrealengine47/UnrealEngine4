@@ -39,14 +39,12 @@ public:
 	TSharedPtr<FUICommandInfo> EnterSourceRegionEditMode;
 	TSharedPtr<FUICommandInfo> EnterCollisionEditMode;
 	TSharedPtr<FUICommandInfo> EnterRenderingEditMode;
-	TSharedPtr<FUICommandInfo> EnterAddSpriteMode;
-
-	// Misc. actions
-	TSharedPtr<FUICommandInfo> FocusOnSprite;
 
 	// Geometry editing commands
 	TSharedPtr<FUICommandInfo> DeleteSelection;
 	TSharedPtr<FUICommandInfo> SplitEdge;
+	TSharedPtr<FUICommandInfo> AddBoxShape;
+	TSharedPtr<FUICommandInfo> AddCircleShape;
 	TSharedPtr<FUICommandInfo> ToggleAddPolygonMode;
 	TSharedPtr<FUICommandInfo> SnapAllVertices;
 };

@@ -523,6 +523,11 @@ DEF_ASPERCENT(float)
 #undef DEF_ASPERCENT
 #undef DEF_ASPERCENT_CAST
 
+FString FText::GetInvariantTimeZone()
+{
+	return TEXT("Etc/Unknown");
+}
+
 bool FText::FindText( const FString& Namespace, const FString& Key, FText& OutText, const FString* const SourceString )
 {
 	TSharedPtr< FString, ESPMode::ThreadSafe > FoundString = FTextLocalizationManager::Get().FindString( Namespace, Key );
@@ -807,6 +812,11 @@ bool FText::IdenticalTo( const FText& Other ) const
 	// If both instances point to the same string, then both instances are considered identical
 	// This is fast as it skips a lexical compare, however it can also return true for two instances that have identical strings, but in different pointers
 	return DisplayString == Other.DisplayString;
+}
+
+void FText::GetSourceTextsFromFormatHistory(TArray<FText>& OutSourceTexts) const
+{
+	History->GetSourceTextsFromFormatHistory(*(this), OutSourceTexts);
 }
 
 FTextSnapshot::FTextSnapshot()

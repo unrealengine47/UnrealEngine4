@@ -21,7 +21,7 @@ public:
 
 	// FViewportClient interface
 	virtual void Draw(FViewport* Viewport, FCanvas* Canvas) override;
-	virtual void Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI);
+	virtual void Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI) override;
 	virtual void DrawCanvas(FViewport& InViewport, FSceneView& View, FCanvas& Canvas) override;
 	virtual void Tick(float DeltaSeconds) override;
 	// End of FViewportClient interface
@@ -42,6 +42,11 @@ public:
 		return AnimatedRenderComponent.Get();
 	}
 
+protected:
+	// FPaperEditorViewportClient interface
+	virtual FBox GetDesiredFocusBounds() const override;
+	// End of FPaperEditorViewportClient interface
+
 private:
 
 	// The preview scene
@@ -61,7 +66,4 @@ private:
 
 	// Should we show sockets?
 	bool bShowSockets;
-
-	// Should we zoom to the sprite next tick?
-	bool bDeferZoomToSprite;
 };

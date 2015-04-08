@@ -59,6 +59,7 @@ public:
 	virtual TSharedRef<FEditorViewportClient> MakeEditorViewportClient() override;
 	virtual TSharedPtr<SWidget> MakeViewportToolbar() override;
 	virtual EVisibility GetTransformToolbarVisibility() const override;
+	virtual void OnFocusViewportToSelection() override;
 	// End of SEditorViewport interface
 
 	// ICommonEditorViewportToolbarInfoProvider interface
@@ -80,7 +81,7 @@ private:
 
 private:
 	// Returns true if the viewport is visible
-	bool IsVisible() const;
+	bool IsVisible() const override;
 };
 
 void SFlipbookEditorViewport::Construct(const FArguments& InArgs)
@@ -150,8 +151,12 @@ TSharedPtr<SWidget> SFlipbookEditorViewport::MakeViewportToolbar()
 
 EVisibility SFlipbookEditorViewport::GetTransformToolbarVisibility() const
 {
-	// Nothing to transform in the flipbook editor, yet...
-	return EVisibility::Hidden;
+	return EVisibility::Visible;
+}
+
+void SFlipbookEditorViewport::OnFocusViewportToSelection()
+{
+	EditorViewportClient->RequestFocusOnSelection(/*bInstant=*/ false);
 }
 
 TSharedRef<class SEditorViewport> SFlipbookEditorViewport::GetViewportWidget()

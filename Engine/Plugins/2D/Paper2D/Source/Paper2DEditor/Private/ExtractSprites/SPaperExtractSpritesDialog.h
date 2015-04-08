@@ -22,6 +22,8 @@ public:
 	// Constructs this widget with InArgs
 	void Construct(const FArguments& InArgs, UTexture2D* Texture);
 
+	virtual ~SPaperExtractSpritesDialog();
+
 	// Show the dialog, returns true if successfully extracted sprites
 	static bool ShowWindow(const FText& TitleText, UTexture2D* SourceTexture);
 
@@ -40,13 +42,19 @@ private:
 	// Actually create extracted sprites
 	void CreateExtractedSprites();
 
+	// Sets the details panel appropriately for the currently selected panel
+	void SetDetailsViewForActiveMode();
+
 private:
 	// Source texture to extract from
 	UTexture2D* SourceTexture;
 
-	class UPaperExtractSpritesSettings* ExtractSpriteSettings;
 
-	TSharedPtr<class IDetailsView> PropertyView;
+	class UPaperExtractSpritesSettings* ExtractSpriteSettings;
+	class UPaperExtractSpriteGridSettings* ExtractSpriteGridSettings;
+
+	TSharedPtr<class IDetailsView> MainPropertyView;
+	TSharedPtr<class IDetailsView> DetailsPropertyView;
 	TArray<FPaperExtractedSprite> ExtractedSprites;
 };
 

@@ -272,6 +272,17 @@ AActor* UWorld::SpawnActor( UClass* Class, FVector const* Location, FRotator con
 		UE_LOG(LogSpawn, Warning, TEXT("SpawnActor failed because we are in the process of tearing down the world"));
 		return NULL;
 	}
+	else if (Location && Location->ContainsNaN())
+	{
+		UE_LOG(LogSpawn, Warning, TEXT("SpawnActor failed because the given location (%s) is invalid"), *Location->ToString());
+		return NULL;
+	}
+	else if (Rotation && Rotation->ContainsNaN())
+	{
+		UE_LOG(LogSpawn, Warning, TEXT("SpawnActor failed because the given rotation (%s) is invalid"), *Rotation->ToString());
+		return NULL;
+		
+	}
 
 	AActor* Template = SpawnParameters.Template;
 	// Use class's default actor as a template.
@@ -745,7 +756,7 @@ void UWorld::LoadSecondaryLevels(bool bForce, TSet<FString>* CookedPackages)
 	// Only load secondary levels in the Editor, and not for commandlets.
 	if( (!IsRunningCommandlet() || bForce)
 	// Don't do any work for world info actors that are part of secondary levels being streamed in! 
-	&&	!GIsAsyncLoading )
+	&& !IsAsyncLoading())
 	{
 		for( int32 LevelIndex=0; LevelIndex<StreamingLevels.Num(); LevelIndex++ )
 		{

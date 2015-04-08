@@ -350,7 +350,7 @@ public:
 
 	virtual void Tick(float DeltaSeconds);	
 
-	UWorld* GetWorld() const { return GetOuterUWorld(); }
+	UWorld* GetWorld() const override { return GetOuterUWorld(); }
 
 	UCrowdManager* GetCrowdManager() const { return CrowdManager.Get(); }
 
@@ -454,6 +454,7 @@ public:
 	ANavigationData* GetMainNavData(FNavigationSystem::ECreateIfEmpty CreateNewIfNoneFound);
 	/** Returns the world nav mesh object.  Creates one if it doesn't exist. */
 	const ANavigationData* GetMainNavData() const { return MainNavData; }
+	const ANavigationData& GetMainNavDataChecked() const { check(MainNavData); return *MainNavData; }
 
 	ANavigationData* GetAbstractNavData() const { return AbstractNavData; }
 
@@ -769,6 +770,7 @@ protected:
 
 	// async queries
 	FCriticalSection NavDataRegistrationSection;
+	static FCriticalSection NavAreaRegistrationSection;
 	
 	uint32 bNavigationBuildingLocked:1;
 	uint32 bInitialBuildingLockActive:1;

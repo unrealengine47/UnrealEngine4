@@ -465,7 +465,7 @@ void GetShaderIncludes(const TCHAR* Filename, TArray<FString>& IncludeFilenames,
 const FSHAHash& GetShaderFileHash(const TCHAR* Filename)
 {
 	// Make sure we are only accessing GShaderHashCache from one thread
-	check(IsInGameThread());
+	//check(IsInGameThread() || IsAsyncLoading());
 	STAT(double HashTime = 0);
 	{
 		SCOPE_SECONDS_COUNTER(HashTime);
@@ -500,9 +500,9 @@ const FSHAHash& GetShaderFileHash(const TCHAR* Filename)
 		// Update the hash cache
 		FSHAHash& NewHash = GShaderHashCache.Add(*FString(Filename), FSHAHash());
 		HashState.GetHash(&NewHash.Hash[0]);
+		INC_FLOAT_STAT_BY(STAT_ShaderCompiling_HashingShaderFiles, (float)HashTime);
 		return NewHash;
 	}
-	INC_FLOAT_STAT_BY(STAT_ShaderCompiling_HashingShaderFiles,(float)HashTime);
 }
 
 void BuildShaderFileToUniformBufferMap(TMap<FString, TArray<const TCHAR*> >& ShaderFileToUniformBufferVariables)

@@ -225,6 +225,7 @@ void FNavigationLockContext::UnlockUpdates()
 bool UNavigationSystem::bNavigationAutoUpdateEnabled = true;
 TArray<const UClass*> UNavigationSystem::NavAreaClasses;
 TArray<UClass*> UNavigationSystem::PendingNavAreaRegistration;
+FCriticalSection UNavigationSystem::NavAreaRegistrationSection;
 TSubclassOf<UNavArea> UNavigationSystem::DefaultWalkableArea = NULL;
 TSubclassOf<UNavArea> UNavigationSystem::DefaultObstacleArea = NULL;
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
@@ -794,9 +795,12 @@ void UNavigationSystem::AddReferencedObjects(UObject* InThis, FReferenceCollecto
 		}
 	}
 
-	for (int32 PendingAreaIndex = 0; PendingAreaIndex < PendingNavAreaRegistration.Num(); PendingAreaIndex++)
 	{
-		Collector.AddReferencedObject(PendingNavAreaRegistration[PendingAreaIndex], InThis);
+		FScopeLock AccessLock(&NavAreaRegistrationSection);
+		for (int32 PendingAreaIndex = 0; PendingAreaIndex < PendingNavAreaRegistration.Num(); PendingAreaIndex++)
+		{
+			Collector.AddReferencedObject(PendingNavAreaRegistration[PendingAreaIndex], InThis);
+		}
 	}
 	
 	UNavigationSystem* This = CastChecked<UNavigationSystem>(InThis);
@@ -1124,18 +1128,21 @@ void UNavigationSystem::SimpleMoveToActor(AController* Controller, const AActor*
 	else
 	{
 		const ANavigationData* NavData = NavSys->GetNavDataForProps(Controller->GetNavAgentPropertiesRef());
-		FPathFindingQuery Query(Controller, NavData, Controller->GetNavAgentLocation(), Goal->GetActorLocation());
-		FPathFindingResult Result = NavSys->FindPathSync(Query);
-		if (Result.IsSuccessful())
+		if (NavData)
 		{
-			Result.Path->SetGoalActorObservation(*Goal, 100.0f);
+			FPathFindingQuery Query(Controller, *NavData, Controller->GetNavAgentLocation(), Goal->GetActorLocation());
+			FPathFindingResult Result = NavSys->FindPathSync(Query);
+			if (Result.IsSuccessful())
+			{
+				Result.Path->SetGoalActorObservation(*Goal, 100.0f);
 
-			PFollowComp->RequestMove(Result.Path, Goal);
-		}
-		else if (PFollowComp->GetStatus() != EPathFollowingStatus::Idle)
-		{
-			PFollowComp->AbortMove(TEXT("Aborting move due to new move request failing to generate a path"), FAIRequestID::AnyRequest);
-			PFollowComp->SetLastMoveAtGoal(false);
+				PFollowComp->RequestMove(Result.Path, Goal);
+			}
+			else if (PFollowComp->GetStatus() != EPathFollowingStatus::Idle)
+			{
+				PFollowComp->AbortMove(TEXT("Aborting move due to new move request failing to generate a path"), FAIRequestID::AnyRequest);
+				PFollowComp->SetLastMoveAtGoal(false);
+			}
 		}
 	}
 }
@@ -1180,16 +1187,19 @@ void UNavigationSystem::SimpleMoveToLocation(AController* Controller, const FVec
 	else
 	{
 		const ANavigationData* NavData = NavSys->GetNavDataForProps(Controller->GetNavAgentPropertiesRef());
-		FPathFindingQuery Query(Controller, NavData, Controller->GetNavAgentLocation(), GoalLocation);
-		FPathFindingResult Result = NavSys->FindPathSync(Query);
-		if (Result.IsSuccessful())
+		if (NavData)
 		{
-			PFollowComp->RequestMove(Result.Path, NULL);
-		}
-		else if (PFollowComp->GetStatus() != EPathFollowingStatus::Idle)
-		{
-			PFollowComp->AbortMove(TEXT("Aborting move due to new move request failing to generate a path"), FAIRequestID::AnyRequest);
-			PFollowComp->SetLastMoveAtGoal(false);
+			FPathFindingQuery Query(Controller, *NavData, Controller->GetNavAgentLocation(), GoalLocation);
+			FPathFindingResult Result = NavSys->FindPathSync(Query);
+			if (Result.IsSuccessful())
+			{
+				PFollowComp->RequestMove(Result.Path, NULL);
+			}
+			else if (PFollowComp->GetStatus() != EPathFollowingStatus::Idle)
+			{
+				PFollowComp->AbortMove(TEXT("Aborting move due to new move request failing to generate a path"), FAIRequestID::AnyRequest);
+				PFollowComp->SetLastMoveAtGoal(false);
+			}
 		}
 	}
 }
@@ -1231,7 +1241,6 @@ UNavigationPath* UNavigationSystem::FindPathToLocationSynchronously(UObject* Wor
 		UNavigationSystem* NavSys = World->GetNavigationSystem();
 
 		ResultPath = NewObject<UNavigationPath>(NavSys);
-		FPathFindingQuery Query(PathfindingContext, NULL, PathStart, PathEnd);
 		bool bValidPathContext = false;
 		const ANavigationData* NavigationData = NULL;
 
@@ -1258,8 +1267,8 @@ UNavigationPath* UNavigationSystem::FindPathToLocationSynchronously(UObject* Wor
 		}
 
 		check(NavigationData);
-		Query.NavData = NavigationData;		
-		Query.QueryFilter = UNavigationQueryFilter::GetQueryFilter(NavigationData, FilterClass);
+		FPathFindingQuery Query(PathfindingContext, *NavigationData, PathStart, PathEnd);
+		Query.QueryFilter = UNavigationQueryFilter::GetQueryFilter(*NavigationData, FilterClass);
 
 		FPathFindingResult Result = NavSys->FindPathSync(Query, EPathFindingMode::Regular);
 		if (Result.IsSuccessful())
@@ -1307,7 +1316,7 @@ bool UNavigationSystem::NavigationRaycast(UObject* WorldContextObject, const FVe
 
 		if (NavData != NULL)
 		{
-			bRaycastBlocked = NavData->Raycast(RayStart, RayEnd, HitLocation, UNavigationQueryFilter::GetQueryFilter(NavData, FilterClass));
+			bRaycastBlocked = NavData->Raycast(RayStart, RayEnd, HitLocation, UNavigationQueryFilter::GetQueryFilter(*NavData, FilterClass));
 		}
 	}
 
@@ -1630,6 +1639,8 @@ void UNavigationSystem::ProcessRegistrationCandidates()
 
 void UNavigationSystem::ProcessNavAreaPendingRegistration()
 {
+	FScopeLock AccessLock(&NavAreaRegistrationSection);
+
 	TArray<UClass*> TempPending = PendingNavAreaRegistration;
 
 	// Clear out old array, will fill in if still pending
@@ -1775,10 +1786,10 @@ void UNavigationSystem::UpdateCustomLink(const INavLinkCustomInterface* CustomLi
 
 void UNavigationSystem::RequestAreaUnregistering(UClass* NavAreaClass)
 {
-	check(IsInGameThread());
-
 	if (NavAreaClasses.Contains(NavAreaClass))
 	{
+		FScopeLock AccessLock(&NavAreaRegistrationSection);
+
 		// remove from known areas
 		NavAreaClasses.RemoveSingleSwap(NavAreaClass);
 		PendingNavAreaRegistration.RemoveSingleSwap(NavAreaClass);
@@ -1797,8 +1808,6 @@ void UNavigationSystem::RequestAreaUnregistering(UClass* NavAreaClass)
 
 void UNavigationSystem::RequestAreaRegistering(UClass* NavAreaClass)
 {
-	check(IsInGameThread());
-
 	// can't be null
 	if (NavAreaClass == NULL)
 	{
@@ -1828,6 +1837,7 @@ void UNavigationSystem::RequestAreaRegistering(UClass* NavAreaClass)
 		}
 	}
 
+	FScopeLock AccessLock(&NavAreaRegistrationSection);
 	PendingNavAreaRegistration.Add(NavAreaClass);
 }
 
@@ -1837,6 +1847,7 @@ void UNavigationSystem::RegisterNavAreaClass(UClass* AreaClass)
 	if (AreaClass->ClassGeneratedBy && AreaClass->ClassGeneratedBy->HasAnyFlags(RF_NeedLoad | RF_NeedPostLoad))
 	{
 		// Class isn't done loading, try again later
+		FScopeLock AccessLock(&NavAreaRegistrationSection);
 		PendingNavAreaRegistration.Add(AreaClass);
 		return;
 	}
@@ -3347,7 +3358,10 @@ FVector UNavigationSystem::ProjectPointToNavigation(UObject* WorldContextObject,
 	if (NavSys)
 	{
 		ANavigationData* UseNavData = NavData ? NavData : NavSys->GetMainNavData(FNavigationSystem::DontCreate);
-		NavSys->ProjectPointToNavigation(Point, ProjectedPoint, QueryExtent.IsNearlyZero() ? INVALID_NAVEXTENT : QueryExtent, UseNavData, UNavigationQueryFilter::GetQueryFilter(UseNavData, FilterClass));
+		if (UseNavData)
+		{
+			NavSys->ProjectPointToNavigation(Point, ProjectedPoint, QueryExtent.IsNearlyZero() ? INVALID_NAVEXTENT : QueryExtent, UseNavData, UNavigationQueryFilter::GetQueryFilter(*UseNavData, FilterClass));
+		}
 	}
 
 	return ProjectedPoint.Location;
@@ -3362,7 +3376,10 @@ FVector UNavigationSystem::GetRandomPoint(UObject* WorldContextObject, ANavigati
 	if (NavSys)
 	{
 		ANavigationData* UseNavData = NavData ? NavData : NavSys->GetMainNavData(FNavigationSystem::DontCreate);
-		NavSys->GetRandomPoint(RandomPoint, UseNavData, UNavigationQueryFilter::GetQueryFilter(UseNavData, FilterClass));
+		if (UseNavData)
+		{
+			NavSys->GetRandomPoint(RandomPoint, UseNavData, UNavigationQueryFilter::GetQueryFilter(*UseNavData, FilterClass));
+		}
 	}
 
 	return RandomPoint.Location;
@@ -3378,7 +3395,10 @@ FVector UNavigationSystem::GetRandomPointInRadius(UObject* WorldContextObject, c
 	if (NavSys)
 	{
 		ANavigationData* UseNavData = NavData ? NavData : NavSys->GetMainNavData(FNavigationSystem::DontCreate);
-		NavSys->GetRandomPointInRadius(Origin, Radius, RandomPoint, UseNavData, UNavigationQueryFilter::GetQueryFilter(UseNavData, FilterClass));
+		if (UseNavData)
+		{
+			NavSys->GetRandomPointInRadius(Origin, Radius, RandomPoint, UseNavData, UNavigationQueryFilter::GetQueryFilter(*UseNavData, FilterClass));
+		}
 	}
 
 	return RandomPoint.Location;
@@ -3391,7 +3411,10 @@ ENavigationQueryResult::Type UNavigationSystem::GetPathCost(UObject* WorldContex
 	if (NavSys)
 	{
 		ANavigationData* UseNavData = NavData ? NavData : NavSys->GetMainNavData(FNavigationSystem::DontCreate);
-		return NavSys->GetPathCost(PathStart, PathEnd, OutPathCost, UseNavData, UNavigationQueryFilter::GetQueryFilter(UseNavData, FilterClass));
+		if (UseNavData)
+		{
+			return NavSys->GetPathCost(PathStart, PathEnd, OutPathCost, UseNavData, UNavigationQueryFilter::GetQueryFilter(*UseNavData, FilterClass));
+		}
 	}
 
 	return ENavigationQueryResult::Error;
@@ -3406,7 +3429,10 @@ ENavigationQueryResult::Type UNavigationSystem::GetPathLength(UObject* WorldCont
 	if (NavSys)
 	{
 		ANavigationData* UseNavData = NavData ? NavData : NavSys->GetMainNavData(FNavigationSystem::DontCreate);
-		return NavSys->GetPathLength(PathStart, PathEnd, OutPathLength, UseNavData, UNavigationQueryFilter::GetQueryFilter(UseNavData, FilterClass));
+		if (UseNavData)
+		{
+			return NavSys->GetPathLength(PathStart, PathEnd, OutPathLength, UseNavData, UNavigationQueryFilter::GetQueryFilter(*UseNavData, FilterClass));
+		}
 	}
 
 	return ENavigationQueryResult::Error;

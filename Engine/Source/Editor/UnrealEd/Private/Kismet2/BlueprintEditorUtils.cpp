@@ -576,7 +576,7 @@ void FBlueprintEditorUtils::PreloadConstructionScript(UBlueprint* Blueprint)
 {
 	if ( Blueprint )
 	{
-		ULinkerLoad* TargetLinker = Blueprint->SimpleConstructionScript ? Blueprint->SimpleConstructionScript->GetLinker() : NULL;
+		FLinkerLoad* TargetLinker = Blueprint->SimpleConstructionScript ? Blueprint->SimpleConstructionScript->GetLinker() : NULL;
 		if (TargetLinker)
 		{
 			TargetLinker->Preload(Blueprint->SimpleConstructionScript);
@@ -607,7 +607,7 @@ void FBlueprintEditorUtils::PreloadConstructionScript(UBlueprint* Blueprint)
 	}
 }
 
-void FBlueprintEditorUtils::PatchNewCDOIntoLinker(UObject* CDO, ULinkerLoad* Linker, int32 ExportIndex, TArray<UObject*>& ObjLoaded)
+void FBlueprintEditorUtils::PatchNewCDOIntoLinker(UObject* CDO, FLinkerLoad* Linker, int32 ExportIndex, TArray<UObject*>& ObjLoaded)
 {
 	if( (CDO != NULL) && (Linker != NULL) && (ExportIndex != INDEX_NONE) )
 	{
@@ -907,7 +907,7 @@ struct FRegenerationHelper
 	/**
 	 * A helper function that loads (and regenerates) interface dependencies.
 	 * Accounts for circular dependencies by following how we handle parent 
-	 * classes in ULinkerLoad::RegenerateBlueprintClass() (that is, to complete 
+	 * classes in FLinkerLoad::RegenerateBlueprintClass() (that is, to complete 
 	 * the interface's compilation/regeneration before we utilize it for the
 	 * specified blueprint).
 	 * 
@@ -1290,7 +1290,7 @@ UClass* FBlueprintEditorUtils::RegenerateBlueprintClass(UBlueprint* Blueprint, U
 		Blueprint->GetBlueprintCDONames(GeneratedName, SkeletonName);
 		int32 OldSkelLinkerIdx = INDEX_NONE;
 		int32 OldGenLinkerIdx = INDEX_NONE;
-		ULinkerLoad* OldLinker = Blueprint->GetLinker();
+		auto OldLinker = Blueprint->GetLinker();
 		for( int32 i = 0; i < OldLinker->ExportMap.Num(); i++ )
 		{
 			FObjectExport& ThisExport = OldLinker->ExportMap[i];
@@ -1646,7 +1646,7 @@ void FBlueprintEditorUtils::PatchCDOSubobjectsIntoExport(UObject* PreviousCDO, U
 			UObject** NewComponentPtr = NewComponentsMap.Find(OldComponentName);
 			if (NewComponentPtr && *NewComponentPtr)
 			{
-				ULinkerLoad::PRIVATE_PatchNewObjectIntoExport(OldComponent, *NewComponentPtr);
+				FLinkerLoad::PRIVATE_PatchNewObjectIntoExport(OldComponent, *NewComponentPtr);
 			}
 		}
 		NewCDO->CheckDefaultSubobjects();
@@ -1892,6 +1892,33 @@ void FBlueprintEditorUtils::UpdateDelegatesInBlueprint(UBlueprint* Blueprint)
 // Blueprint has materially changed.  Recompile the skeleton, notify observers, and mark the package as dirty.
 void FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(UBlueprint* Blueprint)
 {
+	auto SkeletalRecompileChildren = [](TArray<UClass*> ChildrenOfClass)
+	{
+		for (auto SkelClass : ChildrenOfClass)
+		{
+			IKismetCompilerInterface& Compiler = FModuleManager::LoadModuleChecked<IKismetCompilerInterface>(KISMET_COMPILER_MODULENAME);
+
+			auto Blueprint = Cast<UBlueprint>(SkelClass->ClassGeneratedBy);
+			if (Blueprint
+				&& Blueprint->Status != BS_BeingCreated
+				&& !Blueprint->bBeingCompiled
+				&& !Blueprint->bIsRegeneratingOnLoad
+				&& Blueprint->bHasBeenRegenerated)
+			{
+				FCompilerResultsLog Results;
+				Results.bSilentMode = true;
+				Results.bLogInfoOnly = true;
+
+				FKismetCompilerOptions CompileOptions;
+				CompileOptions.CompileType = EKismetCompileType::SkeletonOnly;
+				Compiler.CompileBlueprint(Blueprint, CompileOptions, Results);
+			}
+		}
+	};
+
+	// The Blueprint has been structurally modified and this means that some node titles will need to be refreshed
+	GetDefault<UEdGraphSchema_K2>()->ForceVisualizationCacheClear();
+
 	Blueprint->bCachedDependenciesUpToDate = false;
 	if (Blueprint->Status != BS_BeingCreated && !Blueprint->bBeingCompiled)
 	{
@@ -1915,6 +1942,12 @@ void FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(UBlueprint* Blue
 			}
 		}
 
+		TArray<UClass*> ChildrenOfClass;
+		if (UClass* SkelClass = Blueprint->SkeletonGeneratedClass)
+		{
+			GetDerivedClasses(SkelClass, ChildrenOfClass);
+		}
+
 		{
 			// Invoke the compiler to update the skeleton class definition
 			IKismetCompilerInterface& Compiler = FModuleManager::LoadModuleChecked<IKismetCompilerInterface>(KISMET_COMPILER_MODULENAME);
@@ -1925,6 +1958,8 @@ void FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(UBlueprint* Blue
 			Blueprint->Status = BS_Dirty;
 		}
 		UpdateDelegatesInBlueprint(Blueprint);
+
+		SkeletalRecompileChildren(ChildrenOfClass);
 
 		{
 			BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_NotifyBlueprintChanged);
@@ -3772,6 +3807,37 @@ void FBlueprintEditorUtils::BulkRemoveMemberVariables(UBlueprint* Blueprint, con
 	{
 		FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
 	}
+}
+
+FGuid FBlueprintEditorUtils::FindMemberVariableGuidByName(UBlueprint* InBlueprint, const FName InVariableName)
+{
+	while(InBlueprint)
+	{
+		const int32 VarIndex = FBlueprintEditorUtils::FindNewVariableIndex(InBlueprint, InVariableName);
+		if (VarIndex != INDEX_NONE)
+		{
+			return InBlueprint->NewVariables[VarIndex].VarGuid;
+		}
+		InBlueprint = Cast<UBlueprint>(InBlueprint->ParentClass->ClassGeneratedBy);
+	}
+	return FGuid(); 
+}
+
+FName FBlueprintEditorUtils::FindMemberVariableNameByGuid(UBlueprint* InBlueprint, const FGuid& InVariableGuid)
+{
+	while(InBlueprint)
+	{
+		for(FBPVariableDescription& Variable : InBlueprint->NewVariables)
+		{
+			if(Variable.VarGuid == InVariableGuid)
+			{
+				return Variable.VarName;
+			}
+		}
+
+		InBlueprint = Cast<UBlueprint>(InBlueprint->ParentClass->ClassGeneratedBy);
+	}
+	return NAME_None;
 }
 
 void FBlueprintEditorUtils::RemoveVariableNodes(UBlueprint* Blueprint, const FName& VarName, bool const bForSelfOnly, UEdGraph* LocalGraphScope)

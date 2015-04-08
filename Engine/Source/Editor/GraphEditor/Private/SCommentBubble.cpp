@@ -78,7 +78,10 @@ void SCommentBubble::Tick( const FGeometry& AllottedGeometry, const double InCur
 {
 	SCompoundWidget::Tick( AllottedGeometry, InCurrentTime, InDeltaTime );
 
-	const bool bTitleBarBubbleVisible = bEnableTitleBarBubble && IsGraphNodeHovered.IsBound();
+	// Check Editable and Hovered so we can prevent bubble toggling in read only graphs.
+	const bool bNodeEditable = !IsReadOnly();
+	const bool bEnableTitleHintBubble = bEnableTitleBarBubble && bNodeEditable;
+	const bool bTitleBarBubbleVisible = bEnableTitleHintBubble && IsGraphNodeHovered.IsBound();
 
 	if( bTitleBarBubbleVisible || IsBubbleVisible() )
 	{
@@ -217,8 +220,10 @@ void SCommentBubble::UpdateBubble()
 							SAssignNew(TextBlock, SMultiLineEditableTextBox)
 							.Text( this, &SCommentBubble::GetCommentText )
 							.HintText( NSLOCTEXT( "CommentBubble", "EditCommentHint", "Click to edit" ))
+							.IsReadOnly( this, &SCommentBubble::IsReadOnly )
 							.Font( FEditorStyle::GetFontStyle( TEXT("Graph.Node.CommentFont")))
 							.SelectAllTextWhenFocused( true )
+							.RevertTextOnEscape( true )
 							.ForegroundColor( this, &SCommentBubble::GetTextForegroundColor )
 							.BackgroundColor( this, &SCommentBubble::GetTextBackgroundColor )
 							.OnTextCommitted( this, &SCommentBubble::OnCommentTextCommitted )
@@ -315,10 +320,6 @@ bool SCommentBubble::IsScalingAllowed() const
 
 FText SCommentBubble::GetCommentText() const
 {
-	if( CommentAttribute.Get().IsEmpty() )
-	{
-		return HintText.Get();
-	}
 	return CachedCommentText;
 }
 
@@ -375,8 +376,7 @@ FSlateColor SCommentBubble::GetTextForegroundColor() const
 
 void SCommentBubble::OnCommentTextCommitted( const FText& NewText, ETextCommit::Type CommitInfo )
 {
-	const bool bValidText = !NewText.EqualTo( HintText.Get() );
-	if( GraphNode && bValidText )
+	if( GraphNode )
 	{
 		GraphNode->OnUpdateCommentText( NewText.ToString() );
 	}
@@ -419,4 +419,14 @@ void SCommentBubble::OnPinStateToggle( ECheckBoxState State ) const
 		GraphNode->Modify();
 		GraphNode->bCommentBubblePinned = State == ECheckBoxState::Checked;
 	}
+}
+
+bool SCommentBubble::IsReadOnly() const
+{
+	bool bReadOnly = true;
+	if( GraphNode && GraphNode->NodeWidget.IsValid() )
+	{
+		bReadOnly = !GraphNode->NodeWidget.Pin()->IsNodeEditable();
+	}
+	return bReadOnly;
 }

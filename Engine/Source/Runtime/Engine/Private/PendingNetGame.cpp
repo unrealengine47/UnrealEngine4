@@ -245,19 +245,30 @@ void UPendingNetGame::Tick( float DeltaTime )
 	check(NetDriver);
 	check(NetDriver->ServerConnection);
 
+	// The following line disables checks for nullptr access on NetDriver. We have checked() it's validity above,
+	// but the TickDispatch call below may invalidate the ptr, thus we must null check after calling TickDispatch.
+	// PVS-Studio notes that we have used the pointer before null checking (it currently does not understand check)
+	//-V:NetDriver<<:522
+
+	// Handle timed out or failed connection.
+	if (NetDriver->ServerConnection->State == USOCK_Closed && ConnectionError == TEXT(""))
+	{
+		ConnectionError = NSLOCTEXT("Engine", "ConnectionFailed", "Your connection to the host has been lost.").ToString();
+		return;
+	}
+
+	/**
+	 *   Update the network driver
+	 *   ****may NULL itself via CancelPending if a disconnect/error occurs****
+	 */
+	NetDriver->TickDispatch(DeltaTime);
 	if (NetDriver)
 	{
-		// Handle timed out or failed connection.
-		if (NetDriver->ServerConnection->State == USOCK_Closed && ConnectionError == TEXT(""))
-		{
-			ConnectionError = NSLOCTEXT("Engine", "ConnectionFailed", "Your connection to the host has been lost.").ToString();
-			return;
-		}
-
-		// Update network driver (may NULL itself via CancelPending if a disconnect/error occurs)
-		NetDriver->TickDispatch(DeltaTime);
 		NetDriver->TickFlush(DeltaTime);
-		NetDriver->PostTickFlush();
+		if (NetDriver)
+		{
+			NetDriver->PostTickFlush();
+		}
 	}
 }
 

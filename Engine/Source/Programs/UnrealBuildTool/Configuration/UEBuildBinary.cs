@@ -115,6 +115,12 @@ namespace UnrealBuildTool
 		/// </summary>
 		public bool bCompileMonolithic = false;
 
+        /// <summary>
+		/// If true, creates an additional console application. Hack for Windows, where it's not possible to conditionally inherit a parent's console Window depending on how
+		/// the application is invoked; you have to link the same executable with a different subsystem setting.
+		/// </summary>
+		public bool bBuildAdditionalConsoleApp = false;
+
 		/// <summary>
 		/// The build target configuration being compiled
 		/// </summary>
@@ -293,6 +299,67 @@ namespace UnrealBuildTool
 		/// <param name="ModuleName">The module to add</param>
 		public virtual void AddModule( string ModuleName )
 		{
+		}
+
+		/// <summary>
+		/// Creates a receipt for this binary.
+		/// </summary>
+		/// <param name="ToolChain">Toolchain for the target platform</param>
+		/// <param name="BuildPlatform">Platform that we're building for</param>
+		public virtual BuildReceipt MakeReceipt(IUEToolChain ToolChain)
+		{
+			BuildReceipt Receipt = new BuildReceipt();
+
+			// Get the type of build products we're creating
+			BuildProductType Type = BuildProductType.RequiredResource;
+			switch(Config.Type)
+			{
+				case UEBuildBinaryType.Executable:
+					Type = BuildProductType.Executable;
+					break;
+				case UEBuildBinaryType.DynamicLinkLibrary:
+					Type = BuildProductType.DynamicLibrary;
+					break;
+				case UEBuildBinaryType.StaticLibrary:
+					Type = BuildProductType.StaticLibrary;
+					break;
+			}
+
+			// Add the primary build products
+			string DebugExtension = UEBuildPlatform.GetBuildPlatform(Target.Platform).GetDebugInfoExtension(Config.Type);
+			foreach (string OutputFilePath in Config.OutputFilePaths)
+			{
+				AddBuildProductAndDebugFile(OutputFilePath, Type, DebugExtension, Receipt);
+			}
+
+			// Add the console app, if there is one
+			if (Config.Type == UEBuildBinaryType.Executable && Config.bBuildAdditionalConsoleApp)
+			{
+				foreach (string OutputFilePath in Config.OutputFilePaths)
+				{
+					AddBuildProductAndDebugFile(GetAdditionalConsoleAppPath(OutputFilePath), Type, DebugExtension, Receipt);
+				}
+			}
+
+			// Add any extra files from the toolchain
+			ToolChain.AddFilesToReceipt(Receipt, this);
+			return Receipt;
+		}
+
+		/// <summary>
+		/// Adds a build product and its associated debug file to a receipt.
+		/// </summary>
+		/// <param name="OutputFile">Build product to add</param>
+		/// <param name="DebugExtension">Extension for the matching debug file (may be null).</param>
+		/// <param name="Receipt">Receipt to add to</param>
+		static void AddBuildProductAndDebugFile(string OutputFile, BuildProductType OutputType, string DebugExtension, BuildReceipt Receipt)
+		{
+			Receipt.AddBuildProduct(OutputFile, OutputType);
+
+			if(!String.IsNullOrEmpty(DebugExtension))
+			{
+				Receipt.AddBuildProduct(Path.ChangeExtension(OutputFile, DebugExtension), BuildProductType.SymbolFile);
+			}
 		}
 
 		/// <summary>
@@ -622,6 +689,31 @@ namespace UnrealBuildTool
 			return GameModules;
 		}
 
+		/// <summary>
+		/// Overrides base class to add module runtime dependencies to the build receipt.
+		/// </summary>
+		/// <param name="ToolChain">The platform toolchain</param>
+		public override BuildReceipt MakeReceipt(IUEToolChain ToolChain)
+		{
+			BuildReceipt Receipt = base.MakeReceipt(ToolChain);
+			if(!Config.bAllowCompilation)
+			{
+				foreach(BuildProduct BuildProduct in Receipt.BuildProducts)
+				{
+					BuildProduct.IsPrecompiled = true;
+				}
+			}
+			foreach (string ModuleName in ModuleNames)
+			{
+				UEBuildModule Module = Target.GetModuleByName(ModuleName); 
+				foreach(RuntimeDependency RuntimeDependency in Module.RuntimeDependencies)
+				{
+					Receipt.RuntimeDependencies.Add(new RuntimeDependency(RuntimeDependency));
+				}
+			}
+			return Receipt;
+		}
+
 		// Object interface.
 
 		/// <summary>
@@ -768,7 +860,7 @@ namespace UnrealBuildTool
 			OutputFiles.AddRange(Executables);
 
 			// Produce additional console app if requested
-			if (BinaryLinkEnvironment.Config.CanProduceAdditionalConsoleApp && UEBuildConfiguration.bBuildEditor)
+			if (Config.bBuildAdditionalConsoleApp)
 			{
 				// Produce additional binary but link it as a console app
 				var ConsoleAppLinkEvironment = BinaryLinkEnvironment.DeepCopy();

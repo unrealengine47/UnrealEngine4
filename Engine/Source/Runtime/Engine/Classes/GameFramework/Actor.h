@@ -1032,47 +1032,74 @@ public:
 	 *	For events when objects have a blocking collision, for example a player hitting a wall, see 'Hit' events.
 	 *	@note Components on both this and the other Actor must have bGenerateOverlapEvents set to true to generate overlap events.
 	 */
+	virtual void NotifyActorBeginOverlap(AActor* OtherActor);
+	/** 
+	 *	Event when this actor overlaps another actor, for example a player walking into a trigger.
+	 *	For events when objects have a blocking collision, for example a player hitting a wall, see 'Hit' events.
+	 *	@note Components on both this and the other Actor must have bGenerateOverlapEvents set to true to generate overlap events.
+	 */
 	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName = "ActorBeginOverlap"), Category="Collision")
-	virtual void ReceiveActorBeginOverlap(AActor* OtherActor);
+	void ReceiveActorBeginOverlap(AActor* OtherActor);
 
 	/** 
 	 *	Event when an actor no longer overlaps another actor, and they have separated. 
 	 *	@note Components on both this and the other Actor must have bGenerateOverlapEvents set to true to generate overlap events.
 	 */
+	virtual void NotifyActorEndOverlap(AActor* OtherActor);
+	/** 
+	 *	Event when an actor no longer overlaps another actor, and they have separated. 
+	 *	@note Components on both this and the other Actor must have bGenerateOverlapEvents set to true to generate overlap events.
+	 */
 	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName = "ActorEndOverlap"), Category="Collision")
-	virtual void ReceiveActorEndOverlap(AActor* OtherActor);
+	void ReceiveActorEndOverlap(AActor* OtherActor);
 
 	/** Event when this actor has the mouse moved over it with the clickable interface. */
+	virtual void NotifyActorBeginCursorOver();
+	/** Event when this actor has the mouse moved over it with the clickable interface. */
 	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName = "ActorBeginCursorOver"), Category="Mouse Input")
-	virtual void ReceiveActorBeginCursorOver();
+	void ReceiveActorBeginCursorOver();
 
 	/** Event when this actor has the mouse moved off of it with the clickable interface. */
+	virtual void NotifyActorEndCursorOver();
+	/** Event when this actor has the mouse moved off of it with the clickable interface. */
 	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName = "ActorEndCursorOver"), Category="Mouse Input")
-	virtual void ReceiveActorEndCursorOver();
+	void ReceiveActorEndCursorOver();
 
 	/** Event when this actor is clicked by the mouse when using the clickable interface. */
+	virtual void NotifyActorOnClicked();
+	/** Event when this actor is clicked by the mouse when using the clickable interface. */
 	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName = "ActorOnClicked"), Category="Mouse Input")
-	virtual void ReceiveActorOnClicked();
+	void ReceiveActorOnClicked();
 
 	/** Event when this actor is under the mouse when left mouse button is released while using the clickable interface. */
+	virtual void NotifyActorOnReleased();
+	/** Event when this actor is under the mouse when left mouse button is released while using the clickable interface. */
 	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName = "ActorOnReleased"), Category="Mouse Input")
-	virtual void ReceiveActorOnReleased();
+	void ReceiveActorOnReleased();
 
 	/** Event when this actor is touched when click events are enabled. */
+	virtual void NotifyActorOnInputTouchBegin(const ETouchIndex::Type FingerIndex);
+	/** Event when this actor is touched when click events are enabled. */
 	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName = "BeginInputTouch"), Category="Touch Input")
-	virtual void ReceiveActorOnInputTouchBegin(const ETouchIndex::Type FingerIndex);
+	void ReceiveActorOnInputTouchBegin(const ETouchIndex::Type FingerIndex);
 
 	/** Event when this actor is under the finger when untouched when click events are enabled. */
+	virtual void NotifyActorOnInputTouchEnd(const ETouchIndex::Type FingerIndex);
+	/** Event when this actor is under the finger when untouched when click events are enabled. */
 	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName = "EndInputTouch"), Category="Touch Input")
-	virtual void ReceiveActorOnInputTouchEnd(const ETouchIndex::Type FingerIndex);
+	void ReceiveActorOnInputTouchEnd(const ETouchIndex::Type FingerIndex);
 
 	/** Event when this actor has a finger moved over it with the clickable interface. */
+	virtual void NotifyActorOnInputTouchEnter(const ETouchIndex::Type FingerIndex);
+	/** Event when this actor has a finger moved over it with the clickable interface. */
 	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName = "TouchEnter"), Category="Touch Input")
-	virtual void ReceiveActorOnInputTouchEnter(const ETouchIndex::Type FingerIndex);
+	void ReceiveActorOnInputTouchEnter(const ETouchIndex::Type FingerIndex);
 
 	/** Event when this actor has a finger moved off of it with the clickable interface. */
+	virtual void NotifyActorOnInputTouchLeave(const ETouchIndex::Type FingerIndex);
+	/** Event when this actor has a finger moved off of it with the clickable interface. */
 	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName = "TouchLeave"), Category="Touch Input")
-	virtual void ReceiveActorOnInputTouchLeave(const ETouchIndex::Type FingerIndex);
+	void ReceiveActorOnInputTouchLeave(const ETouchIndex::Type FingerIndex);
 
 	/** 
 	 * Returns list of actors this actor is overlapping (any component overlapping any component). Does not return itself.
@@ -1095,8 +1122,19 @@ public:
 	 * @note When receiving a hit from another object's movement (bSelfMoved is false), the directions of 'Hit.Normal' and 'Hit.ImpactNormal'
 	 * will be adjusted to indicate force from the other object against this object.
 	 */
+	virtual void NotifyHit(class UPrimitiveComponent* MyComp, AActor* Other, class UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit);
+	/** 
+	 * Event when this actor bumps into a blocking object, or blocks another actor that bumps into it.
+	 * This could happen due to things like Character movement, using Set Location with 'sweep' enabled, or physics simulation.
+	 * For events when objects overlap (e.g. walking into a trigger) see the 'Overlap' event.
+	 *
+	 * @note For collisions during physics simulation to generate hit events, 'Simulation Generates Hit Events' must be enabled.
+	 * @note When receiving a hit from another object's movement (bSelfMoved is false), the directions of 'Hit.Normal' and 'Hit.ImpactNormal'
+	 * will be adjusted to indicate force from the other object against this object.
+	 */
 	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName = "Hit"), Category="Collision")
-	virtual void ReceiveHit(class UPrimitiveComponent* MyComp, AActor* Other, class UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit);
+	void ReceiveHit(class UPrimitiveComponent* MyComp, AActor* Other, class UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit);
+
 
 	/** Set the lifespan of this actor. When it expires the object will be destroyed. If requested lifespan is 0, the timer is cleared and the actor will not be destroyed. */
 	UFUNCTION(BlueprintCallable, Category="Utilities", meta=(Keywords = "delete destroy"))
@@ -1462,19 +1500,22 @@ public:
 	/**
 	 * @param ViewPos		Position of the viewer
 	 * @param ViewDir		Vector direction of viewer
-	 * @param Viewer		PlayerController owned by the client for whom net priority is being determined
+	 * @param Viewer		"net object" owned by the client for whom net priority is being determined (typically player controller)
 	 * @param ViewTarget	The actor that is currently being viewed/controlled by Viewer, usually a pawn
 	 * @param InChannel		Channel on which this actor is being replicated.
 	 * @param Time			Time since actor was last replicated
-	 * @param bLowBandwidth True if low bandwith of viewer
+	 * @param bLowBandwidth True if low bandwidth of viewer
 	 * @return				Priority of this actor for replication
 	 */
-	virtual float GetNetPriority(const FVector& ViewPos, const FVector& ViewDir, class APlayerController* Viewer, AActor* ViewTarget, UActorChannel* InChannel, float Time, bool bLowBandwidth);
+	virtual float GetNetPriority(const FVector& ViewPos, const FVector& ViewDir, class AActor* Viewer, AActor* ViewTarget, UActorChannel* InChannel, float Time, bool bLowBandwidth);
 
 	DEPRECATED(4.8, "GetNetPriority now takes a ViewTarget, please override that version.")
 	virtual float GetNetPriority(const FVector& ViewPos, const FVector& ViewDir, class APlayerController* Viewer, UActorChannel* InChannel, float Time, bool bLowBandwidth);
 
 	/** Returns true if the actor should be dormant for a specific net connection. Only checked for DORM_DormantPartial */
+	virtual bool GetNetDormancy(const FVector& ViewPos, const FVector& ViewDir, class AActor* Viewer, AActor* ViewTarget, UActorChannel* InChannel, float Time, bool bLowBandwidth);
+
+	DEPRECATED(4.8, "GetNetDormancy changed from PlayerController parameter to Actor parameter, please override that version.")
 	virtual bool GetNetDormancy(const FVector& ViewPos, const FVector& ViewDir, class APlayerController* Viewer, AActor* ViewTarget, UActorChannel* InChannel, float Time, bool bLowBandwidth);
 
 	/** 
@@ -1648,12 +1689,15 @@ public:
 	// Actor relevancy determination
 
 	/** 
-	  * @param RealViewer - is the PlayerController associated with the client for which network relevancy is being checked
-	  * @param VieweTarget - is the Actor being used as the point of view for the PlayerController
+	  * @param RealViewer - is the "controlling net object" associated with the client for which network relevancy is being checked (typically player controller)
+	  * @param ViewTarget - is the Actor being used as the point of view for the RealViewer
 	  * @param SrcLocation - is the viewing location
 	  *
 	  * @return bool - true if this actor is network relevant to the client associated with RealViewer 
 	  */
+	virtual bool IsNetRelevantFor(const AActor* RealViewer, const AActor* ViewTarget, const FVector& SrcLocation) const;
+
+	DEPRECATED(4.8, "IsNetRelevantFor changed from PlayerController parameter to Actor parameter, please override that version.")
 	virtual bool IsNetRelevantFor(const APlayerController* RealViewer, const AActor* ViewTarget, const FVector& SrcLocation) const;
 
 	/**
@@ -1665,7 +1709,7 @@ public:
 	 *
 	 * @return bool - true if this actor should be considered the owner
 	 */
-	virtual bool IsRelevancyOwnerFor(AActor* ReplicatedActor, AActor* ActorOwner, AActor* ConnectionActor);
+	virtual bool IsRelevancyOwnerFor(const AActor* ReplicatedActor, const AActor* ActorOwner, const AActor* ConnectionActor) const;
 
 	/** Called after the actor is spawned in the world.  Responsible for setting up actor for play. */
 	void PostSpawnInitialize(FVector const& SpawnLocation, FRotator const& SpawnRotation, AActor* InOwner, APawn* InInstigator, bool bRemoteOwned, bool bNoFail, bool bDeferConstruction);
@@ -1701,6 +1745,9 @@ public:
 	/** Dispatches ReceiveHit virtual and OnComponentHit delegate */
 	void DispatchPhysicsCollisionHit(const struct FRigidBodyCollisionInfo& MyInfo, const struct FRigidBodyCollisionInfo& OtherInfo, const FCollisionImpactData& RigidCollisionData);
 	
+	/** @return the actor responsible for replication, if any.  Typically the player controller */
+	virtual const AActor* GetNetOwner() const;
+
 	/** @return the owning UPlayer (if any) of this actor. This will be a local player, a net connection, or NULL. */
 	virtual class UPlayer* GetNetOwningPlayer();
 
@@ -1708,7 +1755,7 @@ public:
 	 * Get the owning connection used for communicating between client/server 
 	 * @return NetConnection to the client or server for this actor
 	 */
-	virtual class UNetConnection* GetNetConnection();
+	virtual class UNetConnection* GetNetConnection() const;
 
 	/**
 	 * Gets the net mode for this actor, indicating whether it is a client or server (including standalone/not networked).

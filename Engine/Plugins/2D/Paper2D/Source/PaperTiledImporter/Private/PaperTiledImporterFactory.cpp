@@ -206,7 +206,7 @@ UObject* UPaperTiledImporterFactory::FactoryCreateText(UClass* InClass, UObject*
 		Result->TileHeight = GlobalInfo.TileHeight;
 		Result->SeparationPerTileX = 0.0f;
 		Result->SeparationPerTileY = 0.0f;
-		Result->SeparationPerLayer = -1.0f;
+		Result->SeparationPerLayer = 1.0f;
 		Result->ProjectionMode = GlobalInfo.GetOrientationType();
 		Result->PixelsPerUnrealUnit = GetDefault<UPaperRuntimeSettings>()->DefaultPixelsPerUnrealUnit;
 		Result->BackgroundColor = GlobalInfo.BackgroundColor;
@@ -238,7 +238,29 @@ UObject* UPaperTiledImporterFactory::FactoryCreateText(UClass* InClass, UObject*
 					bLoadedSuccessfully = false;
 				}
 
-				TileSetAsset->PostEditChange();
+				// Make the tile set allocate space for the per-tile data
+				FPropertyChangedEvent InteractiveRebuildTileSet(nullptr, EPropertyChangeType::Interactive);
+				TileSetAsset->PostEditChangeProperty(InteractiveRebuildTileSet);
+
+				// Copy across per-tile metadata
+				const int32 NumTilesCreated = TileSetAsset->GetTileCount();
+				for (const auto& KV : TileSetData.PerTileData)
+				{
+					const int32 TileIndex = KV.Key;
+					const FTiledTileInfo& SourceTileData = KV.Value;
+
+					if (FPaperTileMetadata* TargetTileData = TileSetAsset->GetMutableTileMetadata(TileIndex))
+					{
+						//@TODO: TileData.TerrainIndices
+						FTiledObject::AddToSpriteGeometryCollection(FVector2D::ZeroVector, SourceTileData.Objects, TargetTileData->CollisionData);
+					}
+				}
+				
+				// Update anyone who might be using the tile set (in case we're reimporting)
+				FPropertyChangedEvent FinalRebuildTileSet(nullptr, EPropertyChangeType::ValueSet);
+				TileSetAsset->PostEditChangeProperty(FinalRebuildTileSet);
+
+				// Save off that we created the asset
 				GlobalInfo.CreatedTileSetAssets.Add(TileSetAsset);
 			}
 			else
@@ -254,8 +276,10 @@ UObject* UPaperTiledImporterFactory::FactoryCreateText(UClass* InClass, UObject*
 		}
 
 		// Create the layers
-		for (const FTileLayerFromTiled& LayerData : GlobalInfo.Layers)
+		for (int32 LayerIndex = GlobalInfo.Layers.Num() - 1; LayerIndex >= 0; --LayerIndex)
 		{
+			const FTileLayerFromTiled& LayerData = GlobalInfo.Layers[LayerIndex];
+
 			if (LayerData.IsValid())
 			{
 				UPaperTileLayer* NewLayer = NewObject<UPaperTileLayer>(Result);
@@ -352,7 +376,7 @@ bool UPaperTiledImporterFactory::CanReimport(UObject* Obj, TArray<FString>& OutF
 		}
 		else
 		{
-			OutFilenames.Add(TEXT(""));
+			OutFilenames.Add(FString());
 		}
 		return true;
 	}
@@ -454,7 +478,7 @@ void UPaperTiledImporterFactory::ParseGlobalInfoFromJSON(TSharedPtr<FJsonObject>
 	ParseIntegerFields(OptionalIntFields, ARRAY_COUNT(OptionalIntFields), Tree, NameForErrors, /*bSilent=*/ true);
 
 	// Parse StaggerAxis if present
-	const FString StaggerAxisStr = FPaperJSONHelpers::ReadString(Tree, TEXT("staggeraxis"), TEXT(""));
+	const FString StaggerAxisStr = FPaperJSONHelpers::ReadString(Tree, TEXT("staggeraxis"), FString());
 	if (StaggerAxisStr == TEXT("x"))
 	{
 		OutParsedInfo.StaggerAxis = ETiledStaggerAxis::X;
@@ -470,7 +494,7 @@ void UPaperTiledImporterFactory::ParseGlobalInfoFromJSON(TSharedPtr<FJsonObject>
 	}
 
 	// Parse StaggerIndex if present
-	const FString StaggerIndexStr = FPaperJSONHelpers::ReadString(Tree, TEXT("staggerindex"), TEXT(""));
+	const FString StaggerIndexStr = FPaperJSONHelpers::ReadString(Tree, TEXT("staggerindex"), FString());
 	if (StaggerIndexStr == TEXT("even"))
 	{
 		OutParsedInfo.StaggerIndex = ETiledStaggerIndex::Even;
@@ -486,7 +510,7 @@ void UPaperTiledImporterFactory::ParseGlobalInfoFromJSON(TSharedPtr<FJsonObject>
 	}
 
 	// Parse RenderOrder if present
-	const FString RenderOrderStr = FPaperJSONHelpers::ReadString(Tree, TEXT("staggerindex"), TEXT(""));
+	const FString RenderOrderStr = FPaperJSONHelpers::ReadString(Tree, TEXT("staggerindex"), FString());
 	if (RenderOrderStr == TEXT("right-down"))
 	{
 		OutParsedInfo.RenderOrder = ETiledRenderOrder::RightDown;
@@ -510,14 +534,14 @@ void UPaperTiledImporterFactory::ParseGlobalInfoFromJSON(TSharedPtr<FJsonObject>
 	}
 
 	// Parse BackgroundColor if present
-	const FString ColorHexStr = FPaperJSONHelpers::ReadString(Tree, TEXT("backgroundcolor"), TEXT(""));
+	const FString ColorHexStr = FPaperJSONHelpers::ReadString(Tree, TEXT("backgroundcolor"), FString());
 	if (!ColorHexStr.IsEmpty())
 	{
 		OutParsedInfo.BackgroundColor = FColor::FromHex(ColorHexStr);
 	}
 
 	// Parse the orientation
-	const FString OrientationModeStr = FPaperJSONHelpers::ReadString(Tree, TEXT("orientation"), TEXT(""));
+	const FString OrientationModeStr = FPaperJSONHelpers::ReadString(Tree, TEXT("orientation"), FString());
 	if (OrientationModeStr == TEXT("orthogonal"))
 	{
 		OutParsedInfo.Orientation = ETiledOrientation::Orthogonal;
@@ -649,20 +673,24 @@ void FTileSetFromTiled::ParseTileSetFromJSON(TSharedPtr<FJsonObject> Tree, const
 	if (bSuccessfullyParsed)
 	{
 		FIntPoint TileOffsetTemp;
-		if (FPaperJSONHelpers::ReadIntPoint(Tree, TEXT("tileoffset"), /*out*/ TileOffsetTemp))
+
+		if (Tree->HasField(TEXT("tileoffset")))
 		{
-			TileOffsetX = TileOffsetTemp.X;
-			TileOffsetY = TileOffsetTemp.Y;
-		}
-		else
-		{
-			TILED_IMPORT_ERROR(TEXT("Failed to parse '%s'.  Invalid or missing value for '%s'"), *NameForErrors, TEXT("tileoffset"));
-			bSuccessfullyParsed = false;
+			if (FPaperJSONHelpers::ReadIntPoint(Tree, TEXT("tileoffset"), /*out*/ TileOffsetTemp))
+			{
+				TileOffsetX = TileOffsetTemp.X;
+				TileOffsetY = TileOffsetTemp.Y;
+			}
+			else
+			{
+				TILED_IMPORT_ERROR(TEXT("Failed to parse '%s'.  Invalid or missing value for '%s'"), *NameForErrors, TEXT("tileoffset"));
+				bSuccessfullyParsed = false;
+			}
 		}
 	}
 
 	// Parse the tile set name
-	Name = FPaperJSONHelpers::ReadString(Tree, TEXT("name"), TEXT(""));
+	Name = FPaperJSONHelpers::ReadString(Tree, TEXT("name"), FString());
 	if (Name.IsEmpty())
 	{
 		TILED_IMPORT_WARNING(TEXT("Expected a non-empty name for each tile set in '%s', generating a new name"), *NameForErrors);
@@ -670,7 +698,7 @@ void FTileSetFromTiled::ParseTileSetFromJSON(TSharedPtr<FJsonObject> Tree, const
 	}
 
 	// Parse the image path
-	ImagePath = FPaperJSONHelpers::ReadString(Tree, TEXT("image"), TEXT(""));
+	ImagePath = FPaperJSONHelpers::ReadString(Tree, TEXT("image"), FString());
 	if (ImagePath.IsEmpty())
 	{
 		TILED_IMPORT_ERROR(TEXT("Failed to parse '%s'.  Invalid value for '%s' ('%s' but expected a path to an image)"), *NameForErrors, TEXT("image"), *ImagePath);
@@ -678,7 +706,7 @@ void FTileSetFromTiled::ParseTileSetFromJSON(TSharedPtr<FJsonObject> Tree, const
 	}
 
 	// Parse the transparent color if present
-	const FString TransparentColorStr = FPaperJSONHelpers::ReadString(Tree, TEXT("transparentcolor"), TEXT(""));
+	const FString TransparentColorStr = FPaperJSONHelpers::ReadString(Tree, TEXT("transparentcolor"), FString());
 	if (!TransparentColorStr.IsEmpty())
 	{
 		bRemoveTransparentColor = true;
@@ -766,8 +794,8 @@ bool FTileLayerFromTiled::ParseFromJSON(TSharedPtr<FJsonObject> Tree, const FStr
 
 	// Parse all of the integer fields
 	FRequiredIntField IntFields[] = {
-		FRequiredIntField( Width, TEXT("width"), 1 ),
-		FRequiredIntField( Height, TEXT("height"), 1 ),
+		FRequiredIntField( Width, TEXT("width"), 0 ),
+		FRequiredIntField( Height, TEXT("height"), 0 ),
 		FRequiredIntField( OffsetX, TEXT("x"), 0 ),
 		FRequiredIntField( OffsetY, TEXT("y"), 0 )
 	};
@@ -791,9 +819,15 @@ bool FTileLayerFromTiled::ParseFromJSON(TSharedPtr<FJsonObject> Tree, const FStr
 	}
 
 	// Parse the layer type
-	const FString LayerTypeStr = FPaperJSONHelpers::ReadString(Tree, TEXT("type"), TEXT(""));
+	const FString LayerTypeStr = FPaperJSONHelpers::ReadString(Tree, TEXT("type"), FString());
 	if (LayerTypeStr == TEXT("tilelayer"))
 	{
+		if ((Width < 1) || (Height < 1))
+		{
+			TILED_IMPORT_ERROR(TEXT("Failed to parse '%s'.  Tile layers should be at least 1x1"), *NameForErrors);
+			bSuccessfullyParsed = false;
+		}
+
 		LayerType = ETiledLayerType::TileLayer;
 	}
 	else if (LayerTypeStr == TEXT("objectgroup"))
@@ -811,7 +845,7 @@ bool FTileLayerFromTiled::ParseFromJSON(TSharedPtr<FJsonObject> Tree, const FStr
 	}
 
 	// Parse the object draw order (if present)
-	const FString ObjectDrawOrderStr = FPaperJSONHelpers::ReadString(Tree, TEXT("draworder"), TEXT(""));
+	const FString ObjectDrawOrderStr = FPaperJSONHelpers::ReadString(Tree, TEXT("draworder"), FString());
 	if (ObjectDrawOrderStr == TEXT("index"))
 	{
 		ObjectDrawOrder = ETiledObjectLayerDrawOrder::Index;
@@ -874,7 +908,7 @@ bool FTileLayerFromTiled::ParseFromJSON(TSharedPtr<FJsonObject> Tree, const FStr
 	}
 	else if (LayerType == ETiledLayerType::ImageLayer)
 	{
-		OverlayImagePath = FPaperJSONHelpers::ReadString(Tree, TEXT("image"), TEXT(""));
+		OverlayImagePath = FPaperJSONHelpers::ReadString(Tree, TEXT("image"), FString());
 	}
 	else
 	{
@@ -1116,6 +1150,53 @@ bool FTiledObject::ParsePointArray(TArray<FVector2D>& OutPoints, const TArray<TS
 	}
 
 	return bSuccessfullyParsed;
+}
+
+void FTiledObject::AddToSpriteGeometryCollection(const FVector2D& Offset, const TArray<FTiledObject>& InObjects, FSpriteGeometryCollection& InOutShapes)
+{
+	for (const FTiledObject& SourceObject : InObjects)
+	{
+		const FVector2D SourcePos = Offset + FVector2D(SourceObject.X, SourceObject.Y);
+		const float SmallerWidthOrHeight = FMath::Min(SourceObject.Width, SourceObject.Height);
+
+		bool bCreatedShape = false;
+		switch (SourceObject.TiledObjectType)
+		{
+		case ETiledObjectType::Box:
+			InOutShapes.AddRectangleShape(SourcePos, FVector2D(SourceObject.Width, SourceObject.Height));
+			bCreatedShape = true;
+			break;
+		case ETiledObjectType::Ellipse:
+			InOutShapes.AddRectangleShape(SourcePos, FVector2D(SmallerWidthOrHeight, SmallerWidthOrHeight));
+			bCreatedShape = true;
+			break;
+		case ETiledObjectType::Polygon:
+			{
+				FSpriteGeometryShape NewShape;
+				NewShape.ShapeType = ESpriteShapeType::Polygon;
+				NewShape.BoxPosition = SourcePos;
+				NewShape.Vertices = SourceObject.Points;
+				InOutShapes.Shapes.Add(NewShape);
+				bCreatedShape = true;
+		}
+			break;
+		case ETiledObjectType::PlacedTile:
+			UE_LOG(LogPaperTiledImporter, Warning, TEXT("Ignoring Tiled Object of type PlacedTile"));
+			break;
+		case ETiledObjectType::Polyline:
+			UE_LOG(LogPaperTiledImporter, Warning, TEXT("Ignoring Tiled Object of type Polyline"));
+			break;
+		default:
+			ensureMsg(false, TEXT("Unknown enumerant in ETiledObjectType"));
+			break;
+		}
+
+		if (bCreatedShape)
+		{
+			const float RotationUnwound = FMath::Fmod(SourceObject.RotationDegrees, 360.0f);
+			InOutShapes.Shapes.Last().Rotation = RotationUnwound;
+		}
+	}
 }
 
 //////////////////////////////////////////////////////////////////////////

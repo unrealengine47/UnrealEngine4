@@ -336,21 +336,30 @@ void AActor::PreEditUndo()
 		}
 	}
 
+	// let navigation system know to not care about this actor anymore
+	UNavigationSystem::ClearNavOctreeAll(this);
+
 	Super::PreEditUndo();
 }
 
 void AActor::PostEditUndo()
 {
 	// Notify LevelBounds actor that level bounding box might be changed
-	if (!IsTemplate() && GetLevel()->LevelBoundsActor.IsValid())
+	if (!IsTemplate())
 	{
-		GetLevel()->LevelBoundsActor.Get()->OnLevelBoundsDirtied();
+		GetLevel()->MarkLevelBoundsDirty();
 	}
 
 	// Restore OwnedComponents array
 	if (!IsPendingKill())
 	{
 		ResetOwnedComponents();
+		// notify navigation system
+		UNavigationSystem::UpdateNavOctreeAll(this);
+	}
+	else
+	{
+		UNavigationSystem::ClearNavOctreeAll(this);
 	}
 
 	Super::PostEditUndo();
@@ -361,15 +370,21 @@ void AActor::PostEditUndo(TSharedPtr<ITransactionObjectAnnotation> TransactionAn
 	CurrentTransactionAnnotation = StaticCastSharedPtr<FActorTransactionAnnotation>(TransactionAnnotation);
 
 	// Notify LevelBounds actor that level bounding box might be changed
-	if (!IsTemplate() && GetLevel()->LevelBoundsActor.IsValid())
+	if (!IsTemplate())
 	{
-		GetLevel()->LevelBoundsActor.Get()->OnLevelBoundsDirtied();
+		GetLevel()->MarkLevelBoundsDirty();
 	}
 
 	// Restore OwnedComponents array
 	if (!IsPendingKill())
 	{
 		ResetOwnedComponents();
+		// notify navigation system
+		UNavigationSystem::UpdateNavOctreeAll(this);
+	}
+	else
+	{
+		UNavigationSystem::ClearNavOctreeAll(this);
 	}
 
 	Super::PostEditUndo(TransactionAnnotation);

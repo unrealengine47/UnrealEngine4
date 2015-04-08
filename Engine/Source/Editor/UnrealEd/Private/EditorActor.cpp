@@ -1869,7 +1869,7 @@ void UUnrealEdEngine::edactSelectMatchingStaticMesh( bool bAllClasses )
 			if ( FStaticMeshActor::GetStaticMeshInfoFromActor( Actor, ActorInfo ) )
 			{
 				bool bSelectActor = false;
-				if ( !bSelectActor && (bAllClasses || ActorInfo.IsStaticMeshActor()) )
+				if ( bAllClasses || ActorInfo.IsStaticMeshActor() )
 				{
 					for ( int32 i = 0 ; i < StaticMeshActors.Num() ; ++i )
 					{
@@ -2292,7 +2292,7 @@ void UUnrealEdEngine::edactAlignVertices()
 						FEdModeGeometry::TGeomObjectIterator GeomModeIt = GeomMode->GeomObjectItor();
 						for( ; GeomModeIt; ++GeomModeIt )
 						{
-							FGeomObject* Object = *GeomModeIt;
+							FGeomObjectPtr Object = *GeomModeIt;
 							if( Object->GetActualBrush() == Brush )
 							{
 								// We found our current brush, update the geometry object's data

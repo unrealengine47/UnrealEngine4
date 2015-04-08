@@ -983,6 +983,41 @@ bool FLevelEditorViewportClient::HasDropPreviewActors() const
 	return DropPreviewActors.Num() > 0;
 }
 
+/* Helper functions to find a dropped position on a 2D layer */
+
+static bool IsDroppingOn2DLayer()
+{
+	const ULevelEditor2DSettings* Settings2D = GetDefault<ULevelEditor2DSettings>();
+	return Settings2D->bEnableLayerSnap && Settings2D->SnapLayers.IsValidIndex(Settings2D->ActiveSnapLayerIndex);
+}
+
+static FActorPositionTraceResult TraceForPositionOn2DLayer(const FViewportCursorLocation& Cursor)
+{
+	const ULevelEditor2DSettings* Settings2D = GetDefault<ULevelEditor2DSettings>();
+	check(Settings2D->SnapLayers.IsValidIndex(Settings2D->ActiveSnapLayerIndex));
+
+	float Offset = Settings2D->SnapLayers[Settings2D->ActiveSnapLayerIndex].LayerOffset;
+	FVector PlaneCenter(0, Offset, 0);
+	FVector PlaneNormal(0, -1, 0);
+
+	FActorPositionTraceResult Result;
+	float Numerator = FVector::DotProduct(PlaneCenter - Cursor.GetOrigin(), PlaneNormal);
+	float Denominator = FVector::DotProduct(PlaneNormal, Cursor.GetDirection());
+	if (FMath::Abs(Denominator) < SMALL_NUMBER)
+	{
+		Result.State = FActorPositionTraceResult::Failed;
+	}
+	else
+	{
+		Result.State = FActorPositionTraceResult::HitSuccess;
+		Result.SurfaceNormal = PlaneNormal;
+		float D = Numerator / Denominator;
+		Result.Location = Cursor.GetOrigin() + D * Cursor.GetDirection();
+	}
+
+	return Result;
+}
+
 bool FLevelEditorViewportClient::UpdateDropPreviewActors(int32 MouseX, int32 MouseY, const TArray<UObject*>& DroppedObjects, bool& out_bDroppedObjectsVisible, UActorFactory* FactoryToUse)
 {
 	out_bDroppedObjectsVisible = false;
@@ -1036,7 +1071,7 @@ bool FLevelEditorViewportClient::UpdateDropPreviewActors(int32 MouseX, int32 Mou
 	FSceneView* View = CalcSceneView( &ViewFamily );
 	FViewportCursorLocation Cursor(View, this, MouseX, MouseY);
 
-	const FActorPositionTraceResult TraceResult = FActorPositioning::TraceWorldForPositionWithDefault(Cursor, *View, &DraggingActors);
+	const FActorPositionTraceResult TraceResult = IsDroppingOn2DLayer() ? TraceForPositionOn2DLayer(Cursor) : FActorPositioning::TraceWorldForPositionWithDefault(Cursor, *View, &DraggingActors);
 
 	GEditor->UnsnappedClickLocation = TraceResult.Location;
 	GEditor->ClickLocation = TraceResult.Location;
@@ -1187,7 +1222,7 @@ bool FLevelEditorViewportClient::DropObjectsAtCoordinates(int32 MouseX, int32 Mo
 
 		HHitProxy* HitProxy = Viewport->GetHitProxy(Cursor.GetCursorPos().X, Cursor.GetCursorPos().Y);
 
-		const FActorPositionTraceResult TraceResult = FActorPositioning::TraceWorldForPositionWithDefault(Cursor, *View);
+		const FActorPositionTraceResult TraceResult = IsDroppingOn2DLayer() ? TraceForPositionOn2DLayer(Cursor) : FActorPositioning::TraceWorldForPositionWithDefault(Cursor, *View);
 		
 		GEditor->UnsnappedClickLocation = TraceResult.Location;
 		GEditor->ClickLocation = TraceResult.Location;
@@ -1872,29 +1907,39 @@ void FLevelEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* HitPr
 		}
 		else if (HitProxy->IsA(HGeomPolyProxy::StaticGetType()))
 		{
-			FHitResult CheckResult(ForceInit);
-			FCollisionQueryParams BoxParams(ProcessClickTrace, false, ((HGeomPolyProxy*)HitProxy)->GeomObject->ActualBrush);
-			bool bHit = GWorld->SweepSingleByObjectType(CheckResult, Click.GetOrigin(), Click.GetOrigin() + Click.GetDirection() * HALF_WORLD_MAX, FQuat::Identity,FCollisionObjectQueryParams(ECC_WorldStatic), FCollisionShape::MakeBox(FVector(1.f)), BoxParams);
+			HGeomPolyProxy* GeomHitProxy = (HGeomPolyProxy*)HitProxy;
 
-			if( bHit )
+			if( GeomHitProxy->GetGeomObject() )
 			{
-				GEditor->UnsnappedClickLocation = CheckResult.Location;
-				GEditor->ClickLocation = CheckResult.Location;
-				GEditor->ClickPlane = FPlane(CheckResult.Location,CheckResult.Normal);
-			}
+				FHitResult CheckResult(ForceInit);
+				FCollisionQueryParams BoxParams(ProcessClickTrace, false, GeomHitProxy->GetGeomObject()->ActualBrush);
+				bool bHit = GWorld->SweepSingleByObjectType(CheckResult, Click.GetOrigin(), Click.GetOrigin() + Click.GetDirection() * HALF_WORLD_MAX, FQuat::Identity, FCollisionObjectQueryParams(ECC_WorldStatic), FCollisionShape::MakeBox(FVector(1.f)), BoxParams);
 
-			if( !ClickHandlers::ClickActor(this,((HGeomPolyProxy*)HitProxy)->GeomObject->ActualBrush,Click,false) )
-			{
-				ClickHandlers::ClickGeomPoly(this,(HGeomPolyProxy*)HitProxy,Click);
-			}
+				if(bHit)
+				{
+					GEditor->UnsnappedClickLocation = CheckResult.Location;
+					GEditor->ClickLocation = CheckResult.Location;
+					GEditor->ClickPlane = FPlane(CheckResult.Location, CheckResult.Normal);
+				}
 
-			Invalidate( true, true );
+				if(!ClickHandlers::ClickActor(this, GeomHitProxy->GetGeomObject()->ActualBrush, Click, false))
+				{
+					ClickHandlers::ClickGeomPoly(this, GeomHitProxy, Click);
+				}
+
+				Invalidate(true, true);
+			}
 		}
 		else if (HitProxy->IsA(HGeomEdgeProxy::StaticGetType()))
 		{
-			if( !ClickHandlers::ClickGeomEdge(this,(HGeomEdgeProxy*)HitProxy,Click) )
+			HGeomEdgeProxy* GeomHitProxy = (HGeomEdgeProxy*)HitProxy;
+
+			if( GeomHitProxy->GetGeomObject() !=nullptr )
 			{
-				ClickHandlers::ClickActor(this,((HGeomEdgeProxy*)HitProxy)->GeomObject->ActualBrush,Click,true);
+				if(!ClickHandlers::ClickGeomEdge(this, GeomHitProxy, Click))
+				{
+					ClickHandlers::ClickActor(this, GeomHitProxy->GetGeomObject()->ActualBrush, Click, true);
+				}
 			}
 		}
 		else if (HitProxy->IsA(HGeomVertexProxy::StaticGetType()))
@@ -2519,6 +2564,9 @@ void FLevelEditorViewportClient::TrackingStarted( const FInputEventState& InInpu
 				break;
 			case FWidget::WM_TranslateRotateZ:
 				TrackingDescription = FText::Format(LOCTEXT("TranslateRotateZTransaction", "Translate/RotateZ {0}"), ObjectTypeBeingTracked);
+				break;
+			case FWidget::WM_2D:
+				TrackingDescription = FText::Format(LOCTEXT("TranslateRotate2D", "Translate/Rotate2D {0}"), ObjectTypeBeingTracked);
 				break;
 			default:
 				if( bNudge )

@@ -21,7 +21,7 @@ public:
 
 	// FViewportClient interface
 	virtual void Draw(FViewport* Viewport, FCanvas* Canvas) override;
-	virtual void Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI);
+	virtual void Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI) override;
 	virtual void DrawCanvas(FViewport& InViewport, FSceneView& View, FCanvas& Canvas) override;
 	virtual void Tick(float DeltaSeconds) override;
 	// End of FViewportClient interface
@@ -72,19 +72,19 @@ private:
 	// Should we show the sprite pivot?
 	bool bShowPivot;
 
-	// Should we zoom to the tile map next tick?
-	bool bDeferZoomToTileMap;
+protected:
+	// FPaperEditorViewportClient interface
+	virtual FBox GetDesiredFocusBounds() const override;
+	// End of FPaperEditorViewportClient interface
+
 private:
 	UPaperTileMap* GetTileMapBeingEdited() const
 	{
 		return TileMapEditorPtr.Pin()->GetTileMapBeingEdited();
 	}
 
-	void DrawTriangleList(FViewport& InViewport, FSceneView& View, FCanvas& Canvas, const TArray<FVector2D>& Triangles);
 	void DrawBoundsAsText(FViewport& InViewport, FSceneView& View, FCanvas& Canvas, int32& YPos);
 	
 	void BeginTransaction(const FText& SessionName);
 	void EndTransaction();
-
-	void ClearSelectionSet();
 };

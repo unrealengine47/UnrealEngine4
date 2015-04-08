@@ -7,6 +7,12 @@
 #include "Components/ArrowComponent.h"
 #include "AutoReimport/AutoReimportUtilities.h"
 
+#include "SNotificationList.h"
+#include "NotificationManager.h"
+#include "ISettingsModule.h"
+
+#define LOCTEXT_NAMESPACE "SettingsClasses"
+
 /* UContentBrowserSettings interface
  *****************************************************************************/
 
@@ -94,10 +100,11 @@ void UEditorExperimentalSettings::PostEditChangeProperty( struct FPropertyChange
 
 UEditorLoadingSavingSettings::UEditorLoadingSavingSettings( const FObjectInitializer& ObjectInitializer )
 	: Super(ObjectInitializer)
+	, bEnableSourceControlCompatabilityCheck(true)
 	, bMonitorContentDirectories(false)
 	, bAutoCreateAssets(true)
 	, bAutoDeleteAssets(true)
-	, bDetectChangesOnRestart(false)
+	, bDetectChangesOnRestart(true)
 	, bDeleteSourceFilesWithAssets(false)
 {
 	TextDiffToolPath.FilePath = TEXT("P4Merge.exe");
@@ -137,13 +144,74 @@ void UEditorLoadingSavingSettings::PostEditChangeProperty( struct FPropertyChang
 
 void UEditorLoadingSavingSettings::PostInitProperties()
 {
-	for (const auto& String : AutoReimportDirectories_DEPRECATED)
+	if (AutoReimportDirectories_DEPRECATED.Num() != 0)
 	{
-		FAutoReimportDirectoryConfig Config;
-		Config.SourceDirectory = String;
-		AutoReimportDirectorySettings.Add(Config);
+		AutoReimportDirectorySettings.Empty();
+		for (const auto& String : AutoReimportDirectories_DEPRECATED)
+		{
+			FAutoReimportDirectoryConfig Config;
+			Config.SourceDirectory = String;
+			AutoReimportDirectorySettings.Add(Config);
+		}
+		AutoReimportDirectories_DEPRECATED.Empty();
 	}
 	Super::PostInitProperties();
+}
+
+void UEditorLoadingSavingSettings::CheckSourceControlCompatability()
+{
+	if (!bEnableSourceControlCompatabilityCheck || !bMonitorContentDirectories)
+	{
+		return;
+	}
+
+	if (ISourceControlModule::Get().IsEnabled() && bDetectChangesOnRestart)
+	{
+		// Persistent shared payload captured by the lambdas below
+		struct FPersistentPayload { TSharedPtr<SNotificationItem> Notification; };
+		TSharedRef<FPersistentPayload> Payload = MakeShareable(new FPersistentPayload);
+
+		FNotificationInfo Info(LOCTEXT("AutoReimport_NotificationTitle", "We noticed that your auto-reimport settings are set up to detect source content changes on restart.\nThis might cause unexpected behavior when starting up after getting latest from source control.\n\nWe recommend disabling this specific behavior."));
+
+ 		auto OnTurnOffClicked = [=]{
+			auto* Settings = GetMutableDefault<UEditorLoadingSavingSettings>();
+			Settings->bDetectChangesOnRestart = false;
+			Settings->SaveConfig();
+
+			Payload->Notification->SetEnabled(false);
+			Payload->Notification->Fadeout();
+		};
+		Info.ButtonDetails.Emplace(LOCTEXT("AutoReimport_TurnOff", "Don't detect changes on start-up"), FText(), FSimpleDelegate::CreateLambda(OnTurnOffClicked), SNotificationItem::ECompletionState::CS_None);
+
+ 		auto OnIgnoreClicked = [=]{
+
+			Payload->Notification->SetEnabled(false);
+ 			Payload->Notification->Fadeout();
+		};
+		Info.ButtonDetails.Emplace(LOCTEXT("AutoReimport_Ignore", "Ignore"), FText(), FSimpleDelegate::CreateLambda(OnIgnoreClicked), SNotificationItem::ECompletionState::CS_None);
+
+		Info.bUseLargeFont = false;
+		Info.bFireAndForget = false;
+
+		Info.CheckBoxStateChanged = FOnCheckStateChanged::CreateLambda([](ECheckBoxState State){
+			GetMutableDefault<UEditorLoadingSavingSettings>()->bEnableSourceControlCompatabilityCheck = (State != ECheckBoxState::Checked);
+		});
+		Info.CheckBoxText = LOCTEXT("AutoReimport_DontShowAgain", "Don't show again");
+
+		Info.Hyperlink = FSimpleDelegate::CreateLambda([]{
+			// Open Settings
+			ISettingsModule* SettingsModule = FModuleManager::GetModulePtr<ISettingsModule>("Settings");
+			if (SettingsModule != nullptr)
+			{
+				// Ensure that the advanced properties are visible
+				GConfig->SetBool(TEXT("DetailCategoriesAdvanced"), TEXT("EditorLoadingSavingSettings.AutoReimport"), true, GEditorUserSettingsIni);
+				SettingsModule->ShowViewer("Editor", "General", "LoadingSaving");
+			}
+		});
+		Info.HyperlinkText = LOCTEXT("AutoReimport_OpenSettings", "Settings");
+
+		Payload->Notification = FSlateNotificationManager::Get().AddNotification(Info);
+	}
 }
 
 FAutoReimportDirectoryConfig::FParseContext::FParseContext(bool bInEnableLogging)
@@ -274,6 +342,14 @@ ULevelEditorPlaySettings::ULevelEditorPlaySettings( const FObjectInitializer& Ob
 	PlayNetDedicated = false;
 	RunUnderOneProcess = true;
 	RouteGamepadToSecondWindow = false;
+}
+
+/* ULevelEditor2DSettings 
+*****************************************************************************/
+
+ULevelEditor2DSettings::ULevelEditor2DSettings(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
 }
 
 
@@ -436,3 +512,5 @@ bool UProjectPackagingSettings::CanEditChange( const UProperty* InProperty ) con
 
 	return Super::CanEditChange(InProperty);
 }
+
+#undef LOCTEXT_NAMESPACE

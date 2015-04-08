@@ -153,7 +153,9 @@ FString UObjectPropertyBase::GetExportPath(const UObject* Object, const UObject*
 	// Take the path name relative to the stopping point outermost ptr.
 	// This is so that cases like a component referencing a component in another actor work correctly when pasted
 	FString PathName = Object->GetPathName(StopOuter);
-	if ( (PortFlags & PPF_Delimited) && (!Object->GetFName().IsValidXName(INVALID_OBJECTNAME_CHARACTERS)) )
+	int32 ResultIdx = 0;
+	// Object names that contain invalid characters and paths that contain spaces must be put into quotes to be handled correctly
+	if ( (PortFlags & PPF_Delimited) && (!Object->GetFName().IsValidXName(INVALID_OBJECTNAME_CHARACTERS) || PathName.FindChar(' ', ResultIdx)) )
 	{
 		PathName = FString::Printf(TEXT("\"%s\""), *PathName.ReplaceQuotesWithEscapedQuotes());
 	}
@@ -430,7 +432,7 @@ void UObjectPropertyBase::CheckValidObject(void* Value) const
 		bool bIsReplacingClassRefs = PropertyClass && PropertyClass->HasAnyClassFlags(CLASS_NewerVersionExists) != ObjectClass->HasAnyClassFlags(CLASS_NewerVersionExists);
 		
 #if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
-		ULinkerLoad* PropertyLinker = GetLinker();
+		FLinkerLoad* PropertyLinker = GetLinker();
 		bool const bIsDeferringValueLoad = ((PropertyLinker == nullptr) || (PropertyLinker->LoadFlags & LOAD_DeferDependencyLoads)) &&
 			Object->IsA<ULinkerPlaceholderExportObject>();
 

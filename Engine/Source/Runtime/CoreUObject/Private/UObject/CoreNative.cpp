@@ -4,6 +4,11 @@
 #include "ModuleManager.h"
 #include "StringAssetReference.h"
 #include "StringClassReference.h"
+#include "Linker.h"
+
+void UClassRegisterAllCompiledInClasses();
+bool IsInAsyncLoadingThreadCoreUObjectInternal();
+bool IsAsyncLoadingCoreUObjectInternal();
 
 // CoreUObject module. Handles UObject system pre-init (registers init function with Core callbacks).
 class FCoreUObjectModule : public FDefaultModuleImpl
@@ -11,15 +16,18 @@ class FCoreUObjectModule : public FDefaultModuleImpl
 public:
 	virtual void StartupModule() override
 	{
-		// Register all classes that have been loaded so far. This is required for CVars to work.
-		void UClassRegisterAllCompiledInClasses();
+		// Register all classes that have been loaded so far. This is required for CVars to work.		
 		UClassRegisterAllCompiledInClasses();
 
 		void InitUObject();
 		FCoreDelegates::OnInit.AddStatic(InitUObject);
 
+		// Substitute Core version of async loading functions with CoreUObject ones.
+		IsInAsyncLoadingThread = &IsInAsyncLoadingThreadCoreUObjectInternal;
+		IsAsyncLoading = &IsAsyncLoadingCoreUObjectInternal;
+
 		// Make sure that additional content mount points can be registered after CoreUObject loads
-		FPackageName::EnsureContentPathsAreRegistered();
+		FPackageName::EnsureContentPathsAreRegistered();		
 	}
 };
 IMPLEMENT_MODULE( FCoreUObjectModule, CoreUObject );

@@ -19,10 +19,11 @@ void* FMacPlatformProcess::GetDllHandle( const TCHAR* Filename )
 
 	NSFileManager* FileManager = [NSFileManager defaultManager];
 	NSString* DylibPath = [NSString stringWithUTF8String:TCHAR_TO_UTF8(Filename)];
+	NSString* ExecutableFolder = [[[NSBundle mainBundle] executablePath] stringByDeletingLastPathComponent];
 	if (![FileManager fileExistsAtPath:DylibPath])
 	{
 		// If it's not a absolute or relative path, try to find the file in the app bundle
-		DylibPath = [[[[NSBundle mainBundle] executablePath] stringByDeletingLastPathComponent] stringByAppendingPathComponent:FString(Filename).GetNSString()];
+		DylibPath = [ExecutableFolder stringByAppendingPathComponent:FString(Filename).GetNSString()];
 	}
 
 	// Check if dylib is already loaded
@@ -30,7 +31,16 @@ void* FMacPlatformProcess::GetDllHandle( const TCHAR* Filename )
 	if (!Handle)
 	{
 		// Maybe it was loaded using RPATH
-		Handle = dlopen([[@"@rpath" stringByAppendingPathComponent:[DylibPath lastPathComponent]] fileSystemRepresentation], RTLD_NOLOAD | RTLD_LAZY | RTLD_LOCAL);
+		NSString* DylibName;
+		if ([DylibPath hasPrefix:ExecutableFolder])
+		{
+			DylibName = [DylibPath substringFromIndex:[ExecutableFolder length] + 1];
+		}
+		else
+		{
+			DylibName = [DylibPath lastPathComponent];
+		}
+		Handle = dlopen([[@"@rpath" stringByAppendingPathComponent:DylibName] fileSystemRepresentation], RTLD_NOLOAD | RTLD_LAZY | RTLD_LOCAL);
 	}
 	if (!Handle)
 	{
@@ -578,8 +588,7 @@ bool FMacPlatformProcess::GetProcReturnCode( FProcHandle& ProcessHandle, int32* 
 
 bool FMacPlatformProcess::IsApplicationRunning( const TCHAR* ProcName )
 {
-    CFStringRef ProcessName = FPlatformString::TCHARToCFString( ProcName );
-    check(ProcessName);
+	const FString ProcString = FPaths::GetBaseFilename(ProcName);
 	uint32 ThisProcessID = getpid();
 	bool bFound = false;
 	
@@ -595,7 +604,8 @@ bool FMacPlatformProcess::IsApplicationRunning( const TCHAR* ProcName )
 			for (uint32 Index = 0; Index < ProcCount; Index++)
 			{
 				proc_pidpath(Processes[Index].kp_proc.p_pid, Buffer, sizeof(Buffer));
-				if (Processes[Index].kp_proc.p_pid != ThisProcessID && [(NSString*)ProcessName isEqualToString: [[NSString stringWithUTF8String: Buffer] lastPathComponent]])
+				const FString TestProcString = FPaths::GetBaseFilename(Buffer);
+				if (Processes[Index].kp_proc.p_pid != ThisProcessID && TestProcString == ProcString)
 				{
 					bFound = true;
 				}
@@ -604,7 +614,6 @@ bool FMacPlatformProcess::IsApplicationRunning( const TCHAR* ProcName )
 		
 		FMemory::Free(Processes);
 	}
-    CFRelease(ProcessName);
     
 	return bFound;
 }

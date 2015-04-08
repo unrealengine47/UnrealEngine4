@@ -35,9 +35,6 @@ public:
 	
 	TSharedPtr<FUICommandInfo> SetShowPivot;
 
-	// Misc. actions
-	TSharedPtr<FUICommandInfo> FocusOnTileMap;
-
 	// Selection actions
 	TSharedPtr<FUICommandInfo> FlipSelectionHorizontally;
 	TSharedPtr<FUICommandInfo> FlipSelectionVertically;
@@ -52,4 +49,8 @@ public:
 	TSharedPtr<FUICommandInfo> MergeLayerDown;
 	TSharedPtr<FUICommandInfo> MoveLayerUp;
 	TSharedPtr<FUICommandInfo> MoveLayerDown;
+	TSharedPtr<FUICommandInfo> MoveLayerToTop;
+	TSharedPtr<FUICommandInfo> MoveLayerToBottom;
+	TSharedPtr<FUICommandInfo> SelectLayerAbove;
+	TSharedPtr<FUICommandInfo> SelectLayerBelow;
 };

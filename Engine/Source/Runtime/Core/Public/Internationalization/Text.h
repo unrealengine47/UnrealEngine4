@@ -184,6 +184,11 @@ public:
 	static FText AsTimespan(const FTimespan& Timespan, const FCulturePtr& TargetCulture = NULL);
 
 	/**
+	 * Gets the time zone string that represents a non-specific, zero offset, culture invariant time zone.
+	 */
+	static FString GetInvariantTimeZone();
+
+	/**
 	 * Generate an FText that represents the passed number as a memory size in the current culture
 	 */
 	static FText AsMemory(SIZE_T NumBytes, const FNumberFormattingOptions* const Options = NULL, const FCulturePtr& TargetCulture = NULL);
@@ -237,6 +242,9 @@ public:
 	 *			If you actually want to perform a lexical comparison, then you need to use EqualTo instead
 	 */
 	bool IdenticalTo( const FText& Other ) const;
+
+	/** Trace the history of this Text until we find the base Texts it was comprised from */
+	void GetSourceTextsFromFormatHistory(TArray<FText>& OutSourceTexts) const;
 
 	class CORE_API FSortPredicate
 	{

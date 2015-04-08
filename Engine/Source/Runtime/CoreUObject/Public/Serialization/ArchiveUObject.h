@@ -153,7 +153,7 @@ protected:
  * of the UObject data being saved/loaded.
  * <p>
  * UObject references are not serialized directly into the memory archive.  Instead, we use
- * a system similar to the Export/ImportMap of ULinker - the pointer to the UObject is added
+ * a system similar to the Export/ImportMap of FLinker - the pointer to the UObject is added
  * to a persistent (from the standpoint of the FReloadObjectArc) array.  The location into
  * this array is what is actually stored in the archive's buffer.
  * <p>
@@ -1143,11 +1143,11 @@ public:
 					UE_LOG(LogSerialization, Log,  TEXT("FArchiveReplaceObjectRef: Obj == SearchObject : '%s'"), *ObjName );
 				}
 #endif
-
-				if ( !SerializedObjects.Find(Obj) )
+				bool bAlreadyAdded = false;
+				SerializedObjects.Add(Obj, &bAlreadyAdded);
+				if (!bAlreadyAdded)
 				{
 					// otherwise recurse down into the object if it is contained within the initial search object
-					SerializedObjects.Add(Obj);
 	
 					// serialization for class default objects must be deterministic (since class 
 					// default objects may be serialized during script compilation while the script

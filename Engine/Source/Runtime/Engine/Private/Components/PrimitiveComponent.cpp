@@ -66,7 +66,7 @@ TAutoConsoleVariable<int32> CVarShowInitialOverlaps(
 int32 UPrimitiveComponent::CurrentTag = 2147483647 / 4;
 
 // 0 is reserved to mean invalid
-uint32 UPrimitiveComponent::NextComponentId = 1;
+FThreadSafeCounter UPrimitiveComponent::NextComponentId;
 
 UPrimitiveComponent::UPrimitiveComponent(const FObjectInitializer& ObjectInitializer /*= FObjectInitializer::Get()*/)
 	: Super(ObjectInitializer)
@@ -99,9 +99,7 @@ UPrimitiveComponent::UPrimitiveComponent(const FObjectInitializer& ObjectInitial
 	VisibilityId = -1;
 	CanBeCharacterBase_DEPRECATED = ECB_Yes;
 	CanCharacterStepUpOn = ECB_Yes;
-	ComponentId.PrimIDValue = NextComponentId;
-	check(IsInGameThread());
-	NextComponentId++;
+	ComponentId.PrimIDValue = NextComponentId.Increment();
 
 	bUseEditorCompositing = false;
 
@@ -1923,12 +1921,12 @@ void UPrimitiveComponent::BeginComponentOverlap(const FOverlapInfo& OtherOverlap
 					// First actor virtuals
 					if (IsActorValidToNotify(MyActor))
 					{
-						MyActor->ReceiveActorBeginOverlap(OtherActor);
+						MyActor->NotifyActorBeginOverlap(OtherActor);
 					}
 
 					if (IsActorValidToNotify(OtherActor))
 					{
-						OtherActor->ReceiveActorBeginOverlap(MyActor);
+						OtherActor->NotifyActorBeginOverlap(MyActor);
 					}
 
 					// Then level-script delegates
@@ -1987,13 +1985,13 @@ void UPrimitiveComponent::EndComponentOverlap(const FOverlapInfo& OtherOverlap, 
 	{			
 		if (IsActorValidToNotify(MyActor))
 		{
-			MyActor->ReceiveActorEndOverlap(OtherActor);
+			MyActor->NotifyActorEndOverlap(OtherActor);
 			MyActor->OnActorEndOverlap.Broadcast(OtherActor);
 		}
 
 		if (IsActorValidToNotify(OtherActor))
 		{
-			OtherActor->ReceiveActorEndOverlap(MyActor);
+			OtherActor->NotifyActorEndOverlap(MyActor);
 			OtherActor->OnActorEndOverlap.Broadcast(MyActor);
 		}
 	}
@@ -2350,7 +2348,7 @@ void UPrimitiveComponent::DispatchMouseOverEvents(UPrimitiveComponent* CurrentCo
 				}
 				if (bBroadcastActorBegin && IsActorValidToNotify(CurrentOwner))
 				{
-					CurrentOwner->ReceiveActorEndCursorOver();
+					CurrentOwner->NotifyActorEndCursorOver();
 					if (IsActorValidToNotify(CurrentOwner))
 					{
 						CurrentOwner->OnEndCursorOver.Broadcast();
@@ -2363,7 +2361,7 @@ void UPrimitiveComponent::DispatchMouseOverEvents(UPrimitiveComponent* CurrentCo
 		{
 			if (bBroadcastActorBegin && IsActorValidToNotify(NewOwner))
 			{
-				NewOwner->ReceiveActorBeginCursorOver();
+				NewOwner->NotifyActorBeginCursorOver();
 				if (IsActorValidToNotify(NewOwner))
 				{
 					NewOwner->OnBeginCursorOver.Broadcast();
@@ -2386,7 +2384,7 @@ void UPrimitiveComponent::DispatchMouseOverEvents(UPrimitiveComponent* CurrentCo
 
 		if (IsActorValidToNotify(CurrentOwner))
 		{
-			CurrentOwner->ReceiveActorEndCursorOver();
+			CurrentOwner->NotifyActorEndCursorOver();
 			if (IsActorValidToNotify(CurrentOwner))
 			{
 				CurrentOwner->OnEndCursorOver.Broadcast();
@@ -2421,7 +2419,7 @@ void UPrimitiveComponent::DispatchTouchOverEvents(ETouchIndex::Type FingerIndex,
 				}
 				if (bBroadcastActorBegin && IsActorValidToNotify(CurrentOwner))
 				{
-					CurrentOwner->ReceiveActorOnInputTouchLeave(FingerIndex);
+					CurrentOwner->NotifyActorOnInputTouchLeave(FingerIndex);
 					if (IsActorValidToNotify(CurrentOwner))
 					{
 						CurrentOwner->OnInputTouchLeave.Broadcast(FingerIndex);
@@ -2434,7 +2432,7 @@ void UPrimitiveComponent::DispatchTouchOverEvents(ETouchIndex::Type FingerIndex,
 		{
 			if (bBroadcastActorBegin && IsActorValidToNotify(NewOwner))
 			{
-				NewOwner->ReceiveActorOnInputTouchEnter(FingerIndex);
+				NewOwner->NotifyActorOnInputTouchEnter(FingerIndex);
 				if (IsActorValidToNotify(NewOwner))
 				{
 					NewOwner->OnInputTouchEnter.Broadcast(FingerIndex);
@@ -2457,7 +2455,7 @@ void UPrimitiveComponent::DispatchTouchOverEvents(ETouchIndex::Type FingerIndex,
 
 		if (IsActorValidToNotify(CurrentOwner))
 		{
-			CurrentOwner->ReceiveActorOnInputTouchLeave(FingerIndex);
+			CurrentOwner->NotifyActorOnInputTouchLeave(FingerIndex);
 			if (IsActorValidToNotify(CurrentOwner))
 			{
 				CurrentOwner->OnInputTouchLeave.Broadcast(FingerIndex);
@@ -2470,7 +2468,7 @@ void UPrimitiveComponent::DispatchOnClicked()
 {
 	if (IsActorValidToNotify(GetOwner()))
 	{
-		GetOwner()->ReceiveActorOnClicked();
+		GetOwner()->NotifyActorOnClicked();
 		if (IsActorValidToNotify(GetOwner()))
 		{
 			GetOwner()->OnClicked.Broadcast();
@@ -2487,7 +2485,7 @@ void UPrimitiveComponent::DispatchOnReleased()
 {
 	if (IsActorValidToNotify(GetOwner()))
 	{
-		GetOwner()->ReceiveActorOnReleased();
+		GetOwner()->NotifyActorOnReleased();
 		if (IsActorValidToNotify(GetOwner()))
 		{
 			GetOwner()->OnReleased.Broadcast();
@@ -2504,7 +2502,7 @@ void UPrimitiveComponent::DispatchOnInputTouchBegin(const ETouchIndex::Type Fing
 {
 	if (IsActorValidToNotify(GetOwner()))
 	{
-		GetOwner()->ReceiveActorOnInputTouchBegin(FingerIndex);
+		GetOwner()->NotifyActorOnInputTouchBegin(FingerIndex);
 		if (IsActorValidToNotify(GetOwner()))
 		{
 			GetOwner()->OnInputTouchBegin.Broadcast(FingerIndex);
@@ -2521,7 +2519,7 @@ void UPrimitiveComponent::DispatchOnInputTouchEnd(const ETouchIndex::Type Finger
 {
 	if (IsActorValidToNotify(GetOwner()))
 	{
-		GetOwner()->ReceiveActorOnInputTouchEnd(FingerIndex);
+		GetOwner()->NotifyActorOnInputTouchEnd(FingerIndex);
 		if (IsActorValidToNotify(GetOwner()))
 		{
 			GetOwner()->OnInputTouchEnd.Broadcast(FingerIndex);

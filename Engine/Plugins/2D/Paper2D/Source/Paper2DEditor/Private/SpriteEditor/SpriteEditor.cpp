@@ -13,6 +13,7 @@
 #include "WorkspaceMenuStructureModule.h"
 #include "Paper2DEditorModule.h"
 #include "SSpriteEditorViewportToolbar.h"
+#include "SpriteDetailsCustomization.h"
 
 #include "SSpriteList.h"
 #include "SDockTab.h"
@@ -55,6 +56,7 @@ public:
 	virtual TSharedRef<FEditorViewportClient> MakeEditorViewportClient() override;
 	virtual TSharedPtr<SWidget> MakeViewportToolbar() override;
 	virtual EVisibility GetTransformToolbarVisibility() const override;
+	virtual void OnFocusViewportToSelection() override;
 	// End of SEditorViewport interface
 
 	// ICommonEditorViewportToolbarInfoProvider interface
@@ -68,6 +70,11 @@ public:
 	{
 		EditorViewportClient->NotifySpriteBeingEditedHasChanged();
 	}
+
+	ESpriteEditorMode::Type GetCurrentMode() const
+	{
+		return EditorViewportClient->GetCurrentMode();
+	}
 private:
 	// Pointer back to owning sprite editor instance (the keeper of state)
 	TWeakPtr<class FSpriteEditor> SpriteEditorPtr;
@@ -77,7 +84,7 @@ private:
 
 private:
 	// Returns true if the viewport is visible
-	bool IsVisible() const;
+	bool IsVisible() const override;
 };
 
 void SSpriteEditorViewport::Construct(const FArguments& InArgs, TSharedPtr<FSpriteEditor> InSpriteEditor)
@@ -94,6 +101,8 @@ void SSpriteEditorViewport::BindCommands()
 	const FSpriteEditorCommands& Commands = FSpriteEditorCommands::Get();
 
 	TSharedRef<FSpriteEditorViewportClient> EditorViewportClientRef = EditorViewportClient.ToSharedRef();
+	FSpriteGeometryEditingHelper* GeometryEditingHelper = EditorViewportClientRef->GetGeometryEditHelper();
+
 
 	// Show toggles
 	CommandList->MapAction(
@@ -134,9 +143,9 @@ void SSpriteEditorViewport::BindCommands()
 
 	CommandList->MapAction(
 		Commands.SetShowNormals,
-		FExecuteAction::CreateSP( EditorViewportClientRef, &FSpriteEditorViewportClient::ToggleShowNormals ),
+		FExecuteAction::CreateRaw(GeometryEditingHelper, &FSpriteGeometryEditingHelper::ToggleShowNormals),
 		FCanExecuteAction(),
-		FIsActionChecked::CreateSP( EditorViewportClientRef, &FSpriteEditorViewportClient::IsShowNormalsChecked ) );
+		FIsActionChecked::CreateRaw(GeometryEditingHelper, &FSpriteGeometryEditingHelper::IsShowNormalsEnabled));
  
 	CommandList->MapAction(
 		Commands.SetShowPivot,
@@ -165,16 +174,6 @@ void SSpriteEditorViewport::BindCommands()
 		FExecuteAction::CreateSP( EditorViewportClientRef, &FSpriteEditorViewportClient::EnterRenderingEditMode ),
 		FCanExecuteAction(),
 		FIsActionChecked::CreateSP( EditorViewportClientRef, &FSpriteEditorViewportClient::IsInRenderingEditMode ) );
-	CommandList->MapAction(
-		Commands.EnterAddSpriteMode,
-		FExecuteAction::CreateSP( EditorViewportClientRef, &FSpriteEditorViewportClient::EnterAddSpriteMode ),
-		FCanExecuteAction(),
-		FIsActionChecked::CreateSP( EditorViewportClientRef, &FSpriteEditorViewportClient::IsInAddSpriteMode ) );
-
-	// Misc. actions
-	CommandList->MapAction(
-		Commands.FocusOnSprite,
-		FExecuteAction::CreateSP( EditorViewportClientRef, &FSpriteEditorViewportClient::FocusOnSprite ));
 
 	// Geometry editing commands
 	CommandList->MapAction(
@@ -182,14 +181,23 @@ void SSpriteEditorViewport::BindCommands()
 		FExecuteAction::CreateSP( EditorViewportClientRef, &FSpriteEditorViewportClient::DeleteSelection ),
 		FCanExecuteAction::CreateSP( EditorViewportClientRef, &FSpriteEditorViewportClient::CanDeleteSelection ));
 	CommandList->MapAction(
-		Commands.SplitEdge,
-		FExecuteAction::CreateSP( EditorViewportClientRef, &FSpriteEditorViewportClient::SplitEdge ),
-		FCanExecuteAction::CreateSP( EditorViewportClientRef, &FSpriteEditorViewportClient::CanSplitEdge ));
+		Commands.AddBoxShape,
+		FExecuteAction::CreateSP(EditorViewportClientRef, &FSpriteEditorViewportClient::AddBoxShape),
+		FCanExecuteAction::CreateRaw(GeometryEditingHelper, &FSpriteGeometryEditingHelper::CanAddBoxShape),
+		FIsActionChecked(),
+		FIsActionButtonVisible::CreateRaw(GeometryEditingHelper, &FSpriteGeometryEditingHelper::CanAddBoxShape));
 	CommandList->MapAction(
 		Commands.ToggleAddPolygonMode,
-		FExecuteAction::CreateSP(EditorViewportClientRef, &FSpriteEditorViewportClient::ToggleAddPolygonMode),
-		FCanExecuteAction::CreateSP(EditorViewportClientRef, &FSpriteEditorViewportClient::CanAddPolygon),
-		FIsActionChecked::CreateSP(EditorViewportClientRef, &FSpriteEditorViewportClient::IsAddingPolygon));
+		FExecuteAction::CreateRaw(GeometryEditingHelper, &FSpriteGeometryEditingHelper::ToggleAddPolygonMode),
+		FCanExecuteAction::CreateRaw(GeometryEditingHelper, &FSpriteGeometryEditingHelper::CanAddPolygon),
+		FIsActionChecked::CreateRaw(GeometryEditingHelper, &FSpriteGeometryEditingHelper::IsAddingPolygon),
+		FIsActionButtonVisible::CreateRaw(GeometryEditingHelper, &FSpriteGeometryEditingHelper::CanAddPolygon));
+	CommandList->MapAction(
+		Commands.AddCircleShape,
+		FExecuteAction::CreateSP(EditorViewportClientRef, &FSpriteEditorViewportClient::AddCircleShape),
+		FCanExecuteAction::CreateRaw(GeometryEditingHelper, &FSpriteGeometryEditingHelper::CanAddCircleShape),
+		FIsActionChecked(),
+		FIsActionButtonVisible::CreateRaw(GeometryEditingHelper, &FSpriteGeometryEditingHelper::CanAddCircleShape));
 	CommandList->MapAction(
 		Commands.SnapAllVertices,
 		FExecuteAction::CreateSP( EditorViewportClientRef, &FSpriteEditorViewportClient::SnapAllVerticesToPixelGrid ),
@@ -218,6 +226,11 @@ TSharedPtr<SWidget> SSpriteEditorViewport::MakeViewportToolbar()
 EVisibility SSpriteEditorViewport::GetTransformToolbarVisibility() const
 {
 	return EVisibility::Visible;
+}
+
+void SSpriteEditorViewport::OnFocusViewportToSelection()
+{
+	EditorViewportClient->RequestFocusOnSelection(/*bInstant=*/ false);
 }
 
 TSharedRef<class SEditorViewport> SSpriteEditorViewport::GetViewportWidget()
@@ -253,6 +266,11 @@ public:
 		SpriteEditorPtr = InSpriteEditor;
 
 		SSingleObjectDetailsPanel::Construct(SSingleObjectDetailsPanel::FArguments(), /*bAutomaticallyObserveViaGetObjectToObserve=*/ true, /*bAllowSearch=*/ true);
+
+		TAttribute<ESpriteEditorMode::Type> SpriteEditorMode = TAttribute<ESpriteEditorMode::Type>::Create(
+			TAttribute<ESpriteEditorMode::Type>::FGetter::CreateSP(InSpriteEditor.ToSharedRef(), &FSpriteEditor::GetCurrentMode));
+		FOnGetDetailCustomizationInstance CustomizeSpritesForEditor = FOnGetDetailCustomizationInstance::CreateStatic(&FSpriteDetailsCustomization::MakeInstanceForSpriteEditor, SpriteEditorMode);
+		PropertyView->RegisterInstancedCustomPropertyLayout(UPaperSprite::StaticClass(), CustomizeSpritesForEditor);
 	}
 
 	// SSingleObjectDetailsPanel interface
@@ -397,7 +415,7 @@ void FSpriteEditor::InitSpriteEditor(const EToolkitMode::Type Mode, const TShare
 			)
 		);
 
-	// Initialize the asset editor and spawn nothing (dummy layout)
+	// Initialize the asset editor
 	InitAssetEditor(Mode, InitToolkitHost, SpriteEditorAppName, StandaloneDefaultLayout, /*bCreateDefaultStandaloneMenu=*/ true, /*bCreateDefaultToolbar=*/ true, InitSprite);
 
 	// Extend things
@@ -497,7 +515,9 @@ void FSpriteEditor::ExtendToolbar()
 
 			ToolbarBuilder.BeginSection("Tools");
 			{
+				ToolbarBuilder.AddToolBarButton(FSpriteEditorCommands::Get().AddBoxShape);
 				ToolbarBuilder.AddToolBarButton(FSpriteEditorCommands::Get().ToggleAddPolygonMode);
+				ToolbarBuilder.AddToolBarButton(FSpriteEditorCommands::Get().AddCircleShape);
 				ToolbarBuilder.AddToolBarButton(FSpriteEditorCommands::Get().SnapAllVertices);
 			}
 			ToolbarBuilder.EndSection();
@@ -541,6 +561,10 @@ void FSpriteEditor::SetSpriteBeingEdited(UPaperSprite* NewSprite)
 	}
 }
 
+ESpriteEditorMode::Type FSpriteEditor::GetCurrentMode() const
+{
+	return ViewportPtr->GetCurrentMode();
+}
 
 void FSpriteEditor::CreateModeToolbarWidgets(FToolBarBuilder& IgnoredBuilder)
 {

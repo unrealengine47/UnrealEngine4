@@ -324,7 +324,7 @@ public:
 
 	// FRenderResource interface.
 	virtual void InitRHI() override;
-	virtual FString GetFriendlyName() const { return TEXT("PositionOnly Static-mesh vertices"); }
+	virtual FString GetFriendlyName() const override { return TEXT("PositionOnly Static-mesh vertices"); }
 
 private:
 
@@ -501,7 +501,7 @@ public:
 
 	// FRenderResource interface.
 	virtual void InitRHI() override;
-	virtual FString GetFriendlyName() const { return TEXT("Static-mesh vertices"); }
+	virtual FString GetFriendlyName() const override { return TEXT("Static-mesh vertices"); }
 
 private:
 
@@ -1045,6 +1045,15 @@ struct FInstanceStream
 		Me->InstanceTransform3[2] = FFloat16();
 	}
 
+	FORCEINLINE void SetInstanceEditorData(FColor HitProxyColor, bool bSelected)
+	{
+		FInstanceStream* RESTRICT Me = (FInstanceStream* RESTRICT)this;
+		
+		Me->InstanceTransform1[3] = ((float)HitProxyColor.R) + (bSelected ? 256.f : 0.0f);
+		Me->InstanceTransform2[3] = (float)HitProxyColor.G;
+		Me->InstanceTransform3[3] = (float)HitProxyColor.B;
+	}
+	
 	friend FArchive& operator<<( FArchive& Ar, FInstanceStream& V )
 	{
 		return Ar 

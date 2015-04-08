@@ -18,6 +18,7 @@ public:
 		WM_TranslateRotateZ,
 		WM_Rotate,
 		WM_Scale,
+		WM_2D,
 		WM_Max,
 	};
 
@@ -70,6 +71,11 @@ public:
 	* Draws the Translate & Rotate Z widget.
 	*/
 	void Render_TranslateRotateZ( const FSceneView* View, FPrimitiveDrawInterface* PDI, FEditorViewportClient* ViewportClient, const FVector& InLocation, bool bDrawWidget );
+
+	/**
+	* Draws the combined 2D widget.
+	*/
+	void Render_2D(const FSceneView* View, FPrimitiveDrawInterface* PDI, FEditorViewportClient* ViewportClient, const FVector& InLocation, bool bDrawWidget);
 
 	/**
 	 * Converts mouse movement on the screen to widget axis movement/rotation.
@@ -430,7 +436,7 @@ struct HWidgetAxis : public HHitProxy
 		Axis(InAxis),
 		bDisabled(InbDisabled) {}
 
-	virtual EMouseCursor::Type GetMouseCursor()
+	virtual EMouseCursor::Type GetMouseCursor() override
 	{
 		if (bDisabled)
 		{
@@ -447,7 +453,7 @@ struct HWidgetAxis : public HHitProxy
 	 *
 	 * @return	true if translucent primitives are always allowed with this hit proxy; false otherwise
 	 */
-	virtual bool AlwaysAllowsTranslucentPrimitives() const
+	virtual bool AlwaysAllowsTranslucentPrimitives() const override
 	{
 		return true;
 	}

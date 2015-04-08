@@ -380,7 +380,7 @@ public:
 			FCursorReply::Cursor( EMouseCursor::ResizeLeftRight );
 	}
 
-	virtual bool SupportsKeyboardFocus() const
+	virtual bool SupportsKeyboardFocus() const override
 	{
 		// SSpinBox is focusable.
 		return true;
@@ -434,7 +434,7 @@ public:
 		}
 	}
 	
-	virtual bool HasKeyboardFocus() const
+	virtual bool HasKeyboardFocus() const override
 	{
 		// The spinbox is considered focused when we are typing it text.
 		return SCompoundWidget::HasKeyboardFocus() || (EditableText.IsValid() && EditableText->HasKeyboardFocus());
@@ -538,7 +538,7 @@ protected:
 			ExitTextMode();
 		}
 
-		TOptional<NumericType> NewValue = Interface->FromString(NewText.ToString(), ValueAttribute.Get());
+		TOptional<NumericType> NewValue = Interface->FromString(NewText.ToString());
 		if (NewValue.IsSet())
 		{
 			CommitValue( NewValue.GetValue(), CommittedViaTypeIn, CommitInfo );

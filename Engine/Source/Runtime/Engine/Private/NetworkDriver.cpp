@@ -123,6 +123,7 @@ UNetDriver::UNetDriver(const FObjectInitializer& ObjectInitializer)
 ,	StatPeriod(1.f)
 ,	NetTag(0)
 ,	DebugRelevantActors(false)
+,	ProcessQueuedBunchesCurrentFrameMilliseconds(0.0f)
 {
 }
 
@@ -169,6 +170,9 @@ void UNetDriver::TickFlush(float DeltaSeconds)
 		LastUpdateCount = Updated;
 #endif // WITH_SERVER_CODE
 	}
+
+	// Reset queued bunch amortization timer
+	ProcessQueuedBunchesCurrentFrameMilliseconds = 0.0f;
 
 #if STATS
 	// Update network stats (only main game net driver for now)
@@ -659,7 +663,7 @@ void UNetDriver::TickDispatch( float DeltaTime )
 bool UNetDriver::IsLevelInitializedForActor(const AActor* InActor, const UNetConnection* InConnection) const
 {
 	check(InActor);
-    check(InConnection);
+	check(InConnection);
 	check(World == InActor->GetWorld());
 
 	// we can't create channels while the client is in the wrong world
@@ -1712,17 +1716,22 @@ bool FPacketSimulationSettings::ParseSettings(const TCHAR* Cmd)
 #endif
 
 FNetViewer::FNetViewer(UNetConnection* InConnection, float DeltaSeconds) :
-	InViewer(InConnection->PlayerController),
+	InViewer(InConnection->PlayerController ? InConnection->PlayerController : InConnection->OwningActor),
 	ViewTarget(InConnection->ViewTarget),
 	ViewLocation(ForceInit),
 	ViewDir(ForceInit)
 {
+	check(InConnection->OwningActor);
+	check(!InConnection->PlayerController || (InConnection->PlayerController == InConnection->OwningActor));
+
+	APlayerController* ViewingController = InConnection->PlayerController;
+
 	// Get viewer coordinates.
 	ViewLocation = ViewTarget->GetActorLocation();
-	if (InViewer)
+	if (ViewingController)
 	{
-		FRotator ViewRotation = InViewer->GetControlRotation();
-		InViewer->GetPlayerViewPoint(ViewLocation, ViewRotation);
+		FRotator ViewRotation = ViewingController->GetControlRotation();
+		ViewingController->GetPlayerViewPoint(ViewLocation, ViewRotation);
 		ViewDir = ViewRotation.Vector();
 	}
 
@@ -1867,7 +1876,8 @@ int32 UNetDriver::ServerReplicateActors(float DeltaSeconds)
 			}
 			bFoundReadyConnection = true;
 			
-			Connection->ViewTarget = Connection->PlayerController ? Connection->PlayerController->GetViewTarget() : OwningActor->GetOwner();
+			// the view target is what the player controller is looking at OR the owning actor itself when using beacons
+			Connection->ViewTarget = Connection->PlayerController ? Connection->PlayerController->GetViewTarget() : OwningActor;
 			//@todo - eliminate this mallocs if the connection isn't going to actually be updated this frame (currently needed to verify owner relevancy below)
 			Connection->OwnedConsiderList.Empty(NetRelevantActorCount);
 
@@ -2020,11 +2030,7 @@ int32 UNetDriver::ServerReplicateActors(float DeltaSeconds)
 				}
 				else
 				{
-					AActor* ActorOwner = Actor->GetOwner();
-					if ( !ActorOwner && (Cast<APlayerController>(Actor) || Cast<APawn>(Actor) ) ) 
-					{
-						ActorOwner = Actor;
-					}
+					const AActor* ActorOwner = Actor->GetNetOwner();
 					if ( ActorOwner )
 					{
 						// iterate through each connection (and child connections) looking for an owner for this actor

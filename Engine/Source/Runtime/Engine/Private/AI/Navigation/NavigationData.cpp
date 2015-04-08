@@ -24,6 +24,22 @@ FPathFindingQuery::FPathFindingQuery(const UObject* InOwner, const ANavigationDa
 	}
 }
 
+FPathFindingQuery::FPathFindingQuery(const UObject* InOwner, const ANavigationData& InNavData, const FVector& Start, const FVector& End, TSharedPtr<const FNavigationQueryFilter> SourceQueryFilter, FNavPathSharedPtr InPathInstanceToFill)
+: NavData(&InNavData)
+, Owner(InOwner)
+, StartLocation(Start)
+, EndLocation(End)
+, QueryFilter(SourceQueryFilter)
+, PathInstanceToFill(InPathInstanceToFill)
+, NavDataFlags(0)
+, bAllowPartialPaths(true)
+{
+	if (SourceQueryFilter.IsValid() == false && NavData.IsValid() == true)
+	{
+		QueryFilter = NavData->GetDefaultQueryFilter();
+	}
+}
+
 FPathFindingQuery::FPathFindingQuery(const FPathFindingQuery& Source)
 : NavData(Source.NavData)
 , Owner(Source.Owner)
@@ -62,6 +78,14 @@ FPathFindingQuery::FPathFindingQuery(FNavPathSharedRef PathToRecalculate, const 
 uint32 FAsyncPathFindingQuery::LastPathFindingUniqueID = INVALID_NAVQUERYID;
 
 FAsyncPathFindingQuery::FAsyncPathFindingQuery(const UObject* InOwner, const ANavigationData* InNavData, const FVector& Start, const FVector& End, const FNavPathQueryDelegate& Delegate, TSharedPtr<const FNavigationQueryFilter> SourceQueryFilter)
+: FPathFindingQuery(InOwner, InNavData, Start, End, SourceQueryFilter)
+, QueryID(GetUniqueID())
+, OnDoneDelegate(Delegate)
+{
+
+}
+
+FAsyncPathFindingQuery::FAsyncPathFindingQuery(const UObject* InOwner, const ANavigationData& InNavData, const FVector& Start, const FVector& End, const FNavPathQueryDelegate& Delegate, TSharedPtr<const FNavigationQueryFilter> SourceQueryFilter)
 : FPathFindingQuery(InOwner, InNavData, Start, End, SourceQueryFilter)
 , QueryID(GetUniqueID())
 , OnDoneDelegate(Delegate)
@@ -109,7 +133,7 @@ ANavigationData::ANavigationData(const FObjectInitializer& ObjectInitializer)
 	, NavDataUniqueID(GetNextUniqueID())
 {
 	PrimaryActorTick.bCanEverTick = true;
-	bNetLoadOnClient = (HasAnyFlags(RF_ClassDefaultObject) == false) && (*GEngine->NavigationSystemClass != nullptr) && (GEngine->NavigationSystemClass->GetDefaultObject<UNavigationSystem>()->ShouldLoadNavigationOnClient());
+	bNetLoadOnClient = false;
 	bCanBeDamaged = false;
 	DefaultQueryFilter = MakeShareable(new FNavigationQueryFilter());
 	ObservedPathsTickInterval = 0.5;
@@ -117,9 +141,8 @@ ANavigationData::ANavigationData(const FObjectInitializer& ObjectInitializer)
 
 uint16 ANavigationData::GetNextUniqueID()
 {
-	check(IsInGameThread());
-	static uint16 StaticID = INVALID_NAVDATA;
-	return ++StaticID;
+	static FThreadSafeCounter StaticID(INVALID_NAVDATA);
+	return StaticID.Increment();
 }
 
 void ANavigationData::PostInitProperties()
@@ -138,9 +161,10 @@ void ANavigationData::PostInitProperties()
 			RuntimeGeneration = bRebuildAtRuntime_DEPRECATED ? ERuntimeGenerationType::Dynamic : ERuntimeGenerationType::Static;
 		}
 	}
-		
-	if (HasAnyFlags(RF_ClassDefaultObject) == false)
+	else
 	{
+		bNetLoadOnClient = (*GEngine->NavigationSystemClass != nullptr) && (GEngine->NavigationSystemClass->GetDefaultObject<UNavigationSystem>()->ShouldLoadNavigationOnClient(this));
+
 		UWorld* WorldOuter = GetWorld();
 		
 		if (WorldOuter != NULL && WorldOuter->GetNavigationSystem() != NULL)
@@ -183,6 +207,8 @@ void ANavigationData::PostLoad()
 	InstantiateAndRegisterRenderingComponent();
 
 	CachedWorld = GetWorld();
+
+	bNetLoadOnClient = (*GEngine->NavigationSystemClass != nullptr) && (GEngine->NavigationSystemClass->GetDefaultObject<UNavigationSystem>()->ShouldLoadNavigationOnClient(this));
 }
 
 void ANavigationData::TickActor(float DeltaTime, enum ELevelTick TickType, FActorTickFunction& ThisTickFunction)

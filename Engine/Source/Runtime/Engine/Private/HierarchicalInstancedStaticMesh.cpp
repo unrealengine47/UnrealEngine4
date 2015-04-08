@@ -757,7 +757,7 @@ public:
 
 	virtual const TArray<FBoxSphereBounds>* GetOcclusionQueries(const FSceneView* View) const override;
 	virtual void AcceptOcclusionResults(const FSceneView* View, const bool* Results, int32 NumResults) override;
-	virtual bool HasSubprimitiveOcclusionQueries() const
+	virtual bool HasSubprimitiveOcclusionQueries() const override
 	{
 		return FirstOcclusionNode > 0;
 	}
@@ -892,8 +892,8 @@ static FORCEINLINE_DEBUGGABLE bool CullNode(const FFoliageCullInstanceParams& Pa
 		checkSlow(Params.ViewFrustumLocal.PermutedPlanes.Num() == 4);
 
 		//@todo, once we have more than one mesh per tree, these should be aligned
-		VectorRegister BoxMin = VectorLoad(&Node.BoundMin);
-		VectorRegister BoxMax = VectorLoad(&Node.BoundMax);
+		VectorRegister BoxMin = VectorLoadFloat3(&Node.BoundMin);
+		VectorRegister BoxMax = VectorLoadFloat3(&Node.BoundMax);
 
 		VectorRegister BoxDiff = VectorSubtract(BoxMax,BoxMin);
 		VectorRegister BoxSum = VectorAdd(BoxMax,BoxMin);
@@ -1085,7 +1085,6 @@ void FHierarchicalStaticMeshSceneProxy::FillDynamicMeshElements(FMeshElementColl
 
 					MeshElement.VertexFactory = &InstancedRenderData.VertexFactories[LODIndex];
 					FMeshBatchElement& BatchElement0 = MeshElement.Elements[0];
-					BatchElement0.UserData = (void*)&UserData_AllInstances;
 
 					BatchElement0.UserData = ElementParams.PassUserData[SelectionGroupIndex];
 					BatchElement0.MaxScreenSize = 1.0;
@@ -2012,7 +2011,7 @@ void UHierarchicalInstancedStaticMeshComponent::ApplyBuildTreeAsync(ENamedThread
 				Builder->Result->InstanceReorderTable[Index] = Index;
 		    }
 	    }
-    
+	
 		ClusterTreePtr = MakeShareable(new TArray<FClusterNode>);
 		TArray<FClusterNode>& ClusterTree = *ClusterTreePtr;
 	    Exchange(ClusterTree, Builder->Result->Nodes);
@@ -2023,7 +2022,7 @@ void UHierarchicalInstancedStaticMeshComponent::ApplyBuildTreeAsync(ENamedThread
 
 
 	    //UE_LOG(LogStaticMesh, Display, TEXT("Built a foliage hierarchy with %d of %d elements in %.1fs."), NumBuiltInstances, PerInstanceSMData.Num(), float(FPlatformTime::Seconds() - StartTime));
-    
+	
 	    if (NumBuiltInstances < PerInstanceSMData.Num())
 	    {
 		    // There are new outstanding instances, build again!

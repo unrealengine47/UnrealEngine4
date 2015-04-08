@@ -954,39 +954,39 @@ static class FFileProfileWrapperExec: private FSelfRegisteringExec
 					FString EventName;
 					switch( FileOpStat->Type )
 					{
-						case FProfiledFileStatsOp::Tell:
+						case FProfiledFileStatsOp::EOpType::Tell:
 							EventName = TEXT("Tell"); break;
-						case FProfiledFileStatsOp::Seek:
+						case FProfiledFileStatsOp::EOpType::Seek:
 							EventName = TEXT("Seek"); break;
-						case FProfiledFileStatsOp::Read:
+						case FProfiledFileStatsOp::EOpType::Read:
 							EventName = FString::Printf( TEXT("Read (%lld)"), FileOpStat->Bytes ); break;
-						case FProfiledFileStatsOp::Write:
+						case FProfiledFileStatsOp::EOpType::Write:
 							EventName = FString::Printf( TEXT("Write (%lld)"), FileOpStat->Bytes ); break;
-						case FProfiledFileStatsOp::Size:
+						case FProfiledFileStatsOp::EOpType::Size:
 							EventName = TEXT("Size"); break;
-						case FProfiledFileStatsOp::OpenRead:
+						case FProfiledFileStatsOp::EOpType::OpenRead:
 							EventName = TEXT("OpenRead"); break;
-						case FProfiledFileStatsOp::OpenWrite:
+						case FProfiledFileStatsOp::EOpType::OpenWrite:
 							EventName = TEXT("OpenWrite"); break;
-						case FProfiledFileStatsOp::Exists:
+						case FProfiledFileStatsOp::EOpType::Exists:
 							EventName = TEXT("Exists"); break;
-						case FProfiledFileStatsOp::Delete:
+						case FProfiledFileStatsOp::EOpType::Delete:
 							EventName = TEXT("Delete"); break;
-						case FProfiledFileStatsOp::Move:
+						case FProfiledFileStatsOp::EOpType::Move:
 							EventName = TEXT("Move"); break;
-						case FProfiledFileStatsOp::IsReadOnly:
+						case FProfiledFileStatsOp::EOpType::IsReadOnly:
 							EventName = TEXT("IsReadOnly"); break;
-						case FProfiledFileStatsOp::SetReadOnly:
+						case FProfiledFileStatsOp::EOpType::SetReadOnly:
 							EventName = TEXT("SetReadOnly"); break;
-						case FProfiledFileStatsOp::GetTimeStamp:
+						case FProfiledFileStatsOp::EOpType::GetTimeStamp:
 							EventName = TEXT("GetTimeStamp"); break;
-						case FProfiledFileStatsOp::SetTimeStamp:
+						case FProfiledFileStatsOp::EOpType::SetTimeStamp:
 							EventName = TEXT("SetTimeStamp"); break;
-						case FProfiledFileStatsOp::Create:
+						case FProfiledFileStatsOp::EOpType::Create:
 							EventName = TEXT("Create"); break;
-						case FProfiledFileStatsOp::Copy:
+						case FProfiledFileStatsOp::EOpType::Copy:
 							EventName = TEXT("Copy"); break;
-						case FProfiledFileStatsOp::Iterate:
+						case FProfiledFileStatsOp::EOpType::Iterate:
 							EventName = TEXT("Iterate"); break;
 						default:
 							EventName = TEXT("Unknown"); break;
@@ -1023,6 +1023,13 @@ public:
 #include "CollisionAnalyzerModule.h"
 extern bool GCollisionAnalyzerIsRecording;
 #endif // ENABLE_COLLISION_ANALYZER
+
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+static TAutoConsoleVariable<int32> CVarStressTestGCWhileStreaming(
+	TEXT("t.StressTestGC"),
+	0,
+	TEXT("If set to 1, the engine will attempt to trigger GC each frame while async loading."));
+#endif
 
 /**
  * Update the level after a variable amount of time, DeltaSeconds, has passed.
@@ -1317,12 +1324,22 @@ void UWorld::Tick( ELevelTick TickType, float DeltaSeconds )
 	bInTick = false;
 	Mark.Pop();
 
-	if ( FullPurgeTriggered )
+	
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+	if (CVarStressTestGCWhileStreaming.GetValueOnGameThread() && IsAsyncLoading())
 	{
-		CollectGarbage( GARBAGE_COLLECTION_KEEPFLAGS, true );
-		CleanupActors();
-		FullPurgeTriggered = false;
-		TimeSinceLastPendingKillPurge = 0.0f;
+		TryCollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS, true);
+	}
+	else 
+#endif
+	if (FullPurgeTriggered)
+	{
+		if (TryCollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS, true))
+		{
+			CleanupActors();
+			FullPurgeTriggered = false;
+			TimeSinceLastPendingKillPurge = 0.0f;
+		}
 	}
 	else if( HasBegunPlay() )
 	{
@@ -1430,12 +1447,13 @@ void UWorld::PerformGarbageCollectionAndCleanupActors()
 	if( !IsAsyncLoading() )
 	{
 		// Perform housekeeping.
-		CollectGarbage( GARBAGE_COLLECTION_KEEPFLAGS, false );
+		if (TryCollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS, false))
+		{
+			CleanupActors();
 
-		CleanupActors();
-
-		// Reset counter.
-		TimeSinceLastPendingKillPurge = 0;
+			// Reset counter.
+			TimeSinceLastPendingKillPurge = 0;
+		}
 	}
 }
 

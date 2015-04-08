@@ -506,7 +506,7 @@ void AActor::ProcessEvent(UFunction* Function, void* Parameters)
 	#else
 	const bool bAllowScriptExecution = GAllowActorScriptExecutionInEditor;
 	#endif
-	if( ((GetWorld() && (GetWorld()->AreActorsInitialized() || bAllowScriptExecution)) || HasAnyFlags(RF_ClassDefaultObject)) && !GIsGarbageCollecting )
+	if( ((GetWorld() && (GetWorld()->AreActorsInitialized() || bAllowScriptExecution)) || HasAnyFlags(RF_ClassDefaultObject)) && !IsGarbageCollecting() )
 	{
 #if !UE_BUILD_SHIPPING
 		if (!ProcessEventDelegate.IsBound() || !ProcessEventDelegate.Execute(this, Function, Parameters))
@@ -622,7 +622,7 @@ bool AActor::Rename( const TCHAR* InName, UObject* NewOuter, ERenameFlags Flags 
 	return bSuccess;
 }
 
-UNetConnection* AActor::GetNetConnection()
+UNetConnection* AActor::GetNetConnection() const
 {
 	return Owner ? Owner->GetNetConnection() : NULL;
 }
@@ -969,7 +969,6 @@ bool AActor::IsOverlappingActor(const AActor* Other) const
 	return false;
 }
 
-
 void AActor::GetOverlappingActors(TArray<AActor*>& OutOverlappingActors, UClass* ClassFilter) const
 {
 	// prepare output
@@ -1037,6 +1036,74 @@ void AActor::GetOverlappingComponents(TArray<UPrimitiveComponent*>& OutOverlappi
 		const bool bAllowShrinking = false;
 		CurrentComponent = (ComponentStack.Num() > 0) ? ComponentStack.Pop(bAllowShrinking) : nullptr;
 	}
+}
+
+
+void AActor::NotifyActorBeginOverlap(AActor* OtherActor)
+{
+	// call BP handler
+	ReceiveActorBeginOverlap(OtherActor);
+}
+
+void AActor::NotifyActorEndOverlap(AActor* OtherActor)
+{
+	// call BP handler
+	ReceiveActorEndOverlap(OtherActor);
+}
+
+void AActor::NotifyActorBeginCursorOver()
+{
+	// call BP handler
+	ReceiveActorBeginCursorOver();
+}
+
+void AActor::NotifyActorEndCursorOver()
+{
+	// call BP handler
+	ReceiveActorEndCursorOver();
+}
+
+void AActor::NotifyActorOnClicked()
+{
+	// call BP handler
+	ReceiveActorOnClicked();
+}
+
+void AActor::NotifyActorOnReleased()
+{
+	// call BP handler
+	ReceiveActorOnReleased();
+}
+
+void AActor::NotifyActorOnInputTouchBegin(const ETouchIndex::Type FingerIndex)
+{
+	// call BP handler
+	ReceiveActorOnInputTouchBegin(FingerIndex);
+}
+
+void AActor::NotifyActorOnInputTouchEnd(const ETouchIndex::Type FingerIndex)
+{
+	// call BP handler
+	ReceiveActorOnInputTouchEnd(FingerIndex);
+}
+
+void AActor::NotifyActorOnInputTouchEnter(const ETouchIndex::Type FingerIndex)
+{
+	// call BP handler
+	ReceiveActorOnInputTouchEnter(FingerIndex);
+}
+
+void AActor::NotifyActorOnInputTouchLeave(const ETouchIndex::Type FingerIndex)
+{
+	// call BP handler
+	ReceiveActorOnInputTouchLeave(FingerIndex);
+}
+
+
+void AActor::NotifyHit(class UPrimitiveComponent* MyComp, AActor* Other, class UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit)
+{
+	// call BP handler
+	ReceiveHit(MyComp, Other, OtherComp, bSelfMoved, HitLocation, HitNormal, NormalImpulse, Hit);
 }
 
 /** marks all PrimitiveComponents for which their Owner is relevant for visibility as dirty because the Owner of some Actor in the chain has changed
@@ -1118,6 +1185,13 @@ void AActor::SetOwner( AActor *NewOwner )
 AActor* AActor::GetOwner() const
 { 
 	return Owner; 
+}
+
+const AActor* AActor::GetNetOwner() const
+{
+	// NetOwner is the Actor Owner unless otherwise overridden (see PlayerController/Pawn/Beacon)
+	// Used in ServerReplicateActors
+	return Owner;
 }
 
 bool AActor::HasNetOwner() const
@@ -1412,7 +1486,7 @@ FVector AActor::GetTargetLocation(AActor* RequestedBy) const
 }
 
 
-bool AActor::IsRelevancyOwnerFor(AActor* ReplicatedActor, AActor* ActorOwner, AActor* ConnectionActor)
+bool AActor::IsRelevancyOwnerFor(const AActor* ReplicatedActor, const AActor* ActorOwner, const AActor* ConnectionActor) const
 {
 	return (ActorOwner == this);
 }
@@ -1788,7 +1862,7 @@ void AActor::InternalDispatchBlockingHit(UPrimitiveComponent* MyComp, UPrimitive
 	// Call virtual
 	if(IsActorValidToNotify(this))
 	{
-		ReceiveHit(MyComp, OtherActor, OtherComp, bSelfMoved, Hit.ImpactPoint, Hit.ImpactNormal, FVector(0,0,0), Hit);
+		NotifyHit(MyComp, OtherActor, OtherComp, bSelfMoved, Hit.ImpactPoint, Hit.ImpactNormal, FVector(0,0,0), Hit);
 	}
 
 	// If we are still ok, call delegate on actor
@@ -3207,7 +3281,7 @@ void AActor::DispatchPhysicsCollisionHit(const FRigidBodyCollisionInfo& MyInfo, 
 	Result.BoneName = MyInfo.BoneName;
 	Result.bBlockingHit = true;
 
-	ReceiveHit(MyInfo.Component.Get(), OtherInfo.Actor.Get(), OtherInfo.Component.Get(), true, Result.Location, Result.Normal, RigidCollisionData.TotalNormalImpulse, Result);
+	NotifyHit(MyInfo.Component.Get(), OtherInfo.Actor.Get(), OtherInfo.Component.Get(), true, Result.Location, Result.Normal, RigidCollisionData.TotalNormalImpulse, Result);
 
 	// Execute delegates if bound
 

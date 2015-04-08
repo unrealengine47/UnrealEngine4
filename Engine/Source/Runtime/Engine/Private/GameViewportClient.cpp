@@ -563,7 +563,7 @@ bool UGameViewportClient::RequiresUncapturedAxisInput() const
 
 EMouseCursor::Type UGameViewportClient::GetCursor(FViewport* InViewport, int32 X, int32 Y)
 {
-	bool bIsPlayingMovie = false;//GetMoviePlayer()->IsMovieCurrentlyPlaying();
+	//bool bIsPlayingMovie = false;//GetMoviePlayer()->IsMovieCurrentlyPlaying();
 
 #if !PLATFORM_WINDOWS
 	bool bIsWithinTitleBar = false;
@@ -592,7 +592,7 @@ EMouseCursor::Type UGameViewportClient::GetCursor(FViewport* InViewport, int32 X
 	{
 		return EMouseCursor::Default;
 	}
-	else if ( (!bIsPlayingMovie) && (InViewport->IsFullscreen() || !bIsWithinTitleBar) )
+	else if ( /*(!bIsPlayingMovie) && */(InViewport->IsFullscreen() || !bIsWithinTitleBar) ) //bIsPlayingMovie has always false value
 	{
 		if (GetWorld() && GetWorld()->GetFirstPlayerController())
 		{
@@ -663,7 +663,7 @@ void UGameViewportClient::SetDropDetail(float DeltaSeconds)
 #if 0 
 		// so where we check to see if we are above some threshold and below 150 ms (any thing above that is usually blocking loading of some sort)
 		// also we don't want to do the auto trace when we are blocking on async loading
-		if( ( 0.070 < FrameTime ) && ( FrameTime < 0.150 ) && GIsAsyncLoading == false && GetWorld()->bRequestedBlockOnAsyncLoading == false && (GetWorld()->GetTimeSeconds() > 30.0f )  )
+		if ((0.070 < FrameTime) && (FrameTime < 0.150) && IsAsyncLoading() == false && GetWorld()->bRequestedBlockOnAsyncLoading == false && (GetWorld()->GetTimeSeconds() > 30.0f))
 		{
 			// now check to see if we have done a trace in the last 30 seconds otherwise we will just trace ourselves to death
 			static float LastTraceTime = -9999.0f;
@@ -804,8 +804,29 @@ void UGameViewportClient::Draw(FViewport* InViewport, FCanvas* SceneCanvas)
 
 	bool bUIDisableWorldRendering = false;
 	FGameViewDrawer GameViewDrawer;
+	
+	// create the view family for rendering the world scene to the viewport's render target
+	FSceneViewFamilyContext ViewFamily(FSceneViewFamily::ConstructionValues( 	
+		InViewport,
+		GetWorld()->Scene,
+		EngineShowFlags)
+		.SetRealtimeUpdate(true));
 
-	if (EngineShowFlags.VisualizeBuffer)
+	// Allow HMD to modify the view later, just before rendering
+	if (GEngine->HMDDevice.IsValid() && GEngine->IsStereoscopic3D(InViewport))
+	{
+		ISceneViewExtension* HmdViewExt = GEngine->HMDDevice->GetViewExtension();
+		if (HmdViewExt)
+		{
+			ViewFamily.ViewExtensions.Add(HmdViewExt);
+			HmdViewExt->ModifyShowFlags(ViewFamily.EngineShowFlags);
+		}
+	}
+
+	ESplitScreenType::Type SplitScreenConfig = GetCurrentSplitscreenConfiguration();
+	EngineShowFlagOverride(ESFIM_Game, (EViewModeIndex)ViewModeIndex, ViewFamily.EngineShowFlags, NAME_None, SplitScreenConfig != ESplitScreenType::None);
+
+	if (ViewFamily.EngineShowFlags.VisualizeBuffer && AllowDebugViewmodes())
 	{
 		// Process the buffer visualization console command
 		FName NewBufferVisualizationMode = NAME_None;
@@ -841,28 +862,6 @@ void UGameViewportClient::Draw(FViewport* InViewport, FCanvas* SceneCanvas)
 			CurrentBufferVisualizationMode = NewBufferVisualizationMode;
 		}
 	}
-
-	// create the view family for rendering the world scene to the viewport's render target
-	FSceneViewFamilyContext ViewFamily(FSceneViewFamily::ConstructionValues( 	
-		InViewport,
-		GetWorld()->Scene,
-		EngineShowFlags)
-		.SetRealtimeUpdate(true));
-
-	// Allow HMD to modify the view later, just before rendering
-	if (GEngine->HMDDevice.IsValid() && GEngine->IsStereoscopic3D(InViewport))
-	{
-		ISceneViewExtension* HmdViewExt = GEngine->HMDDevice->GetViewExtension();
-		if (HmdViewExt)
-		{
-			ViewFamily.ViewExtensions.Add(HmdViewExt);
-			HmdViewExt->ModifyShowFlags(ViewFamily.EngineShowFlags);
-		}
-	}
-
-
-	ESplitScreenType::Type SplitScreenConfig = GetCurrentSplitscreenConfiguration();
-	EngineShowFlagOverride(ESFIM_Game, (EViewModeIndex)ViewModeIndex, ViewFamily.EngineShowFlags, NAME_None, SplitScreenConfig != ESplitScreenType::None);
 
 	TMap<ULocalPlayer*,FSceneView*> PlayerViewMap;
 
@@ -1003,7 +1002,7 @@ void UGameViewportClient::Draw(FViewport* InViewport, FCanvas* SceneCanvas)
 	GetWorld()->UpdateLevelStreaming();
 
 	// Draw the player views.
-	if (!bDisableWorldRendering && !bUIDisableWorldRendering && PlayerViewMap.Num() > 0)
+	if (!bDisableWorldRendering && !bUIDisableWorldRendering && PlayerViewMap.Num() > 0) //-V560
 	{
 		GetRendererModule().BeginRenderingViewFamily(SceneCanvas,&ViewFamily);
 	}
@@ -1208,7 +1207,10 @@ void UGameViewportClient::Draw(FViewport* InViewport, FCanvas* SceneCanvas)
 					GEngine->HMDDevice->DrawDebug(DebugCanvasObject, eSSP_LEFT_EYE);
 				}
 #endif
-				DebugCanvas->PopTransform();
+				if (DebugCanvas != NULL)
+				{
+					DebugCanvas->PopTransform();
+				}
 
 				GEngine->StereoRenderingDevice->PushViewportCanvas(eSSP_RIGHT_EYE, DebugCanvas, DebugCanvasObject, Viewport);
 				ViewportConsole->PostRender_Console(DebugCanvasObject);
@@ -1218,7 +1220,10 @@ void UGameViewportClient::Draw(FViewport* InViewport, FCanvas* SceneCanvas)
 					GEngine->HMDDevice->DrawDebug(DebugCanvasObject, eSSP_RIGHT_EYE);
 				}
 #endif
-				DebugCanvas->PopTransform();
+				if (DebugCanvas != NULL)
+				{
+					DebugCanvas->PopTransform();
+				}
 
 				// Reset the canvas for rendering to the full viewport.
 				DebugCanvasObject->Reset();
@@ -2954,7 +2959,7 @@ bool UGameViewportClient::HandleDisplayAllCommand( const TCHAR* Cmd, FOutputDevi
 					// so then we only have to iterate over dynamic things each frame
 					for (TObjectIterator<UObject> It; It; ++It)
 					{
-						if (!GUObjectArray.IsDisregardForGC(*It))
+						if (!GetUObjectArray().IsDisregardForGC(*It))
 						{
 							break;
 						}
@@ -3001,7 +3006,7 @@ bool UGameViewportClient::HandleDisplayAllLocationCommand( const TCHAR* Cmd, FOu
 			// so then we only have to iterate over dynamic things each frame
 			for (TObjectIterator<UObject> It(true); It; ++It)
 			{
-				if (!GUObjectArray.IsDisregardForGC(*It))
+				if (!GetUObjectArray().IsDisregardForGC(*It))
 				{
 					break;
 				}
@@ -3039,7 +3044,7 @@ bool UGameViewportClient::HandleDisplayAllRotationCommand( const TCHAR* Cmd, FOu
 			// so then we only have to iterate over dynamic things each frame
 			for (TObjectIterator<UObject> It(true); It; ++It)
 			{
-				if (!GUObjectArray.IsDisregardForGC(*It))
+				if (!GetUObjectArray().IsDisregardForGC(*It))
 				{
 					break;
 				}

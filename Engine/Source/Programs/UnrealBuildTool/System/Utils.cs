@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Serialization;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Linq;
 
 namespace UnrealBuildTool
@@ -75,7 +76,47 @@ namespace UnrealBuildTool
 				
 			return Result;
 		}
-				
+
+		/// <summary>
+		/// Expands variables in $(VarName) format in the given string. Variables are retrieved from the given dictionary, or through the environment of the current process.
+		/// Any unknown variables are ignored.
+		/// </summary>
+		/// <param name="InputString">String to search for variable names</param>
+		/// <param name="Variables">Lookup of variable names to values</param>
+		/// <returns>String with all variables replaced</returns>
+		public static string ExpandVariables(string InputString, Dictionary<string, string> AdditionalVariables = null)
+		{
+			string Result = InputString;
+			for(int Idx = Result.IndexOf("$("); Idx != -1; Idx = Result.IndexOf("$(", Idx))
+			{
+				// Find the end of the variable name
+				int EndIdx = Result.IndexOf(')', Idx + 2);
+				if(EndIdx == -1)
+				{
+					break;
+				}
+
+				// Extract the variable name from the string
+				string Name = Result.Substring(Idx + 2, EndIdx - (Idx + 2));
+
+				// Find the value for it, either from the dictionary or the environment block
+				string Value;
+				if(AdditionalVariables == null || !AdditionalVariables.TryGetValue(Name, out Value))
+				{
+					Value = Environment.GetEnvironmentVariable(Name);
+					if(Value == null)
+					{
+						Idx = EndIdx + 1;
+						continue;
+					}
+				}
+
+				// Replace the variable, or skip past it
+				Result = Result.Substring(0, Idx) + Value + Result.Substring(EndIdx + 1);
+			}
+			return Result;
+		}
+		
 		/**
 		 * This is a faster replacement of File.ReadAllText. Code snippet based on code 
 		 * and analysis by Sam Allen
@@ -172,6 +213,27 @@ namespace UnrealBuildTool
 			public string Value;
 		}
 
+		[DllImport("kernel32.dll", SetLastError=true)]
+		private static extern int GetShortPathName(string pathName, StringBuilder shortName, int cbShortName);
+
+		public static string GetShortPathName(string Path)
+		{
+			int BufferSize = GetShortPathName(Path, null, 0);
+			if (BufferSize == 0)
+			{
+				throw new BuildException("Unable to convert path {0} to 8.3 format", Path);
+			}
+
+			var Builder = new StringBuilder(BufferSize);
+			int ConversionResult = GetShortPathName(Path, Builder, BufferSize);
+			if (ConversionResult == 0)
+			{
+				throw new BuildException("Unable to convert path {0} to 8.3 format", Path);
+			}
+
+			return Builder.ToString();
+		}
+
 		/**
 		 * Sets the environment variables from the passed in batch file
 		 * 
@@ -183,24 +245,39 @@ namespace UnrealBuildTool
 			if( File.Exists( BatchFileName ) )
 			{
 				// Create a wrapper batch file that echoes environment variables to a text file
-				var EnvOutputFileName = Path.GetTempFileName();
-				var EnvReaderBatchFileName = EnvOutputFileName + ".bat";
-				Log.TraceVerbose( "Creating .bat file {0} for harvesting environment variables.", EnvReaderBatchFileName );
+                string EnvOutputFileName;
+                string EnvReaderBatchFileName;
+                try
+                {
+					EnvOutputFileName = Path.GetTempFileName();
+					EnvReaderBatchFileName = EnvOutputFileName + ".bat";
 
-				{
+					Log.TraceVerbose( "Creating .bat file {0} for harvesting environment variables.", EnvReaderBatchFileName );
+
 					var EnvReaderBatchFileContent = new List<string>();
 
+					var EnvVarsToXMLExePath = Path.Combine( GetExecutingAssemblyDirectory(), "EnvVarsToXML.exe" );
+
+					// Convert every path to short filenames to ensure we don't accidentally write out a non-ASCII batch file
+					var ShortBatchFileName       = GetShortPathName(BatchFileName);
+					var ShortEnvOutputFileName   = GetShortPathName(EnvOutputFileName);
+					var ShortEnvVarsToXMLExePath = GetShortPathName(EnvVarsToXMLExePath);
+
 					// Run 'vcvars32.bat' (or similar x64 version) to set environment variables
-					EnvReaderBatchFileContent.Add( String.Format( "call \"{0}\"", BatchFileName ) );
+					EnvReaderBatchFileContent.Add( String.Format( "call \"{0}\"", ShortBatchFileName ) );
 
 					// Pipe all environment variables to a file where we can read them in.
 					// We use a separate executable which runs after the batch file because we want to capture
 					// the environment after it has been set, and there's no easy way of doing this, and parsing
 					// the output of the set command is problematic when the vars contain non-ASCII characters.
-					EnvReaderBatchFileContent.Add( String.Format( "\"{0}\" \"{1}\"", Path.Combine( GetExecutingAssemblyDirectory(), "EnvVarsToXML.exe" ), EnvOutputFileName ) );
+					EnvReaderBatchFileContent.Add( String.Format( "\"{0}\" \"{1}\"", ShortEnvVarsToXMLExePath, ShortEnvOutputFileName ) );
 
 					ResponseFile.Create( EnvReaderBatchFileName, EnvReaderBatchFileContent );
-				}
+                }
+                catch (Exception Ex)
+                {
+                    throw new BuildException(Ex, "Failed to create temporary batch file to harvest environment variables (\"{0}\")", Ex.Message);
+                }
 
 				Log.TraceVerbose( "Finished creating .bat file.  Environment variables will be written to {0}.", EnvOutputFileName );
 
@@ -240,11 +317,18 @@ namespace UnrealBuildTool
 				Settings.CheckCharacters  = false;
 
 				List<EnvVar> EnvVars;
-				using (var Stream = new StreamReader(EnvOutputFileName))
-				using (var Reader = XmlReader.Create(Stream, Settings))
+				try
 				{
-					var Serializer = new XmlSerializer(typeof(List<EnvVar>));
-					EnvVars = (List<EnvVar>)Serializer.Deserialize(Reader);
+					using (var Stream = new StreamReader(EnvOutputFileName))
+					using (var Reader = XmlReader.Create(Stream, Settings))
+					{
+						var Serializer = new XmlSerializer(typeof(List<EnvVar>));
+						EnvVars = (List<EnvVar>)Serializer.Deserialize(Reader);
+					}
+				}
+				catch (Exception e)
+				{
+					throw new BuildException(e, "Failed to read environment variables from XML file: {0}", EnvOutputFileName);
 				}
 
 				foreach (var EnvVar in EnvVars)

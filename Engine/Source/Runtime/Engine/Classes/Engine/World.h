@@ -338,7 +338,7 @@ struct FStartPhysicsTickFunction : public FTickFunction
 	**/
 	virtual void ExecuteTick(float DeltaTime, enum ELevelTick TickType, ENamedThreads::Type CurrentThread, const FGraphEventRef& MyCompletionGraphEvent) override;
 	/** Abstract function to describe this tick. Used to print messages about illegal cycles in the dependency graph **/
-	virtual FString DiagnosticMessage();
+	virtual FString DiagnosticMessage() override;
 };
 
 /** 
@@ -361,7 +361,7 @@ struct FEndPhysicsTickFunction : public FTickFunction
 	**/
 	virtual void ExecuteTick(float DeltaTime, enum ELevelTick TickType, ENamedThreads::Type CurrentThread, const FGraphEventRef& MyCompletionGraphEvent) override;
 	/** Abstract function to describe this tick. Used to print messages about illegal cycles in the dependency graph **/
-	virtual FString DiagnosticMessage();
+	virtual FString DiagnosticMessage() override;
 };
 
 /**
@@ -384,7 +384,7 @@ struct FStartClothSimulationFunction : public FTickFunction
 	**/
 	virtual void ExecuteTick(float DeltaTime, enum ELevelTick TickType, ENamedThreads::Type CurrentThread, const FGraphEventRef& MyCompletionGraphEvent) override;
 	/** Abstract function to describe this tick. Used to print messages about illegal cycles in the dependency graph **/
-	virtual FString DiagnosticMessage();
+	virtual FString DiagnosticMessage() override;
 };
 
 /**
@@ -407,7 +407,7 @@ struct FEndClothSimulationFunction : public FTickFunction
 	**/
 	virtual void ExecuteTick(float DeltaTime, enum ELevelTick TickType, ENamedThreads::Type CurrentThread, const FGraphEventRef& MyCompletionGraphEvent) override;
 	/** Abstract function to describe this tick. Used to print messages about illegal cycles in the dependency graph **/
-	virtual FString DiagnosticMessage();
+	virtual FString DiagnosticMessage() override;
 };
 
 /* Struct of optional parameters passed to SpawnActor function(s). */
@@ -3192,6 +3192,9 @@ public:
 	// Delegate type for level change events
 	DECLARE_MULTICAST_DELEGATE_TwoParams(FOnLevelChanged, ULevel*, UWorld*);
 
+	// delegate for generating world asset registry tags so project/game scope can add additional tags for filtering levels in their UI, etc
+	DECLARE_MULTICAST_DELEGATE_TwoParams(FWorldGetAssetTags, const UWorld*, TArray<UObject::FAssetRegistryTag>&);
+
 	// Callback for world creation
 	static FWorldEvent OnPostWorldCreation;
 	
@@ -3222,6 +3225,9 @@ public:
 	// LoadMap (a NULL object means the LoadMap case, because all levels will be 
 	// removed from the world without a RemoveFromWorld call for each)
 	static FOnLevelChanged			LevelRemovedFromWorld;
+
+	// called by UWorld::GetAssetRegistryTags()
+	static FWorldGetAssetTags GetAssetTags;
 
 private:
 	FWorldDelegates() {}

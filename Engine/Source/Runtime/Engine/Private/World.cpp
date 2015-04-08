@@ -76,6 +76,7 @@
 #include "Engine/Polys.h"
 #include "Engine/LightMapTexture2D.h"
 #include "Engine/GameInstance.h"
+#include "UObject/UObjectThreadContext.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogWorld, Log, All);
 DEFINE_LOG_CATEGORY(LogSpawn);
@@ -102,6 +103,7 @@ FWorldDelegates::FWorldCleanupEvent FWorldDelegates::OnWorldCleanup;
 FWorldDelegates::FWorldEvent FWorldDelegates::OnPreWorldFinishDestroy;
 FWorldDelegates::FOnLevelChanged FWorldDelegates::LevelAddedToWorld;
 FWorldDelegates::FOnLevelChanged FWorldDelegates::LevelRemovedFromWorld;
+FWorldDelegates::FWorldGetAssetTags FWorldDelegates::GetAssetTags;
 
 UWorld::UWorld( const FObjectInitializer& ObjectInitializer )
 :	UObject(ObjectInitializer)
@@ -273,7 +275,7 @@ bool UWorld::Rename(const TCHAR* InName, UObject* NewOuter, ERenameFlags Flags)
 	const bool bTestRename = (Flags & REN_Test) != 0;
 
 	// Rename the level script blueprint now, unless we are in PostLoad. ULevel::PostLoad should handle renaming this at load time.
-	if ( !GIsRoutingPostLoad )
+	if (!FUObjectThreadContext::Get().IsRoutingPostLoad)
 	{
 		const bool bDontCreate = true;
 		UBlueprint* LevelScriptBlueprint = PersistentLevel->GetLevelScriptBlueprint(bDontCreate);
@@ -4292,23 +4294,6 @@ void FSeamlessTravelHandler::SeamlessTravelLoadCallback(const FName& PackageName
 			}
 		}
 
-#if WITH_EDITOR
-		FWorldContext &WorldContext = GEngine->GetWorldContextFromWorldChecked(CurrentWorld);
-		if (WorldContext.WorldType == EWorldType::PIE)
-		{
-			// If we are a PIE world and the world we just "loaded" is already initialized, then we're probably travelling to the editor world and we
-			// need to create a PIE world by duplication instead
-			if ( World && World->bIsWorldInitialized)
-			{
-				FString PIEMapName;
-				World = GEngine->CreatePIEWorldByDuplication(WorldContext, World, PIEMapName);
-				World->ClearFlags(RF_Standalone);
-				// CreatePIEWorldByDuplication clears GIsPlayInEditorWorld so set it again
-				GIsPlayInEditorWorld = true;
-			}
-		}
-#endif
-
 		SetHandlerLoadedData(LevelPackage, World);
 	}
 }
@@ -4507,17 +4492,40 @@ void FSeamlessTravelHandler::StartLoadingDestination()
 			{
 				// Load localized part of level first in case it exists. We don't need to worry about GC or completion 
 				// callback as we always kick off another async IO for the level below.
-				LoadPackageAsync(*LocalizedPackageName);
+				LoadPackageAsync(LocalizedPackageName);
 			}
 		}
 
 		// Set the world type in the static map, so that UWorld::PostLoad can set the world type
 		const FName URLMapFName = FName(*PendingTravelURL.Map);
 		UWorld::WorldTypePreLoadMap.FindOrAdd(URLMapFName) = CurrentWorld->WorldType;
-
-		LoadPackageAsync(PendingTravelURL.Map, 
-			FLoadPackageAsyncDelegate::CreateRaw(this, &FSeamlessTravelHandler::SeamlessTravelLoadCallback), 
-			PendingTravelGuid.IsValid() ? &PendingTravelGuid : NULL
+		// In PIE we might want to mangle MapPackageName when traveling to a map loaded in the editor
+		FString URLMapPackageName = PendingTravelURL.Map;
+		FString URLMapPackageToLoadFrom = PendingTravelURL.Map;
+		uint32 PackageFlags = 0;
+		int32 PIEInstanceID = INDEX_NONE;
+		
+#if WITH_EDITOR
+		if (GIsEditor)
+		{
+			UPackage* EditorLevelPackage = (UPackage*)StaticFindObjectFast(UPackage::StaticClass(), NULL, URLMapFName, 0, 0, RF_PendingKill);
+			if (EditorLevelPackage)
+			{
+				FWorldContext &WorldContext = GEngine->GetWorldContextFromHandleChecked(WorldContextHandle);
+				PackageFlags |= PKG_PlayInEditor;
+				PIEInstanceID = WorldContext.PIEInstance;
+				URLMapPackageName = UWorld::ConvertToPIEPackageName(URLMapPackageName, PIEInstanceID);
+			}
+		}
+#endif
+		LoadPackageAsync(
+			URLMapPackageName, 
+			PendingTravelGuid.IsValid() ? &PendingTravelGuid : NULL,
+			NAME_None,
+			*URLMapPackageToLoadFrom,
+			FLoadPackageAsyncDelegate::CreateRaw(this, &FSeamlessTravelHandler::SeamlessTravelLoadCallback), 			
+			PackageFlags,
+			PIEInstanceID
 			);
 	}
 	else
@@ -5532,6 +5540,7 @@ void UWorld::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const
 			OutTags.Add(FAssetRegistryTag("FiB", FString(), FAssetRegistryTag::TT_Hidden));
 		}
 	}
+	FWorldDelegates::GetAssetTags.Broadcast(this, OutTags);
 }
 #endif
 
