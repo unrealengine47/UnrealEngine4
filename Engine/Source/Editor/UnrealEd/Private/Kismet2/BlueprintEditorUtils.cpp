@@ -1892,26 +1892,34 @@ void FBlueprintEditorUtils::UpdateDelegatesInBlueprint(UBlueprint* Blueprint)
 // Blueprint has materially changed.  Recompile the skeleton, notify observers, and mark the package as dirty.
 void FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(UBlueprint* Blueprint)
 {
-	auto SkeletalRecompileChildren = [](TArray<UClass*> ChildrenOfClass)
+	struct FRefreshHelper
 	{
-		for (auto SkelClass : ChildrenOfClass)
+		static void SkeletalRecompileChildren(TArray<UClass*> SkelClassesToRecompile)
 		{
-			IKismetCompilerInterface& Compiler = FModuleManager::LoadModuleChecked<IKismetCompilerInterface>(KISMET_COMPILER_MODULENAME);
-
-			auto Blueprint = Cast<UBlueprint>(SkelClass->ClassGeneratedBy);
-			if (Blueprint
-				&& Blueprint->Status != BS_BeingCreated
-				&& !Blueprint->bBeingCompiled
-				&& !Blueprint->bIsRegeneratingOnLoad
-				&& Blueprint->bHasBeenRegenerated)
+			for (auto SkelClass : SkelClassesToRecompile)
 			{
-				FCompilerResultsLog Results;
-				Results.bSilentMode = true;
-				Results.bLogInfoOnly = true;
+				auto SkelBlueprint = Cast<UBlueprint>(SkelClass->ClassGeneratedBy);
+				if (SkelBlueprint
+					&& SkelBlueprint->Status != BS_BeingCreated
+					&& !SkelBlueprint->bBeingCompiled
+					&& !SkelBlueprint->bIsRegeneratingOnLoad
+					&& SkelBlueprint->bHasBeenRegenerated)
+				{
+					TArray<UClass*> ChildrenOfClass;
+					GetDerivedClasses(SkelClass, ChildrenOfClass, false);
 
-				FKismetCompilerOptions CompileOptions;
-				CompileOptions.CompileType = EKismetCompileType::SkeletonOnly;
-				Compiler.CompileBlueprint(Blueprint, CompileOptions, Results);
+					IKismetCompilerInterface& Compiler = FModuleManager::LoadModuleChecked<IKismetCompilerInterface>(KISMET_COMPILER_MODULENAME);
+
+					FCompilerResultsLog Results;
+					Results.bSilentMode = true;
+					Results.bLogInfoOnly = true;
+
+					FKismetCompilerOptions CompileOptions;
+					CompileOptions.CompileType = EKismetCompileType::SkeletonOnly;
+					Compiler.CompileBlueprint(SkelBlueprint, CompileOptions, Results);
+
+					SkeletalRecompileChildren(ChildrenOfClass);
+				}
 			}
 		}
 	};
@@ -1945,7 +1953,7 @@ void FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(UBlueprint* Blue
 		TArray<UClass*> ChildrenOfClass;
 		if (UClass* SkelClass = Blueprint->SkeletonGeneratedClass)
 		{
-			GetDerivedClasses(SkelClass, ChildrenOfClass);
+			GetDerivedClasses(SkelClass, ChildrenOfClass, false);
 		}
 
 		{
@@ -1959,7 +1967,7 @@ void FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(UBlueprint* Blue
 		}
 		UpdateDelegatesInBlueprint(Blueprint);
 
-		SkeletalRecompileChildren(ChildrenOfClass);
+		FRefreshHelper::SkeletalRecompileChildren(ChildrenOfClass);
 
 		{
 			BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_NotifyBlueprintChanged);
@@ -5740,6 +5748,76 @@ void FBlueprintEditorUtils::UpdateRootComponentReference(UBlueprint* Blueprint)
 	}
 }
 
+bool FBlueprintEditorUtils::IsSCSComponentProperty(UObjectProperty* MemberProperty)
+{
+	if (!MemberProperty->PropertyClass->IsChildOf<UActorComponent>())
+	{
+		return false;
+	}
+
+
+	UClass* OwnerClass = MemberProperty->GetOwnerClass();
+	UBlueprintGeneratedClass* BpClassOwner = Cast<UBlueprintGeneratedClass>(OwnerClass);
+
+	if (BpClassOwner == nullptr)
+	{
+		// if this isn't directly a blueprint property, then we check if it is a 
+		// associated with a natively added component (which would still be  
+		// accessible through the SCS tree)
+
+		if (OwnerClass == nullptr)
+		{
+			return false;
+		}
+		else if (const AActor* ActorCDO = GetDefault<AActor>(OwnerClass))
+		{
+			TInlineComponentArray<UActorComponent*> CDOComponents;
+			ActorCDO->GetComponents(CDOComponents);
+
+			const void* PropertyAddress = MemberProperty->ContainerPtrToValuePtr<void>(ActorCDO);
+			UObject* PropertyValue = MemberProperty->GetObjectPropertyValue(PropertyAddress);
+
+			for (UActorComponent* Component : CDOComponents)
+			{
+				if (!Component->GetClass()->IsChildOf(MemberProperty->PropertyClass))
+				{
+					continue;
+				}
+
+				if (PropertyValue == Component)
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	FMemberReference MemberRef;
+	MemberRef.SetFromField<UProperty>(MemberProperty, /*bIsConsideredSelfContext =*/false);
+	bool const bIsGuidValid = MemberRef.GetMemberGuid().IsValid();
+
+	if (BpClassOwner->SimpleConstructionScript != nullptr)
+	{
+		TArray<USCS_Node*> SCSNodes = BpClassOwner->SimpleConstructionScript->GetAllNodes();
+		for (USCS_Node* ScsNode : SCSNodes)
+		{
+			if (bIsGuidValid && ScsNode->VariableGuid.IsValid())
+			{
+				if (ScsNode->VariableGuid == MemberRef.GetMemberGuid())
+				{
+					return true;
+				}
+			}
+			else if (ScsNode->VariableName == MemberRef.GetMemberName())
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 /** Temporary fix for cut-n-paste error that failed to carry transactional flags */
 void FBlueprintEditorUtils::UpdateTransactionalFlags(UBlueprint* Blueprint)
 {
@@ -7583,7 +7661,10 @@ UK2Node_FunctionResult* FBlueprintEditorUtils::FindOrCreateFunctionResultNode(UK
 		UEdGraph* Graph = InFunctionEntryNode->GetGraph();
 
 		TArray<UK2Node_FunctionResult*> ResultNode;
-		Graph->GetNodesOfClass(ResultNode);
+		if (Graph)
+		{
+			Graph->GetNodesOfClass(ResultNode);
+		}
 
 		if (Graph && ResultNode.Num() == 0)
 		{

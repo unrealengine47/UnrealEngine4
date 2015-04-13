@@ -82,15 +82,9 @@ static bool RunCommandInternalRaw(const FString& InCommand, const FString& InPat
 
 	FullCommand += LogableCommand;
 
-	UE_LOG(LogSourceControl, Log, TEXT("RunCommandInternalRaw: 'git %s'"), *LogableCommand);
 // @todo: temporary debug logs
 //	UE_LOG(LogSourceControl, Log, TEXT("RunCommandInternalRaw: 'git %s'"), *FullCommand);
 	FPlatformProcess::ExecProcess(*InPathToGitBinary, *FullCommand, &ReturnCode, &OutResults, &OutErrors);
-	UE_LOG(LogSourceControl, Log, TEXT("RunCommandInternalRaw: ExecProcess ReturnCode=%d OutResults='%s'"), ReturnCode, *OutResults);
-	if(!OutErrors.IsEmpty())
-	{
-		UE_LOG(LogSourceControl, Error, TEXT("RunCommandInternalRaw: ExecProcess ReturnCode=%d OutErrors='%s'"), ReturnCode, *OutErrors);
-	}
 
 	return ReturnCode == 0;
 }
@@ -118,8 +112,25 @@ FString FindGitBinaryPath()
 	// "git.exe" launch "git/cmd/git.exe" that redirect to "git/bin/git.exe" and ExecProcess() is unable to catch its outputs streams.
 	FString GitBinaryPath(TEXT("C:/Program Files (x86)/Git/bin/git.exe"));
 	bool bFound = CheckGitAvailability(GitBinaryPath);
-	
-	// 2) If Git is not found in default install, look for the PortableGit provided by GitHub for Windows
+
+	// 2) Else, look for the version of Git bundled with SmartGit "Installer with JRE"
+	if(!bFound)
+	{
+		FString GitBinaryPath(TEXT("C:/Program Files (x86)/SmartGit/bin/git.exe"));
+		bFound = CheckGitAvailability(GitBinaryPath);
+	}
+
+	// 3) Else, look for the local_git provided by SourceTree
+	if(!bFound)
+	{
+		// C:\Users\UserName\AppData\Local\Atlassian\SourceTree\git_local\bin
+		TCHAR AppDataLocalPath[4096];
+		FPlatformMisc::GetEnvironmentVariable(TEXT("LOCALAPPDATA"), AppDataLocalPath, ARRAY_COUNT(AppDataLocalPath));
+		GitBinaryPath = FString::Printf(TEXT("%s/Atlassian/SourceTree/git_local/bin/git.exe"), AppDataLocalPath);
+		bFound = CheckGitAvailability(GitBinaryPath);
+	}
+
+	// 4) Else, look for the PortableGit provided by GitHub for Windows
 	if(!bFound)
 	{
 		// The latest GitHub for windows adds its binaries into the local appdata directory:
@@ -129,19 +140,28 @@ FString FindGitBinaryPath()
 		FString SearchPath = FString::Printf(TEXT("%s/GitHub/PortableGit_*"), AppDataLocalPath);
 		TArray<FString> PortableGitFolders;
 		IFileManager::Get().FindFiles(PortableGitFolders, *SearchPath, false, true);
-		
-		// If we found a Portable Git setup the path to it, otherwise we leave GitBinaryPath = to the default set above.
-		if (PortableGitFolders.Num() > 0)
+		if(PortableGitFolders.Num() > 0)
 		{
 			// FindFiles just returns directory names, so we need to prepend the root path to get the full path.
 			GitBinaryPath = FString::Printf(TEXT("%s/GitHub/%s/bin/git.exe"), AppDataLocalPath, *(PortableGitFolders.Last())); // keep only the last PortableGit found
+			bFound = CheckGitAvailability(GitBinaryPath);
 		}
 	}
 #else
 	FString GitBinaryPath = TEXT("/usr/bin/git");
+	bool bFound = CheckGitAvailability(GitBinaryPath);
 #endif
 
-	FPaths::MakePlatformFilename( GitBinaryPath );
+	if(bFound)
+	{
+		FPaths::MakePlatformFilename(GitBinaryPath);
+	}
+	else
+	{
+		// If we did not find a path to Git, set it empty
+		GitBinaryPath.Empty();
+	}
+
 	return GitBinaryPath;
 }
 
@@ -154,21 +174,16 @@ bool CheckGitAvailability(const FString& InPathToGitBinary)
 	bGitAvailable = RunCommandInternalRaw(TEXT("version"), InPathToGitBinary, FString(), TArray<FString>(), TArray<FString>(), InfoMessages, ErrorMessages);
 	if(bGitAvailable)
 	{
-		if(InfoMessages.Contains("git"))
-		{
-			bGitAvailable = true;
-		}
-		else
+		if(!InfoMessages.Contains("git"))
 		{
 			bGitAvailable = false;
 		}
 	}
 
-	// @todo also check Git config user.name & user.email
-
 	return bGitAvailable;
 }
 
+// Find the root of the Git repository, looking from the GameDir and upward in its parent directories.
 bool FindRootDirectory(const FString& InPathToGameDir, FString& OutRepositoryRoot)
 {
 	bool bFound = false;
@@ -178,7 +193,7 @@ bool FindRootDirectory(const FString& InPathToGameDir, FString& OutRepositoryRoo
 	while(!bFound && !OutRepositoryRoot.IsEmpty())
 	{
 		PathToGitSubdirectory = OutRepositoryRoot;
-		PathToGitSubdirectory += TEXT(".git"); // Look for the ".git" subdirectory at the root of every Git repository
+		PathToGitSubdirectory += TEXT(".git"); // Look for the ".git" subdirectory present at the root of every Git repository
 		bFound = IFileManager::Get().DirectoryExists(*PathToGitSubdirectory);
 		if(!bFound)
 		{
@@ -196,6 +211,57 @@ bool FindRootDirectory(const FString& InPathToGameDir, FString& OutRepositoryRoo
 	}
 
 	return bFound;
+}
+
+void GetUserConfig(const FString& InPathToGitBinary, const FString& InRepositoryRoot, FString& OutUserName, FString& OutUserEmail)
+{
+	bool bResults;
+	TArray<FString> InfoMessages;
+	TArray<FString> ErrorMessages;
+	TArray<FString> Parameters;
+	Parameters.Add(TEXT("user.name"));
+	bResults = RunCommandInternal(TEXT("config"), InPathToGitBinary, InRepositoryRoot, Parameters, TArray<FString>(), InfoMessages, ErrorMessages);
+	if (bResults && InfoMessages.Num() > 0)
+	{
+		OutUserName = InfoMessages[0];
+	}
+
+	Parameters.Reset();
+	Parameters.Add(TEXT("user.email"));
+	InfoMessages.Reset();
+	bResults &= RunCommandInternal(TEXT("config"), InPathToGitBinary, InRepositoryRoot, Parameters, TArray<FString>(), InfoMessages, ErrorMessages);
+	if (bResults && InfoMessages.Num() > 0)
+	{
+		OutUserEmail = InfoMessages[0];
+	}
+}
+
+void GetBranchName(const FString& InPathToGitBinary, const FString& InRepositoryRoot, FString& OutBranchName)
+{
+	bool bResults;
+	TArray<FString> InfoMessages;
+	TArray<FString> ErrorMessages;
+	TArray<FString> Parameters;
+	Parameters.Add(TEXT("--short"));
+	Parameters.Add(TEXT("--quiet"));		// no error message while in detached HEAD
+	Parameters.Add(TEXT("HEAD"));	
+	bResults = RunCommandInternal(TEXT("symbolic-ref"), InPathToGitBinary, InRepositoryRoot, Parameters, TArray<FString>(), InfoMessages, ErrorMessages);
+	if (bResults && InfoMessages.Num() > 0)
+	{
+		OutBranchName = InfoMessages[0];
+	}
+	else
+	{
+		Parameters.Reset();
+		Parameters.Add(TEXT("-1"));
+		Parameters.Add(TEXT("--format=\"%h\""));		// no error message while in detached HEAD
+		bResults = RunCommandInternal(TEXT("log"), InPathToGitBinary, InRepositoryRoot, Parameters, TArray<FString>(), InfoMessages, ErrorMessages);
+		if (bResults && InfoMessages.Num() > 0)
+		{
+			OutBranchName = "HEAD detached at ";
+			OutBranchName += InfoMessages[0];
+		}
+	}
 }
 
 bool RunCommand(const FString& InCommand, const FString& InPathToGitBinary, const FString& InRepositoryRoot, const TArray<FString>& InParameters, const TArray<FString>& InFiles, TArray<FString>& OutResults, TArray<FString>& OutErrorMessages)
@@ -233,17 +299,19 @@ bool RunCommit(const FString& InPathToGitBinary, const FString& InRepositoryRoot
 {
 	bool bResult = true;
 
-	if (InFiles.Num() > GitSourceControlConstants::MaxFilesPerBatch)
+	if(InFiles.Num() > GitSourceControlConstants::MaxFilesPerBatch)
 	{
 		// Batch files up so we dont exceed command-line limits
 		int32 FileCount = 0;
-		TArray<FString> FilesInBatch;
-		for(int32 FileIndex = 0; FileIndex < GitSourceControlConstants::MaxFilesPerBatch; FileIndex++, FileCount++)
 		{
-			FilesInBatch.Add(InFiles[FileCount]);
+			TArray<FString> FilesInBatch;
+			for(int32 FileIndex = 0; FileIndex < GitSourceControlConstants::MaxFilesPerBatch; FileIndex++, FileCount++)
+			{
+				FilesInBatch.Add(InFiles[FileCount]);
+			}
+			// First batch is a simple "git commit" command with only the first files
+			bResult &= RunCommandInternal(TEXT("commit"), InPathToGitBinary, InRepositoryRoot, InParameters, FilesInBatch, OutResults, OutErrorMessages);
 		}
-		// First batch is a simple "git commit" command with only the first files
-		bResult &= RunCommandInternal(TEXT("commit"), InPathToGitBinary, InRepositoryRoot, InParameters, FilesInBatch, OutResults, OutErrorMessages);
 		
 		TArray<FString> Parameters;
 		for(const auto& Parameter : InParameters)
@@ -290,7 +358,7 @@ public:
 		FString RelativeFilename = InResult.RightChop(3);
 		// Note: this is not enough in case of a rename from -> to
 		int32 RenameIndex;
-		if (RelativeFilename.FindLastChar('>', RenameIndex))
+		if(RelativeFilename.FindLastChar('>', RenameIndex))
 		{
 			// Extract only the second part of a rename "from -> to"
 			RelativeFilename = RelativeFilename.RightChop(RenameIndex + 2);

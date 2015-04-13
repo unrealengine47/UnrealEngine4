@@ -219,9 +219,9 @@ class FDrawTranslucentMeshAction
 public:
 
 	const FViewInfo& View;
-	bool bBackFace;
-	FHitProxyId HitProxyId;
 	const FProjectedShadowInfo* TranslucentSelfShadow;
+	FHitProxyId HitProxyId;
+	bool bBackFace;
 	bool bUseTranslucentSelfShadowing;
 
 	/** Initialization constructor. */
@@ -233,9 +233,9 @@ public:
 		bool bInUseTranslucentSelfShadowing
 		):
 		View(InView),
-		bBackFace(bInBackFace),
-		HitProxyId(InHitProxyId),
 		TranslucentSelfShadow(InTranslucentSelfShadow),
+		HitProxyId(InHitProxyId),
+		bBackFace(bInBackFace),
 		bUseTranslucentSelfShadowing(bInUseTranslucentSelfShadowing)
 	{}
 
@@ -283,7 +283,7 @@ public:
 			// Translucent meshes need scene render targets set as textures
 			ESceneRenderTargetsMode::SetTextures,
 			bIsLitMaterial && Scene && Scene->SkyLight && !Scene->SkyLight->bHasStaticLighting,
-			Scene && Scene->HasAtmosphericFog() && View.Family->EngineShowFlags.Atmosphere,
+			Scene && Scene->HasAtmosphericFog() && View.Family->EngineShowFlags.AtmosphericFog && View.Family->EngineShowFlags.Fog,
 			View.Family->EngineShowFlags.ShaderComplexity,
 			Parameters.bAllowFog
 			);

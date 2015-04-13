@@ -1914,6 +1914,7 @@ void UCharacterMovementComponent::StartNewPhysics(float deltaTime, int32 Iterati
 		return;
 	}
 
+	const bool bSavedMovementInProgress = bMovementInProgress;
 	bMovementInProgress = true;
 
 	switch ( MovementMode )
@@ -1944,7 +1945,7 @@ void UCharacterMovementComponent::StartNewPhysics(float deltaTime, int32 Iterati
 		break;
 	}
 
-	bMovementInProgress = false;
+	bMovementInProgress = bSavedMovementInProgress;
 	if ( bDeferUpdateMoveComponent )
 	{
 		SetUpdatedComponent(DeferredUpdatedMoveComponent);
@@ -2726,14 +2727,14 @@ void UCharacterMovementComponent::PhysFlying(float deltaTime, int32 Iterations)
 	FHitResult Hit(1.f);
 	SafeMoveUpdatedComponent(Adjusted, CharacterOwner->GetActorRotation(), true, Hit);
 
-	if( Hit.Time < 1.f && CharacterOwner )
+	if (Hit.Time < 1.f)
 	{
-		const FVector GravDir = FVector(0.f,0.f,-1.f);
+		const FVector GravDir = FVector(0.f, 0.f, -1.f);
 		const FVector VelDir = Velocity.GetSafeNormal();
 		const float UpDown = GravDir | VelDir;
 
 		bool bSteppedUp = false;
-		if( (FMath::Abs(Hit.ImpactNormal.Z) < 0.2f) && (UpDown < 0.5f) && (UpDown > -0.2f) && CanStepUp(Hit))
+		if ((FMath::Abs(Hit.ImpactNormal.Z) < 0.2f) && (UpDown < 0.5f) && (UpDown > -0.2f) && CanStepUp(Hit))
 		{
 			float stepZ = CharacterOwner->GetActorLocation().Z;
 			bSteppedUp = StepUp(GravDir, Adjusted * (1.f - Hit.Time), Hit);
@@ -2742,7 +2743,7 @@ void UCharacterMovementComponent::PhysFlying(float deltaTime, int32 Iterations)
 				OldLocation.Z = CharacterOwner->GetActorLocation().Z + (OldLocation.Z - stepZ);
 			}
 		}
-		
+
 		if (!bSteppedUp)
 		{
 			//adjust and try again
@@ -2750,8 +2751,8 @@ void UCharacterMovementComponent::PhysFlying(float deltaTime, int32 Iterations)
 			SlideAlongSurface(Adjusted, (1.f - Hit.Time), Hit.Normal, Hit, true);
 		}
 	}
-	
-	if( !bJustTeleported && !HasRootMotion() && CharacterOwner )
+
+	if (!bJustTeleported && !HasRootMotion())
 	{
 		Velocity = (CharacterOwner->GetActorLocation() - OldLocation) / deltaTime;
 	}
@@ -2877,11 +2878,11 @@ void UCharacterMovementComponent::StartSwimming(FVector OldLocation, FVector Old
 		}
 		MoveUpdatedComponent(End - CharacterOwner->GetActorLocation(), CharacterOwner->GetActorRotation(), true);
 	}
-	if ( !HasRootMotion() && CharacterOwner && (Velocity.Z > 2.f*SWIMBOBSPEED) && (Velocity.Z < 0.f)) //allow for falling out of water
+	if ( !HasRootMotion() && (Velocity.Z > 2.f*SWIMBOBSPEED) && (Velocity.Z < 0.f)) //allow for falling out of water
 	{
 		Velocity.Z = SWIMBOBSPEED - Velocity.Size2D() * 0.7f; //smooth bobbing
 	}
-	if ( (remainingTime >= MIN_TICK_TIME) && (Iterations < MaxSimulationIterations) && CharacterOwner )
+	if ( (remainingTime >= MIN_TICK_TIME) && (Iterations < MaxSimulationIterations) )
 	{
 		PhysSwimming(remainingTime, Iterations);
 	}

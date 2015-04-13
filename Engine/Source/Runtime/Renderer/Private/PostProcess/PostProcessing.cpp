@@ -1518,15 +1518,14 @@ void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, FViewInfo& V
 			{
 				Node = Context.Graph.RegisterPass(new FRCPassPostProcessHMD());
 			}
-
+#if HAS_MORPHEUS
 			else if(DeviceType == EHMDDeviceType::DT_Morpheus)
 			{
-#if MORPHEUS_ENGINE_DISTORTION
-				Node = Context.Graph.RegisterPass(new FRCPassPostProcessMorpheus());
-#endif
-				bHMDWantsUpscale = true;
+				FRCPassPostProcessMorpheus* MorpheusPass = new FRCPassPostProcessMorpheus();
+				MorpheusPass->SetInput(ePId_Input0, FRenderingCompositeOutputRef(Context.FinalOutput));
+				Node = Context.Graph.RegisterPass(MorpheusPass);
 			}
-
+#endif
 			
 			if(Node)
 			{

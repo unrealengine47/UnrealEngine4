@@ -384,16 +384,14 @@ void UStaticMeshComponent::CheckForErrors()
 		// Overall scale factor for this mesh.
 		const FVector& TotalScale3D = ComponentToWorld.GetScale3D();
 		if ( !TotalScale3D.IsUniform() &&
-			 (StaticMesh->BodySetup->AggGeom.BoxElems.Num() > 0   ||
-			  StaticMesh->BodySetup->AggGeom.SphylElems.Num() > 0 ||
+			 (StaticMesh->BodySetup->AggGeom.SphylElems.Num() > 0 ||
 			  StaticMesh->BodySetup->AggGeom.SphereElems.Num() > 0) )
-
 		{
 			FFormatNamedArguments Arguments;
 			Arguments.Add(TEXT("MeshName"), FText::FromString(StaticMesh->GetName()));
 			FMessageLog("MapCheck").Warning()
 				->AddToken(FUObjectToken::Create(Owner))
-				->AddToken(FTextToken::Create(FText::Format(LOCTEXT( "MapCheck_Message_SimpleCollisionButNonUniformScale", "'{MeshName}' has simple collision but is being scaled non-uniformly - collision creation will fail" ), Arguments)))
+				->AddToken(FTextToken::Create(FText::Format(LOCTEXT( "MapCheck_Message_SimpleCollisionButNonUniformScale", "'{MeshName}' has sphere or capsule simple collision but is being scaled non-uniformly - collision creation will fail" ), Arguments)))
 				->AddToken(FMapErrorToken::Create(FMapErrors::SimpleCollisionButNonUniformScale));
 		}
 	}
@@ -402,7 +400,7 @@ void UStaticMeshComponent::CheckForErrors()
 	{
 		FMessageLog("MapCheck").Warning()
 			->AddToken(FUObjectToken::Create(this))
-			->AddToken(FTextToken::Create(FText::Format(LOCTEXT( "MapCheck_Message_SimulatePhyNoSimpleCollision", "{0} : Using bSimulatePhysics but StaticMesh has not simple collision."), FText::FromString(GetName()) ) ));
+			->AddToken(FTextToken::Create(FText::Format(LOCTEXT( "MapCheck_Message_SimulatePhyNoSimpleCollision", "{0} : Using bSimulatePhysics but StaticMesh has no simple collision."), FText::FromString(GetName()) ) ));
 	}
 
 	if( Mobility == EComponentMobility::Movable &&
@@ -1729,9 +1727,10 @@ bool UStaticMeshComponent::ComponentIsTouchingSelectionBox(const FBox& InSelBBox
 				}
 			}
 
-			// If the selection box has to encompass all of the component and none of the component's verts failed the intersection test, this component
-			// is consider touching
-			return true;
+			// Either:
+			// a) It must encompass the entire component and all points were intersected (return true), or;
+			// b) It needn't encompass the entire component but no points were intersected (return false)
+			return bMustEncompassEntireComponent;
 		}
 	}
 
@@ -1766,7 +1765,10 @@ bool UStaticMeshComponent::ComponentIsTouchingSelectionFrustum(const FConvexVolu
 				}
 			}
 
-			return true;
+			// Either:
+			// a) It must encompass the entire component and all points were intersected (return true), or;
+			// b) It needn't encompass the entire component but no points were intersected (return false)
+			return bMustEncompassEntireComponent;
 		}
 	}
 

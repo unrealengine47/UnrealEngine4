@@ -52,6 +52,11 @@ public class DeploymentContext //: ProjectParams
 	public List<UnrealTargetConfiguration> StageTargetConfigurations;
 
 	/// <summary>
+	/// Receipts for the build targets that should be staged
+	/// </summary>
+	public List<BuildReceipt> StageTargetReceipts;
+
+	/// <summary>
 	///  this is the root directory that contains the engine: d:\a\UE4\
 	/// </summary>
 	public string LocalRoot;
@@ -200,6 +205,10 @@ public class DeploymentContext //: ProjectParams
 	/// </summary>
 	public string ShortProjectName;
 
+	/// <summary>
+	/// If true, multiple platforms are being merged together - some behavior needs to change (but not much)
+	/// </summary>
+	public bool bIsCombiningMultiplePlatforms = false;
 
 	public DeploymentContext(
 		string RawProjectPathOrName,
@@ -210,6 +219,7 @@ public class DeploymentContext //: ProjectParams
 		Platform InSourcePlatform,
         Platform InTargetPlatform,
 		List<UnrealTargetConfiguration> InTargetConfigurations,
+		IEnumerable<BuildReceipt> InStageTargetReceipts,
 		List<String> InStageExecutables,
 		bool InServer,
 		bool InCooked,
@@ -228,6 +238,7 @@ public class DeploymentContext //: ProjectParams
         CookSourcePlatform = InSourcePlatform;
 		StageTargetPlatform = InTargetPlatform;
 		StageTargetConfigurations = new List<UnrealTargetConfiguration>(InTargetConfigurations);
+		StageTargetReceipts = new List<BuildReceipt>(InStageTargetReceipts);
 		StageExecutables = InStageExecutables;
         IsCodeBasedProject = ProjectUtils.IsCodeBasedUProjectFile(RawProjectPath);
 		ShortProjectName = ProjectUtils.GetShortProjectName(RawProjectPath);
@@ -317,6 +328,67 @@ public class DeploymentContext //: ProjectParams
 		ProjectArgForCommandLines = ProjectArgForCommandLines.Replace("\\", "/");
 	}
 
+	public void StageFile(StagedFileType FileType, string InputPath, string OutputPath = null, bool bRemap = true)
+	{
+		InputPath = InputPath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+
+		if(OutputPath == null)
+		{
+			if(InputPath.StartsWith(ProjectRoot, StringComparison.InvariantCultureIgnoreCase))
+			{
+				OutputPath = CommandUtils.CombinePaths(RelativeProjectRootForStage, InputPath.Substring(ProjectRoot.Length).TrimStart('/', '\\'));
+			}
+			else if (InputPath.StartsWith(LocalRoot, StringComparison.InvariantCultureIgnoreCase))
+			{
+				OutputPath = CommandUtils.CombinePaths(InputPath.Substring(LocalRoot.Length).TrimStart('/', '\\'));
+			}
+			else
+			{
+				throw new AutomationException("Can't deploy {0} because it doesn't start with {1} or {2}", InputPath, ProjectRoot, LocalRoot);
+			}
+		}
+
+		if(bRemap)
+		{
+			OutputPath = StageTargetPlatform.Remap(OutputPath);
+		}
+
+		if (FileType == StagedFileType.UFS)
+		{
+			AddUniqueStagingFile(UFSStagingFiles, InputPath, OutputPath);
+		}
+		else if (FileType == StagedFileType.NonUFS)
+		{
+			AddUniqueStagingFile(NonUFSStagingFiles, InputPath, OutputPath);
+		}
+		else if (FileType == StagedFileType.DebugNonUFS)
+		{
+			AddUniqueStagingFile(NonUFSStagingFilesDebug, InputPath, OutputPath);
+		}
+	}
+
+	public void StageFilesInReceipt(BuildReceipt Receipt)
+	{
+		// Stage all the build products needed at runtime
+		foreach(BuildProduct BuildProduct in Receipt.BuildProducts)
+		{
+			if(BuildProduct.Type == BuildProductType.Executable || BuildProduct.Type == BuildProductType.DynamicLibrary || BuildProduct.Type == BuildProductType.RequiredResource)
+			{
+				StageFile(StagedFileType.NonUFS, BuildProduct.Path);
+			}
+			else if(BuildProduct.Type == BuildProductType.SymbolFile)
+			{
+				StageFile(StagedFileType.DebugNonUFS, BuildProduct.Path);
+			}
+		}
+
+		// Also stage any additional runtime dependencies, like ThirdParty DLLs
+		foreach(RuntimeDependency RuntimeDependency in Receipt.RuntimeDependencies)
+		{
+			StageFile(StagedFileType.NonUFS, RuntimeDependency.Path, RuntimeDependency.StagePath);
+		}
+	}
+
     public int StageFiles(StagedFileType FileType, string InPath, string Wildcard = "*", bool bRecursive = true, string[] ExcludeWildcard = null, string NewPath = null, bool bAllowNone = false, bool bRemap = true, string NewName = null, bool bAllowNotForLicenseesFiles = true, bool bStripFilesForOtherPlatforms = true)
 	{
 		int FilesAdded = 0;
@@ -352,7 +424,7 @@ public class DeploymentContext //: ProjectParams
                     continue;
                 }
 
-                if (bStripFilesForOtherPlatforms)
+				if (bStripFilesForOtherPlatforms && !bIsCombiningMultiplePlatforms)
                 {
                     bool OtherPlatform = false;
                     foreach (UnrealTargetPlatform Plat in Enum.GetValues(typeof(UnrealTargetPlatform)))
@@ -481,7 +553,7 @@ public class DeploymentContext //: ProjectParams
 			}
 		}
 
-		if (FilesAdded == 0 && !bAllowNone)
+		if (FilesAdded == 0 && !bAllowNone && !bIsCombiningMultiplePlatforms)
 		{
 			AutomationTool.ErrorReporter.Error(String.Format("No files found to deploy for {0} with wildcard {1} and exclusions {2}", InPath, Wildcard, ExcludeWildcard), (int)AutomationTool.ErrorCodes.Error_StageMissingFile);
 			throw new AutomationException("No files found to deploy for {0} with wildcard {1} and exclusions {2}", InPath, Wildcard, ExcludeWildcard);
@@ -535,18 +607,22 @@ public class DeploymentContext //: ProjectParams
 				{
 					continue;
 				}
-				bool OtherPlatform = false;
-				foreach (UnrealTargetPlatform Plat in Enum.GetValues(typeof(UnrealTargetPlatform)))
+
+				if (!bIsCombiningMultiplePlatforms)
 				{
-					if (Plat != StageTargetPlatform.PlatformType && Plat != UnrealTargetPlatform.Unknown && FileToCopy.IndexOf(CommandUtils.CombinePaths("/" + Plat.ToString() + "/"), 0, StringComparison.InvariantCultureIgnoreCase) >= 0)
+					bool OtherPlatform = false;
+					foreach (UnrealTargetPlatform Plat in Enum.GetValues(typeof(UnrealTargetPlatform)))
 					{
-						OtherPlatform = true;
-						break;
+						if (Plat != StageTargetPlatform.PlatformType && Plat != UnrealTargetPlatform.Unknown && FileToCopy.IndexOf(CommandUtils.CombinePaths("/" + Plat.ToString() + "/"), 0, StringComparison.InvariantCultureIgnoreCase) >= 0)
+						{
+							OtherPlatform = true;
+							break;
+						}
 					}
-				}
-				if (OtherPlatform)
-				{
-					continue;
+					if (OtherPlatform)
+					{
+						continue;
+					}
 				}
 
 				string Dest;
@@ -561,7 +637,17 @@ public class DeploymentContext //: ProjectParams
 					Dest = Dest.Substring(1);
 				}
 
-				ArchivedFiles.Add(FileToCopy, Dest);
+				if (ArchivedFiles.ContainsKey(FileToCopy))
+				{
+					if (ArchivedFiles[FileToCopy] != Dest)
+					{
+						throw new AutomationException("Can't archive {0}: it was already in the files to archive with a different destination '{1}'", FileToCopy, Dest);
+					}
+				}
+				else
+				{
+					ArchivedFiles.Add(FileToCopy, Dest);
+				}
 
 				FilesAdded++;
 			}

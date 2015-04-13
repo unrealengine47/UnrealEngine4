@@ -136,17 +136,8 @@ void UGameplayStatics::SetGlobalTimeDilation(UObject* WorldContextObject, float 
 bool UGameplayStatics::SetGamePaused(UObject* WorldContextObject, bool bPaused)
 {
 	UWorld* const World = GEngine->GetWorldFromContextObject( WorldContextObject );
-	if(World != nullptr)
-	{
-		APlayerController* const PC = World->GetFirstPlayerController();
-		check(PC); // Gathering some information for TTP #303973
-
-		return PC->SetPause(bPaused);
-	}
-	else
-	{
-		return false;
-	}
+	APlayerController* const PC = World ? World->GetFirstPlayerController() : nullptr;
+	return PC ? PC->SetPause(bPaused) : false;
 }
 
 bool UGameplayStatics::IsGamePaused(UObject* WorldContextObject)
@@ -602,14 +593,14 @@ UParticleSystemComponent* UGameplayStatics::SpawnEmitterAttached(UParticleSystem
 	return PSC;
 }
 
-void UGameplayStatics::BreakHitResult(const FHitResult& Hit, bool& bBlockingHit, bool& bInitialOverlap, float& Time, FVector& Location, FVector& Normal, FVector& ImpactPoint, FVector& ImpactNormal, UPhysicalMaterial*& PhysMat, AActor*& HitActor, UPrimitiveComponent*& HitComponent, FName& HitBoneName, int32& HitItem, FVector& TraceStart, FVector& TraceEnd)
+void UGameplayStatics::BreakHitResult(const FHitResult& Hit, bool& bBlockingHit, bool& bInitialOverlap, float& Time, FVector& Location, FVector& ImpactPoint, FVector& Normal, FVector& ImpactNormal, UPhysicalMaterial*& PhysMat, AActor*& HitActor, UPrimitiveComponent*& HitComponent, FName& HitBoneName, int32& HitItem, FVector& TraceStart, FVector& TraceEnd)
 {
 	bBlockingHit = Hit.bBlockingHit;
 	bInitialOverlap = Hit.bStartPenetrating;
 	Time = Hit.Time;
 	Location = Hit.Location;
-	Normal = Hit.Normal;
 	ImpactPoint = Hit.ImpactPoint;
+	Normal = Hit.Normal;
 	ImpactNormal = Hit.ImpactNormal;	
 	PhysMat = Hit.PhysMaterial.Get();
 	HitActor = Hit.GetActor();

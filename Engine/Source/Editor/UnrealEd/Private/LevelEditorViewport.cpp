@@ -416,6 +416,11 @@ static UObject* GetOrCreateMaterialFromTexture( UTexture* UnrealTexture )
 	UMaterial* UnrealMaterial = (UMaterial*)MaterialFactory->FactoryCreateNew(
 		UMaterial::StaticClass(), Package, *MaterialFullName, RF_Standalone | RF_Public, NULL, GWarn );
 
+	if (UnrealMaterial == nullptr)
+	{
+		return nullptr;
+	}
+
 	const int HSpace = -300;
 
 	// If we were able to figure out the material kind, we need to try and build a complex material
@@ -469,14 +474,11 @@ static UObject* GetOrCreateMaterialFromTexture( UTexture* UnrealTexture )
 		TryAndCreateMaterialInput( UnrealMaterial, EMaterialKind::Normal, NormalTexture, UnrealMaterial->Normal, HSpace, VSpace * 2 );
 	}
 
-	if ( UnrealMaterial != NULL )
-	{
-		// Notify the asset registry
-		FAssetRegistryModule::AssetCreated( UnrealMaterial );
+	// Notify the asset registry
+	FAssetRegistryModule::AssetCreated( UnrealMaterial );
 
-		// Set the dirty flag so this package will get saved later
-		Package->SetDirtyFlag( true );
-	}
+	// Set the dirty flag so this package will get saved later
+	Package->SetDirtyFlag( true );
 
 	UnrealMaterial->ForceRecompileForRendering();
 
@@ -3884,17 +3886,17 @@ void FLevelEditorViewportClient::DrawBrushDetails(const FSceneView* View, FPrimi
 
 void FLevelEditorViewportClient::UpdateAudioListener(const FSceneView& View)
 {
-	UWorld* World = GetWorld();
+	UWorld* ViewportWorld = GetWorld();
 
-	if (World)
+	if (ViewportWorld)
 	{
-		if (FAudioDevice* AudioDevice = World->GetAudioDevice())
+		if (FAudioDevice* AudioDevice = ViewportWorld->GetAudioDevice())
 		{
 			FReverbSettings ReverbSettings;
 			FInteriorSettings InteriorSettings;
 			const FVector& ViewLocation = GetViewLocation();
 
-			class AAudioVolume* AudioVolume = World->GetAudioSettings(ViewLocation, &ReverbSettings, &InteriorSettings);
+			class AAudioVolume* AudioVolume = ViewportWorld->GetAudioSettings(ViewLocation, &ReverbSettings, &InteriorSettings);
 
 			FMatrix CameraToWorld = View.ViewMatrices.ViewMatrix.InverseFast();
 			FVector ProjUp = CameraToWorld.TransformVector(FVector(0, 1000, 0));

@@ -197,7 +197,10 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintCosmetic, Category="User Interface|Viewport", meta=( DeprecatedFunction, DeprecationMessage="Use RemoveFromParent instead" ))
 	void RemoveFromViewport();
 
-	/** Removes the widget from it's parent widget, including the viewport if it was added to the viewport. */
+	/**
+	 * Removes the widget from its parent widget.  If this widget was added to the player's screen or the viewport
+	 * it will also be removed from those containers.
+	 */
 	virtual void RemoveFromParent() override;
 
 	/**
@@ -754,7 +757,7 @@ public:
 
 public:
 	/** The color and opacity of this widget.  Tints all child widgets. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Style")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Style")
 	FLinearColor ColorAndOpacity;
 
 	UPROPERTY()
@@ -764,7 +767,7 @@ public:
 	 * The foreground color of the widget, this is inherited by sub widgets.  Any color property
 	 * that is marked as inherit will use this color.
 	 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Style")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Style")
 	FSlateColor ForegroundColor;
 
 	UPROPERTY()
@@ -810,6 +813,13 @@ public:
 	/** The category this widget appears in the palette. */
 	UPROPERTY()
 	FText PaletteCategory;
+
+	/**
+	 * A preview background that you can use when designing the UI to get a sense of scale on the screen.  Use
+	 * a texture with a screenshot of your game in it, for example if you were designing a HUD.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category="Designer")
+	UTexture2D* PreviewBackground;
 
 #endif
 

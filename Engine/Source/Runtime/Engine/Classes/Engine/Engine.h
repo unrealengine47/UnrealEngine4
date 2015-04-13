@@ -2287,8 +2287,8 @@ public:
 	 * Notification of network error messages, allows the engine to handle the failure
 	 *
 	 * @param	World associated with failure
+	 * @param	NetDriver associated with failure
 	 * @param	FailureType	the type of error
-	 * @param	NetDriverName name of the network driver generating the error
 	 * @param	ErrorString	additional string detailing the error
 	 */
 	virtual void HandleNetworkFailure(UWorld *World, UNetDriver *NetDriver, ENetworkFailure::Type FailureType, const FString& ErrorString);
@@ -2416,7 +2416,7 @@ public:
 	/** Browse to a specified URL, relative to the current one. */
 	virtual EBrowseReturnVal::Type Browse( FWorldContext& WorldContext, FURL URL, FString& Error );
 
-	bool TickWorldTravel(FWorldContext& WorldContext, float DeltaSeconds);
+	void TickWorldTravel(FWorldContext& WorldContext, float DeltaSeconds);
 
 	void BrowseToDefaultMap( FWorldContext& WorldContext );
 

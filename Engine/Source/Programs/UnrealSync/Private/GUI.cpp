@@ -172,6 +172,7 @@ public:
 				+ SVerticalBox::Slot().AutoHeight()
 				[
 					SNew(SCheckBox)
+					.Style(FCoreStyle::Get(), "RadioButton")
 					.OnCheckStateChanged(this, &FItem::OnCheckStateChange)
 					.IsChecked(this, &FItem::IsCheckboxChecked)
 					[
@@ -179,7 +180,7 @@ public:
 						.Text(FText::FromString(GetName()))
 					]
 				]
-			+ SVerticalBox::Slot().VAlign(VAlign_Fill)
+				+ SVerticalBox::Slot().VAlign(VAlign_Fill).Padding(19.0f, 2.0f, 2.0f, 2.0f)
 				[
 					GetContent()
 				];
@@ -711,139 +712,68 @@ private:
 };
 
 /**
- * Creates Slate page to show error and close app.
- *
- * @param ErrorMsg Error message to display.
- *
- * @returns Created widget.
- */
-TSharedRef<SWidget> CreateErrorPage(const FString& ErrorMsg)
-{
-	/**
-	 * Embedded class to enclose closing button functionality.
-	 */
-	class CloseButtonHandler
-	{
-	public:
-		/**
-		 * Function that is called on when Close button is clicked.
-		 * It tells the app to close.
-		 *
-		 * @returns Tells that this event was handled.
-		 */
-		static FReply OnCloseButtonClick()
-		{
-			FPlatformMisc::RequestExit(false);
-
-			return FReply::Handled();
-		}
-	};
-
-	return
-		SNew(SVerticalBox)
-		+ SVerticalBox::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
-		[
-			SNew(STextBlock).Text(FText::FromString(*ErrorMsg))
-		]
-		+ SVerticalBox::Slot().AutoHeight()
-		[
-			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot()
-			+ SHorizontalBox::Slot().AutoWidth()
-			[
-				SNew(SButton)
-				.OnClicked_Static(&CloseButtonHandler::OnCloseButtonClick)
-				[
-					SNew(STextBlock).Text(FText::FromString("Close"))
-				]
-			]
-		];
-}
-
-/**
- * Tries to update original UnrealSync at given location.
- *
- * @param Location of original UnrealSync.
- *
- * @returns False on failure. True otherwise.
- */
-bool UpdateOriginalUS(const FString& OriginalUSPath)
-{
-	FString Output;
-	return FP4Env::RunP4Output(TEXT("sync ") + OriginalUSPath, Output);
-}
-
-/**
- * Runs detached UnrealSync process and passes given parameters in command line.
- *
- * @param USPath UnrealSync executable path.
- * @param bDoNotRunFromCopy Should UnrealSync be called with -DoNotRunFromCopy flag?
- * @param bDoNotUpdateOnStartUp Should UnrealSync be called with -DoNotUpdateOnStartUp flag?
- * @param bPassP4Env Pass P4 environment parameters to UnrealSync?
- *
- * @returns True if succeeded. False otherwise. Notice that this says of
- *			success of launching procedure not launched process, cause
- *			its detached.
- */
-bool RunDetachedUS(const FString& USPath, bool bDoNotRunFromCopy, bool bDoNotUpdateOnStartUp, bool bPassP4Env)
-{
-	FString CommandLine = FString()
-		+ (bDoNotRunFromCopy ? TEXT("-DoNotRunFromCopy ") : TEXT(""))
-		+ (bDoNotUpdateOnStartUp ? TEXT("-DoNotUpdateOnStartUp ") : TEXT(""))
-		+ (bPassP4Env ? *FP4Env::Get().GetCommandLine()	: TEXT(""));
-
-	return RunProcess(USPath, CommandLine);
-}
-
-/**
- * This function copies file from From to To location and deletes
- * if To exists.
- *
- * @param To Location to which copy the file.
- * @param From Location from which copy the file.
- *
- * @returns True if succeeded. False otherwise.
- */
-bool DeleteIfExistsAndCopyFile(const FString& To, const FString& From)
-{
-	auto& PlatformPhysical = IPlatformFile::GetPlatformPhysical();
-
-	if (PlatformPhysical.FileExists(*To) && !PlatformPhysical.DeleteFile(*To))
-	{
-		return false;
-	}
-
-	return PlatformPhysical.CopyFile(*To, *From);
-}
-
-/**
  * Main tab widget.
  */
 class SMainTabWidget : public SCompoundWidget
 {
+	/**
+	 * External threads requests dispatcher.
+	 */
+	class FExternalThreadsDispatcher : public TSharedFromThis<FExternalThreadsDispatcher, ESPMode::ThreadSafe>
+	{
+	public:
+		/** Delegate that represents rendering thread request. */
+		DECLARE_DELEGATE(FRenderingThreadRequest);
+
+		/**
+		 * Executes all pending requests.
+		 *
+		 * Some Slate methods are restricted for either game or Slate rendering
+		 * thread. If external thread tries to execute them assert raises, which is
+		 * telling that it's unsafe.
+		 *
+		 * This method executes all pending requests on Slate thread, so you can
+		 * use those to execute some restricted methods.
+		 */
+		EActiveTimerReturnType ExecuteRequests(double CurrentTime, float DeltaTime)
+		{
+			FScopeLock Lock(&RequestsMutex);
+			while (Requests.Num())
+			{
+				Requests.Pop().Execute();
+			}
+
+			return EActiveTimerReturnType::Continue;
+		}
+
+		/**
+		 * Adds delegate to pending requests list.
+		 */
+		void AddRenderingThreadRequest(FRenderingThreadRequest Request)
+		{
+			FScopeLock Lock(&RequestsMutex);
+			Requests.Add(MoveTemp(Request));
+		}
+
+	private:
+		/** Mutex for pending requests list. */
+		FCriticalSection RequestsMutex;
+
+		/** Pending requests list. */
+		TArray<FRenderingThreadRequest> Requests;
+	};
+
 public:
-	SLATE_BEGIN_ARGS(SMainTabWidget){}
+	SMainTabWidget()
+		: ExternalThreadsDispatcher(MakeShareable(new FExternalThreadsDispatcher()))
+	{}
+
+	SLATE_BEGIN_ARGS(SMainTabWidget) {}
 	SLATE_END_ARGS()
 
 	BEGIN_SLATE_FUNCTION_BUILD_OPTIMIZATION
 	void Construct(const FArguments& InArgs)
 	{
-		FString ErrorMsg;
-		if (DoInitialTasks(ErrorMsg))
-		{
-			FPlatformMisc::RequestExit(false);
-			return;
-		}
-
-		if (!ErrorMsg.IsEmpty())
-		{
-			this->ChildSlot
-				[
-					CreateErrorPage(ErrorMsg)
-				];
-			return;
-		}
-
 		RadioSelection = SNew(SRadioContentSelection);
 
 		AddToRadioSelection("Sync to the latest promoted", SNew(SLatestPromoted));
@@ -882,7 +812,7 @@ public:
 			+ SWidgetSwitcher::Slot()
 			[
 				SNew(SVerticalBox)
-				+ SVerticalBox::Slot().AutoHeight()
+				+ SVerticalBox::Slot().AutoHeight().Padding(5.0f)
 				[
 					PickGameWidget.ToSharedRef()
 				]
@@ -954,6 +884,8 @@ public:
 		FUnrealSync::RegisterOnDataReset(FUnrealSync::FOnDataReset::CreateRaw(this, &SMainTabWidget::DataReset));
 		FUnrealSync::RegisterOnDataLoaded(FUnrealSync::FOnDataLoaded::CreateRaw(this, &SMainTabWidget::DataLoaded));
 
+		RegisterActiveTimer(0.5f, FWidgetActiveTimerDelegate::CreateThreadSafeSP(&ExternalThreadsDispatcher.Get(), &FExternalThreadsDispatcher::ExecuteRequests));
+
 		OnReloadLabels();
 	}
 	END_SLATE_FUNCTION_BUILD_OPTIMIZATION
@@ -968,72 +900,26 @@ public:
 
 private:
 	/**
-	 * This method does some initial task:
-	 * - initializes P4
-	 * - updates UnrealSync (to do this it has to copy itself to remote location and run from there)
-	 *
-	 * @param ErrorMsg Out parameter to output error message if happened.
-	 *
-	 * @returns True if application should stop building GUI and exit. False otherwise.
+	 * Queues adding lines to the log for execution on Slate rendering thread.
 	 */
-	bool DoInitialTasks(FString& ErrorMsg)
+	void ExternalThreadAddLinesToLog(TArray<TSharedPtr<FString> > Lines)
 	{
-		bool bDoNotUpdateOnStartUp = FParse::Param(FCommandLine::Get(), TEXT("DoNotUpdateOnStartUp"));
-		bool bDoNotRunFromCopy = FParse::Param(FCommandLine::Get(), TEXT("DoNotRunFromCopy"));
+		ExternalThreadsDispatcher->AddRenderingThreadRequest(FExternalThreadsDispatcher::FRenderingThreadRequest::CreateSP(this, &SMainTabWidget::AddLinesToLog, Lines));
+	}
 
-		if (!FP4Env::Init(FCommandLine::Get()))
+	/**
+	 * Adds lines to the log.
+	 *
+	 * @param Lines Lines to add.
+	 */
+	void AddLinesToLog(TArray<TSharedPtr<FString> > Lines)
+	{
+		for (const auto& Line : Lines)
 		{
-			ErrorMsg = TEXT("P4 environment detection failed.");
-			return false;
+			LogLines.Add(Line);
 		}
 
-		FString CommonExecutablePath =
-			FPaths::ConvertRelativePathToFull(
-			FPaths::Combine(*FPaths::EngineDir(), TEXT("Binaries"), TEXT("Win64"),
-#if !UE_BUILD_DEBUG
-				TEXT("UnrealSync")
-#else
-				TEXT("UnrealSync-Win64-Debug")
-#endif
-			));
-
-		FString OriginalExecutablePath = CommonExecutablePath + TEXT(".exe");
-		FString TemporaryExecutablePath = CommonExecutablePath + TEXT(".Temporary.exe");
-
-		if (!bDoNotRunFromCopy)
-		{
-			if (!DeleteIfExistsAndCopyFile(*TemporaryExecutablePath, *OriginalExecutablePath))
-			{
-				ErrorMsg = TEXT("Copying UnrealSync to temp location failed.");
-				return false;
-			}
-
-			if (!RunDetachedUS(TemporaryExecutablePath, true, bDoNotUpdateOnStartUp, true))
-			{
-				ErrorMsg = TEXT("Running remote UnrealSync failed.");
-				return false;
-			}
-
-			return true;
-		}
-
-		if (!bDoNotUpdateOnStartUp)
-		{
-			if (!UpdateOriginalUS(OriginalExecutablePath))
-			{
-				ErrorMsg = TEXT("UnrealSync update failed.");
-				return false;
-			}
-			if (!RunDetachedUS(OriginalExecutablePath, false, true, true))
-			{
-				ErrorMsg = TEXT("Running UnrealSync failed.");
-				return false;
-			}
-
-			return true;
-		}
-
-		return false;
+		LogListView->RequestScrollIntoView(LogLines.Last());
 	}
 
 	/**
@@ -1163,15 +1049,16 @@ private:
 		FString Line;
 		FString Rest;
 
+		TArray<TSharedPtr<FString> > Lines;
+
 		while (Buffer.Split("\n", &Line, &Rest))
 		{
-			LogLines.Add(MakeShareable(new FString(Line)));
+			Lines.Add(MakeShareable(new FString(Line)));
 
 			Buffer = Rest;
 		}
 
-		LogListView->RequestListRefresh();
-		LogListView->RequestScrollIntoView(LogLines.Last());
+		ExternalThreadAddLinesToLog(Lines);
 
 		return true;
 	}
@@ -1264,10 +1151,14 @@ private:
 	/* Check box to tell if this should be a preview sync. */
 	TSharedPtr<SCheckBox> PreviewSyncCheckBox;
 
+	/* External thread requests dispatcher. */
+	TSharedRef<FExternalThreadsDispatcher, ESPMode::ThreadSafe> ExternalThreadsDispatcher;
+
 	/* Report log. */
 	TArray<TSharedPtr<FString> > LogLines;
 	/* Log list view. */
 	TSharedPtr<SListView<TSharedPtr<FString> > > LogListView;
+
 	/* Go back button reference. */
 	TSharedPtr<SButton> GoBackButton;
 
@@ -1287,46 +1178,69 @@ TSharedRef<SDockTab> GetMainTab(const FSpawnTabArgs& Args)
 	TSharedRef<SDockTab> MainTab =
 		SNew(SDockTab)
 		.TabRole(ETabRole::MajorTab)
-		.Label(FText::FromString("UnrealSync"))
+		.Label(FText::FromString("Syncing"))
 		.ToolTipText(FText::FromString("Sync Unreal Engine tool."));
 
 	MainTab->SetContent(
 		SNew(SMainTabWidget)
 		);
 
+	FGlobalTabmanager::Get()->SetActiveTab(MainTab);
+
 	return MainTab;
 }
 
 /**
- * Initializes and starts GUI.
+ * Creates and returns P4 settings tab.
  *
- * @param CommandLine Command line passed to the program.
+ * @param Args Args used to spawn tab.
+ *
+ * @returns P4 settings UnrealSync tab.
  */
-void InitGUI(const TCHAR* CommandLine)
+TSharedRef<SDockTab> GetP4EnvTab(const FSpawnTabArgs& Args)
 {
-	// start up the main loop
-	GEngineLoop.PreInit(CommandLine);
+	TSharedRef<SDockTab> P4EnvTab =
+		SNew(SDockTab)
+		.TabRole(ETabRole::MajorTab)
+		.Label(FText::FromString("Perforce Settings"))
+		.ToolTipText(FText::FromString("Perforce settings."));
 
+	P4EnvTab->SetContent(
+		SNew(SP4EnvTabWidget)
+		);
+
+	return P4EnvTab;
+}
+
+void InitGUI(const TCHAR* CommandLine, bool bP4EnvTabOnly)
+{
 	// crank up a normal Slate application using the platform's standalone renderer
 	FSlateApplication::InitializeAsStandaloneApplication(GetStandardStandaloneRenderer());
 
 	// set the application name
 	FGlobalTabmanager::Get()->SetApplicationTitle(NSLOCTEXT("UnrealSync", "AppTitle", "Unreal Sync"));
 
-	FGlobalTabmanager::Get()->RegisterTabSpawner("MainTab", FOnSpawnTab::CreateStatic(&GetMainTab));
+	auto TabStack = FTabManager::NewStack();
+
+	if (!bP4EnvTabOnly)
+	{
+		TabStack->AddTab("MainTab", ETabState::OpenedTab);
+		FGlobalTabmanager::Get()->RegisterTabSpawner("MainTab", FOnSpawnTab::CreateStatic(&GetMainTab));
+		TabStack->SetForegroundTab(FTabId("MainTab"));
+	}
+
+	FGlobalTabmanager::Get()->RegisterTabSpawner("P4EnvTab", FOnSpawnTab::CreateStatic(&GetP4EnvTab));
+	TabStack->AddTab("P4EnvTab", ETabState::OpenedTab);
 
 	TSharedRef<FTabManager::FLayout> Layout = FTabManager::NewLayout("UnrealSyncLayout")
 		->AddArea(
 			FTabManager::NewArea(720, 370)
 			->SetWindow(FVector2D(420, 10), false)
-			->Split(
-				FTabManager::NewStack()
-				->AddTab("MainTab", ETabState::OpenedTab)
-			)
+			->Split(TabStack)
 		);
 
 	FGlobalTabmanager::Get()->RestoreFrom(Layout, TSharedPtr<SWindow>());
-
+	
 	// loop while the server does the rest
 	while (!GIsRequestingExit)
 	{

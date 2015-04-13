@@ -513,10 +513,9 @@ bool UWorld::ComponentSweepMulti(TArray<struct FHitResult>& OutHits, class UPrim
 		}
 
 		// calculate the test global pose of the actor
-		PxTransform PGlobalStartPose = U2PTransform(FTransform(Start));
-		PxTransform PGlobalEndPose = U2PTransform(FTransform(End));
-
-		PxQuat PGeomRot = U2PQuat(Rot.Quaternion());
+		const PxQuat PGeomRot = U2PQuat(Rot.Quaternion());
+		const PxTransform PGlobalStartPose = PxTransform(U2PVector(Start), PGeomRot);
+		const PxTransform PGlobalEndPose = PxTransform(U2PVector(End), PGeomRot);
 
 		// Iterate over each shape
 		for(int32 ShapeIdx=0; ShapeIdx<PShapes.Num(); ShapeIdx++)
@@ -524,19 +523,19 @@ bool UWorld::ComponentSweepMulti(TArray<struct FHitResult>& OutHits, class UPrim
 			PxShape* PShape = PShapes[ShapeIdx];
 			check(PShape);
 
-			TArray<struct FHitResult> Hits;
-
-			// Calc shape global pose
-			PxTransform PLocalShape = PShape->getLocalPose();
-			PxTransform PShapeGlobalStartPose = PGlobalStartPose.transform(PLocalShape);
-			PxTransform PShapeGlobalEndPose = PGlobalEndPose.transform(PLocalShape);
-			// consider localshape rotation for shape rotation
-			PxQuat PShapeRot = PGeomRot * PLocalShape.q;
-
 			GET_GEOMETRY_FROM_SHAPE(PGeom, PShape);
 
-			if(PGeom != NULL)
+			if (PGeom != NULL)
 			{
+				TArray<struct FHitResult> Hits;
+
+				// Calc shape global pose
+				const PxTransform PLocalShape = PShape->getLocalPose();
+				const PxTransform PShapeGlobalStartPose = PGlobalStartPose.transform(PLocalShape);
+				const PxTransform PShapeGlobalEndPose = PGlobalEndPose.transform(PLocalShape);
+				// consider localshape rotation for shape rotation
+				const PxQuat PShapeRot = PGeomRot * PLocalShape.q;
+
 				if (GeomSweepMulti_PhysX(this, *PGeom, PShapeRot, Hits, P2UVector(PShapeGlobalStartPose.p), P2UVector(PShapeGlobalEndPose.p), TraceChannel, Params, FCollisionResponseParams(PrimComp->GetCollisionResponseToChannels())))
 				{
 					bHaveBlockingHit = true;

@@ -940,7 +940,84 @@ public class GUBP : BuildCommand
 			Agenda.AddTargets(
 				new string[] { bp.Branch.BaseEngineProject.Properties.Targets[TargetRules.TargetType.Editor].TargetName },
 				UnrealTargetPlatform.Linux, UnrealTargetConfiguration.Development, InAddArgs: AddArgs);
+			 foreach (var ProgramTarget in bp.Branch.BaseEngineProject.Properties.Programs)
+            {
+                if (ProgramTarget.Rules.GUBP_AlwaysBuildWithBaseEditor() && ProgramTarget.Rules.SupportsPlatform(UnrealTargetPlatform.Linux))
+                {
+                    Agenda.AddTargets(new string[] { ProgramTarget.TargetName }, UnrealTargetPlatform.Linux, UnrealTargetConfiguration.Development, InAddArgs: AddArgs);
+                }
+            }
 			return Agenda;
+		}
+        void DeleteStaleDLLs(GUBP bp)
+        {
+            if (GUBP.bForceIncrementalCompile)
+            {
+                return;
+            }
+            var Targets = new List<string> { bp.Branch.BaseEngineProject.Properties.Targets[TargetRules.TargetType.Editor].TargetName };
+            foreach (var ProgramTarget in bp.Branch.BaseEngineProject.Properties.Programs)
+            {
+                if (ProgramTarget.Rules.GUBP_AlwaysBuildWithBaseEditor() && ProgramTarget.Rules.SupportsPlatform(UnrealTargetPlatform.Linux))
+                {
+                    Targets.Add(ProgramTarget.TargetName);
+                }
+            }
+
+
+            foreach (var Target in Targets)
+            {
+                var EnginePlatformBinaries = CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, "Engine", "Binaries", UnrealTargetPlatform.Linux.ToString());
+                var Wildcard = Target + "-*";
+                Log("************Deleting stale editor DLLs, path {0} wildcard {1}", EnginePlatformBinaries, Wildcard);
+                foreach (var DiskFile in FindFiles(Wildcard, true, EnginePlatformBinaries))
+                {
+                    bool IsBuildProduct = false;
+                    foreach (var Product in BuildProducts)
+                    {
+                        if (Product.Equals(DiskFile, StringComparison.InvariantCultureIgnoreCase))
+                        {
+                            IsBuildProduct = true;
+                            break;
+                        }
+                    }
+                    if (!IsBuildProduct)
+                    {
+                        DeleteFile(DiskFile);
+                    }
+                }
+                var EnginePluginBinaries = CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, "Engine", "Plugins");
+                var HostSubstring = CommandUtils.CombinePaths("/", UnrealTargetPlatform.Linux.ToString(), "/");
+                Log("************Deleting stale editor DLLs, path {0} wildcard {1} host {2}", EnginePluginBinaries, Wildcard, HostSubstring);
+                foreach (var DiskFile in FindFiles(Wildcard, true, EnginePluginBinaries))
+                {
+                    if (DiskFile.IndexOf(HostSubstring, StringComparison.InvariantCultureIgnoreCase) < 0)
+                    {
+                        continue;
+                    }
+                    bool IsBuildProduct = false;
+                    foreach (var Product in BuildProducts)
+                    {
+                        if (Product.Equals(DiskFile, StringComparison.InvariantCultureIgnoreCase))
+                        {
+                            IsBuildProduct = true;
+                            break;
+                        }
+                    }
+                    if (!IsBuildProduct)
+                    {
+                        DeleteFile(DiskFile);
+                    }
+                }
+            }
+        }
+        public override void PostLoadFromSharedTempStorage(GUBP bp)
+        {
+            DeleteStaleDLLs(bp);
+        }
+        public override void PostBuildProducts(GUBP bp)
+        {
+            DeleteStaleDLLs(bp);        
 		}
 	}
     public class ToolsNode : CompileNode
@@ -2386,6 +2463,7 @@ public class GUBP : BuildCommand
 							!Product.Replace('\\', '/').EndsWith("DotNetCommon/MetaData.cs", StringComparison.InvariantCultureIgnoreCase) &&
                             !Product.EndsWith("_Success.log", StringComparison.InvariantCultureIgnoreCase) &&
 							!Product.Replace('\\', '/').Contains("/Intermediate/") &&
+							!Product.Replace('\\', '/').Contains("/Engine/Saved/") &&
 							!Product.EndsWith(".lib") &&
 							!Product.EndsWith(".a") && 
 							!Product.EndsWith(".bc")
@@ -5546,8 +5624,11 @@ public class GUBP : BuildCommand
                     }
                     else if (Proj.Properties.bIsCodeBasedProject)
                     {
-						Branch.NonCodeProjects.Add(Proj);
-						NonCodeProjectNames.Add(Codeless.Key, Codeless.Value);                        
+						if (!Branch.NonCodeProjects.Contains(Proj)) 
+						{ 
+							Branch.NonCodeProjects.Add(Proj);
+							NonCodeProjectNames.Add(Codeless.Key, Codeless.Value);
+						}
                     }
                     else
                     {
@@ -5797,7 +5878,7 @@ public class GUBP : BuildCommand
 									}
                                     if (!bNoAutomatedTesting)
                                     {                                        
-										if (HostPlatform == UnrealTargetPlatform.Mac) continue; //temp hack till mac automated testing works
+										if (HostPlatform == UnrealTargetPlatform.Mac || HostPlatform == UnrealTargetPlatform.Linux) continue; //temp hack till Linux and Mac automated testing works
 										var ThisMonoGameTestNodes = new List<string>();
 										foreach (var Test in GameTests)
 										{
@@ -6034,7 +6115,7 @@ public class GUBP : BuildCommand
 									}
 									if (!bNoAutomatedTesting)
 									{
-										if (HostPlatform == UnrealTargetPlatform.Mac) continue; //temp hack till mac automated testing works
+										if (HostPlatform == UnrealTargetPlatform.Mac || HostPlatform == UnrealTargetPlatform.Linux) continue; //temp hack till Linux and Mac automated testing works
 										var GameTests = Target.Rules.GUBP_GetGameTests_MonolithicOnly(HostPlatform, GetAltHostPlatform(HostPlatform), Plat);
 										var RequiredPlatforms = new List<UnrealTargetPlatform> { Plat };
 										var ThisMonoGameTestNodes = new List<string>();
@@ -6064,7 +6145,7 @@ public class GUBP : BuildCommand
 					{
 						foreach (var GamePlatform in GamePlatforms)
 						{
-							if (HostPlatform == UnrealTargetPlatform.Mac) continue; //temp hack till mac automated testing works
+							if (HostPlatform == UnrealTargetPlatform.Mac || HostPlatform == UnrealTargetPlatform.Linux) continue; //temp hack till Linux and Mac automated testing works
 							var Target = CodeProj.Properties.Targets[TargetRules.TargetType.Game];
 							var ClientServerTests = Target.Rules.GUBP_GetClientServerTests_MonolithicOnly(HostPlatform, GetAltHostPlatform(HostPlatform), ServerPlatform, GamePlatform);
 							var RequiredPlatforms = new List<UnrealTargetPlatform> { ServerPlatform };

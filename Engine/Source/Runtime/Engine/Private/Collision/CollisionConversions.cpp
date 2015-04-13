@@ -18,6 +18,12 @@ extern TAutoConsoleVariable<int32> CVarShowInitialOverlaps;
 // Sentinel for invalid query results.
 static const PxQueryHit InvalidQueryHit;
 
+static bool IsInvalidFaceIndex(PxU32 faceIndex)
+{
+	checkf(InvalidQueryHit.faceIndex == 0xFFFFffff, TEXT("Engine code needs fixing: PhysX invalid face index sentinel has changed or is not part of default PxQueryHit!"));
+	return (faceIndex == InvalidQueryHit.faceIndex);
+}
+
 // Forward declare, I don't want to move the entire function right now or we lose change history.
 static bool ConvertOverlappedShapeToImpactHit(const UWorld* World, const PxLocationHit& PHit, const FVector& StartLoc, const FVector& EndLoc, FHitResult& OutResult, const PxGeometry& Geom, const PxTransform& QueryTM, const PxFilterData& QueryFilter, bool bReturnPhysMat);
 
@@ -26,29 +32,27 @@ DECLARE_CYCLE_STAT(TEXT("ConvertOverlapToHit"), STAT_CollisionConvertOverlapToHi
 DECLARE_CYCLE_STAT(TEXT("ConvertOverlap"), STAT_CollisionConvertOverlap, STATGROUP_Collision);
 
 
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST || !WITH_EDITOR)
 /* Validate Normal of OutResult. We're on hunt for invalid normal */
 static void CheckHitResultNormal(const FHitResult& OutResult, const TCHAR* Message, const FVector& Start=FVector::ZeroVector, const FVector& End = FVector::ZeroVector, const PxGeometry* const Geom=NULL)
 {
 	if(!OutResult.bStartPenetrating && !OutResult.Normal.IsNormalized())
 	{
-		UE_LOG(LogPhysics, Warning, TEXT("(%s) Non-normalized OutResult.Normal from capsule conversion: %s (Component- %s)"), Message, *OutResult.Normal.ToString(), *GetNameSafe(OutResult.Component.Get()));
-		// now I'm adding Outresult input
+		UE_LOG(LogPhysics, Warning, TEXT("(%s) Non-normalized OutResult.Normal from hit conversion: %s (Component- %s)"), Message, *OutResult.Normal.ToString(), *GetNameSafe(OutResult.Component.Get()));
 		UE_LOG(LogPhysics, Warning, TEXT("Start Loc(%s), End Loc(%s), Hit Loc(%s), ImpactNormal(%s)"), *Start.ToString(), *End.ToString(), *OutResult.Location.ToString(), *OutResult.ImpactNormal.ToString() );
 		if (Geom != NULL)
 		{
-			// I only seen this crash on capsule
 			if (Geom->getType() == PxGeometryType::eCAPSULE)
 			{
 				const PxCapsuleGeometry * Capsule = (PxCapsuleGeometry*)Geom;
 				UE_LOG(LogPhysics, Warning, TEXT("Capsule radius (%f), Capsule Halfheight (%f)"), Capsule->radius, Capsule->halfHeight);
 			}
 		}
-		check(OutResult.Normal.IsNormalized());
+		ensure(OutResult.Normal.IsNormalized());
 	}
 }
 
-#endif // !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+#endif // !(UE_BUILD_SHIPPING || UE_BUILD_TEST || !WITH_EDITOR)
 
 
 static FORCEINLINE bool PxQuatIsIdentity(PxQuat const& Q)
@@ -93,17 +97,74 @@ static PxVec3 TransformNormalToShapeSpace(const PxMeshScale& meshScale, const Px
 
 static bool FindSimpleOpposingNormal(const PxLocationHit& PHit, const FVector& TraceDirectionDenorm, FVector& OutNormal)
 {
-	const bool bNormalData = PHit.flags & PxHitFlag::eNORMAL;
-	OutNormal = bNormalData ? P2UVector(PHit.normal) : -TraceDirectionDenorm.GetSafeNormal();
+	// We don't compute anything special, so let calling code figure out the correct fallback.
+	return false;
+}
+
+static bool FindBoxOpposingNormal(const PxLocationHit& PHit, const FVector& TraceDirectionDenorm, FVector& OutNormal)
+{
+	// We require normal info for our algorithm.
+	const bool bNormalData = (PHit.flags & PxHitFlag::eNORMAL);
+	if (!bNormalData)
+	{
+		return false;
+	}
+
+	PxBoxGeometry PxBoxGeom;
+	const bool bReadGeomSuccess = PHit.shape->getBoxGeometry(PxBoxGeom);
+	check(bReadGeomSuccess); // This function should only be used for box geometry
+
+	const PxTransform LocalToWorld = PxShapeExt::getGlobalPose(*PHit.shape, *PHit.actor);
+	
+	// Find which faces were included in the contact normal, and for multiple faces, use the one most opposing the sweep direction.
+	const PxVec3 ContactNormalLocal = LocalToWorld.rotateInv(PHit.normal);
+	const PxVec3 TraceDirDenormWorld = U2PVector(TraceDirectionDenorm);
+	const PxVec3 TraceDirDenormLocal = LocalToWorld.rotateInv(TraceDirDenormWorld);
+
+	PxVec3 BestLocalNormal(ContactNormalLocal);
+	float BestOpposingDot = FLT_MAX;
+
+	for (int32 i=0; i < 3; i++)
+	{
+		// Select axis of face to compare to, based on normal.
+		if (ContactNormalLocal[i] > KINDA_SMALL_NUMBER)
+		{
+			const float TraceDotFaceNormal = TraceDirDenormLocal[i]; // TraceDirDenormLocal.dot(LocalNormal)
+			if (TraceDotFaceNormal < BestOpposingDot)
+			{
+				BestOpposingDot = TraceDotFaceNormal;
+				BestLocalNormal = PxVec3(0.f);
+				BestLocalNormal[i] = 1.f;
+			}
+		}
+		else if (ContactNormalLocal[i] < -KINDA_SMALL_NUMBER)
+		{
+			const float TraceDotFaceNormal = -TraceDirDenormLocal[i]; // TraceDirDenormLocal.dot(LocalNormal)
+			if (TraceDotFaceNormal < BestOpposingDot)
+			{
+				BestOpposingDot = TraceDotFaceNormal;
+				BestLocalNormal = PxVec3(0.f);
+				BestLocalNormal[i] = -1.f;
+			}
+		}
+	}
+
+	// Fill in result
+	const PxVec3 WorldNormal = LocalToWorld.rotate(BestLocalNormal);
+	OutNormal = P2UVector(WorldNormal);
 	return true;
 }
 
 static bool FindHeightFieldOpposingNormal(const PxLocationHit& PHit, const FVector& TraceDirectionDenorm, FVector& OutNormal)
 {
+	if (IsInvalidFaceIndex(PHit.faceIndex))
+	{
+		return false;
+	}
 
 	PxHeightFieldGeometry PHeightFieldGeom;
-	bool bSuccess = PHit.shape->getHeightFieldGeometry(PHeightFieldGeom);
-	check(bSuccess);	//we should only call this function when we have a heightfield
+	const bool bReadGeomSuccess = PHit.shape->getHeightFieldGeometry(PHeightFieldGeom);
+	check(bReadGeomSuccess);	//we should only call this function when we have a heightfield
 	if (PHeightFieldGeom.heightField)
 	{
 		const PxU32 TriIndex = PHit.faceIndex;
@@ -124,6 +185,11 @@ static bool FindHeightFieldOpposingNormal(const PxLocationHit& PHit, const FVect
 
 static bool FindConvexMeshOpposingNormal(const PxLocationHit& PHit, const FVector& TraceDirectionDenorm, FVector& OutNormal)
 {
+	if (IsInvalidFaceIndex(PHit.faceIndex))
+	{
+		return false;
+	}
+
 	PxConvexMeshGeometry PConvexMeshGeom;
 	bool bSuccess = PHit.shape->getConvexMeshGeometry(PConvexMeshGeom);
 	check(bSuccess);	//should only call this function when we have a convex mesh
@@ -162,6 +228,11 @@ static bool FindConvexMeshOpposingNormal(const PxLocationHit& PHit, const FVecto
 
 static bool FindTriMeshOpposingNormal(const PxLocationHit& PHit, const FVector& TraceDirectionDenorm, FVector& OutNormal)
 {
+	if (IsInvalidFaceIndex(PHit.faceIndex))
+	{
+		return false;
+	}
+
 	PxTriangleMeshGeometry PTriMeshGeom;
 	bool bSuccess = PHit.shape->getTriangleMeshGeometry(PTriMeshGeom);
 	check(bSuccess);	//this function should only be called when we have a trimesh
@@ -233,24 +304,22 @@ static bool FindTriMeshOpposingNormal(const PxLocationHit& PHit, const FVector& 
  * @param OutNormal - normal we may recompute based on the faceIndex of the hit
  * @return true if we compute a new normal for the geometry.
  */
-static bool FindGeomOpposingNormal(const PxLocationHit& PHit, const FVector& TraceDirectionDenorm, FVector& OutNormal)
+static bool FindGeomOpposingNormal(PxGeometryType::Enum QueryGeomType, const PxLocationHit& PHit, const FVector& TraceDirectionDenorm, FVector& OutNormal)
 {
-	checkf(InvalidQueryHit.faceIndex == 0xFFFFffff, TEXT("Engine code needs fixing: PhysX invalid face index sentinel has changed or is not part of default PxQueryHit!"));
-	if (PHit.faceIndex == InvalidQueryHit.faceIndex)
+	// TODO: can we support other shapes here as well?
+	if (QueryGeomType == PxGeometryType::eCAPSULE || QueryGeomType == PxGeometryType::eSPHERE)
 	{
-		return false;
-	}
-
-	PxGeometryType::Enum GeomType = PHit.shape->getGeometryType();
-	switch (GeomType)
-	{
+		PxGeometryType::Enum GeomType = PHit.shape->getGeometryType();
+		switch (GeomType)
+		{
 		case PxGeometryType::eSPHERE:
-		case PxGeometryType::eBOX:
 		case PxGeometryType::eCAPSULE:		return FindSimpleOpposingNormal(PHit, TraceDirectionDenorm, OutNormal);
+		case PxGeometryType::eBOX:			return FindBoxOpposingNormal(PHit, TraceDirectionDenorm, OutNormal);
 		case PxGeometryType::eCONVEXMESH:	return FindConvexMeshOpposingNormal(PHit, TraceDirectionDenorm, OutNormal);
 		case PxGeometryType::eHEIGHTFIELD:	return FindHeightFieldOpposingNormal(PHit, TraceDirectionDenorm, OutNormal);
 		case PxGeometryType::eTRIANGLEMESH:	return FindTriMeshOpposingNormal(PHit, TraceDirectionDenorm, OutNormal);
 		default: check(false);	//unsupported geom type
+		}
 	}
 
 	return false;
@@ -345,7 +414,8 @@ void ConvertQueryImpactHit(const UWorld* World, const PxLocationHit& PHit, FHitR
 	SCOPE_CYCLE_COUNTER(STAT_ConvertQueryImpactHit);
 
 	checkSlow(PHit.flags & PxHitFlag::eDISTANCE);
-	if (Geom != NULL && PHit.hadInitialOverlap())
+	const bool bInitialOverlap = PHit.hadInitialOverlap();
+	if (bInitialOverlap && Geom != nullptr)
 	{
 		ConvertOverlappedShapeToImpactHit(World, PHit, StartLoc, EndLoc, OutResult, *Geom, QueryTM, QueryFilter, bReturnPhysMat);
 		return;
@@ -353,41 +423,48 @@ void ConvertQueryImpactHit(const UWorld* World, const PxLocationHit& PHit, FHitR
 
 	SetHitResultFromShapeAndFaceIndex(PHit.shape,  PHit.actor, PHit.faceIndex, OutResult, bReturnPhysMat);
 
+	// See if this is a 'blocking' hit
+	const PxFilterData PShapeFilter = PHit.shape->getQueryFilterData();
+	const PxSceneQueryHitType::Enum HitType = FPxQueryFilterCallback::CalcQueryHitType(QueryFilter, PShapeFilter);
+	OutResult.bBlockingHit = (HitType == PxSceneQueryHitType::eBLOCK); 
+	OutResult.bStartPenetrating = bInitialOverlap;
+
 	// calculate the hit time
 	const float HitTime = PHit.distance/CheckLength;
+	OutResult.Time = HitTime;
 
 	// figure out where the the "safe" location for this shape is by moving from the startLoc toward the ImpactPoint
 	const FVector TraceStartToEnd = EndLoc - StartLoc;
 	const FVector SafeLocationToFitShape = StartLoc + (HitTime * TraceStartToEnd);
-
-	// Other info
 	OutResult.Location = SafeLocationToFitShape;
-	OutResult.ImpactPoint = (PHit.flags & PxHitFlag::ePOSITION) ? P2UVector(PHit.position) : StartLoc;
-	OutResult.Normal = (PHit.flags & PxHitFlag::eNORMAL) ? P2UVector(PHit.normal).GetSafeNormal() : -TraceStartToEnd.GetSafeNormal();
-	OutResult.ImpactNormal = OutResult.Normal;
+
+	const bool bUsePxPoint = ((PHit.flags & PxHitFlag::ePOSITION) && !bInitialOverlap);
+	OutResult.ImpactPoint = bUsePxPoint ? P2UVector(PHit.position) : StartLoc;
+	
+	// Caution: we may still have an initial overlap, but with null Geom. This is the case for RayCast results.
+	const bool bUsePxNormal = ((PHit.flags & PxHitFlag::eNORMAL) && !bInitialOverlap);
+	FVector Normal = bUsePxNormal ? P2UVector(PHit.normal).GetSafeNormal() : -TraceStartToEnd.GetSafeNormal();
+	OutResult.Normal = Normal;
+	OutResult.ImpactNormal = Normal;
 
 	OutResult.TraceStart = StartLoc;
 	OutResult.TraceEnd = EndLoc;
-	OutResult.Time = HitTime;
-
-	// See if this is a 'blocking' hit
-	PxFilterData PShapeFilter = PHit.shape->getQueryFilterData();
-	PxSceneQueryHitType::Enum HitType = FPxQueryFilterCallback::CalcQueryHitType(QueryFilter, PShapeFilter);
-	OutResult.bBlockingHit = (HitType == PxSceneQueryHitType::eBLOCK); 
-	OutResult.bStartPenetrating = (PxU32)(PHit.hadInitialOverlap());
 
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST || !WITH_EDITOR)
 	CheckHitResultNormal(OutResult, TEXT("Invalid Normal from ConvertQueryImpactHit"), StartLoc, EndLoc, Geom);
 #endif
 
-	PxGeometryType::Enum GeometryType = Geom ? Geom->getType() : PxGeometryType::eINVALID;
-
-	// Special handling for swept-capsule results
-	if (GeometryType == PxGeometryType::eCAPSULE || GeometryType == PxGeometryType::eSPHERE)
+	if (bUsePxNormal && !Normal.IsNormalized())
 	{
-		FindGeomOpposingNormal(PHit, TraceStartToEnd, OutResult.ImpactNormal);
+		// TraceStartToEnd should never be zero, because of the length restriction in the raycast and sweep tests.
+		Normal = -TraceStartToEnd.GetSafeNormal();
+		OutResult.Normal = Normal;
+		OutResult.ImpactNormal = Normal;
 	}
+
+	const PxGeometryType::Enum SweptGeometryType = Geom ? Geom->getType() : PxGeometryType::eINVALID;
+	FindGeomOpposingNormal(SweptGeometryType, PHit, TraceStartToEnd, OutResult.ImpactNormal);
 	
 	if( PHit.shape->getGeometryType() == PxGeometryType::eHEIGHTFIELD)
 	{

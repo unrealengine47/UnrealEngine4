@@ -22,9 +22,12 @@ UK2Node_DynamicCast::UK2Node_DynamicCast(const FObjectInitializer& ObjectInitial
 
 void UK2Node_DynamicCast::AllocateDefaultPins()
 {
-	// Check to track down possible BP comms corruption
-	//@TODO: Move this somewhere more sensible
-	check((TargetType == NULL) || (!TargetType->HasAnyClassFlags(CLASS_NewerVersionExists)));
+	const bool bReferenceObsoleteClass = TargetType && TargetType->HasAnyClassFlags(CLASS_NewerVersionExists);
+	if (bReferenceObsoleteClass)
+	{
+		Message_Error(FString::Printf(TEXT("Node '%s' references obsolete class '%s'"), *GetPathName(), *TargetType->GetPathName()));
+	}
+	ensure(!bReferenceObsoleteClass);
 
 	const UEdGraphSchema_K2* K2Schema = Cast<UEdGraphSchema_K2>(GetSchema());
 	check(K2Schema != nullptr);
@@ -206,8 +209,7 @@ UEdGraphPin* UK2Node_DynamicCast::GetCastSourcePin() const
 UEdGraphPin* UK2Node_DynamicCast::GetBoolSuccessPin() const
 {
 	UEdGraphPin* Pin = FindPin(UK2Node_DynamicCastImpl::CastSuccessPinName);
-	check(Pin != nullptr);
-	check(Pin->Direction == EGPD_Output);
+	check((Pin == nullptr) || (Pin->Direction == EGPD_Output));
 	return Pin;
 }
 

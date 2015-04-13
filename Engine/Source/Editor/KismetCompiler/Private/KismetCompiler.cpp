@@ -1222,6 +1222,8 @@ void FKismetCompilerContext::PrecompileFunction(FKismetFunctionContext& Context)
 		//@TODO: Prune pure functions that don't have any consumers
 		if (bIsFullCompile)
 		{
+			FKismetCompilerUtilities::ValidateProperEndExecutionPath(Context);
+
 			// Find the execution path (and make sure it has no cycles)
 			CreateExecutionSchedule(Context.SourceGraph->Nodes, Context.LinearExecutionList);
 
@@ -1277,7 +1279,7 @@ void FKismetCompilerContext::PrecompileFunction(FKismetFunctionContext& Context)
 			if (!ParentFunction->IsSignatureCompatibleWith(Context.Function))
 			{
 				FString SignatureClassName("");
-				if (Context.EntryPoint && Context.EntryPoint->SignatureClass)
+				if (Context.EntryPoint->SignatureClass)
 				{
 					SignatureClassName = Context.EntryPoint->SignatureClass->GetName();
 				}
@@ -2890,10 +2892,6 @@ void FKismetCompilerContext::ExpandTunnelsAndMacros(UEdGraph* SourceGraph)
 					/*out*/ NodeOffsetY);
 			}
 
-			// If regenerating on load and the MacroGraph's Blueprint did not reach PostLoad yet, the nodes expanded from the graph will need to be reconstructed
-			UBlueprint* MacroBP = FBlueprintEditorUtils::FindBlueprintForGraph(MacroGraph);
-			bool bMacroNodesNeedRefresh = Blueprint->bIsRegeneratingOnLoad && MacroBP && !MacroBP->bHasBeenRegenerated;
-
 			// Record intermediate object creation nodes, offset the nodes, and handle tunnels
 			for (TArray<UEdGraphNode*>::TIterator MacroNodeIt(MacroNodes); MacroNodeIt; ++MacroNodeIt)
 			{
@@ -2901,10 +2899,6 @@ void FKismetCompilerContext::ExpandTunnelsAndMacros(UEdGraph* SourceGraph)
 				
 				if( DuplicatedNode != NULL )
 				{
-					if (bMacroNodesNeedRefresh)
-					{
-						DuplicatedNode->ReconstructNode();
-					}
 					// Record the source node mapping for the intermediate node first, as it's going to be overwritten through the MessageLog below
 					UEdGraphNode* MacroSourceNode = Cast<UEdGraphNode>(MessageLog.FindSourceObject(DuplicatedNode));
 					if (MacroSourceNode)
@@ -3296,8 +3290,7 @@ void FKismetCompilerContext::Compile()
 
 	NewClass->ClassGeneratedBy = Blueprint;
 
-	UClass* ParentClass = nullptr;
-	ParentClass = NewClass->ClassWithin;
+	UClass* ParentClass = NewClass->ClassWithin;
 	NewClass->SetSuperStruct(ParentClass);
 	NewClass->ClassFlags |= (ParentClass->ClassFlags & CLASS_Inherit);
 	NewClass->ClassCastFlags |= ParentClass->ClassCastFlags;

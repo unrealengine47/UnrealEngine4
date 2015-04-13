@@ -9,6 +9,7 @@
 #include "GenericCommands.h"
 #include "EngineBuildSettings.h"
 #include "SourceCodeNavigation.h"
+#include "SOutputLogDialog.h"
 
 
 #define LOCTEXT_NAMESPACE "MainFrameActions"
@@ -575,6 +576,11 @@ void FMainFrameActionCallbacks::PackageProject( const FName InPlatformInfoName )
 		OptionalParams += TEXT(" -CrashReporter");
 	}
 
+	if (PackagingSettings->bBuildHttpChunkInstallData)
+	{
+		OptionalParams += FString::Printf(TEXT(" -manifests -createchunkinstall -chunkinstalldirectory=\"%s\" -chunkinstallversion=%s"), *(PackagingSettings->HttpChunkInstallDataDirectory.Path), *(PackagingSettings->HttpChunkInstallDataVersion));
+	}
+
 	FString ExecutableName = FPlatformProcess::ExecutableName(false);
 #if PLATFORM_WINDOWS
 	// turn UE4editor into UE4editor.cmd
@@ -644,10 +650,10 @@ void FMainFrameActionCallbacks::RefreshCodeProject()
 		FSourceCodeNavigation::AccessOnCompilerNotFound().Broadcast();
 	}
 
-	FText FailReason;
-	if(!FGameProjectGenerationModule::Get().UpdateCodeProject(FailReason))
+	FText FailReason, FailLog;
+	if(!FGameProjectGenerationModule::Get().UpdateCodeProject(FailReason, FailLog))
 	{
-		FMessageDialog::Open(EAppMsgType::Ok, FailReason);
+		SOutputLogDialog::Open(LOCTEXT("RefreshProject", "Refresh Project"), FailReason, FailLog, FText::GetEmpty());
 	}
 }
 

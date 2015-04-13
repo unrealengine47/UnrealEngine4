@@ -27,6 +27,9 @@ class ENGINE_API UDemoNetDriver : public UNetDriver
 	/** Current record/playback position in seconds */
 	float DemoCurrentTime;
 
+	/** Old current record/playback position in seconds (so we can restore on checkpoint failure) */
+	float OldDemoCurrentTime;
+
 	/** Total number of frames in the demo */
 	int32 DemoTotalFrames;
 
@@ -56,7 +59,8 @@ class ENGINE_API UDemoNetDriver : public UNetDriver
 	double		MaxRecordTime;
 	int32		RecordCountSinceFlush;
 	float		TimeToSkip;
-	float		LastGotoTimeInSeconds;
+	float		QueuedGotoTimeInSeconds;
+	uint32		InitialLiveDemoTime;
 
 	bool		bSavingCheckpoint;
 	double		LastCheckpointTime;
@@ -76,6 +80,7 @@ class ENGINE_API UDemoNetDriver : public UNetDriver
 private:
 	bool		bIsFastForwarding;
 	bool		bIsLoadingCheckpoint;
+	bool		bWasStartStreamingSuccessful;
 
 	TArray<FNetworkGUID> NonQueuedGUIDsForScrubbing;
 
@@ -92,7 +97,6 @@ public:
 	virtual bool InitConnect( FNetworkNotify* InNotify, const FURL& ConnectURL, FString& Error ) override;
 	virtual bool InitListen( FNetworkNotify* InNotify, FURL& ListenURL, bool bReuseAddressAndPort, FString& Error ) override;
 	virtual void TickDispatch( float DeltaSeconds ) override;
-	virtual void TickFlush( float DeltaSeconds ) override;
 	virtual void ProcessRemoteFunction( class AActor* Actor, class UFunction* Function, void* Parameters, struct FOutParmRec* OutParms, struct FFrame* Stack, class UObject* SubObject = nullptr ) override;
 	virtual bool IsAvailable() const override { return true; }
 	void SkipTime(const float InTimeToSkip);
@@ -126,6 +130,7 @@ public:
 	void TickDemoPlayback( float DeltaSeconds );
 	void SpawnDemoRecSpectator( UNetConnection* Connection );
 	void ResetDemoState();
+	void JumpToEndOfLiveReplay();
 
 	void StopDemo();
 

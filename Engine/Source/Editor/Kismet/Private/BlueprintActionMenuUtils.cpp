@@ -21,6 +21,8 @@
 #include "Engine/Selection.h"
 #include "Engine/LevelScriptActor.h"
 #include "Engine/LevelScriptBlueprint.h"
+#include "Editor/ContentBrowser/Public/ContentBrowserModule.h" // for GetSelectedAssets()
+#include "ComponentAssetBroker.h"	// for GetPrimaryComponentForAsset()
 
 #define LOCTEXT_NAMESPACE "BlueprintActionMenuUtils"
 
@@ -292,14 +294,14 @@ static FBlueprintActionFilter BlueprintActionMenuUtilsImpl::MakeCallOnMemberFilt
 	bool bForceAddComponents = ((ContextTargetMask & EContextTargetFlags::TARGET_SubComponents) != 0);
 
 	TArray<UClass*> TargetClasses = MainMenuFilter.TargetClasses;
-	if (bForceAddComponents && (CallOnMemberFilter.TargetClasses.Num() == 0))
+	if (bForceAddComponents && (TargetClasses.Num() == 0))
 	{
 		for (UBlueprint const* TargetBlueprint : MainMenuFilter.Context.Blueprints)
 		{
 			UClass* BpClass = TargetBlueprint->SkeletonGeneratedClass;
 			if (BpClass != nullptr)
 			{
-				TargetClasses.Add(BpClass);
+				TargetClasses.AddUnique(BpClass);
 			}
 		}
 	}
@@ -308,14 +310,14 @@ static FBlueprintActionFilter BlueprintActionMenuUtilsImpl::MakeCallOnMemberFilt
 	{
 		for (TFieldIterator<UObjectProperty> PropertyIt(TargetClass, EFieldIteratorFlags::IncludeSuper); PropertyIt; ++PropertyIt)
 		{
-			UObjectProperty* ObjectProperty = *PropertyIt;
+ 			UObjectProperty* ObjectProperty = *PropertyIt;
 			if (!ObjectProperty->HasAnyPropertyFlags(CPF_BlueprintVisible))
 			{
 				continue;
 			}
 
 			if ( ObjectProperty->HasMetaData(FBlueprintMetadata::MD_ExposeFunctionCategories) || 
-				(bForceAddComponents && ObjectProperty->PropertyClass->IsChildOf<UActorComponent>()) )
+				(bForceAddComponents && FBlueprintEditorUtils::IsSCSComponentProperty(ObjectProperty)) )
 			{
 				CallOnMemberFilter.Context.SelectedObjects.Add(ObjectProperty);
 			}			
@@ -472,7 +474,7 @@ void FBlueprintActionMenuUtils::MakeContextMenu(FBlueprintActionContext const& C
 			bCanOperateOnLevelActors &= BlueprintClass->IsChildOf<ALevelScriptActor>();
 			if (bIsContextSensitive && (ClassTargetMask & EContextTargetFlags::TARGET_Blueprint))
 			{
-				MainMenuFilter.TargetClasses.Add(BlueprintClass);
+				MainMenuFilter.TargetClasses.AddUnique(BlueprintClass);
 			}
 		}
 		bCanHaveActorComponents &= FBlueprintEditorUtils::DoesSupportComponents(Blueprint);
@@ -559,7 +561,7 @@ void FBlueprintActionMenuUtils::MakeContextMenu(FBlueprintActionContext const& C
 			{
 				if (ClassTargetMask & EContextTargetFlags::TARGET_PinObject)
 				{
-					MainMenuFilter.TargetClasses.Add(PinObjClass);
+					MainMenuFilter.TargetClasses.AddUnique(PinObjClass);
 				}
 			}
 
@@ -571,7 +573,7 @@ void FBlueprintActionMenuUtils::MakeContextMenu(FBlueprintActionContext const& C
 				{
 					if (UClass* TargetClass = GetPinClassType(TargetPin))
 					{
-						MainMenuFilter.TargetClasses.Add(TargetClass);
+						MainMenuFilter.TargetClasses.AddUnique(TargetClass);
 					}
 				}
 			}
@@ -587,7 +589,7 @@ void FBlueprintActionMenuUtils::MakeContextMenu(FBlueprintActionContext const& C
 				{
 					if (UClass* PinClass = GetPinClassType(NodePin))
 					{
-						MainMenuFilter.TargetClasses.Add(PinClass);
+						MainMenuFilter.TargetClasses.AddUnique(PinClass);
 					}
 				}
 			}
@@ -602,13 +604,26 @@ void FBlueprintActionMenuUtils::MakeContextMenu(FBlueprintActionContext const& C
 	AddComponentFilter.PermittedNodeTypes.Add(UK2Node_AddComponent::StaticClass());
 	AddComponentFilter.AddRejectionTest(FBlueprintActionFilter::FRejectionTestDelegate::CreateStatic(IsUnBoundSpawner));
 
-	for (FSelectionIterator SelectionIt(*GEditor->GetSelectedObjects()); SelectionIt; ++SelectionIt)
+
+	FContentBrowserModule& ContentBrowserModule = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
+	TArray<FAssetData> SelectedAssets;
+	ContentBrowserModule.Get().GetSelectedAssets(SelectedAssets);
+
+	for (FAssetData& Asset : SelectedAssets)
 	{
-		UObject* PerspectiveAsset = *SelectionIt;
-		if (PerspectiveAsset->IsAsset())
+		UClass* AssetClass = Asset.GetClass();
+		// filter here (rather than in FBlueprintActionFilter) so we only load
+		// assets that we can use
+		if ((AssetClass == nullptr) || (FComponentAssetBrokerage::GetPrimaryComponentForAsset(AssetClass) == nullptr))
 		{
-			AddComponentFilter.Context.SelectedObjects.Add(PerspectiveAsset);
+			continue;
 		}
+
+		// @TODO: loading assets here may be slow (but we need a UObject to 
+		//        properly bind to), consider adding a editor option that will 
+		//        only offer then if the asset is already loaded
+		UObject* AssetObj = Asset.GetAsset();
+		AddComponentFilter.Context.SelectedObjects.Add(AssetObj);
 	}
 
 	//--------------------------------------

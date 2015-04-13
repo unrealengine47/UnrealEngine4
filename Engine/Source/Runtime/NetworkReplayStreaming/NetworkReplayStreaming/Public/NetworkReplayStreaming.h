@@ -103,7 +103,7 @@ class INetworkReplayStreamer
 public:
 	virtual ~INetworkReplayStreamer() {}
 
-	virtual void StartStreaming( const FString& StreamName, bool bRecord, const FNetworkReplayVersion& ReplayVersion, const FOnStreamReadyDelegate& Delegate ) = 0;
+	virtual void StartStreaming( const FString& CustomName, const FString& FriendlyName, bool bRecord, const FNetworkReplayVersion& ReplayVersion, const FOnStreamReadyDelegate& Delegate ) = 0;
 	virtual void StopStreaming() = 0;
 	virtual FArchive* GetHeaderArchive() = 0;
 	virtual FArchive* GetStreamingArchive() = 0;
@@ -117,9 +117,10 @@ public:
 	virtual bool IsDataAvailable() const = 0;
 	virtual void SetHighPriorityTimeRange( const uint32 StartTimeInMS, const uint32 EndTimeInMS ) = 0;
 	virtual bool IsDataAvailableForTimeRange( const uint32 StartTimeInMS, const uint32 EndTimeInMS ) = 0;
+	virtual bool IsLoadingCheckpoint() const = 0;
 	
-	/** Returns true if the given StreamName is a game currently in progress */
-	virtual bool IsLive( const FString& StreamName ) const = 0;
+	/** Returns true if the playing stream is currently in progress */
+	virtual bool IsLive() const = 0;
 
 	/**
 	 * Attempts to delete the stream with the specified name. May execute asynchronously.

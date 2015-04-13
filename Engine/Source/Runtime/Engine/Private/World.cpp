@@ -1101,7 +1101,7 @@ void UWorld::RemoveActor(AActor* Actor, bool bShouldModifyLevel)
 			ModifyLevel( CheckLevel );
 		}
 		
-		if (!AreActorsInitialized())
+		if (!IsGameWorld())
 		{
 			CheckLevel->Actors.ModifyItem(ActorListIndex);
 		}
@@ -1135,9 +1135,8 @@ void UWorld::RemoveActor(AActor* Actor, bool bShouldModifyLevel)
 				UE_LOG(LogWorld, Log, TEXT("  %s"), (CurrentActor ? *CurrentActor->GetPathName() : TEXT("NONE")));
 			}
 		}
-		UE_LOG(LogWorld, Fatal, TEXT("Could not remove actor %s from world (check level is %s)"), *Actor->GetPathName(), *CheckLevel->GetPathName());
+		ensureMsgf(false, TEXT("Could not remove actor %s from world (check level is %s)"), *Actor->GetPathName(), *CheckLevel->GetPathName());
 	}
-	check(bSuccessfulRemoval);
 }
 
 
@@ -2645,12 +2644,8 @@ bool UWorld::HandleDemoRecordCommand( const TCHAR* Cmd, FOutputDevice& Ar, UWorl
 	FURL DemoURL;
 	FString DemoName;
 
-	if ( !FParse::Token( Cmd, DemoName, 0 ) )
-	{
-		Ar.Logf( TEXT( "Missing demo name." ) );
-		return true;
-	}
-
+	FParse::Token( Cmd, DemoName, 0 );
+	
 	DemoName.ReplaceInline( TEXT( "%m" ), *GetMapName() );
 
 	// replace the current URL's map with a demo extension
@@ -4756,7 +4751,7 @@ UWorld* FSeamlessTravelHandler::Tick()
 			GWorld = NULL;
 
 			// mark everything else contained in the world to be deleted
-			TArray<UWorld*> CurrentWorlds;
+			TSet<UWorld*> CurrentWorlds;
 			for (auto LevelIt(CurrentWorld->GetLevelIterator()); LevelIt; ++LevelIt)
 			{
 				const ULevel* Level = *LevelIt;
@@ -4766,15 +4761,12 @@ UWorld* FSeamlessTravelHandler::Tick()
 				}
 			}
 
-			for (TObjectIterator<UObject> It; It; ++It)
+			for (TObjectIterator<UObject> It(RF_PendingKill); It; ++It)
 			{
-				for (const UWorld* World : CurrentWorlds)
+				UWorld* InWorld = It->GetTypedOuter<UWorld>();
+				if (InWorld && CurrentWorlds.Contains(InWorld))
 				{
-					if (It->IsIn(World))
-					{
-						It->MarkPendingKill();
-						break;
-					}
+					It->MarkPendingKill();
 				}
 			}
 

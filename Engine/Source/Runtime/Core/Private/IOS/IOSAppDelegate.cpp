@@ -7,6 +7,7 @@
 #include "ModuleBoilerplate.h"
 #include "CallbackDevice.h"
 #include "IOSView.h"
+#include "TaskGraphInterfaces.h"
 
 #include <AudioToolbox/AudioToolbox.h>
 #include <AVFoundation/AVAudioSession.h>
@@ -378,6 +379,9 @@ void InstallSignalHandlers()
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary*)launchOptions
 {
+	// save launch options
+	self.launchOptions = launchOptions;
+
 	// use the status bar orientation to properly determine landscape vs portrait
 	self.bDeviceInPortraitMode = UIInterfaceOrientationIsPortrait([[UIApplication sharedApplication] statusBarOrientation]);
 	printf("========= This app is in %s mode\n", self.bDeviceInPortraitMode ? "PORTRAIT" : "LANDSCAPE");
@@ -541,8 +545,12 @@ void InstallSignalHandlers()
 	 Sent when the application is about to move from active to inactive state. This can occur for certain types of temporary interruptions (such as an incoming phone call or SMS message) or when the user quits the application and it begins the transition to the background state.
 	 Use this method to pause ongoing tasks, disable timers, and throttle down OpenGL ES frame rates. Games should use this method to pause the game.
 	 */
-
-	FCoreDelegates::ApplicationWillDeactivateDelegate.Broadcast();
+    FGraphEventRef ResignTask = FFunctionGraphTask::CreateAndDispatchWhenReady([&]()
+	{
+		FCoreDelegates::ApplicationWillDeactivateDelegate.Broadcast();
+    }, TStatId(), NULL, ENamedThreads::GameThread);
+    FTaskGraphInterface::Get().WaitUntilTaskCompletes(ResignTask);
+    
 	[self ToggleSuspend:true];
 	[self ToggleAudioSession:false];
 }
@@ -553,7 +561,7 @@ void InstallSignalHandlers()
 	 Use this method to release shared resources, save user data, invalidate timers, and store enough application state information to restore your application to its current state in case it is terminated later. 
 	 If your application supports background execution, this method is called instead of applicationWillTerminate: when the user quits.
 	 */
-	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+    FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
 }
 
 - (void)applicationWillEnterForeground:(UIApplication *)application
@@ -561,7 +569,7 @@ void InstallSignalHandlers()
 	/*
 	 Called as part of the transition from the background to the inactive state; here you can undo many of the changes made on entering the background.
 	 */
-	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+    FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
 }
 
 - (void)applicationDidBecomeActive:(UIApplication *)application
@@ -569,10 +577,17 @@ void InstallSignalHandlers()
 	/*
 	 Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
 	 */
-
     [self ToggleSuspend:false];
 	[self ToggleAudioSession:true];
-	FCoreDelegates::ApplicationHasReactivatedDelegate.Broadcast();
+
+    if (FTaskGraphInterface::IsRunning())
+    {
+        FGraphEventRef ResignTask = FFunctionGraphTask::CreateAndDispatchWhenReady([&]()
+        {
+            FCoreDelegates::ApplicationHasReactivatedDelegate.Broadcast();
+        }, TStatId(), NULL, ENamedThreads::GameThread);
+        FTaskGraphInterface::Get().WaitUntilTaskCompletes(ResignTask);
+    }
 }
 
 - (void)applicationWillTerminate:(UIApplication *)application
@@ -623,10 +638,10 @@ void InstallSignalHandlers()
  * @param Controller The Controller object to animate off the screen
  * @param bShouldAnimate YES to slide down, NO to hide immediately
  */
--(void)HideController:(UIViewController*)Controller Animated : (BOOL)bShouldAnimate
+-(void)HideController:(UIViewController*)Controller Animated:(BOOL)bShouldAnimate
 {
-	// slide it off
-	[Controller dismissViewControllerAnimated : bShouldAnimate completion : nil];
+    // slide it off
+    [Controller dismissViewControllerAnimated : bShouldAnimate completion : nil];
 
 	// stop drawing the 3D world for faster UI speed
 	//FViewport::SetGameRenderingEnabled(true);

@@ -709,37 +709,21 @@ UProperty* FKismetCompilerUtilities::CreatePropertyOnScope(UStruct* Scope, const
 	// Check to see if there's already a object on this scope with the same name, and throw an internal compiler error if so
 	// If this happens, it breaks the property link, which causes stack corruption and hard-to-track errors, so better to fail at this point
 	{
-		auto CheckIfPropertyNameIsUsed = [](UStruct* Struct, const TCHAR* Name) -> UObject*
-		{
-			if (UObject* ExistingObject = FindObject<UObject>(Struct, Name, false))
-			{
-				return ExistingObject;
-			}
-			
-			if (Struct && !Struct->IsA<UFunction>() && (UBlueprintGeneratedClass::GetUberGraphFrameName() != Name))
-			{
-				if (auto Field = FindField<UProperty>(Struct ? Struct->GetSuperStruct() : nullptr, Name))
-				{
-					return Field;
-				}
-			}
-
-			return nullptr;
-		};
-
-		if (UObject* ExistingObject = CheckIfPropertyNameIsUsed(Scope, *PropertyName.ToString()))
+		if (UObject* ExistingObject = CheckPropertyNameOnScope(Scope, PropertyName))
 		{
 			MessageLog.Error(*FString::Printf(TEXT("Internal Compiler Error:  Tried to create a property %s in scope %s, but %s already exists there."), *PropertyName.ToString(), (Scope ? *Scope->GetName() : TEXT("None")), *ExistingObject->GetFullName()));
 
 			// Find a free name, so we can still create the property to make it easier to spot the duplicates, and avoid crashing
 			uint32 Counter = 0;
-			FString TestNameString;
+			FName TestName;
 			do 
 			{
-				TestNameString = PropertyName.ToString() + FString::Printf(TEXT("_ERROR_DUPLICATE_%d"), Counter++);
-			} while (CheckIfPropertyNameIsUsed(Scope, *TestNameString) != NULL);
+				FString TestNameString = PropertyName.ToString() + FString::Printf(TEXT("_ERROR_DUPLICATE_%d"), Counter++);
+				TestName = FName(*TestNameString);
 
-			ValidatedPropertyName = FName(*TestNameString);
+			} while (CheckPropertyNameOnScope(Scope, TestName) != NULL);
+
+			ValidatedPropertyName = TestName;
 		}
 	}
 
@@ -921,6 +905,86 @@ UProperty* FKismetCompilerUtilities::CreatePropertyOnScope(UStruct* Scope, const
 	return NewProperty;
 }
 
+UObject* FKismetCompilerUtilities::CheckPropertyNameOnScope(UStruct* Scope, const FName& PropertyName)
+{
+	FString NameStr = PropertyName.ToString();
+
+	if (UObject* ExistingObject = FindObject<UObject>(Scope, *NameStr, false))
+	{
+		return ExistingObject;
+	}
+
+	if (Scope && !Scope->IsA<UFunction>() && (UBlueprintGeneratedClass::GetUberGraphFrameName() != PropertyName))
+	{
+		if (auto Field = FindField<UProperty>(Scope ? Scope->GetSuperStruct() : nullptr, *NameStr))
+		{
+			return Field;
+		}
+	}
+
+	return nullptr;
+}
+
+/** Checks if the execution path ends with a Return node */
+void FKismetCompilerUtilities::ValidateProperEndExecutionPath(FKismetFunctionContext& Context)
+{
+	struct FRecrursiveHelper
+	{
+		// returns if the path is properly ended
+		static void CheckPath(UK2Node* StartingNode, TSet<UK2Node*>& VisitedNodes, FKismetFunctionContext& Context)
+		{
+			UK2Node* CurrentNode = StartingNode;
+			while (CurrentNode)
+			{
+				UK2Node* SourceNode = CurrentNode;
+				CurrentNode = nullptr;
+
+				bool bAlreadyVisited = false;
+				VisitedNodes.Add(SourceNode, &bAlreadyVisited);
+				if (!bAlreadyVisited && !SourceNode->IsA<UK2Node_FunctionResult>())
+				{
+					const bool bIsExecutionSequence = UK2Node_ExecutionSequence::StaticClass() == SourceNode->GetClass(); // no "SourceNode->IsA<UK2Node_ExecutionSequence>()" because MultiGate is based on ExecutionSequence
+					for (auto CurrentPin : SourceNode->Pins)
+					{
+						if (CurrentPin
+							&& (CurrentPin->Direction == EEdGraphPinDirection::EGPD_Output)
+							&& (CurrentPin->PinType.PinCategory == Context.Schema->PC_Exec)
+							&& (CurrentPin->LinkedTo.Num() > 0))
+						{
+							auto LinkedPin = CurrentPin->LinkedTo[0];
+							auto NextNode = ensure(LinkedPin) ? Cast<UK2Node>(LinkedPin->GetOwningNodeUnchecked()) : nullptr;
+							if (CurrentNode && !bIsExecutionSequence && ensure(NextNode)) // for sequence node, we want only the last output
+							{
+								FRecrursiveHelper::CheckPath(NextNode, VisitedNodes, Context);
+							}
+							else
+							{
+								CurrentNode = NextNode;
+							}
+						}
+					}
+
+					if (!CurrentNode)
+					{
+						Context.MessageLog.Warning(*LOCTEXT("ExecutionEnd_Warning", "The execution path doesn't end with a return node. @@").ToString(), SourceNode);
+					}
+				}
+			}
+		}
+	};
+
+	// Function is designed for multiple return nodes.
+	if (!Context.IsEventGraph() && Context.SourceGraph && Context.Schema)
+	{
+		TArray<UK2Node_FunctionResult*> ReturnNodes;
+		Context.SourceGraph->GetNodesOfClass(ReturnNodes);
+		if (ReturnNodes.Num() && ensure(Context.EntryPoint))
+		{
+			TSet<UK2Node*> VisitedNodes;
+			FRecrursiveHelper::CheckPath(Context.EntryPoint, VisitedNodes, Context);
+		}
+	}
+}
 
 //////////////////////////////////////////////////////////////////////////
 // FNodeHandlingFunctor

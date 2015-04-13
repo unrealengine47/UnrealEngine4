@@ -124,7 +124,7 @@ private:
 		const FString Tooltip = (TooltipPtr && !TooltipPtr->IsEmpty()) ? *TooltipPtr : InAsset.ObjectPath.ToString();
 
 		FPinTypeTreeInfoPtr TypeTreeInfo = MakeShareable(new UEdGraphSchema_K2::FPinTypeTreeInfo(InCategoryName, InAsset.ToStringReference(), FText::FromString(Tooltip)));
-		TypeTreeInfo->FriendlyName = FText::FromName(InAsset.AssetName);
+		TypeTreeInfo->FriendlyName = FText::FromString(FName::NameToDisplayString(InAsset.AssetName.ToString(), false));
 		OutChildren.Add(TypeTreeInfo);
 	}
 
@@ -412,13 +412,13 @@ FText UEdGraphSchema_K2::FPinTypeTreeInfo::GetDescription() const
 	else if (PinType.PinSubCategoryObject.IsValid())
 	{
 		FText DisplayName;
-		if (UClass* SubCategoryClass = Cast<UClass>(PinType.PinSubCategoryObject.Get()))
+		if (UField* SubCategoryField = Cast<UField>(PinType.PinSubCategoryObject.Get()))
 		{
-			DisplayName = FBlueprintEditorUtils::GetFriendlyClassDisplayName(SubCategoryClass);
+			DisplayName = SubCategoryField->GetDisplayNameText();
 		}
 		else
 		{
-			DisplayName = FText::FromString(PinType.PinSubCategoryObject->GetName());
+			DisplayName = FText::FromString(FName::NameToDisplayString(PinType.PinSubCategoryObject->GetName(), PinType.PinCategory == PC_Boolean));
 		}
 
 		return DisplayName;
@@ -1402,6 +1402,12 @@ void UEdGraphSchema_K2::GetContextMenuActions(const UEdGraph* CurrentGraph, cons
 					MenuBuilder->EndSection();
 				}
 			}
+
+			MenuBuilder->BeginSection("EdGraphSchemaDocumentation", LOCTEXT("DocumentationHeader", "Documentation"));
+			{
+				MenuBuilder->AddMenuEntry( FGraphEditorCommands::Get().GoToDocumentation );
+			}
+			MenuBuilder->EndSection();
 		}
 	}
 
@@ -5422,7 +5428,15 @@ UK2Node* UEdGraphSchema_K2::CreateSplitPinNode(UEdGraphPin* Pin, FKismetCompiler
 {
 	UEdGraphNode* GraphNode = Pin->GetOwningNode();
 	UEdGraph* Graph = GraphNode->GetGraph();
-	UScriptStruct* StructType = CastChecked<UScriptStruct>(Pin->PinType.PinSubCategoryObject.Get());
+	UScriptStruct* StructType = CastChecked<UScriptStruct>(Pin->PinType.PinSubCategoryObject.Get(), ECastCheckedType::NullAllowed);
+	if (!StructType)
+	{
+		if (CompilerContext)
+		{
+			CompilerContext->MessageLog.Error(TEXT("No structure in SubCategoryObject in pin @@"), Pin);
+		}
+		StructType = GetFallbackStruct();
+	}
 	UK2Node* SplitPinNode = NULL;
 
 	if (Pin->Direction == EGPD_Input)
@@ -5503,7 +5517,7 @@ void UEdGraphSchema_K2::SplitPin(UEdGraphPin* Pin) const
 			{
 				FFormatNamedArguments Arguments;
 				Arguments.Add(TEXT("PinDisplayName"), Pin->GetDisplayName());
-				Arguments.Add(TEXT("PinDisplayName"), ProtoPin->GetDisplayName());
+				Arguments.Add(TEXT("ProtoPinDisplayName"), ProtoPin->GetDisplayName());
 				SubPin->PinFriendlyName = FText::Format(LOCTEXT("SplitPinFriendlyNameFormat", "{PinDisplayName} {ProtoPinDisplayName}"), Arguments);
 			}
 

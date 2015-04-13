@@ -188,9 +188,10 @@ void SGraphNodeComment::UpdateGraphNode()
 	.Text( this, &SGraphNode::GetNodeComment )
 	.ColorAndOpacity( this, &SGraphNodeComment::GetCommentColor )
 	.AllowPinning( true )
-	.EnableTitleBarBubble( true )
-	.EnableBubbleCtrls( true )
+	.EnableTitleBarBubble( false )
+	.EnableBubbleCtrls( false )
 	.GraphLOD( this, &SGraphNode::GetCurrentLOD )
+	.InvertLODCulling( true )
 	.IsGraphNodeHovered( this, &SGraphNode::IsHovered );
 
 	GetOrAddSlot( ENodeZone::TopCenter )
@@ -413,7 +414,7 @@ FSlateColor SGraphNodeComment::GetCommentBodyColor() const
 {
 	UEdGraphNode_Comment* CommentNode = Cast<UEdGraphNode_Comment>(GraphNode);
 
-	if (CommentNode)
+	if (CommentNode && CommentNode->bColorCommentBubble)
 	{
 		return CommentNode->CommentColor;
 	}
@@ -426,7 +427,7 @@ FSlateColor SGraphNodeComment::GetCommentBodyColor() const
 FSlateColor SGraphNodeComment::GetCommentTitleBarColor() const
 {
 	UEdGraphNode_Comment* CommentNode = Cast<UEdGraphNode_Comment>(GraphNode);
-	if (CommentNode)
+	if (CommentNode && CommentNode->bColorCommentBubble)
 	{
 		const FLinearColor Color = CommentNode->CommentColor * SCommentNodeDefs::TitleBarColorMultiplier;
 		return FLinearColor(Color.R, Color.G, Color.B);

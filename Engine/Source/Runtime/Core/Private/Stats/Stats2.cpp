@@ -368,24 +368,19 @@ public:
 			{
 				UE_LOG(LogStatGroupEnableManager, Fatal, TEXT("Stat group %s was was defined both on and off by default."), *Group.ToString());
 			}
-			TStatIdData** StatFound = Found->NamesInThisGroup.Find(Stat);
+			TStatIdData** StatFound = Found->NamesInThisGroup.Find( Stat );
 			TStatIdData** StatFoundAlways = Found->AlwaysEnabledNamesInThisGroup.Find( Stat );
-			if (StatFound)
+			if( StatFound )
 			{
-				TStatIdData** StatFound = Found->NamesInThisGroup.Find( Stat );
-				TStatIdData** StatFoundAlways = Found->AlwaysEnabledNamesInThisGroup.Find( Stat );
-				if( StatFound )
+				if( StatFoundAlways )
 				{
-					if( StatFoundAlways )
-					{
-						UE_LOG( LogStatGroupEnableManager, Fatal, TEXT( "Stat %s is both always enabled and not always enabled, so it was used for two different things." ), *Stat.ToString() );
-					}
-					return TStatId( *StatFound );
+					UE_LOG( LogStatGroupEnableManager, Fatal, TEXT( "Stat %s is both always enabled and not always enabled, so it was used for two different things." ), *Stat.ToString() );
 				}
-				else if( StatFoundAlways )
-				{
-					return TStatId( *StatFoundAlways );
-				}
+				return TStatId( *StatFound );
+			}
+			else if( StatFoundAlways )
+			{
+				return TStatId( *StatFoundAlways );
 			}
 		}
 		else
@@ -412,17 +407,19 @@ public:
 		--PendingCount;
 		TStatIdData* Result = PendingStatIds;
 
+		const FString StatDescription = InDescription ? InDescription : StatShortName.GetPlainNameString();
+
 		// Get the wide stat description.
-		const int32 StatDescLen = FCString::Strlen( InDescription ) + 1;
+		const int32 StatDescLen = StatDescription.Len() + 1;
 		// We are leaking this. @see STAT_StatDescMemory
 		WIDECHAR* StatDescWide = new WIDECHAR[StatDescLen];
-		TCString<WIDECHAR>::Strcpy( StatDescWide, StatDescLen, StringCast<WIDECHAR>( InDescription ).Get() );
+		TCString<WIDECHAR>::Strcpy( StatDescWide, StatDescLen, StringCast<WIDECHAR>( *StatDescription ).Get() );
 		Result->WideString = reinterpret_cast<uint64>(StatDescWide);
 
 		// Get the ansi stat description.
 		// We are leaking this. @see STAT_StatDescMemory
 		ANSICHAR* StatDescAnsi = new ANSICHAR[StatDescLen];
-		TCString<ANSICHAR>::Strcpy( StatDescAnsi, StatDescLen, StringCast<ANSICHAR>( InDescription ).Get() );
+		TCString<ANSICHAR>::Strcpy( StatDescAnsi, StatDescLen, StringCast<ANSICHAR>( *StatDescription ).Get() );
 		Result->AnsiString = reinterpret_cast<uint64>(StatDescAnsi);
 
 		MemoryCounter.Add( StatDescLen*(sizeof( ANSICHAR ) + sizeof( WIDECHAR )) );

@@ -272,8 +272,8 @@ bool FAutoReimportDirectoryConfig::ParseSourceDirectoryAndMountPoint(FString& So
 		}
 
 		// Set the mounted path if necessary
-		auto* Pair = InContext.MountedPaths.FindByPredicate([&](const TPair<FString, FString>& Pair){
-			return SourceDirectory.StartsWith(Pair.Key);
+		auto* Pair = InContext.MountedPaths.FindByPredicate([&](const TPair<FString, FString>& InPair){
+			return SourceDirectory.StartsWith(InPair.Key);
 		});
 
 		if (Pair)
@@ -499,6 +499,39 @@ void UProjectPackagingSettings::PostEditChangeProperty( FPropertyChangedEvent& P
 		if (ForDistribution)
 		{
 			BuildConfiguration = EProjectPackagingBuildConfigurations::PPBC_Shipping;
+		}
+	}
+	else if (Name == FName(TEXT("bGenerateChunks")))
+	{
+		if (bGenerateChunks)
+		{
+			UsePakFile = true;
+		}
+	}
+	else if (Name == FName(TEXT("UsePakFile")))
+	{
+		if (!UsePakFile)
+		{
+			bGenerateChunks = false;
+			bBuildHttpChunkInstallData = false;
+		}
+	}
+	else if (Name == FName(TEXT("bBuildHTTPChunkInstallData")))
+	{
+		if (bBuildHttpChunkInstallData)
+		{
+			UsePakFile = true;
+			bGenerateChunks = true;
+			//Ensure data is something valid
+			if (HttpChunkInstallDataDirectory.Path.IsEmpty())
+			{
+				auto CloudInstallDir = FPaths::ConvertRelativePathToFull(FPaths::GetPath(FPaths::GetProjectFilePath())) / TEXT("ChunkInstall");
+				HttpChunkInstallDataDirectory.Path = CloudInstallDir;
+			}
+			if (HttpChunkInstallDataVersion.IsEmpty())
+			{
+				HttpChunkInstallDataVersion = TEXT("release1");
+			}
 		}
 	}
 }

@@ -14,6 +14,7 @@
 #include "Editor/Documentation/Public/IDocumentation.h"
 #include "BreakIterator.h"
 #include "SHyperlink.h"
+#include "SOutputLogDialog.h"
 
 #define LOCTEXT_NAMESPACE "NewProjectWizard"
 
@@ -1437,14 +1438,14 @@ bool SNewProjectWizard::CreateProject( const FString& ProjectFile )
 		return false;
 	}
 
-	FText FailReason;
+	FText FailReason, FailLog;
 
 	FProjectInformation ProjectInfo(ProjectFile, SelectedTemplate->bGenerateCode, bCopyStarterContent, SelectedTemplate->ProjectFile);
 	ProjectInfo.TargetedHardware = SelectedHardwareClassTarget;
 	ProjectInfo.DefaultGraphicsPerformance = SelectedGraphicsPreset;
-	if (!GameProjectUtils::CreateProject(ProjectInfo, FailReason))
+	if (!GameProjectUtils::CreateProject(ProjectInfo, FailReason, FailLog))
 	{
-		DisplayError(FailReason);
+		SOutputLogDialog::Open(LOCTEXT("CreateProject", "Create Project"), FailReason, FailLog, FText::GetEmpty());
 		return false;
 	}
 
@@ -1484,9 +1485,9 @@ void SNewProjectWizard::CreateAndOpenProject( )
 
 	if( GetSelectedTemplateItem()->bGenerateCode )
 	{
-	    // Rocket already has the engine compiled, so we can try to build and open a new project immediately. Non-Rocket might require building
+	    // If the engine is installed it is already compiled, so we can try to build and open a new project immediately. Non-installed situations might require building
 	    // the engine (especially the case when binaries came from P4), so we only open the IDE for that.
-		if (FRocketSupport::IsRocket())
+		if (FApp::IsEngineInstalled())
 		{
 			if (GameProjectUtils::BuildCodeProject(ProjectFile))
 			{

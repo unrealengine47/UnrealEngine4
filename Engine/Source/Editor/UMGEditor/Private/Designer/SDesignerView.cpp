@@ -93,8 +93,8 @@ TSharedRef<FSelectedWidgetDragDropOp> FSelectedWidgetDragDropOp::New(TSharedPtr<
 	TSharedRef<FSelectedWidgetDragDropOp> Operation = MakeShareable(new FSelectedWidgetDragDropOp());
 	Operation->bStayingInParent = bStayInParent;
 	Operation->ParentWidget = Editor->GetReferenceFromTemplate(InWidget.GetTemplate()->GetParent());
-	Operation->DefaultHoverText = FText::FromString( InWidget.GetTemplate()->GetLabel() );
-	Operation->CurrentHoverText = FText::FromString( InWidget.GetTemplate()->GetLabel() );
+	Operation->DefaultHoverText = InWidget.GetTemplate()->GetLabelText();
+	Operation->CurrentHoverText = InWidget.GetTemplate()->GetLabelText();
 	Operation->Construct();
 
 	// Cache the preview and template, it's not safe to query the preview/template while dragging the widget as it no longer
@@ -225,12 +225,17 @@ void SDesignerView::Construct(const FArguments& InArgs, TSharedPtr<FWidgetBluepr
 
 					+ SOverlay::Slot()
 					[
-						SAssignNew(PreviewAreaConstraint, SBox)
-						.WidthOverride(this, &SDesignerView::GetPreviewAreaWidth)
-						.HeightOverride(this, &SDesignerView::GetPreviewAreaHeight)
+						SNew(SBorder)
+						.Padding(FMargin(0))
+						.BorderImage(this, &SDesignerView::GetPreviewBackground)
 						[
-							SAssignNew(PreviewSurface, SDPIScaler)
-							.DPIScale(this, &SDesignerView::GetPreviewDPIScale)
+							SAssignNew(PreviewAreaConstraint, SBox)
+							.WidthOverride(this, &SDesignerView::GetPreviewAreaWidth)
+							.HeightOverride(this, &SDesignerView::GetPreviewAreaHeight)
+							[
+								SAssignNew(PreviewSurface, SDPIScaler)
+								.DPIScale(this, &SDesignerView::GetPreviewDPIScale)
+							]
 						]
 					]
 				]
@@ -690,6 +695,20 @@ FOptionalSize SDesignerView::GetPreviewSizeHeight() const
 	return Size.Y;
 }
 
+const FSlateBrush* SDesignerView::GetPreviewBackground() const
+{
+	if ( UUserWidget* DefaultWidget = GetDefaultWidget() )
+	{
+		if ( DefaultWidget->PreviewBackground )
+		{
+			BackgroundImage.SetResourceObject(DefaultWidget->PreviewBackground);
+			return &BackgroundImage;
+		}
+	}
+
+	return nullptr;
+}
+
 void SDesignerView::GetPreviewAreaAndSize(FVector2D& Area, FVector2D& Size) const
 {
 	Area = FVector2D(PreviewWidth, PreviewHeight);
@@ -713,6 +732,8 @@ void SDesignerView::GetPreviewAreaAndSize(FVector2D& Area, FVector2D& Size) cons
 		case EDesignPreviewSizeMode::DesiredOnScreen:
 			Size = CachedPreviewDesiredSize;
 			return;
+		case EDesignPreviewSizeMode::FillScreen:
+			break;
 		}
 	}
 }
@@ -1503,7 +1524,8 @@ void SDesignerView::Tick( const FGeometry& AllottedGeometry, const double InCurr
 		SideRuler->SetCursor(TOptional<FVector2D>());
 	}
 
-	if ( UUserWidget* DefaultWidget = GetDefaultWidget() )
+	DefaultWidget = GetDefaultWidget();
+	if (DefaultWidget)
 	{
 		const bool bNeedDesiredSize = 
 			DefaultWidget->DesignSizeMode == EDesignPreviewSizeMode::Desired || 

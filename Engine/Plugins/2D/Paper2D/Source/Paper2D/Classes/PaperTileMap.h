@@ -34,11 +34,11 @@ class PAPER2D_API UPaperTileMap : public UObject
 	GENERATED_UCLASS_BODY()
 
 	// Width of map (in tiles)
-	UPROPERTY(Category=Setup, EditAnywhere, BlueprintReadOnly, meta=(UIMin=1, ClampMin=1))
+	UPROPERTY(Category=Setup, EditAnywhere, BlueprintReadOnly, meta=(UIMin=1, ClampMin=1, ClampMax=1024))
 	int32 MapWidth;
 
 	// Height of map (in tiles)
-	UPROPERTY(Category=Setup, EditAnywhere, BlueprintReadOnly, meta=(UIMin=1, ClampMin=1))
+	UPROPERTY(Category=Setup, EditAnywhere, BlueprintReadOnly, meta=(UIMin=1, ClampMin=1, ClampMax=1024))
 	int32 MapHeight;
 
 	// Width of one tile (in pixels)
@@ -77,10 +77,16 @@ class PAPER2D_API UPaperTileMap : public UObject
 	UPROPERTY(Instanced, Category=Sprite, BlueprintReadOnly)
 	TArray<class UPaperTileLayer*> TileLayers;
 
+protected:
+	// The extrusion thickness of collision geometry when using a 3D collision domain
+	UPROPERTY(Category=Collision, EditAnywhere, BlueprintReadOnly)
+	float CollisionThickness;
+
 	// Collision domain (no collision, 2D, or 3D)
 	UPROPERTY(Category=Collision, EditAnywhere, BlueprintReadOnly)
 	TEnumAsByte<ESpriteCollisionMode::Type> SpriteCollisionDomain;
 
+public:
 	// Tile map type
 	UPROPERTY(Category=Setup, EditAnywhere, BlueprintReadOnly)
 	TEnumAsByte<ETileMapProjectionMode::Type> ProjectionMode;
@@ -100,7 +106,7 @@ public:
 	int32 SelectedLayerIndex;
 
 	/** The background color displayed in the tile map editor */
-	UPROPERTY(Category=Setup, EditAnywhere)
+	UPROPERTY(Category=Setup, EditAnywhere, meta=(HideAlphaChannel))
 	FLinearColor BackgroundColor;
 #endif
 
@@ -133,11 +139,22 @@ public:
 	void GetTileToLocalParameters(FVector& OutCornerPosition, FVector& OutStepX, FVector& OutStepY, FVector& OutOffsetYFactor) const;
 	void GetLocalToTileParameters(FVector& OutCornerPosition, FVector& OutStepX, FVector& OutStepY, FVector& OutOffsetYFactor) const;
 
+	// Returns the extrusion thickness of collision geometry when using a 3D collision domain
+	float GetCollisionThickness() const
+	{
+		return CollisionThickness;
+	}
+
+	// Returns the collision domain (no collision, 2D, or 3D)
+	ESpriteCollisionMode::Type GetSpriteCollisionDomain() const
+	{
+		return SpriteCollisionDomain;
+	}
 
 	FBoxSphereBounds GetRenderBounds() const;
 
 	// Creates and adds a new layer and returns it
-	class UPaperTileLayer* AddNewLayer(bool bCollisionLayer = false, int32 InsertionIndex = INDEX_NONE);
+	class UPaperTileLayer* AddNewLayer(int32 InsertionIndex = INDEX_NONE);
 
 	// Creates a reasonable new layer name
 	static FText GenerateNewLayerName(UPaperTileMap* TileMap);

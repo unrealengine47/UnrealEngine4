@@ -1709,6 +1709,7 @@ void UEditorEngine::PlayForMovieCapture()
 			case EMatineeCaptureType::JPEG:
 				EditorCommandLine += TEXT(" -MATINEESSFORMAT=JPEG");
 				break;
+			default: break;
 			}
 
 			// If buffer visualization dumping is enabled, we need to tell capture process to enable it too
@@ -2678,7 +2679,6 @@ UGameInstance* UEditorEngine::CreatePIEGameInstance(int32 PIEInstance, bool bInS
 	
 	if (!PieWorldContext->RunAsDedicated)
 	{
-		const ULevelEditorPlaySettings* PlayInSettings = GetDefault<ULevelEditorPlaySettings>();
 		bool bCreateNewAudioDevice = PlayInSettings->IsCreateAudioDeviceForEveryPlayer();
 
 		ViewportClient = NewObject<UGameViewportClient>(this, GameViewportClientClass);

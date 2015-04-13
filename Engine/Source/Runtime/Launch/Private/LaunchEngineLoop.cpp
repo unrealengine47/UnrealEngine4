@@ -405,8 +405,7 @@ bool LaunchCheckForFileOverride(const TCHAR* CmdLine, bool& OutFileOverrideFound
 
 	// Try to create pak file wrapper
 	{
-		IPlatformFile* PlatformFile = nullptr;
-		PlatformFile = ConditionallyCreateFileWrapper(TEXT("PakFile"), CurrentPlatformFile, CmdLine);
+		IPlatformFile* PlatformFile = ConditionallyCreateFileWrapper(TEXT("PakFile"), CurrentPlatformFile, CmdLine);
 		if (PlatformFile)
 		{
 			CurrentPlatformFile = PlatformFile;
@@ -2721,7 +2720,6 @@ bool FEngineLoop::AppInit( )
 	UE_LOG(LogInit, Log, TEXT("Command line: %s"), FCommandLine::Get() );
 	UE_LOG(LogInit, Log, TEXT("Base directory: %s"), FPlatformProcess::BaseDir() );
 	//UE_LOG(LogInit, Log, TEXT("Character set: %s"), sizeof(TCHAR)==1 ? TEXT("ANSI") : TEXT("Unicode") );
-	UE_LOG(LogInit, Log, TEXT("Rocket: %d"), FRocketSupport::IsRocket()? 1 : 0);
 
 	GPrintLogTimes = ELogTimes::None;
 

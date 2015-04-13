@@ -27,6 +27,8 @@
 #include "GraphEditorActions.h"
 #include "SNodePanel.h"
 #include "SDockTab.h"
+#include "EditorClassUtils.h"
+#include "IDocumentation.h"
 
 #include "SBlueprintEditorToolbar.h"
 #include "FindInBlueprints.h"
@@ -1132,6 +1134,11 @@ TSharedRef<SGraphEditor> FBlueprintEditor::CreateGraphEditorWidget(TSharedRef<FT
 				FCanExecuteAction::CreateSP(this, &FBlueprintEditor::IsSelectionNativeVariable),
 				FIsActionChecked(),
 				FIsActionButtonVisible::CreateSP( this, &FBlueprintEditor::IsNativeCodeBrowsingAvailable )
+				);
+
+			GraphEditorCommands->MapAction(FGraphEditorCommands::Get().GoToDocumentation,
+				FExecuteAction::CreateSP(this, &FBlueprintEditor::OnGoToDocumentation),
+				FCanExecuteAction::CreateSP(this, &FBlueprintEditor::CanGoToDocumentation)
 				);
 		}
 	}
@@ -2722,18 +2729,12 @@ void FBlueprintEditor::PostUndo(bool bSuccess)
 		}
 
 		// Transaction affects the Blueprint this editor handles, so react as necessary
-		if(bAffectsBlueprint)
+		if (bAffectsBlueprint)
 		{
 			SetUISelectionState(NAME_None);
 
 			// Will cause a call to RefreshEditors()
 			FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(GetBlueprintObj());
-
-			TSharedPtr<class SSCSEditorViewport> ViewportPtr = GetSCSViewport();
-			if (ViewportPtr.IsValid())
-			{
-				ViewportPtr->Invalidate();
-			}
 
 			FSlateApplication::Get().DismissAllMenus();
 		}
@@ -2762,7 +2763,7 @@ void FBlueprintEditor::PostRedo(bool bSuccess)
 		}
 
 		// Transaction affects the Blueprint this editor handles, so react as necessary
-		if(bAffectsBlueprint)
+		if (bAffectsBlueprint)
 		{
 			// Will cause a call to RefreshEditors()
 			FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified( BlueprintObj );
@@ -5210,6 +5211,29 @@ void FBlueprintEditor::PasteNodesHere(class UEdGraph* DestinationGraph, const FV
 		{
 			bNeedToModifyStructurally = true;
 		}
+
+		// For pasted Event nodes, we need to see if there is an already existing node in a disabled state that needs to be cleaned up
+		if (UK2Node_Event* EventNode = Cast<UK2Node_Event>(Node))
+		{
+			// Gather all existing event nodes
+			TArray<UK2Node_Event*> ExistingEventNodes;
+			FBlueprintEditorUtils::GetAllNodesOfClass<UK2Node_Event>(GetBlueprintObj(), ExistingEventNodes);
+
+			for (UK2Node_Event* ExistingEventNode : ExistingEventNodes)
+			{
+				bool bIdenticalNode = EventNode != ExistingEventNode && ExistingEventNode->bOverrideFunction && UK2Node_Event::AreEventNodesIdentical(EventNode, ExistingEventNode);
+
+				// Check if the nodes are identical, if they are we need to delete the original because it is disabled. Identical nodes that are in an enabled state will never make it this far and still be enabled.
+				if(bIdenticalNode)
+				{
+					// Should not have made it to being a pasted node if the pre-existing node wasn't disabled.
+					ensure(!ExistingEventNode->bIsNodeEnabled);
+
+					// Destroy the pre-existing node, we do not need it.
+					ExistingEventNode->DestroyNode();
+				}
+			}
+		}
 		// Log new node created to analytics
 		AnalyticsTrackNodeEvent( GetBlueprintObj(), Node, false );
 	}
@@ -5586,6 +5610,41 @@ void FBlueprintEditor::OnGoToDefinition()
 	OnNodeDoubleClicked(Cast<UEdGraphNode>(*SelectedNodes.CreateConstIterator()));
 }
 
+FString FBlueprintEditor::GetDocLinkForSelectedNode()
+{
+	FString DocumentationLink;
+
+	const FGraphPanelSelectionSet SelectedNodes = GetSelectedNodes();
+	if (SelectedNodes.Num() == 1)
+	{
+		UEdGraphNode* SelectedGraphNode = Cast<UEdGraphNode>(*SelectedNodes.CreateConstIterator());
+		if (SelectedGraphNode != NULL)
+		{
+			FString DocLink = SelectedGraphNode->GetDocumentationLink();
+			FString DocExcerpt = SelectedGraphNode->GetDocumentationExcerptName();
+
+			DocumentationLink = FEditorClassUtils::GetDocumentationLinkFromExcerpt(DocLink, DocExcerpt);
+		}
+	}
+
+	return DocumentationLink;
+}
+
+void FBlueprintEditor::OnGoToDocumentation()
+{
+	FString DocumentationLink = GetDocLinkForSelectedNode();
+	if (!DocumentationLink.IsEmpty())
+	{
+		IDocumentation::Get()->Open(DocumentationLink, FDocumentationSourceInfo(TEXT("rightclick_bpnode")));
+	}
+}
+
+bool FBlueprintEditor::CanGoToDocumentation()
+{
+	FString DocumentationLink = GetDocLinkForSelectedNode();
+	return !DocumentationLink.IsEmpty();
+}
+
 void FBlueprintEditor::ToggleSaveIntermediateBuildProducts()
 {
 	bSaveIntermediateBuildProducts = !bSaveIntermediateBuildProducts;
@@ -5874,8 +5933,7 @@ void FBlueprintEditor::CollapseNodesIntoGraph(UEdGraphNode* InGatewayNode, UK2No
 					if(InterfaceTemplateNode && LocalPin->Direction == EGPD_Input)
 					{
 						// Find the pin on the entry node, we will use that pin's name to find the pin on the remote port
-						UEdGraphPin* EntryNodePin = nullptr;
-						EntryNodePin = InEntryNode->FindPin(LocalPin->LinkedTo[0]->PinName);
+						UEdGraphPin* EntryNodePin = InEntryNode->FindPin(LocalPin->LinkedTo[0]->PinName);
 						if(EntryNodePin)
 						{
 							LocalPin->BreakAllPinLinks();
@@ -6636,8 +6694,8 @@ void FBlueprintEditor::NotifyPostChange(const FPropertyChangedEvent& PropertyCha
 		FBlueprintEditorUtils::PostEditChangeBlueprintActors(Blueprint);
 	}
 
-	// Force updates to occur immediately during interactive mode (otherwise the preview won't refresh because it won't be ticking)
-	UpdateSCSPreview(PropertyChangedEvent.ChangeType == EPropertyChangeType::Interactive);
+	// Force updates to occur immediately, so the change is inside a transaction scope. See: UE-11802
+	UpdateSCSPreview(true);
 }
 
 void FBlueprintEditor::OnFinishedChangingProperties(const FPropertyChangedEvent& PropertyChangedEvent)
@@ -7311,7 +7369,7 @@ void FBlueprintEditor::DestroyPreview()
 	if ( PreviewActor != nullptr )
 	{
 		check(PreviewScene.GetWorld());
-		PreviewScene.GetWorld()->EditorDestroyActor(PreviewActor, false);
+		PreviewScene.GetWorld()->EditorDestroyActor(PreviewActor, true);
 	}
 
 	UBlueprint* PreviewBlueprint = GetBlueprintObj();

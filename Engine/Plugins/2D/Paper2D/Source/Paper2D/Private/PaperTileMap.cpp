@@ -20,6 +20,7 @@ UPaperTileMap::UPaperTileMap(const FObjectInitializer& ObjectInitializer)
 	SeparationPerTileX = 0.0f;
 	SeparationPerTileY = 0.0f;
 	SeparationPerLayer = 4.0f;
+	CollisionThickness = 50.0f;
 	SpriteCollisionDomain = ESpriteCollisionMode::None;
 
 #if WITH_EDITORONLY_DATA
@@ -149,18 +150,10 @@ void UPaperTileMap::UpdateBodySetup()
 	switch (SpriteCollisionDomain)
 	{
 	case ESpriteCollisionMode::Use3DPhysics:
-		BodySetup = nullptr;
-		if (BodySetup == nullptr)
-		{
-			BodySetup = NewObject<UBodySetup>(this);
-		}
+		BodySetup = NewObject<UBodySetup>(this);
 		break;
 	case ESpriteCollisionMode::Use2DPhysics:
-		BodySetup = nullptr;
-		if (BodySetup == nullptr)
-		{
-			BodySetup = NewObject<UBodySetup2D>(this);
-		}
+		BodySetup = NewObject<UBodySetup2D>(this);
 		break;
 	case ESpriteCollisionMode::None:
 		BodySetup = nullptr;
@@ -169,18 +162,18 @@ void UPaperTileMap::UpdateBodySetup()
 
 	if (SpriteCollisionDomain != ESpriteCollisionMode::None)
 	{
-		if (SpriteCollisionDomain == ESpriteCollisionMode::Use3DPhysics)
-		{
-			BodySetup->CollisionTraceFlag = CTF_UseSimpleAsComplex;
+		BodySetup->CollisionTraceFlag = CTF_UseSimpleAsComplex;
 
-			BodySetup->AggGeom.BoxElems.Empty();
-			for (int32 LayerIndex = 0; LayerIndex < TileLayers.Num(); ++LayerIndex)
-			{
-				TileLayers[LayerIndex]->AugmentBodySetup(BodySetup);
-			}
+		for (int32 LayerIndex = 0; LayerIndex < TileLayers.Num(); ++LayerIndex)
+		{
+			TileLayers[LayerIndex]->AugmentBodySetup(BodySetup);
 		}
 
-		//@TODO: BOX2D: Add support for 2D physics on tile maps
+		// Finalize the BodySetup
+#if WITH_RUNTIME_PHYSICS_COOKING || WITH_EDITOR
+		BodySetup->InvalidatePhysicsData();
+#endif
+		BodySetup->CreatePhysicsMeshes();
 	}
 }
 
@@ -339,7 +332,7 @@ FBoxSphereBounds UPaperTileMap::GetRenderBounds() const
 	}
 }
 
-UPaperTileLayer* UPaperTileMap::AddNewLayer(bool bCollisionLayer, int32 InsertionIndex)
+UPaperTileLayer* UPaperTileMap::AddNewLayer(int32 InsertionIndex)
 {
 	// Create the new layer
 	UPaperTileLayer* NewLayer = NewObject<UPaperTileLayer>(this);
@@ -349,7 +342,6 @@ UPaperTileLayer* UPaperTileMap::AddNewLayer(bool bCollisionLayer, int32 Insertio
 	NewLayer->LayerHeight = MapHeight;
 	NewLayer->DestructiveAllocateMap(NewLayer->LayerWidth, NewLayer->LayerHeight);
 	NewLayer->LayerName = GenerateNewLayerName(this);
-	NewLayer->bCollisionLayer = bCollisionLayer;
 
 	// Insert the new layer
 	if (TileLayers.IsValidIndex(InsertionIndex))

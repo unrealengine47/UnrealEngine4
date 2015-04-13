@@ -12,35 +12,48 @@ class FNullNetworkReplayStreamer : public INetworkReplayStreamer
 {
 public:
 	FNullNetworkReplayStreamer() :
-		StreamerState( EStreamerState::Idle )
+		StreamerState( EStreamerState::Idle ),
+		CurrentCheckpointIndex( 0 )
 	{}
 	
 	/** INetworkReplayStreamer implementation */
-	virtual void StartStreaming( const FString& StreamName, bool bRecord, const FNetworkReplayVersion& ReplayVersion, const FOnStreamReadyDelegate& Delegate ) override;
+	virtual void StartStreaming( const FString& CustomName, const FString& FriendlyName, bool bRecord, const FNetworkReplayVersion& ReplayVersion, const FOnStreamReadyDelegate& Delegate ) override;
 	virtual void StopStreaming() override;
 	virtual FArchive* GetHeaderArchive() override;
 	virtual FArchive* GetStreamingArchive() override;
-	virtual FArchive* GetCheckpointArchive() override { return NULL; }
-	virtual void FlushCheckpoint( const uint32 TimeInMS ) override { }
-	virtual void GotoCheckpointIndex( const int32 TimeInMS, const FOnCheckpointReadyDelegate& Delegate ) override { }
-	virtual void GotoTimeInMS( const uint32 TimeInMS, const FOnCheckpointReadyDelegate& Delegate ) override { }
+	virtual FArchive* GetCheckpointArchive() override;
+	virtual void FlushCheckpoint( const uint32 TimeInMS ) override;
+	virtual void GotoCheckpointIndex( const int32 CheckpointIndex, const FOnCheckpointReadyDelegate& Delegate ) override;
+	virtual void GotoTimeInMS( const uint32 TimeInMS, const FOnCheckpointReadyDelegate& Delegate ) override;
 	virtual FArchive* GetMetadataArchive() override;
 	virtual void UpdateTotalDemoTime( uint32 TimeInMS ) override { }
 	virtual uint32 GetTotalDemoTime() const override { return 0; }
 	virtual bool IsDataAvailable() const override { return true; }
 	virtual void SetHighPriorityTimeRange( const uint32 StartTimeInMS, const uint32 EndTimeInMS ) override { }
 	virtual bool IsDataAvailableForTimeRange( const uint32 StartTimeInMS, const uint32 EndTimeInMS ) override { return true; }
-	virtual bool IsLive( const FString& StreamName ) const override;
+	virtual bool IsLoadingCheckpoint() const override { return false; }
+	virtual bool IsLive() const override;
 	virtual void DeleteFinishedStream( const FString& StreamName, const FOnDeleteFinishedStreamComplete& Delegate) const override;
 	virtual void EnumerateStreams( const FNetworkReplayVersion& ReplayVersion, const FOnEnumerateStreamsComplete& Delegate ) override;
 	virtual ENetworkReplayError::Type GetLastError() const override { return ENetworkReplayError::None; }
 
 private:
+	bool IsNamedStreamLive( const FString& StreamName ) const;
+
+	/** Handles the details of loading a checkpoint */
+	void GotoCheckpointIndexInternal(int32 CheckpointIndex, const FOnCheckpointReadyDelegate& Delegate, int32 TimeInMS);
+
+	/** Handle to the archive that will read/write the demo header */
+	TUniquePtr<FArchive> HeaderAr;
+
 	/** Handle to the archive that will read/write network packets */
 	TUniquePtr<FArchive> FileAr;
 
 	/* Handle to the archive that will read/write metadata */
 	TUniquePtr<FArchive> MetadataFileAr;
+
+	/* Handle to the archive that will read/write checkpoint files */
+	TUniquePtr<FArchive> CheckpointAr;
 
 	/** EStreamerState - Overall state of the streamer */
 	enum class EStreamerState
@@ -55,6 +68,9 @@ private:
 
 	/** Remember the name of the current stream, if any. */
 	FString CurrentStreamName;
+
+	/** Current number of checkpoints written. */
+	int32 CurrentCheckpointIndex;
 };
 
 class FNullNetworkReplayStreamingFactory : public INetworkReplayStreamingFactory

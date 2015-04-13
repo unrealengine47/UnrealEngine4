@@ -526,14 +526,27 @@ FString UWidget::GetLabelMetadata() const
 
 FString UWidget::GetLabel() const
 {
-	if ( IsGeneratedName() && !bIsVariable )
+	return GetLabelText().ToString();
+}
+
+FText UWidget::GetLabelText() const
+{
+	FText Label = GetDisplayNameBase();
+
+	if (IsGeneratedName() && !bIsVariable)
 	{
-		return TEXT("[") + GetClass()->GetName() + TEXT("]") + GetLabelMetadata();
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("BaseName"), Label);
+		Args.Add(TEXT("Metadata"), FText::FromString(GetLabelMetadata()));
+		Label = FText::Format(LOCTEXT("NonVariableLabelFormat", "[{BaseName}]{Metadata}"), Args);
 	}
-	else
-	{
-		return GetName();
-	}
+
+	return Label;
+}
+
+FText UWidget::GetDisplayNameBase() const
+{
+	return IsGeneratedName() ? GetClass()->GetDisplayNameText() : FText::FromString(GetName());
 }
 
 const FText UWidget::GetPaletteCategory()
@@ -788,34 +801,6 @@ FSizeParam UWidget::ConvertSerializedSizeParamToRuntime(const FSlateChildSize& I
 	}
 
 	return FAuto();
-}
-
-void UWidget::GatherChildren(UWidget* Root, TSet<UWidget*>& Children)
-{
-	UPanelWidget* PanelRoot = Cast<UPanelWidget>(Root);
-	if ( PanelRoot )
-	{
-		for ( int32 ChildIndex = 0; ChildIndex < PanelRoot->GetChildrenCount(); ChildIndex++ )
-		{
-			UWidget* ChildWidget = PanelRoot->GetChildAt(ChildIndex);
-			Children.Add(ChildWidget);
-		}
-	}
-}
-
-void UWidget::GatherAllChildren(UWidget* Root, TSet<UWidget*>& Children)
-{
-	UPanelWidget* PanelRoot = Cast<UPanelWidget>(Root);
-	if ( PanelRoot )
-	{
-		for ( int32 ChildIndex = 0; ChildIndex < PanelRoot->GetChildrenCount(); ChildIndex++ )
-		{
-			UWidget* ChildWidget = PanelRoot->GetChildAt(ChildIndex);
-			Children.Add(ChildWidget);
-
-			GatherAllChildren(ChildWidget, Children);
-		}
-	}
 }
 
 UWidget* UWidget::FindChildContainingDescendant(UWidget* Root, UWidget* Descendant)
