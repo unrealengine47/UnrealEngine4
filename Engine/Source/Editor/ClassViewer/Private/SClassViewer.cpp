@@ -35,6 +35,7 @@
 #include "SSearchBox.h"
 
 #include "SListViewSelectorDropdownMenu.h"
+#include "Engine/BlueprintGeneratedClass.h"
 
 #define LOCTEXT_NAMESPACE "SClassViewer"
 
@@ -1204,7 +1205,7 @@ namespace ClassViewer
 DECLARE_DELEGATE_OneParam( FOnClassItemDoubleClickDelegate, TSharedPtr<FClassViewerNode> );
 
 /** The item used for visualizing the class in the tree. */
-class SClassItem : public SComboRow< TSharedPtr<FString> >
+class SClassItem : public STableRow< TSharedPtr<FString> >
 {
 public:
 	

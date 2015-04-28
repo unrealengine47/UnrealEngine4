@@ -219,6 +219,10 @@ FString FLauncherWorker::CreateUATCommand( const ILauncherProfileRef& InProfile,
 		{
 			ServerPlatforms += TEXT("+Win64");
 		}
+		else if (PlatformInfo->TargetPlatformName == FName("MacServer"))
+		{
+			ServerPlatforms += TEXT("+Mac");
+		}
 		else if (PlatformInfo->TargetPlatformName == FName("LinuxNoEditor"))
 		{
 			Platforms += TEXT("+Linux");
@@ -399,6 +403,17 @@ FString FLauncherWorker::CreateUATCommand( const ILauncherProfileRef& InProfile,
 					UATCommand += TEXT(" -basedonreleaseversion=");
 					UATCommand += InProfile->GetBasedOnReleaseVersionName();
 				}
+			}
+
+			if (InProfile->IsGeneratingChunks())
+			{
+				UATCommand += TEXT(" -manifests");
+			}
+
+			if (InProfile->IsGenerateHttpChunkData())
+			{
+				auto Cmd = FString::Printf(TEXT(" -createchunkinstall -chunkinstalldirectory=\"%s\" -chunkinstallversion=\"%s\""), *InProfile->GetHttpChunkDataDirectory(), *InProfile->GetHttpChunkDataReleaseName());
+				UATCommand += Cmd;
 			}
 
 			FCommandDesc Desc;

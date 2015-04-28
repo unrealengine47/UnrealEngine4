@@ -1,6 +1,7 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "Paper2DEditorPrivatePCH.h"
+#include "PaperTileMapPromotionFactory.h"
 
 #define LOCTEXT_NAMESPACE "Paper2D"
 
@@ -17,8 +18,9 @@ UPaperTileMapPromotionFactory::UPaperTileMapPromotionFactory(const FObjectInitia
 
 UObject* UPaperTileMapPromotionFactory::FactoryCreateNew(UClass* Class, UObject* InParent, FName Name, EObjectFlags Flags, UObject* Context, FFeedbackContext* Warn)
 {
-	AssetToRename->Rename(*Name.ToString(), InParent);
 	AssetToRename->SetFlags(Flags | RF_Transactional);
+	AssetToRename->Modify();
+	AssetToRename->Rename(*Name.ToString(), InParent);
 
 	return AssetToRename;
 }

@@ -29,11 +29,17 @@ public:
 	TSharedPtr<FUICommandInfo> SelectPaintTool;
 	TSharedPtr<FUICommandInfo> SelectEraserTool;
 	TSharedPtr<FUICommandInfo> SelectFillTool;
+	TSharedPtr<FUICommandInfo> SelectEyeDropperTool;
+	TSharedPtr<FUICommandInfo> SelectTerrainTool;
 
 	// Show toggles
 	TSharedPtr<FUICommandInfo> SetShowCollision;
 	
 	TSharedPtr<FUICommandInfo> SetShowPivot;
+	TSharedPtr<FUICommandInfo> SetShowTileGrid;
+	TSharedPtr<FUICommandInfo> SetShowLayerGrid;
+
+	TSharedPtr<FUICommandInfo> SetShowTileMapStats;
 
 	// Selection actions
 	TSharedPtr<FUICommandInfo> FlipSelectionHorizontally;

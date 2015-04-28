@@ -38,6 +38,10 @@
 #include "PerformanceMonitor.h"
 #include "Engine/WorldComposition.h"
 #include "FeaturePack.h"
+#include "GameMapsSettings.h"
+#include "GeneralProjectSettings.h"
+#include "Lightmass/LightmappedSurfaceCollection.h"
+#include "IProjectManager.h"
 
 #define LOCTEXT_NAMESPACE "UnrealEd"
 
@@ -918,8 +922,8 @@ void FUnrealEdMisc::CB_MapChange( uint32 InFlags )
 	// Minor things like brush subtraction will set it to "0".
 
 	if( InFlags != MapChangeEventFlags::Default )
-	{	
-		GEditor->EditorClearComponents();
+	{
+		World->ClearWorldComponents();
 
 		// Note: CleanupWorld is being abused here to detach components and some other stuff
 		// CleanupWorld should only be called before destroying the world
@@ -1402,7 +1406,7 @@ void FUnrealEdMisc::SwitchProject(const FString& GameOrProjectFileName, bool bWa
 		const FText Message = FText::Format( LOCTEXT( "SwitchProjectWarning", "The editor will restart to switch to the {CurrentProjectName} project.  You will be prompted to save any changes before the editor restarts.  Continue switching projects?" ), Arguments ); 
 
 		// Present the user with a warning that changing projects has to restart the editor
-		FSuppressableWarningDialog::FSetupInfo Info( Message, Title, "Warning_SwitchProject", GEditorGameAgnosticIni );
+		FSuppressableWarningDialog::FSetupInfo Info( Message, Title, "Warning_SwitchProject", GEditorSettingsIni );
 		Info.ConfirmText = LOCTEXT( "Yes", "Yes" );
 		Info.CancelText = LOCTEXT( "No", "No" );
 

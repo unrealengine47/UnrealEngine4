@@ -25,6 +25,10 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "Engine/InheritableComponentHandler.h"
 #include "BlueprintCompilerCppBackendInterface.h"
+#include "Engine/SimpleConstructionScript.h"
+#include "Engine/SCS_Node.h"
+#include "Engine/TimelineTemplate.h"
+#include "Components/TimelineComponent.h"
 
 static bool bDebugPropertyPropagation = false;
 
@@ -47,7 +51,8 @@ DECLARE_CYCLE_STAT(TEXT("Clean and Sanitize Class"), EKismetCompilerStats_CleanA
 DECLARE_CYCLE_STAT(TEXT("Create Class Properties"), EKismetCompilerStats_CreateClassVariables, STATGROUP_KismetCompiler );
 DECLARE_CYCLE_STAT(TEXT("Bind and Link Class"), EKismetCompilerStats_BindAndLinkClass, STATGROUP_KismetCompiler );
 DECLARE_CYCLE_STAT(TEXT("Calculate checksum of CDO"), EKismetCompilerStats_ChecksumCDO, STATGROUP_KismetCompiler );
-		
+DECLARE_CYCLE_STAT(TEXT("Analyze execution path"), EKismetCompilerStats_AnalyzeExecutionPath, STATGROUP_KismetCompiler);
+DECLARE_CYCLE_STAT(TEXT("Calculate checksum of signature"), EKismetCompilerStats_ChecksumSignature, STATGROUP_KismetCompiler);
 //////////////////////////////////////////////////////////////////////////
 // FKismetCompilerContext
 
@@ -444,9 +449,19 @@ void FKismetCompilerContext::ValidateVariableNames()
 			{
 				NewVarName = FBlueprintEditorUtils::FindUniqueKismetName(Blueprint, VarNameStr);
 			}
-			else if (ParentClass->HasAnyFlags(RF_Native) && FindObject<UObject>(ParentClass, *VarNameStr, /*ExactClass =*/false))
+			else if (ParentClass->HasAnyFlags(RF_Native)) // the above case handles when the parent is a blueprint
 			{
-				NewVarName = FBlueprintEditorUtils::FindUniqueKismetName(Blueprint, VarNameStr);
+				UClass* SuperClass = ParentClass;
+				do
+				{
+					if (FindObject<UObject>(SuperClass, *VarNameStr, /*ExactClass =*/false))
+					{
+						NewVarName = FBlueprintEditorUtils::FindUniqueKismetName(Blueprint, VarNameStr);
+						break;
+					}
+					SuperClass = SuperClass->GetSuperClass();
+
+				} while (SuperClass != nullptr);
 			}
 
 			if (OldVarName != NewVarName)
@@ -1031,7 +1046,7 @@ void FKismetCompilerContext::PruneIsolatedNodes(const TArray<UEdGraphNode*>& Roo
 	for (int32 NodeIndex = 0; NodeIndex < GraphNodes.Num(); ++NodeIndex)
 	{
 		UEdGraphNode* Node = GraphNodes[NodeIndex];
-		if (!Visitor.VisitedNodes.Contains(Node) && !IsNodePure(Node))
+		if (!Node || (!Visitor.VisitedNodes.Contains(Node) && !IsNodePure(Node)))
 		{
 			if (!CanIgnoreNode(Node))
 			{
@@ -1039,9 +1054,12 @@ void FKismetCompilerContext::PruneIsolatedNodes(const TArray<UEdGraphNode*>& Roo
 				//MessageLog.Warning(TEXT("Node @@ will never be executed and is being pruned"), Node);
 			}
 
-			if (!ShouldForceKeepNode(Node))
+			if (!Node || !ShouldForceKeepNode(Node))
 			{
-				Node->BreakAllNodeLinks();
+				if (Node)
+				{
+					Node->BreakAllNodeLinks();
+				}
 				GraphNodes.RemoveAtSwap(NodeIndex);
 				--NodeIndex;
 			}
@@ -1150,6 +1168,7 @@ void FKismetCompilerContext::PrecompileFunction(FKismetFunctionContext& Context)
 		FName NewFunctionName = (Context.EntryPoint->CustomGeneratedFunctionName != NAME_None) ? Context.EntryPoint->CustomGeneratedFunctionName : Context.EntryPoint->SignatureName;
 		if(Context.IsDelegateSignature())
 		{
+			// prefix with the the blueprint name to avoid conflicts with natively defined delegate signatures
 			FString Name = NewFunctionName.ToString();
 			Name += HEADER_GENERATED_DELEGATE_SIGNATURE_SUFFIX;
 			NewFunctionName = FName(*Name);
@@ -1201,6 +1220,64 @@ void FKismetCompilerContext::PrecompileFunction(FKismetFunctionContext& Context)
 		{
 			Context.Function->SetMetaData(FBlueprintMetadata::MD_CallInEditor, TEXT( "true" ));
 		}
+
+		// Set the required function flags
+		if (Context.CanBeCalledByKismet())
+		{
+			Context.Function->FunctionFlags |= FUNC_BlueprintCallable;
+		}
+
+		if (Context.IsInterfaceStub())
+		{
+			Context.Function->FunctionFlags |= FUNC_BlueprintEvent;
+		}
+
+		// Inherit extra flags from the entry node
+		if (Context.EntryPoint)
+		{
+			Context.Function->FunctionFlags |= Context.EntryPoint->ExtraFlags;
+		}
+
+		// First try to get the overriden function from the super class
+		UFunction* OverridenFunction = Context.Function->GetSuperFunction();
+		// If we couldn't find it, see if we can find an interface class in our inheritance to get it from
+		if (!OverridenFunction && Context.Blueprint)
+		{
+			bool bInvalidInterface = false;
+			OverridenFunction = FBlueprintEditorUtils::FindFunctionInImplementedInterfaces( Context.Blueprint, Context.Function->GetFName(), &bInvalidInterface );
+			if(bInvalidInterface)
+			{
+				MessageLog.Warning(TEXT("Blueprint tried to implement invalid interface."));
+			}
+		}
+
+		// Inherit flags and validate against overridden function if it exists
+		if (OverridenFunction)
+		{
+			Context.Function->FunctionFlags |= (OverridenFunction->FunctionFlags & (FUNC_FuncInherit | FUNC_Public | FUNC_Protected | FUNC_Private));
+
+			if ((Context.Function->FunctionFlags & FUNC_AccessSpecifiers) != (OverridenFunction->FunctionFlags & FUNC_AccessSpecifiers))
+			{
+				MessageLog.Error(*LOCTEXT("IncompatibleAccessSpecifier_Error", "Access specifier is not compatible the parent function @@").ToString(), Context.EntryPoint);
+			}
+
+			const uint32 OverrideFlagsToCheck = (FUNC_FuncOverrideMatch & ~FUNC_AccessSpecifiers);
+			if ((Context.Function->FunctionFlags & OverrideFlagsToCheck) != (OverridenFunction->FunctionFlags & OverrideFlagsToCheck))
+			{
+				MessageLog.Error(*LOCTEXT("IncompatibleOverrideFlags_Error", "Overriden function is not compatible with the parent function @@. Check flags: Exec, Final, Static.").ToString(), Context.EntryPoint);
+			}
+
+			// Copy metadata from parent function as well
+			UMetaData::CopyMetadata(OverridenFunction, Context.Function);
+		}
+		else
+		{
+			// If this is the root of a blueprint-defined function or event, and if it's public, make it overrideable
+			if( !Context.IsEventGraph() && !Context.Function->HasAnyFunctionFlags(FUNC_Private) )
+			{
+				Context.Function->FunctionFlags |= FUNC_BlueprintEvent;
+			}
+		}
 		
 		// Link it
 		//@TODO: should this be in regular or reverse order?
@@ -1222,7 +1299,11 @@ void FKismetCompilerContext::PrecompileFunction(FKismetFunctionContext& Context)
 		//@TODO: Prune pure functions that don't have any consumers
 		if (bIsFullCompile)
 		{
-			FKismetCompilerUtilities::ValidateProperEndExecutionPath(Context);
+			if (!Blueprint->bIsRegeneratingOnLoad)
+			{
+				BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_AnalyzeExecutionPath);
+				FKismetCompilerUtilities::ValidateProperEndExecutionPath(Context);
+			}
 
 			// Find the execution path (and make sure it has no cycles)
 			CreateExecutionSchedule(Context.SourceGraph->Nodes, Context.LinearExecutionList);
@@ -1317,7 +1398,7 @@ void FKismetCompilerContext::PrecompileFunction(FKismetFunctionContext& Context)
 			}
 			else
 			{
-				MessageLog.Warning(*LOCTEXT("NoDelegateProperty_Error", "No delegate property found for '%s'").ToString(), *Context.SourceGraph->GetName());
+				MessageLog.Warning(*LOCTEXT("NoDelegateProperty_Error", "No delegate property found for @@").ToString(), Context.SourceGraph);
 			}
 		}
 
@@ -1508,64 +1589,6 @@ void FKismetCompilerContext::FinishCompilingFunction(FKismetFunctionContext& Con
 	Function->Bind();
 	Function->StaticLink(true);
 
-	// Set the required function flags
-	if (Context.CanBeCalledByKismet())
-	{
-		Function->FunctionFlags |= FUNC_BlueprintCallable;
-	}
-
-	if (Context.IsInterfaceStub())
-	{
-		Function->FunctionFlags |= FUNC_BlueprintEvent;
-	}
-
-	// Inherit extra flags from the entry node
-	if (Context.EntryPoint)
-	{
-		Function->FunctionFlags |= Context.EntryPoint->ExtraFlags;
-	}
-
-	// First try to get the overriden function from the super class
-	UFunction* OverridenFunction = Function->GetSuperFunction();
-	// If we couldn't find it, see if we can find an interface class in our inheritance to get it from
-	if (!OverridenFunction && Context.Blueprint)
-	{
-		bool bInvalidInterface = false;
-		OverridenFunction = FBlueprintEditorUtils::FindFunctionInImplementedInterfaces( Context.Blueprint, Function->GetFName(), &bInvalidInterface );
-		if(bInvalidInterface)
-			{
-				MessageLog.Warning(TEXT("Blueprint tried to implement invalid interface."));
-			}
-		}
-
-	// Inherit flags and validate against overridden function if it exists
-	if (OverridenFunction)
-	{
-		Function->FunctionFlags |= (OverridenFunction->FunctionFlags & (FUNC_FuncInherit | FUNC_Public | FUNC_Protected | FUNC_Private));
-
-		if ((Function->FunctionFlags & FUNC_AccessSpecifiers) != (OverridenFunction->FunctionFlags & FUNC_AccessSpecifiers))
-		{
-			MessageLog.Error(*LOCTEXT("IncompatibleAccessSpecifier_Error", "Access specifier is not compatible the parent function @@").ToString(), Context.EntryPoint);
-		}
-
-		const uint32 OverrideFlagsToCheck = (FUNC_FuncOverrideMatch & ~FUNC_AccessSpecifiers);
-		if ((Function->FunctionFlags & OverrideFlagsToCheck) != (OverridenFunction->FunctionFlags & OverrideFlagsToCheck))
-		{
-			MessageLog.Error(*LOCTEXT("IncompatibleOverrideFlags_Error", "Overriden function is not compatible with the parent function @@. Check flags: Exec, Final, Static.").ToString(), Context.EntryPoint);
-		}
-
-		// Copy metadata from parent function as well
-		UMetaData::CopyMetadata(OverridenFunction, Function);
-	}
-	else
-	{
-		// If this is the root of a blueprint-defined function or event, and if it's public, make it overrideable
-		if( !Context.IsEventGraph() && !Function->HasAnyFunctionFlags(FUNC_Private) )
-		{
-			Function->FunctionFlags |= FUNC_BlueprintEvent;
-		}
-	}
-
 	// Set function flags and calculate cached values so the class can be used immediately
 	Function->ParmsSize = 0;
 	Function->NumParms = 0;
@@ -1593,10 +1616,10 @@ void FKismetCompilerContext::FinishCompilingFunction(FKismetFunctionContext& Con
 		{
 			if (!Property->HasAnyPropertyFlags(CPF_ZeroConstructor))
 			{
-				Function->FirstPropertyToInit = Property;
-				Function->FunctionFlags |= FUNC_HasDefaults;
+			Function->FirstPropertyToInit = Property;
+			Function->FunctionFlags |= FUNC_HasDefaults;
 				break;
-			}
+		}
 		}
 	}
 
@@ -2844,6 +2867,7 @@ void FKismetCompilerContext::ExpandTunnelsAndMacros(UEdGraph* SourceGraph)
 					&& (Pin->LinkedTo.Num() == 0))
 					{
 						UK2Node_MakeArray* MakeArrayNode = SpawnIntermediateNode<UK2Node_MakeArray>(MacroInstanceNode, SourceGraph);
+						MakeArrayNode->NumInputs = 0; // the generated array should be empty
 						MakeArrayNode->AllocateDefaultPins();
 						UEdGraphPin* MakeArrayOut = MakeArrayNode->GetOutputPin();
 						check(MakeArrayOut);
@@ -3015,7 +3039,13 @@ void FKismetCompilerContext::ProcessOneFunctionGraph(UEdGraph* SourceGraph, bool
 	// First do some cursory validation (pin types match, inputs to outputs, pins never point to their parent node, etc...)
 	// If this fails we don't proceed any further to avoid crashes or infinite loops
 	// When compiling only the skeleton class, we want the UFunction to be generated and processed so it contains all the local variables, this is unsafe to do during any other compilation mode
-	if (ValidateGraphIsWellFormed(FunctionGraph) || CompileOptions.CompileType == EKismetCompileType::SkeletonOnly)
+	//
+	// NOTE: the order of this conditional check is intentional, and should not
+	//       be rearranged; we do NOT want ValidateGraphIsWellFormed() ran for 
+	//       skeleton-only compiles (that's why we have that check second) 
+	//       because it would most likely result in errors (the function hasn't
+	//       been added to the class yet, etc.)
+	if ((CompileOptions.CompileType == EKismetCompileType::SkeletonOnly) || ValidateGraphIsWellFormed(FunctionGraph))
 	{
 		FKismetFunctionContext& Context = *new (FunctionList)FKismetFunctionContext(MessageLog, Schema, NewClass, Blueprint, CompileOptions.DoesRequireCppCodeGeneration());
 		Context.SourceGraph = FunctionGraph;
@@ -3406,7 +3436,7 @@ void FKismetCompilerContext::Compile()
 			{
 				if(NULL == MCDelegateProp->SignatureFunction)
 				{
-					MessageLog.Warning(TEXT("No SignatureFunction in MulticastDelegateProperty '%s'"), *MCDelegateProp->GetName());
+					MessageLog.Warning(*FString::Printf(TEXT("No SignatureFunction in MulticastDelegateProperty '%s'"), *MCDelegateProp->GetName()));
 				}
 			}
 		}
@@ -3637,7 +3667,6 @@ void FKismetCompilerContext::Compile()
 			UPackage* const Package = Cast<UPackage>(CurrentBP->GetOutermost());
 			const bool bStartedWithUnsavedChanges = Package != nullptr ? Package->IsDirty() : true;
 
-			CurrentBP->Status = BS_Dirty;
 			FBlueprintEditorUtils::RefreshExternalBlueprintDependencyNodes(CurrentBP, NewClass);
 			
 			// Note: We do not send a change notification event to the dependent BP here because
@@ -3713,7 +3742,84 @@ void FKismetCompilerContext::Compile()
 
 		UObject* NewCDO = NewClass->GetDefaultObject(false);
 		FSpecializedArchiveCrc32 CrcArchive(!ChangeDefaultValueWithoutReinstancing);
-		Blueprint->CrcPreviousCompiledCDO = NewCDO ? CrcArchive.Crc32(NewCDO) : 0;
+		Blueprint->CrcLastCompiledCDO = NewCDO ? CrcArchive.Crc32(NewCDO) : 0;
+	}
+
+	if (bIsFullCompile)
+	{
+		BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_ChecksumSignature);
+
+		class FSignatureArchiveCrc32 : public FArchiveObjectCrc32
+		{
+		public:
+			static bool IsInnerProperty(const UObject* Object)
+			{
+				auto Property = Cast<const UProperty>(Object);
+				return Property // check arrays
+					&& Cast<const UFunction>(Property->GetOwnerStruct())
+					&& !Property->HasAnyPropertyFlags(CPF_Parm);
+			}
+
+			virtual FArchive& operator<<(UObject*& Object) override
+			{
+				FArchive& Ar = *this;
+
+				if (Object && !IsInnerProperty(Object))
+				{
+					// Names of functions and properties are significant.
+					auto UniqueName = GetPathNameSafe(Object);
+					Ar << UniqueName;
+
+					if (Object->IsIn(RootObject))
+					{
+						ObjectsToSerialize.Enqueue(Object);
+					}
+				}
+
+				return Ar;
+			}
+
+			virtual bool CustomSerialize(UObject* Object) override
+			{ 
+				FArchive& Ar = *this;
+
+				bool bResult = false;
+				if (auto Struct = Cast<UStruct>(Object))
+				{
+					if (Object == RootObject) // name and location are significant for the signature
+					{
+						auto UniqueName = GetPathNameSafe(Object);
+						Ar << UniqueName;
+					}
+
+					UObject* SuperStruct = Struct->GetSuperStruct();
+					Ar << SuperStruct;
+					Ar << Struct->Children;
+
+					if (auto Function = Cast<UFunction>(Struct))
+					{
+						Ar << Function->FunctionFlags;
+					}
+
+					if (auto AsClass = Cast<UClass>(Struct))
+					{
+						Ar << AsClass->ClassFlags;
+						Ar << AsClass->Interfaces;
+					}
+
+					Ar << Struct->Next;
+
+					bResult = true;
+				}
+
+				return bResult;
+			}
+		};
+
+		FSignatureArchiveCrc32 SignatureArchiveCrc32;
+		auto ParentBP = UBlueprint::GetBlueprintFromClass(NewClass->GetSuperClass());
+		const uint32 ParentSignatureCrc = ParentBP ? ParentBP->CrcLastCompiledSignature : 0;
+		Blueprint->CrcLastCompiledSignature = SignatureArchiveCrc32.Crc32(NewClass, ParentSignatureCrc);
 	}
 }
 

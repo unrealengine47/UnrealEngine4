@@ -9,6 +9,7 @@
 #include "Runtime/Core/Public/Logging/MessageLog.h"
 #include "Runtime/Core/Public/Misc/MapErrors.h"
 #include "Runtime/CoreUObject/Public/Misc/UObjectToken.h"
+#include "SpriteDrawCall.h"
 
 #define LOCTEXT_NAMESPACE "Paper2D"
 
@@ -110,7 +111,7 @@ void UPaperSpriteComponent::SendRenderDynamicData_Concurrent()
 		FSpriteDrawCallRecord DrawCall;
 		DrawCall.BuildFromSprite(SourceSprite);
 		DrawCall.Color = SpriteColor;
-		int32 SplitIndex = (SourceSprite != nullptr) ? SourceSprite->AlternateMaterialSplitIndex : INDEX_NONE;
+		const int32 SplitIndex = (SourceSprite != nullptr) ? SourceSprite->AlternateMaterialSplitIndex : INDEX_NONE;
 
 		ENQUEUE_UNIQUE_RENDER_COMMAND_THREEPARAMETER(
 				FSendPaperSpriteComponentDynamicData,
@@ -232,6 +233,16 @@ void UPaperSpriteComponent::GetUsedTextures(TArray<UTexture*>& OutTextures, EMat
 		{
 			OutTextures.AddUnique(BakedTexture);
 		}
+
+		FAdditionalSpriteTextureArray AdditionalTextureList;
+		SourceSprite->GetBakedAdditionalSourceTextures(/*out*/ AdditionalTextureList);
+		for (UTexture* AdditionalTexture : AdditionalTextureList)
+		{
+			if (AdditionalTexture != nullptr)
+			{
+				OutTextures.AddUnique(AdditionalTexture);
+			}
+		}
 	}
 
 	// Get any textures referenced by our materials
@@ -337,6 +348,20 @@ void UPaperSpriteComponent::CheckForErrors()
 			}
 		}
 	}
+}
+#endif
+
+#if WITH_EDITOR
+void UPaperSpriteComponent::SetTransientTextureOverride(const UTexture* TextureToModifyOverrideFor, UTexture* OverrideTexture)
+{
+	ENQUEUE_UNIQUE_RENDER_COMMAND_THREEPARAMETER(
+		FSendPaperSpriteComponentDynamicData,
+		FPaperSpriteSceneProxy*, InSceneProxy, (FPaperSpriteSceneProxy*)SceneProxy,
+		const UTexture*, InTextureToModifyOverrideFor, TextureToModifyOverrideFor,
+		UTexture*, InOverrideTexture, OverrideTexture,
+		{
+			InSceneProxy->SetTransientTextureOverride_RenderThread(InTextureToModifyOverrideFor, InOverrideTexture);
+		});
 }
 #endif
 

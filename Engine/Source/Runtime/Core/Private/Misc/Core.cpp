@@ -25,13 +25,13 @@ IMPLEMENT_MODULE( FCoreModule, Core );
 	Global variables.
 -----------------------------------------------------------------------------*/
 
-CORE_API FFeedbackContext*	GWarn						= NULL;						/* User interaction and non critical warnings */
-FConfigCacheIni*		GConfig							= NULL;						/* Configuration database cache */
-ITransaction*		GUndo							= NULL;						/* Transaction tracker, non-NULL when a transaction is in progress */
-FOutputDeviceConsole*	GLogConsole						= NULL;						/* Console log hook */
-CORE_API FMalloc*		GMalloc							= NULL;						/* Memory allocator */
+CORE_API FFeedbackContext*	GWarn						= nullptr;		/* User interaction and non critical warnings */
+FConfigCacheIni*				GConfig						= nullptr;		/* Configuration database cache */
+ITransaction*				GUndo						= nullptr;		/* Transaction tracker, non-NULL when a transaction is in progress */
+FOutputDeviceConsole*		GLogConsole					= nullptr;		/* Console log hook */
+CORE_API FMalloc*			GMalloc						= nullptr;		/* Memory allocator */
 
-class UPropertyWindowManager*	GPropertyWindowManager	= NULL;						/* Manages and tracks property editing windows */
+class UPropertyWindowManager*	GPropertyWindowManager	= nullptr;		/* Manages and tracks property editing windows */
 
 /** For building call stack text dump in guard/unguard mechanism. */
 TCHAR GErrorHist[16384]	= TEXT("");
@@ -91,13 +91,14 @@ bool GIsReconstructingBlueprintInstances = false;
 bool GForceDisableBlueprintCompileOnLoad = false;
 
 #if WITH_ENGINE
-bool					PRIVATE_GIsRunningCommandlet	= false;					/* Whether this executable is running a commandlet (custom command-line processing code) */
-#endif
+bool					PRIVATE_GIsRunningCommandlet			= false;				/* Whether this executable is running a commandlet (custom command-line processing code) */
+bool					PRIVATE_GAllowCommandletRendering	= false;				/** If true, initialise RHI and set up scene for rendering even when running a commandlet. */
+#endif	// WITH_ENGINE
 
 #if WITH_EDITORONLY_DATA
 bool					GIsEditor						= false;					/* Whether engine was launched for editing */
 bool					GIsImportingT3D					= false;					/* Whether editor is importing T3D */
-bool					GIsUCCMakeStandaloneHeaderGenerator = false;					/* Are we rebuilding script via the standalone header generator? */
+bool					GIsUCCMakeStandaloneHeaderGenerator = false;				/* Are we rebuilding script via the standalone header generator? */
 bool					GIsTransacting					= false;					/* true if there is an undo/redo operation in progress. */
 bool					GIntraFrameDebuggingGameThread	= false;					/* Indicates that the game thread is currently paused deep in a call stack; do not process any game thread tasks */
 bool					GFirstFrameIntraFrameDebugging	= false;					/* Indicates that we're currently processing the first frame of intra-frame debugging */
@@ -128,11 +129,16 @@ uint32					GScreenshotResolutionY			= 0;						/* Y Resolution for high res shots
 uint64					GMakeCacheIDIndex				= 0;						/* Cache ID */
 
 FString				GEngineIni;													/* Engine ini filename */
+
+/** Editor ini file locations - stored per engine version (shared across all projects). Migrated between versions on first run. */
 FString				GEditorIni;													/* Editor ini filename */
 FString				GEditorKeyBindingsIni;										/* Editor Key Bindings ini file */
 FString				GEditorLayoutIni;											/* Editor UI Layout ini filename */
-FString				GEditorUserSettingsIni;										/* Editor User Settings ini filename */
-FString				GEditorGameAgnosticIni;										/* Editor Settings (shared between games) ini filename */
+FString				GEditorSettingsIni;											/* Editor Settings ini filename */
+
+/** Editor per-project ini files - stored per project. */
+FString				GEditorPerProjectIni;										/* Editor User Settings ini filename */
+
 FString				GCompatIni;
 FString				GLightmassIni;												/* Lightmass settings ini filename */
 FString				GScalabilityIni;											/* Scalability settings ini filename */
@@ -140,7 +146,7 @@ FString				GInputIni;													/* Input ini filename */
 FString				GGameIni;													/* Game ini filename */
 FString				GGameUserSettingsIni;										/* User Game Settings ini filename */
 
-float					GNearClippingPlane				= 10.0f;					/* Near clipping plane */
+float					GNearClippingPlane				= 10.0f;				/* Near clipping plane */
 
 bool					GExitPurge						= false;
 
@@ -251,7 +257,6 @@ DEFINE_STAT(STAT_AnimationMemory);
 DEFINE_STAT(STAT_PrecomputedVisibilityMemory);
 DEFINE_STAT(STAT_PrecomputedShadowDepthMapMemory);
 DEFINE_STAT(STAT_PrecomputedLightVolumeMemory);
-DEFINE_STAT(STAT_StaticMeshTotalMemory);
 DEFINE_STAT(STAT_SkeletalMeshVertexMemory);
 DEFINE_STAT(STAT_SkeletalMeshIndexMemory);
 DEFINE_STAT(STAT_SkeletalMeshMotionBlurSkinningMemory);
@@ -263,14 +268,6 @@ DEFINE_STAT(STAT_PhysSceneWriteLock);
 
 DEFINE_STAT(STAT_ReflectionCaptureTextureMemory);
 DEFINE_STAT(STAT_ReflectionCaptureMemory);
-
-DEFINE_STAT(STAT_StaticMeshTotalMemory2);
-DEFINE_STAT(STAT_StaticMeshVertexMemory);
-DEFINE_STAT(STAT_ResourceVertexColorMemory);
-DEFINE_STAT(STAT_InstVertexColorMemory);
-DEFINE_STAT(STAT_StaticMeshIndexMemory);
-DEFINE_STAT(STAT_StaticMeshDistanceFieldMemory);
-
 
 /** Threading stats objects */
 
@@ -298,18 +295,6 @@ DEFINE_STAT(STAT_PumpMessages);
 
 DEFINE_STAT(STAT_CPUTimePct);
 DEFINE_STAT(STAT_CPUTimePctRelative);
-
-DEFINE_STAT(STAT_AsyncIO_FulfilledReadCount);
-DEFINE_STAT(STAT_AsyncIO_FulfilledReadSize);
-DEFINE_STAT(STAT_AsyncIO_CanceledReadCount);
-DEFINE_STAT(STAT_AsyncIO_CanceledReadSize);
-DEFINE_STAT(STAT_AsyncIO_OutstandingReadCount);
-DEFINE_STAT(STAT_AsyncIO_OutstandingReadSize);
-DEFINE_STAT(STAT_AsyncIO_UncompressorWaitTime);
-DEFINE_STAT(STAT_AsyncIO_AsyncLoadingBlockingTime);
-DEFINE_STAT(STAT_AsyncIO_AsyncPackagePrecacheWaitTime);
-DEFINE_STAT(STAT_AsyncIO_Bandwidth);
-DEFINE_STAT(STAT_AsyncIO_PlatformReadTime);
 
 DEFINE_LOG_CATEGORY(LogHAL);
 DEFINE_LOG_CATEGORY(LogMac);

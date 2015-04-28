@@ -636,7 +636,7 @@ UObject* ULevelFactory::FactoryCreateText
 
 									// Place the group in the map so we can find it later.
 									NewGroups.Add( GroupName, SpawnedGroupActor);
-									GEditor->SetActorLabelUnique(SpawnedGroupActor, GroupName);
+									FActorLabelUtilities::SetActorLabelUnique(SpawnedGroupActor, GroupName);
 								}
 
 								// If we're copying a sub-group, add add duplicated group to original parent
@@ -5944,6 +5944,12 @@ EReimportResult::Type UReimportFbxSkeletalMeshFactory::Reimport( UObject* Obj )
 		FFbxImporter->ReleaseScene(); 
 
 		CleanUp();
+
+		// Reimporting can have dangerous effects if the mesh is still in the transaction buffer.  Reset the transaction buffer if this is the case
+		if( GEditor->IsObjectInTransactionBuffer( SkeletalMesh ) )
+		{
+			GEditor->ResetTransaction( LOCTEXT("ReimportSkeletalMeshTransactionReset", "Reimporting a skeletal mesh which was in the undo buffer") );
+		}
 
 		return bSuccess ? EReimportResult::Succeeded : EReimportResult::Failed;
 	}

@@ -6,6 +6,8 @@
 #include "CoreUObject.h"
 #include "P4DataCache.h"
 
+#define LOCTEXT_NAMESPACE "UnrealSync"
+
 /**
  * Class to store date needed for sync monitoring thread.
  */
@@ -82,6 +84,35 @@ private:
 	FString CurrentGameName;
 };
 
+struct FSyncSettings
+{
+	/* Artist sync? */
+	bool bArtist;
+
+	/* Preview sync? */
+	bool bPreview;
+
+	/* Auto-clobber sync? */
+	bool bAutoClobber;
+
+	/* Override sync step. If set then it overrides collecting sync steps and uses this one instead. */
+	FString OverrideSyncStep;
+
+	FSyncSettings(bool bArtist, bool bPreview, bool bAutoClobber, FString OverrideSyncStep = FString())
+		: bArtist(bArtist)
+		, bPreview(bPreview)
+		, bAutoClobber(bAutoClobber)
+		, OverrideSyncStep(MoveTemp(OverrideSyncStep))
+	{ }
+
+	FSyncSettings(const FSyncSettings&& Other)
+		: bArtist(Other.bArtist)
+		, bPreview(Other.bPreview)
+		, bAutoClobber(Other.bAutoClobber)
+		, OverrideSyncStep(MoveTemp(Other.OverrideSyncStep))
+	{ }
+};
+
 /**
  * Helper class with functions used to sync engine.
  */
@@ -98,6 +129,11 @@ public:
 	DECLARE_DELEGATE_OneParam(FOnSyncFinished, bool);
 	/* On sync log chunk read event delegate. */
 	DECLARE_DELEGATE_RetVal_OneParam(bool, FOnSyncProgress, const FString&);
+
+	/**
+	 * Tells if UnrealSync was run with -Debug param.
+	 */
+	static bool IsDebugParameterSet();
 
 	/**
 	 * This method copies UnrealSync to temp location and run it from there,
@@ -158,6 +194,11 @@ public:
 	static const FString& GetSharedPromotableDisplayName();
 
 	/**
+	 * Returns P4 folder name for shared promotable.
+	 */
+	static const FString& GetSharedPromotableP4FolderName();
+
+	/**
 	 * Registers event that will be trigger when data is loaded.
 	 *
 	 * @param OnDataLoaded Delegate to call when event happens.
@@ -213,6 +254,11 @@ public:
 	static void TerminateLoadingProcess();
 
 	/**
+	 * Terminates P4 syncing process.
+	 */
+	static void TerminateSyncingProcess();
+
+	/**
 	 * Method to receive p4 data loading finished event.
 	 *
 	 * @param Data Loaded data.
@@ -250,24 +296,22 @@ public:
 	/**
 	 * Launches UAT UnrealSync command with given command line and options.
 	 *
-	 * @param bArtist Perform artist sync?
-	 * @param bPreview Perform preview sync?
+	 * @param Settings Sync settings.
 	 * @param LabelNameProvider Object that will provide label name to syncing thread.
 	 * @param OnSyncFinished Delegate to run when syncing is finished.
 	 * @param OnSyncProgress Delegate to run when syncing has made progress.
 	 */
-	static void LaunchSync(bool bArtist, bool bPreview, ILabelNameProvider& LabelNameProvider, const FOnSyncFinished& OnSyncFinished, const FOnSyncProgress& OnSyncProgress);
+	static void LaunchSync(FSyncSettings Settings, ILabelNameProvider& LabelNameProvider, const FOnSyncFinished& OnSyncFinished, const FOnSyncProgress& OnSyncProgress);
 
 	/**
 	 * Performs the actual sync with given params.
 	 *
-	 * @param bArtist Perform artist sync?
-	 * @param bPreview Perform preview sync?
+	 * @param Settings Sync settings.
 	 * @param Label Chosen label name.
 	 * @param Game Chosen game.
 	 * @param OnSyncProgress Delegate to run when syncing has made progress. 
 	 */
-	static bool Sync(bool bArtist, bool bPreview, const FString& Label, const FString& Game, const FOnSyncProgress& OnSyncProgress);
+	static bool Sync(const FSyncSettings& Settings, const FString& Label, const FString& Game, const FOnSyncProgress& OnSyncProgress);
 private:
 	/**
 	 * Tries to update original UnrealSync at given location.

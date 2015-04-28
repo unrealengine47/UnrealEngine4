@@ -82,7 +82,7 @@ class ENGINE_API UActorChannel
 	/**
 	 * Default constructor
 	 */
-	UActorChannel(const FObjectInitializer& ObjectInitializer)
+	UActorChannel(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get())
 		: UChannel(ObjectInitializer)
 	{
 		ChannelClasses[CHTYPE_Actor] = GetClass();
@@ -148,7 +148,7 @@ public:
 	void BeginContentBlockForSubObjectDelete( FOutBunch & Bunch, FNetworkGUID & GuidToDelete );
 
 	/** Writes the footer for a content block of proeprties / RPCs for the given object (either the actor a subobject of the actor) */
-	void EndContentBlock( UObject *Obj, FOutBunch &Bunch, FClassNetCache* ClassCache = nullptr );
+	void EndContentBlock( UObject *Obj, FOutBunch &Bunch, const FClassNetCache* ClassCache = nullptr );
 
 	/** Reads the header of the content block and instantiates the subobject if necessary */
 	UObject* ReadContentBlockHeader(FInBunch& Bunch, bool& bObjectDeleted);
@@ -249,6 +249,8 @@ protected:
 	
 	TSharedRef< FObjectReplicator > & FindOrCreateReplicator(UObject *Obj);
 	bool ObjectHasReplicator(UObject *Obj);	// returns whether we have already created a replicator for this object or not
+
+	void DestroyActorAndComponents();
 
 	virtual bool CleanUp( const bool bForDestroy ) override;
 

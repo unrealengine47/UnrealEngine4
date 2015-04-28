@@ -16,6 +16,7 @@ class ENGINE_API ALODActor : public AActor
 	GENERATED_UCLASS_BODY()
 
 private_subobject:
+	// disable display of this component
 	UPROPERTY(Category=LODActor, VisibleAnywhere)
 	class UStaticMeshComponent* StaticMeshComponent;
 
@@ -45,6 +46,7 @@ public:
 protected:
 	// Begin UObject interface.
 	virtual FString GetDetailedInfoInternal() const override;
+	virtual FBox GetComponentsBoundingBox(bool bNonColliding = false) const override;	
 #if WITH_EDITOR
 	virtual void PostEditChangeChainProperty(FPropertyChangedChainEvent& PropertyChangedEvent) override;
 #endif // WITH_EDITOR	

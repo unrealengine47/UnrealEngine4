@@ -8,6 +8,7 @@
 #include "Engine/SCS_Node.h"
 #include "Engine/LevelScriptActor.h"
 #include "Engine/InheritableComponentHandler.h"
+#include "CoreNet.h"
 
 #if WITH_EDITOR
 #include "BlueprintEditorUtils.h"
@@ -83,7 +84,7 @@ void UBlueprintGeneratedClass::PostLoad()
 
 #if UE_BLUEPRINT_EVENTGRAPH_FASTCALLS
 	// Patch the fast calls (needed as we can't bump engine version to serialize it directly in UFunction right now)
-	for (const FEventGraphFastCallPair& Pair : FastCallPairs)
+	for (const FEventGraphFastCallPair& Pair : FastCallPairs_DEPRECATED)
 	{
 		Pair.FunctionToPatch->EventGraphFunction = UberGraphFunction;
 		Pair.FunctionToPatch->EventGraphCallOffset = Pair.EventGraphCallOffset;
@@ -250,9 +251,18 @@ void UBlueprintGeneratedClass::ConditionalRecompileClass(TArray<UObject*>* ObjLo
 			const bool bWasRegenerating = GeneratingBP->bIsRegeneratingOnLoad;
 			GeneratingBP->bIsRegeneratingOnLoad = true;
 
-			// Make sure that nodes are up to date, so that we get any updated blueprint signatures
-			FBlueprintEditorUtils::RefreshExternalBlueprintDependencyNodes(GeneratingBP);
+			{
+				UPackage* const Package = Cast<UPackage>(GeneratingBP->GetOutermost());
+				const bool bStartedWithUnsavedChanges = Package != nullptr ? Package->IsDirty() : true;
 
+				// Make sure that nodes are up to date, so that we get any updated blueprint signatures
+				FBlueprintEditorUtils::RefreshExternalBlueprintDependencyNodes(GeneratingBP);
+
+				if (Package != nullptr && Package->IsDirty() && !bStartedWithUnsavedChanges)
+				{
+					Package->SetDirtyFlag(false);
+				}
+			}
 			if ((GeneratingBP->Status != BS_Error) && (GeneratingBP->BlueprintType != EBlueprintType::BPTYPE_MacroLibrary))
 			{
 				FKismetEditorUtilities::RecompileBlueprintBytecode(GeneratingBP, ObjLoaded);
@@ -444,7 +454,7 @@ void UBlueprintGeneratedClass::CreateComponentsForActor(AActor* Actor) const
 			continue;
 		}
 
-		FName NewName = *(FString::Printf(TEXT("TimelineComp__%d"), Actor->BlueprintCreatedComponents.Num() ) );
+		FName NewName( *UTimelineTemplate::TimelineTemplateNameToVariableName( TimelineTemplate->GetFName() ));
 		UTimelineComponent* NewTimeline = NewObject<UTimelineComponent>(Actor, NewName);
 		NewTimeline->CreationMethod = EComponentCreationMethod::UserConstructionScript; // Indicate it comes from a blueprint so it gets cleared when we rerun construction scripts
 		Actor->BlueprintCreatedComponents.Add(NewTimeline); // Add to array so it gets saved
@@ -681,7 +691,7 @@ void UBlueprintGeneratedClass::PurgeClass(bool bRecompilingOnLoad)
 #endif //WITH_EDITOR
 
 #if UE_BLUEPRINT_EVENTGRAPH_FASTCALLS
-	FastCallPairs.Empty();
+	FastCallPairs_DEPRECATED.Empty();
 #endif
 }
 
@@ -749,5 +759,26 @@ void UBlueprintGeneratedClass::Serialize(FArchive& Ar)
 	if (Ar.IsLoading() && 0 == (Ar.GetPortFlags() & PPF_Duplicate))
 	{
 		CreatePersistentUberGraphFrame(ClassDefaultObject, true);
+	}
+}
+
+void UBlueprintGeneratedClass::GetLifetimeBlueprintReplicationList(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	uint32 PropertiesLeft = NumReplicatedProperties;
+
+	for (TFieldIterator<UProperty> It(this, EFieldIteratorFlags::ExcludeSuper); It && PropertiesLeft > 0; ++It)
+	{
+		UProperty * Prop = *It;
+		if (Prop != NULL && Prop->GetPropertyFlags() & CPF_Net)
+		{
+			PropertiesLeft--;
+			OutLifetimeProps.Add(FLifetimeProperty(Prop->RepIndex));
+		}
+	}
+
+	UBlueprintGeneratedClass* SuperBPClass = Cast<UBlueprintGeneratedClass>(GetSuperStruct());
+	if (SuperBPClass != NULL)
+	{
+		SuperBPClass->GetLifetimeBlueprintReplicationList(OutLifetimeProps);
 	}
 }

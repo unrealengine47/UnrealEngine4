@@ -22,6 +22,7 @@ public:
 	virtual bool Equals(const FSelectedItem& OtherItem) const override;
 	virtual void ApplyDelta(const FVector2D& Delta, const FRotator& Rotation, const FVector& Scale3D, FWidget::EWidgetMode MoveMode) override;
 	FVector GetWorldPos() const override;
+	virtual void DeleteThisItem() override;
 	// End of FSelectedItem interface
 };
 
@@ -31,6 +32,6 @@ public:
 class FSocketEditingHelper
 {
 public:
-	static void DrawSockets(UPrimitiveComponent* PreviewComponent, const FSceneView* View, FPrimitiveDrawInterface* PDI);
-	static void DrawSocketNames(UPrimitiveComponent* PreviewComponent, FViewport& Viewport, FSceneView& View, FCanvas& Canvas);
+	static void DrawSockets(class FSpriteGeometryEditMode* GeometryEditMode, UPrimitiveComponent* PreviewComponent, const FSceneView* View, FPrimitiveDrawInterface* PDI);
+	static void DrawSocketNames(class FSpriteGeometryEditMode* GeometryEditMode, UPrimitiveComponent* PreviewComponent, FViewport& Viewport, FSceneView& View, FCanvas& Canvas);
 };

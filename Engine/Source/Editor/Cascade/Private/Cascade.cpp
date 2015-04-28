@@ -1466,6 +1466,19 @@ void FCascade::AddReferencedObjects(FReferenceCollector& Collector)
 
 void FCascade::Tick(float DeltaTime)
 {
+	// This is a bit of a hack. In order to not tick all open Cascade editors (which tick through engine tick) even when not visible,
+	// the preview viewport keeps track of whether it has been ticked in the last frame. Slate widgets aren't ticked if invisible, so 
+	// this will tell us if we should run simulation in this instance. If it hasn't ticked, we skip ticking Cascade as well and clear
+	// the flag for the next frame
+	if ( !PreviewViewport->HasJustTicked() )
+	{
+		return;
+	}
+
+	PreviewViewport->ClearTickFlag();
+
+
+
 	static const double ResetInterval = 0.5f;
 
 	// Clamp delta time.
@@ -3704,8 +3717,6 @@ void FCascade::OnSetMotionRadius()
 		FSlateApplication::Get().GetCursorPos(),
 		FPopupTransitionEffect(FPopupTransitionEffect::TypeInPopup)
 		);
-
-	TextEntry->FocusDefaultWidget();
 }
 
 void FCascade::OnViewMode(EViewModeIndex ViewMode)
@@ -3927,8 +3938,6 @@ void FCascade::OnToggleWireframeSphere()
 			FSlateApplication::Get().GetCursorPos(),
 			FPopupTransitionEffect(FPopupTransitionEffect::TypeInPopup)
 			);
-
-		TextEntry->FocusDefaultWidget();
 	}
 	else
 	{
@@ -4820,8 +4829,6 @@ void FCascade::OnRenameEmitter()
 		FSlateApplication::Get().GetCursorPos(),
 		FPopupTransitionEffect(FPopupTransitionEffect::TypeInPopup)
 		);
-
-	TextEntry->FocusDefaultWidget();
 }
 
 void FCascade::OnDuplicateEmitter(bool bIsShared)

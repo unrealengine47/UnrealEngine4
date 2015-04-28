@@ -249,9 +249,9 @@ FArchive& operator<<(FArchive& Ar,FSkeletalMeshVertexBuffer& VertexBuffer)
 			VertexBuffer.VertexData->Serialize(Ar);	
 
 			// update cached buffer info
-			VertexBuffer.Data = VertexBuffer.VertexData->GetDataPointer();
-			VertexBuffer.Stride = VertexBuffer.VertexData->GetStride();
 			VertexBuffer.NumVertices = VertexBuffer.VertexData->GetNumVertices();
+			VertexBuffer.Data = (VertexBuffer.NumVertices > 0) ? VertexBuffer.VertexData->GetDataPointer() : nullptr;
+			VertexBuffer.Stride = VertexBuffer.VertexData->GetStride();
 		}
 	}
 
@@ -672,9 +672,9 @@ FArchive& operator<<( FArchive& Ar, FSkeletalMeshVertexAPEXClothBuffer& VertexBu
 			VertexBuffer.VertexData->Serialize( Ar );
 
 			// update cached buffer info
-			VertexBuffer.Data = VertexBuffer.VertexData->GetDataPointer();
-			VertexBuffer.Stride = VertexBuffer.VertexData->GetStride();
 			VertexBuffer.NumVertices = VertexBuffer.VertexData->GetNumVertices();
+			VertexBuffer.Data = (VertexBuffer.NumVertices > 0) ? VertexBuffer.VertexData->GetDataPointer() : nullptr;
+			VertexBuffer.Stride = VertexBuffer.VertexData->GetStride();
 		}
 	}
 
@@ -3723,7 +3723,7 @@ void ASkeletalMeshActor::PreviewSetAnimPosition(FName SlotName, int32 ChannelInd
 					}
 				}
 
-				AnimInst->PlaySlotAnimation(InAnimSequence, SlotName, 0.0f, 0.0f, 0.f, 1);
+				AnimInst->PlaySlotAnimationAsDynamicMontage(InAnimSequence, SlotName, 0.0f, 0.0f, 0.f, 1);
 				CurrentlyPlayingMontage = AnimInst->GetCurrentActiveMontage();
 			}
 
@@ -3754,6 +3754,7 @@ void ASkeletalMeshActor::PreviewSetAnimPosition(FName SlotName, int32 ChannelInd
 		SkeletalMeshComponent->RefreshSlaveComponents();
 		SkeletalMeshComponent->UpdateComponentToWorld();
 	}
+	SkeletalMeshComponent->FlipEditableSpaceBases();
 }
 
 
@@ -3934,7 +3935,7 @@ void SetAnimPositionInner(FName SlotName, USkeletalMeshComponent* SkeletalMeshCo
 					}
 				}
 
-				AnimInst->PlaySlotAnimation(InAnimSequence, SlotName, 0.0f, 0.0f, 0.f, 1);
+				AnimInst->PlaySlotAnimationAsDynamicMontage(InAnimSequence, SlotName, 0.0f, 0.0f, 0.f, 1);
 				CurrentlyPlayingMontage = AnimInst->GetCurrentActiveMontage();
 			}
 
@@ -4543,7 +4544,7 @@ FPrimitiveViewRelevance FSkeletalMeshSceneProxy::GetViewRelevance(const FSceneVi
 
 bool FSkeletalMeshSceneProxy::CanBeOccluded() const
 {
-	return !MaterialRelevance.bDisableDepthTest;
+	return !MaterialRelevance.bDisableDepthTest && !ShouldRenderCustomDepth();
 }
 
 /** Util for getting LOD index currently used by this SceneProxy. */
@@ -4648,7 +4649,6 @@ void FSkeletalMeshSceneProxy::UpdateMorphMaterialUsage_GameThread(bool bNeedsMor
 		}
 	}
 }
-
 
 USkinnedMeshComponent::USkinnedMeshComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)

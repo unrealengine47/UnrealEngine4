@@ -229,6 +229,11 @@ namespace UnrealBuildTool
 // 			}
 
 			Result += " -Wall -Werror";
+				
+			if (BuildConfiguration.bEnableShadowVariableWarning)
+			{
+				Result += " -Wshadow";
+			}
 
 			Result += " -Wno-unused-variable";
 			Result += " -Wno-unused-value";
@@ -1353,6 +1358,18 @@ namespace UnrealBuildTool
 			StdOutResults = NewProcess.StandardOutput.ReadToEnd();
 			NewProcess.WaitForExit();
 			return NewProcess.ExitCode;
+		}
+
+		public override void StripSymbols(string SourceFileName, string TargetFileName)
+		{
+			File.Copy(SourceFileName, TargetFileName, true);
+
+			ProcessStartInfo StartInfo = new ProcessStartInfo();
+			StartInfo.FileName = Path.Combine(XcodeDeveloperDir, "usr/bin/xcrun");
+			StartInfo.Arguments = String.Format("strip \"{0}\" -S", TargetFileName);
+			StartInfo.UseShellExecute = false;
+			StartInfo.CreateNoWindow = true;
+			Utils.RunLocalProcessAndLogOutput(StartInfo);
 		}
 	};
 }

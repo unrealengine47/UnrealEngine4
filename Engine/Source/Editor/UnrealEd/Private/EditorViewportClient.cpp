@@ -26,6 +26,7 @@
 #include "EngineUtils.h"
 #include "SEditorViewport.h"
 #include "AssetEditorModeManager.h"
+#include "Components/DirectionalLightComponent.h"
 
 #define LOCTEXT_NAMESPACE "EditorViewportClient"
 
@@ -275,6 +276,7 @@ FEditorViewportClient::FEditorViewportClient(FEditorModeTools* InModeTools, FPre
 	, NearPlane(-1.0f)
 	, FarPlane(0.0f)
 	, bInGameViewMode(false)
+	, bShouldInvalidateViewportWidget(false)
 {
 	if (ModeTools == nullptr)
 	{
@@ -366,6 +368,33 @@ FEditorViewportClient::~FEditorViewportClient()
 	}
 }
 
+bool FEditorViewportClient::ToggleRealtime()
+{
+	SetRealtime(!bIsRealtime);
+	return bIsRealtime;
+}
+
+void FEditorViewportClient::SetRealtime(bool bInRealtime, bool bStoreCurrentValue)
+{
+	if (bStoreCurrentValue)
+	{
+		//Cache the Realtime and ShowStats flags
+		bStoredRealtime = bIsRealtime;
+		bStoredShowStats = bShowStats;
+	}
+
+	bIsRealtime = bInRealtime;
+
+	if (!bIsRealtime)
+	{
+		SetShowStats(false);
+	}
+	else
+	{
+		bShouldInvalidateViewportWidget = true;
+	}
+}
+
 void FEditorViewportClient::RestoreRealtime(const bool bAllowDisable)
 {
 	if (bAllowDisable)
@@ -377,13 +406,27 @@ void FEditorViewportClient::RestoreRealtime(const bool bAllowDisable)
 	{
 		bIsRealtime |= bStoredRealtime;
 		bShowStats |= bStoredShowStats;
-	}
+	}	
 
-	if (EditorViewportWidget.IsValid() && ( bIsRealtime || bShowStats ))
+	if (bIsRealtime)
 	{
-		// Invalidate the viewport widget to re-register its active timer
+		bShouldInvalidateViewportWidget = true;
+	}
+}
+
+void FEditorViewportClient::SetShowStats(bool bWantStats)
+{
+	bShowStats = bWantStats;
+}
+
+void FEditorViewportClient::InvalidateViewportWidget()
+{
+	if (EditorViewportWidget.IsValid())
+	{
+		// Invalidate the viewport widget to register its active timer
 		EditorViewportWidget.Pin()->Invalidate();
 	}
+	bShouldInvalidateViewportWidget = false;
 }
 
 void FEditorViewportClient::RedrawRequested(FViewport* InViewport)
@@ -606,8 +649,7 @@ FSceneView* FEditorViewportClient::CalcSceneView(FSceneViewFamily* ViewFamily)
 		{
 			if (bUsingOrbitCamera)
 			{
-				ViewInitOptions.ViewRotationMatrix = ViewTransform.ComputeOrbitMatrix();
-				ViewInitOptions.ViewOrigin = FVector::ZeroVector;
+				ViewInitOptions.ViewRotationMatrix = FTranslationMatrix(ViewLocation) * ViewTransform.ComputeOrbitMatrix();
 			}
 			else
 			{
@@ -934,6 +976,12 @@ void FEditorViewportClient::Tick(float DeltaTime)
 		{
 			Invalidate();
 		}
+	}
+
+	// Invalidate the viewport widget if pending
+	if (bShouldInvalidateViewportWidget)
+	{
+		InvalidateViewportWidget();
 	}
 
 	// Tick the editor modes
@@ -1820,6 +1868,11 @@ void FEditorViewportClient::InputAxisForOrbit(FViewport* InViewport, const FVect
 	{
 		SetViewRotation( GetViewRotation() + FRotator( Rot.Pitch, -Rot.Yaw, Rot.Roll ) );
 		FEditorViewportStats::Using(IsPerspective() ? FEditorViewportStats::CAT_PERSPECTIVE_MOUSE_ORBIT_ROTATION : FEditorViewportStats::CAT_ORTHOGRAPHIC_MOUSE_ORBIT_ROTATION);
+		
+		/*
+		 * Recalculates the view location according to the new SetViewRotation() did earlier.
+		 */
+		SetViewLocation(ViewTransform.ComputeOrbitMatrix().Inverse().GetOrigin());
 	}
 	else if ( IsOrbitPanMode( InViewport ) )
 	{
@@ -1836,8 +1889,8 @@ void FEditorViewportClient::InputAxisForOrbit(FViewport* InViewport, const FVect
 
 		FVector TransformedDelta = RotMat.InverseFast().TransformVector(DeltaLocation);
 
-		SetViewLocation( GetViewLocation() + TransformedDelta );
 		SetLookAtLocation( GetLookAtLocation() + TransformedDelta );
+		SetViewLocation(ViewTransform.ComputeOrbitMatrix().Inverse().GetOrigin());
 
 		FEditorViewportStats::Using(IsPerspective() ? FEditorViewportStats::CAT_PERSPECTIVE_MOUSE_ORBIT_PAN : FEditorViewportStats::CAT_ORTHOGRAPHIC_MOUSE_ORBIT_PAN);
 	}

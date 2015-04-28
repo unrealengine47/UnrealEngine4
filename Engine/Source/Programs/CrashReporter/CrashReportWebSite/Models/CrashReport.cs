@@ -175,9 +175,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 					}
 				}
 
-				// Ignore bad build versions.
-				// @TODO yrx 2015-02-17 What about launcher?
-				if( Crash.BuildVersion.StartsWith( "4." ) )
+				// @TODO Ignore bad build versions.
 				{
 					if( !string.IsNullOrEmpty( Crash.BuildVersion ) )
 					{
@@ -693,10 +691,7 @@ namespace Tools.CrashReporter.CrashReportWebSite.Models
 							PatternList.Add( CurrentFunctionCall.Id.ToString() );
 						}
 
-						//CrashInstance.Pattern = "+";
 						Pattern = string.Join( "+", PatternList );
-						// We need something like this +1+2+3+5+ for searching for exact pattern like +5+
-						//CrashInstance.Pattern += "+";
 
 						Context.SubmitChanges();
 					}

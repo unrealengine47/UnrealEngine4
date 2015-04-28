@@ -30,7 +30,6 @@
 		{
 			$("#dateFrom").val($("#dateFromVisible").datepicker('getDate').getTime());
 			$("#dateTo").val($("#dateToVisible").datepicker('getDate').getTime());
-			$("#FilterBuggsForm").submit();
 		}
 	});
 
@@ -43,10 +42,6 @@
 		$("#CrashesTable tr:nth-child(even)").css("background-color", "#C3CAD0");
 		$("#CrashesTable tr:nth-child(odd)").css("background-color", "#eeeeee");
 
-		$(".CrashType").click(function ()
-		{
-			$("#FilterBuggsForm").submit();
-		});
 	});
 </script>
 </asp:Content>
@@ -69,7 +64,9 @@
 			<input type="radio" name="CrashType" class="CrashType" value="All" <%=( Model.CrashType == "All" ) ? "checked='checked'" : "" %>/> <span title='All Crashes'>All</span>
 	</span>
 
-	<div id="SearchBox"><%=Html.TextBox( "SearchQuery", Model.SearchQuery, new { width = "1000" })%><input type="submit" value="Search" class='SearchButton' /></div>
+	<div>
+		<%=Html.TextBox( "SearchQuery", Model.SearchQuery )%><input type="submit" value="Search" class='SearchButton' />
+	</div>
 
 	<script>$.datepicker.setDefaults($.datepicker.regional['']);</script>
 
@@ -85,16 +82,7 @@
 
 
 	<span style="margin-left: 10px; font-weight:bold;">Filter Build Version:</span>
-	<span><input id="BuildVersion" name="BuildVersion" type="text" value="<%=Model.BuildVersion%>" AUTOCOMPLETE=OFF title="Build version to filter by; eg: 4.4.0 or 4.3"/></span>
-
-<%--	<select id="BuildVersionVisible" name="BuildVersionVisible">
-		<option selected="selected" value=""></option>
-		<%foreach( var BuildVersion in Model.BuildVersions )
-		{%>
-			<option value="<%=BuildVersion%>"><%=BuildVersion%></option>
-		<%}
-		%>
-	</select>--%>
+	<span><%=Html.DropDownListFor( m=>m.VersionName, Model.VersionNames )%></span>
 
 <%} %>
 </div>
@@ -121,14 +109,14 @@
 						<%=Html.ActionLink( "Crashes", "Index", "Crashes", 		
 							new 
 							{ 
-								SearchQuery = Model.SearchQuery, 
-								SortTerm = Model.SortTerm, 
-								SortOrder = Model.SortOrder, 
-								UserGroup = Model.UserGroup, 
-								DateFrom = Model.DateFrom, 
-								DateTo = Model.DateTo, 
-								BuildVersion = Model.BuildVersion,
-								CrashType = Model.CrashType
+								SortTerm = Model.SortTerm,
+								SortOrder = Model.SortOrder,
+								CrashType = Model.CrashType,
+								UserGroup = Model.UserGroup,
+								SearchQuery = Model.SearchQuery,
+								DateFrom = Model.DateFrom,
+								DateTo = Model.DateTo,
+								VersionName = Model.VersionName,
 							}
 							, 
 							new { style = "color:black; text-decoration:none;" } )%></span>
@@ -137,14 +125,14 @@
 						<%=Html.ActionLink( "CrashGroups", "Index", "Buggs", 
 							new 
 							{ 
-								SearchQuery = Model.SearchQuery, 
-								SortTerm = Model.SortTerm, 
-								SortOrder = Model.SortOrder, 
-								UserGroup = Model.UserGroup, 
-								DateFrom = Model.DateFrom, 
-								DateTo = Model.DateTo, 
-								BuildVersion = Model.BuildVersion,
-								CrashType = Model.CrashType
+								SortTerm = Model.SortTerm,
+								SortOrder = Model.SortOrder,
+								CrashType = Model.CrashType,
+								UserGroup = Model.UserGroup,
+								SearchQuery = Model.SearchQuery,
+								DateFrom = Model.DateFrom,
+								DateTo = Model.DateTo,
+								VersionName = Model.VersionName,
 							}
 							, 
 							new { style = "color:black; text-decoration:none;" } )%></span>
@@ -159,14 +147,14 @@
 			new 
 			{ 
 				page = i, 
-				SearchQuery = Model.SearchQuery, 
-				SortTerm = Model.SortTerm, 
-				SortOrder = Model.SortOrder, 
-				UserGroup = Model.UserGroup, 
-				DateFrom = Model.DateFrom, 
-				DateTo = Model.DateTo, 
-				BuildVersion = Model.BuildVersion,
-				CrashType = Model.CrashType
+				SortTerm = Model.SortTerm,
+				SortOrder = Model.SortOrder,
+				CrashType = Model.CrashType,
+				UserGroup = Model.UserGroup,
+				SearchQuery = Model.SearchQuery,
+				DateFrom = Model.DateFrom,
+				DateTo = Model.DateTo,
+				VersionName = Model.VersionName,
 			} 
 		) )%>
 		<div id="clear"></div>

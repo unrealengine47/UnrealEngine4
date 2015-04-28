@@ -7,8 +7,11 @@
 
 #if ENABLE_UNREAL_AUDIO
 
-#define AUDIO_DEVICE_DEVICE_MODULE_NAME "UnrealAudioWasapi"
-//#define AUDIO_DEVICE_DEVICE_MODULE_NAME TEXT("UnrealAudioXAudio2")
+#if PLATFORM_WINDOWS
+#define AUDIO_DEFAULT_DEVICE_MODULE_NAME "UnrealAudioXAudio2"
+#elif PLATFORM_MAC
+#define AUDIO_DEFAULT_DEVICE_MODULE_NAME "UnrealAudioCoreAudio"
+#endif
 
 DEFINE_LOG_CATEGORY(LogUnrealAudio);
 
@@ -16,9 +19,6 @@ IMPLEMENT_MODULE(UAudio::FUnrealAudioModule, UnrealAudio);
 
 namespace UAudio
 {
-
-
-
 	FUnrealAudioModule::FUnrealAudioModule()
 		: UnrealAudioDevice(nullptr)
 	{
@@ -28,12 +28,32 @@ namespace UAudio
 	{
 	}
 
-	void FUnrealAudioModule::Initialize()
+	bool FUnrealAudioModule::Initialize()
 	{
-		UnrealAudioDevice = FModuleManager::LoadModulePtr<IUnrealAudioDeviceModule>(GetDeviceModuleName());
+		ModuleName = GetDefaultDeviceModuleName();
+		return InitializeInternal();
+	}
+
+	bool FUnrealAudioModule::Initialize(const FString& DeviceModuleName)
+	{
+		FString Name("UnrealAudio");
+		Name += DeviceModuleName;
+		ModuleName = *Name;
+		return InitializeInternal();
+	}
+
+	bool FUnrealAudioModule::InitializeInternal()
+	{
+		bool bSuccess = false;
+		UnrealAudioDevice = FModuleManager::LoadModulePtr<IUnrealAudioDeviceModule>(ModuleName);
 		if (UnrealAudioDevice)
 		{
-			if (!UnrealAudioDevice->Initialize())
+			if (UnrealAudioDevice->Initialize())
+			{
+				bSuccess = true;
+				InitializeTests(this);
+			}
+			else
 			{
 				UE_LOG(LogUnrealAudio, Error, TEXT("Failed to initialize audio device module."));
 				UnrealAudioDevice = nullptr;
@@ -43,8 +63,7 @@ namespace UAudio
 		{
 			UnrealAudioDevice = CreateDummyDeviceModule();
 		}
-
-		InitializeTests(this);
+		return bSuccess;
 	}
 
 	void FUnrealAudioModule::Shutdown()
@@ -55,7 +74,7 @@ namespace UAudio
 		}
 
 		EDeviceApi::Type DeviceApi;
-		if (UnrealAudioDevice->GetDevicePlatformApi(DeviceApi) && DeviceApi == EDeviceApi::DUMMY)
+		if (UnrealAudioDevice && UnrealAudioDevice->GetDevicePlatformApi(DeviceApi) && DeviceApi == EDeviceApi::DUMMY)
 		{
 			delete UnrealAudioDevice;
 			UnrealAudioDevice = nullptr;
@@ -63,10 +82,10 @@ namespace UAudio
 	}
 
 
-	FName FUnrealAudioModule::GetDeviceModuleName() const
+	FName FUnrealAudioModule::GetDefaultDeviceModuleName() const
 	{
 		// TODO: Pull the device module name to use from an engine ini or an audio ini file
-		return FName(AUDIO_DEVICE_DEVICE_MODULE_NAME);
+		return FName(AUDIO_DEFAULT_DEVICE_MODULE_NAME);
 	}
 
 

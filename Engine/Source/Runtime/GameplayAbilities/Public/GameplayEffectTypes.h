@@ -29,6 +29,8 @@ GAMEPLAYABILITIES_API FString EGameplayModToString(int32 Type);
 
 GAMEPLAYABILITIES_API FString EGameplayModEffectToString(int32 Type);
 
+GAMEPLAYABILITIES_API FString EGameplayCueEventToString(int32 Type);
+
 UENUM(BlueprintType)
 namespace EGameplayModOp
 {
@@ -697,7 +699,7 @@ struct FGameplayCueParameters
 	UPROPERTY(BlueprintReadWrite, Category=GameplayCue)
 	float RawMagnitude;
 
-	/** Effect context, contains information about hit reslt, etc */
+	/** Effect context, contains information about hit result, etc */
 	UPROPERTY(BlueprintReadWrite, Category=GameplayCue)
 	FGameplayEffectContextHandle EffectContext;
 
@@ -708,6 +710,14 @@ struct FGameplayCueParameters
 	/** The original tag of the gameplay cue */
 	UPROPERTY(BlueprintReadWrite, Category=GameplayCue)
 	FGameplayTag OriginalTag;
+
+	/** The aggregated source tags taken from the effect spec */
+	UPROPERTY(BlueprintReadWrite, Category=GameplayCue)
+	FGameplayTagContainer AggregatedSourceTags;
+
+	/** The aggregated target tags taken from the effect spec */
+	UPROPERTY(BlueprintReadWrite, Category=GameplayCue)
+	FGameplayTagContainer AggregatedTargetTags;
 };
 
 UENUM(BlueprintType)
@@ -931,12 +941,8 @@ struct GAMEPLAYABILITIES_API FGameplayEffectSpecHandle
 {
 	GENERATED_USTRUCT_BODY()
 
-	FGameplayEffectSpecHandle() { }
-	FGameplayEffectSpecHandle(FGameplayEffectSpec* DataPtr)
-		: Data(DataPtr)
-	{
-
-	}
+	FGameplayEffectSpecHandle();
+	FGameplayEffectSpecHandle(FGameplayEffectSpec* DataPtr);
 
 	TSharedPtr<FGameplayEffectSpec>	Data;
 

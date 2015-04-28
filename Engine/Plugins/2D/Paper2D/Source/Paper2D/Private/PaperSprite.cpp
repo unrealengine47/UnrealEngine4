@@ -7,6 +7,10 @@
 
 #include "PaperCustomVersion.h"
 #include "PaperGeomTools.h"
+#include "PaperRuntimeSettings.h"
+#include "PaperSpriteComponent.h"
+#include "PaperFlipbookComponent.h"
+#include "SpriteDrawCall.h"
 
 #if WITH_EDITOR
 #include "UnrealEd.h"
@@ -516,8 +520,8 @@ void UPaperSprite::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 		{
 			// If this is a brand new sprite that didn't have a texture set previously, act like we were factoried with the texture
 			SourceUV = FVector2D::ZeroVector;
-			SourceDimension = FVector2D(SourceTexture->GetSizeX(), SourceTexture->GetSizeY());
-			SourceTextureDimension = FVector2D(SourceTexture->GetSizeX(), SourceTexture->GetSizeY());
+			SourceDimension = FVector2D(SourceTexture->GetImportedSize());
+			SourceTextureDimension = SourceDimension;
 		}
 		bBothModified = true;
 	}
@@ -572,6 +576,14 @@ void UPaperSprite::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 		// bBothModified = true;
 	//}
 
+	// Don't do rebuilds during an interactive event to make things more responsive.
+	// They'll always be followed by a ValueSet event at the end to force the change.
+	if (PropertyChangedEvent.ChangeType == EPropertyChangeType::Interactive)
+	{
+		bCollisionDataModified = false;
+		bRenderDataModified = false;
+		bBothModified = false;
+	}
 
 	if (bCollisionDataModified || bBothModified)
 	{
@@ -682,9 +694,9 @@ bool UPaperSprite::NeedRescaleSpriteData()
 	if (UTexture2D* Texture = GetSourceTexture())
 	{
 		Texture->ConditionalPostLoad();
-		FIntPoint TextureSize = Texture->GetImportedSize();
-		bool bTextureSizeIsZero = TextureSize.X == 0 || TextureSize.Y == 0;
-		return !SourceTextureDimension.IsZero() && !bTextureSizeIsZero && (TextureSize.X != SourceTextureDimension.X || TextureSize.Y != SourceTextureDimension.Y);
+		const FIntPoint TextureSize = Texture->GetImportedSize();
+		const bool bTextureSizeIsZero = (TextureSize.X == 0) || (TextureSize.Y == 0);
+		return !SourceTextureDimension.IsZero() && !bTextureSizeIsZero && ((TextureSize.X != SourceTextureDimension.X) || (TextureSize.Y != SourceTextureDimension.Y));
 	}
 
 	return false;
@@ -827,12 +839,7 @@ void UPaperSprite::RebuildRenderData()
 	if (EffectiveTexture)
 	{
 		EffectiveTexture->ConditionalPostLoad();
-		const int32 TextureWidth = EffectiveTexture->GetSizeX();
-		const int32 TextureHeight = EffectiveTexture->GetSizeY();
-		if (ensure((TextureWidth > 0) && (TextureHeight > 0)))
-		{
-			TextureSize = FVector2D(TextureWidth, TextureHeight);
-		}
+		TextureSize = FVector2D(EffectiveTexture->GetImportedSize());
 	}
 	const float InverseWidth = 1.0f / TextureSize.X;
 	const float InverseHeight = 1.0f / TextureSize.Y;
@@ -1367,20 +1374,32 @@ void UPaperSprite::InitializeSprite(const FSpriteAssetInitParameters& InitParams
 
 		if (bUseMaskedTexture)
 		{
-			if (UMaterialInterface* MaskedMaterial = LoadObject<UMaterialInterface>(nullptr, *DefaultSettings->DefaultMaskedMaterialName.ToString(), nullptr, LOAD_None, nullptr))
+			if (InitParams.MaskedMaterialOverride != nullptr)
+			{
+				DefaultMaterial = InitParams.MaskedMaterialOverride;
+			}
+			else if (UMaterialInterface* MaskedMaterial = Cast<UMaterialInterface>(DefaultSettings->DefaultMaskedMaterialName.TryLoad()))
 			{
 				DefaultMaterial = MaskedMaterial;
 			}
 		}
 		else
 		{
-			if (UMaterialInterface* TranslucentMaterial = LoadObject<UMaterialInterface>(nullptr, *DefaultSettings->DefaultTranslucentMaterialName.ToString(), nullptr, LOAD_None, nullptr))
+			if (InitParams.TranslucentMaterialOverride != nullptr)
+			{
+				DefaultMaterial = InitParams.TranslucentMaterialOverride;
+			}
+			else if (UMaterialInterface* TranslucentMaterial = Cast<UMaterialInterface>(DefaultSettings->DefaultTranslucentMaterialName.TryLoad()))
 			{
 				DefaultMaterial = TranslucentMaterial;
 			}
 		}
 
-		if (UMaterialInterface* OpaqueMaterial = LoadObject<UMaterialInterface>(nullptr, *DefaultSettings->DefaultOpaqueMaterialName.ToString(), nullptr, LOAD_None, nullptr))
+		if (InitParams.OpaqueMaterialOverride != nullptr)
+		{
+			AlternateMaterial = InitParams.OpaqueMaterialOverride;
+		}
+		else if (UMaterialInterface* OpaqueMaterial = Cast<UMaterialInterface>(DefaultSettings->DefaultOpaqueMaterialName.TryLoad()))
 		{
 			AlternateMaterial = OpaqueMaterial;
 		}
@@ -1395,6 +1414,8 @@ void UPaperSprite::InitializeSprite(const FSpriteAssetInitParameters& InitParams
 	{
 		SourceTextureDimension.Set(0, 0);
 	}
+	AdditionalSourceTextures = InitParams.AdditionalTextures;
+
 	SourceUV = InitParams.Offset;
 	SourceDimension = InitParams.Dimension;
 
@@ -1712,6 +1733,13 @@ void UPaperSprite::ValidateSocketNames()
 #endif
 
 #if WITH_EDITOR
+void UPaperSprite::RemoveSocket(FName SocketNameToDelete)
+{
+	Sockets.RemoveAll([=](const FPaperSpriteSocket& Socket){ return Socket.SocketName == SocketNameToDelete; });
+}
+#endif
+
+#if WITH_EDITOR
 void UPaperSprite::Serialize(FArchive& Ar)
 {
 	Super::Serialize(Ar);
@@ -1759,6 +1787,11 @@ void UPaperSprite::PostLoad()
 	Super::PostLoad();
 
 #if WITH_EDITORONLY_DATA
+	if (UTexture2D* EffectiveTexture = GetBakedTexture())
+	{
+		EffectiveTexture->ConditionalPostLoad();
+	}
+	
 	const int32 PaperVer = GetLinkerCustomVersion(FPaperCustomVersion::GUID);
 
 	bool bRebuildCollision = false;
@@ -1960,8 +1993,10 @@ bool AreVectorsPerpendicular(const FVector2D& Vector1, const FVector2D& Vector2,
 	return FMath::IsNearlyEqual(DotProduct, 0.0f, Threshold);
 }
 
-void FSpriteGeometryCollection::ConditionGeometry()
+bool FSpriteGeometryCollection::ConditionGeometry()
 {
+	bool bModifiedGeometry = false;
+
 	for (FSpriteGeometryShape& Shape : Shapes)
 	{
 		if ((Shape.ShapeType == ESpriteShapeType::Polygon) && (Shape.Vertices.Num() == 4))
@@ -1989,10 +2024,13 @@ void FSpriteGeometryCollection::ConditionGeometry()
 					Shape.SetNewPivot(NewPivotTextureSpace);
 					Shape.BoxSize = FVector2D(AB.Size(), DA.Size());
 					Shape.ShapeType = ESpriteShapeType::Box;
+					bModifiedGeometry = true;
 				}
 			}
 		}
 	}
+
+	return bModifiedGeometry;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -2047,11 +2085,12 @@ void FSpriteGeometryCollisionBuilderBase::AddBoxCollisionShapesToBodySetup(const
 			{
 				case ESpriteCollisionMode::Use3DPhysics:
 					{
-					   const FVector BoxSize3D = (PaperAxisX * BoxSize2D.X) + (PaperAxisY * BoxSize2D.Y) + (PaperAxisZ * CollisionThickness);
+						const FVector BoxPos3D = (PaperAxisX * CenterInScaledSpace.X) + (PaperAxisY * CenterInScaledSpace.Y) + (PaperAxisZ * ZOffsetAmount);
+						const FVector BoxSize3D = (PaperAxisX * BoxSize2D.X) + (PaperAxisY * BoxSize2D.Y) + (PaperAxisZ * CollisionThickness);
 
 						// Create a new box primitive
 						FKBoxElem& Box = *new (MyBodySetup->AggGeom.BoxElems) FKBoxElem(FMath::Abs(BoxSize3D.X), FMath::Abs(BoxSize3D.Y), FMath::Abs(BoxSize3D.Z));
-						Box.Center = (PaperAxisX * CenterInScaledSpace.X) + (PaperAxisY * CenterInScaledSpace.Y) + (PaperAxisZ * ZOffsetAmount);
+						Box.Center = BoxPos3D;
 						Box.Orientation = FQuat(FRotator(Shape.Rotation, 0.0f, 0.0f));
 					}
 					break;

@@ -4,6 +4,9 @@
 #include "PaperTileMapRenderSceneProxy.h"
 #include "PhysicsEngine/BodySetup.h"
 #include "PaperCustomVersion.h"
+#include "Engine/Canvas.h"
+#include "PaperTileMapComponent.h"
+#include "PaperTileMap.h"
 
 #define LOCTEXT_NAMESPACE "Paper2D"
 
@@ -12,6 +15,7 @@
 
 UPaperTileMapComponent::UPaperTileMapComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
+	, TileMapColor(FLinearColor::White)
 {
 	BodyInstance.SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 
@@ -25,6 +29,18 @@ UPaperTileMapComponent::UPaperTileMapComponent(const FObjectInitializer& ObjectI
 
 	CastShadow = false;
 	bUseAsOccluder = false;
+	bCanEverAffectNavigation = true;
+
+#if WITH_EDITORONLY_DATA
+	bShowPerTileGridWhenSelected = true;
+	bShowPerLayerGridWhenSelected = true;
+	bShowOutlineWhenUnselected = true;
+#endif
+
+#if WITH_EDITOR
+	NumBatches = 0;
+	NumTriangles = 0;
+#endif
 }
 
 FPrimitiveSceneProxy* UPaperTileMapComponent::CreateSceneProxy()
@@ -222,14 +238,14 @@ void UPaperTileMapComponent::RebuildRenderData(FPaperTileMapRenderSceneProxy* Pr
 			continue;
 		}
 
-		FLinearColor DrawColor = FLinearColor::White;
+		FLinearColor DrawColor = TileMapColor * Layer->GetLayerColor();
 #if WITH_EDITORONLY_DATA
 		if (Layer->bHiddenInEditor)
 		{
 			continue;
 		}
 
-		DrawColor.A = Layer->LayerOpacity;
+		DrawColor.A *= Layer->LayerOpacity;
 #endif
 
 		FSpriteDrawCallRecord* CurrentBatch = nullptr;
@@ -300,13 +316,17 @@ void UPaperTileMapComponent::RebuildRenderData(FPaperTileMapRenderSceneProxy* Pr
 
 					if (SourceTexture != LastSourceTexture)
 					{
-						InverseTextureSize = FVector2D(1.0f / SourceTexture->GetSizeX(), 1.0f / SourceTexture->GetSizeY());
+						const FVector2D TextureSize(SourceTexture->GetImportedSize());
+						InverseTextureSize = FVector2D(1.0f / TextureSize.X, 1.0f / TextureSize.Y);
 
 						if (TileInfo.TileSet != nullptr)
 						{
 							SourceDimensionsUV = FVector2D(TileInfo.TileSet->TileWidth * InverseTextureSize.X, TileInfo.TileSet->TileHeight * InverseTextureSize.Y);
 							TileSizeXY = FVector2D(UnrealUnitsPerPixel * TileInfo.TileSet->TileWidth, UnrealUnitsPerPixel * TileInfo.TileSet->TileHeight);
-							TileSetOffset = (TileInfo.TileSet->DrawingOffset.X * PaperAxisX) + (TileInfo.TileSet->DrawingOffset.Y * PaperAxisY);
+
+							const float HorizontalCellOffset = TileInfo.TileSet->DrawingOffset.X * UnrealUnitsPerPixel;
+							const float VerticalCellOffset = (-TileInfo.TileSet->DrawingOffset.Y - TileHeight + TileInfo.TileSet->TileHeight) * UnrealUnitsPerPixel;
+							TileSetOffset = (HorizontalCellOffset * PaperAxisX) + (VerticalCellOffset * PaperAxisY);
 						}
 						else
 						{
@@ -353,6 +373,15 @@ void UPaperTileMapComponent::RebuildRenderData(FPaperTileMapRenderSceneProxy* Pr
 			}
 		}
 	}
+
+#if WITH_EDITOR
+	NumBatches = BatchedSprites.Num();
+	NumTriangles = 0;
+	for (const FSpriteDrawCallRecord& Batch : BatchedSprites)
+	{
+		NumTriangles += Batch.RenderVerts.Num() / 3;
+	}
+#endif
 
 	Proxy->SetBatchesHack(BatchedSprites);
 }
@@ -459,5 +488,60 @@ UPaperTileLayer* UPaperTileMapComponent::AddNewLayer()
 	return Result;
 }
 
+FLinearColor UPaperTileMapComponent::GetTileMapColor() const
+{
+	return TileMapColor;
+}
+
+void UPaperTileMapComponent::SetTileMapColor(FLinearColor NewColor)
+{
+	TileMapColor = NewColor;
+	MarkRenderStateDirty();
+}
+
+FLinearColor UPaperTileMapComponent::GetLayerColor(int32 Layer) const
+{
+	if (TileMap->TileLayers.IsValidIndex(Layer))
+	{
+		return TileMap->TileLayers[Layer]->GetLayerColor();
+	}
+	else
+	{
+		return FLinearColor::White;
+	}
+}
+
+void UPaperTileMapComponent::SetLayerColor(FLinearColor NewColor, int32 Layer)
+{
+	if (OwnsTileMap())
+	{
+		if (TileMap->TileLayers.IsValidIndex(Layer))
+		{
+			TileMap->TileLayers[Layer]->SetLayerColor(NewColor);
+			MarkRenderStateDirty();
+		}
+	}
+}
+
+FLinearColor UPaperTileMapComponent::GetWireframeColor() const
+{
+	return TileMapColor;
+}
+
+void UPaperTileMapComponent::MakeTileMapEditable()
+{
+	if ((TileMap != nullptr) && !OwnsTileMap())
+	{
+		SetTileMap(TileMap->CloneTileMap(this));
+	}
+}
+
+#if WITH_EDITOR
+void UPaperTileMapComponent::GetRenderingStats(int32& OutNumTriangles, int32& OutNumBatches) const
+{
+	OutNumBatches = NumBatches;
+	OutNumTriangles = NumTriangles;
+}
+#endif
 
 #undef LOCTEXT_NAMESPACE

@@ -10,11 +10,18 @@
 
 DECLARE_STATS_GROUP(TEXT("Kismet Reinstancer"), STATGROUP_KismetReinstancer, STATCAT_Advanced);
 
+class FReinstanceFinalizer;
+
 class UNREALED_API FBlueprintCompileReinstancer : public TSharedFromThis<FBlueprintCompileReinstancer>, public FGCObject
 {
 protected:
 
 	static TSet<TWeakObjectPtr<UBlueprint>> DependentBlueprintsToRefresh;
+	static TSet<TWeakObjectPtr<UBlueprint>> DependentBlueprintsToRecompile;
+	static TSet<TWeakObjectPtr<UBlueprint>> DependentBlueprintsToByteRecompile;
+
+	static UClass* HotReloadedOldClass;
+	static UClass* HotReloadedNewClass;
 
 	/** Reference to the class we're actively reinstancing */
 	UClass* ClassToReinstance;
@@ -54,7 +61,11 @@ public:
 	virtual void AddReferencedObjects(FReferenceCollector& Collector) override;
 	// End of FSerializableObject interface
 
+	static void OptionallyRefreshNodes(UBlueprint* BP);
+
 	void ListDependentBlueprintsToRefresh(const TArray<UBlueprint*>& DependentBPs);
+	void EnlistDependentBlueprintToRecompile(UBlueprint* BP, bool bBytecodeOnly);
+	void BlueprintWasRecompiled(UBlueprint* BP, bool bBytecodeOnly);
 
 	static TSharedPtr<FBlueprintCompileReinstancer> Create(UClass* InClassToReinstance, bool bIsBytecodeOnly = false, bool bSkipGC = false)
 	{
@@ -76,7 +87,7 @@ public:
 	void UpdateBytecodeReferences();
 
 	/** Worker function to replace all instances of OldClass with a new instance of NewClass */
-	static void ReplaceInstancesOfClass(UClass* OldClass, UClass* NewClass, UObject* OriginalCDO = NULL, TSet<UObject*>* ObjectsThatShouldUseOldStuff = NULL, bool bClassObjectReplaced = false);
+	static void ReplaceInstancesOfClass(UClass* OldClass, UClass* NewClass, UObject* OriginalCDO = NULL, TSet<UObject*>* ObjectsThatShouldUseOldStuff = NULL, bool bClassObjectReplaced = false, bool bPreserveRootComponent = true);
 
 	/**
 	 * When re-instancing a component, we have to make sure all instance owners' 
@@ -92,10 +103,12 @@ public:
 
 	virtual bool IsClassObjectReplaced() const { return false; }
 
+	void FinalizeFastReinstancing(TArray<UObject*>& ObjectsToReplace);
 protected:
-	void ReinstanceInner(bool bForceAlwaysReinstance);
 
-	void ReinstanceFast();
+	TSharedPtr<FReinstanceFinalizer> ReinstanceInner(bool bForceAlwaysReinstance);
+
+	TSharedPtr<FReinstanceFinalizer> ReinstanceFast();
 
 	void CompileChildren();
 
@@ -115,6 +128,9 @@ protected:
 	/** Reparents the specified blueprint or class to be the duplicated class in order to allow properties to be copied from the previous CDO to the new one */
 	void ReparentChild(UBlueprint* ChildBP);
 	void ReparentChild(UClass* ChildClass);
+
+	/** Determine whether reinstancing actors should preserve the root component of the new actor */
+	virtual bool ShouldPreserveRootComponentOfReinstancedActor() const { return true; }
 };
 
 

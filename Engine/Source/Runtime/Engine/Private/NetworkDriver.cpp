@@ -711,15 +711,16 @@ void UNetDriver::InternalProcessRemoteFunction
 	UObject* TargetObj = SubObject ? SubObject : Actor;
 
 	// Make sure this function exists for both parties.
-	FClassNetCache* ClassCache = NetCache->GetClassNetCache( TargetObj->GetClass() );
+	const FClassNetCache* ClassCache = NetCache->GetClassNetCache( TargetObj->GetClass() );
 	if (!ClassCache)
 	{
 		DEBUG_REMOTEFUNCTION(TEXT("ClassNetCache empty, not calling %s::%s"), *Actor->GetName(), *Function->GetName());
 		return;
 	}
 		
-	FFieldNetCache* FieldCache = ClassCache->GetFromField( Function );
-	if (!FieldCache)
+	const FFieldNetCache* FieldCache = ClassCache->GetFromField( Function );
+
+	if ( !FieldCache )
 	{
 		DEBUG_REMOTEFUNCTION(TEXT("FieldCache empty, not calling %s::%s"), *Actor->GetName(), *Function->GetName());
 		return;
@@ -802,8 +803,16 @@ void UNetDriver::InternalProcessRemoteFunction
 	const int NumStartingHeaderBits = Bunch.GetNumBits();
 
 	//UE_LOG(LogScript, Log, TEXT("   Call %s"),Function->GetFullName());
-	check( FieldCache->FieldNetIndex <= ClassCache->GetMaxIndex() );
-	Bunch.WriteIntWrapped(FieldCache->FieldNetIndex, ClassCache->GetMaxIndex()+1);
+	if ( Connection->InternalAck )
+	{
+		uint32 Checksum = FieldCache->FieldChecksum;
+		Bunch << Checksum;
+	}
+	else
+	{
+		check( FieldCache->FieldNetIndex <= ClassCache->GetMaxIndex() );
+		Bunch.WriteIntWrapped(FieldCache->FieldNetIndex, ClassCache->GetMaxIndex()+1);
+	}
 
 	const int HeaderBits = Bunch.GetNumBits() - NumStartingHeaderBits;
 
@@ -813,35 +822,7 @@ void UNetDriver::InternalProcessRemoteFunction
 
 	TArray< UProperty * > LocalOutParms;
 
-	// Form the RPC parameters.
-	if( Stack )
-	{
-		// this only happens for native replicated functions called from script
-		// because in that case, the C++ function itself handles evaluating the parameters
-		// so we cannot do that before calling CallRemoteFunction() as we do with all other cases
-		FMemory::Memzero( Parms, Function->ParmsSize );
-
-		for( TFieldIterator<UProperty> It(Function); It && (It->PropertyFlags & (CPF_Parm|CPF_ReturnParm))==CPF_Parm; ++It )
-		{
-			uint8* CurrentPropAddr = It->ContainerPtrToValuePtr<uint8>(Parms);
-			if ( Cast<UBoolProperty>(*It) && It->ArrayDim == 1 )
-			{
-				// we're going to get '1' returned for bools that are set, so we need to manually mask it in to the proper place
-				bool bValue = false;
-				Stack->Step(Stack->Object, &bValue);
-				if (bValue)
-				{
-					((UBoolProperty*)*It)->SetPropertyValue( CurrentPropAddr, true );
-				}
-			}
-			else
-			{
-				Stack->Step(Stack->Object, CurrentPropAddr);
-			}
-		}
-		checkSlow(*Stack->Code==EX_EndFunctionParms);
-	}
-	else
+	if( Stack == nullptr )
 	{
 		// Look for CPF_OutParm's, we'll need to copy these into the local parameter memory manually
 		// The receiving side will pull these back out when needed
@@ -1280,9 +1261,9 @@ bool UNetDriver::HandleNetDumpServerRPCCommand( const TCHAR* Cmd, FOutputDevice&
 
 			if ( Function != NULL && Function->FunctionFlags & FUNC_NetServer )
 			{
-				FClassNetCache * ClassCache = NetCache->GetClassNetCache( *ClassIt );
+				const FClassNetCache * ClassCache = NetCache->GetClassNetCache( *ClassIt );
 
-				FFieldNetCache * FieldCache = ClassCache->GetFromField( Function );
+				const FFieldNetCache * FieldCache = ClassCache->GetFromField( Function );
 
 				TArray< UProperty * > Parms;
 

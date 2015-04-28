@@ -761,10 +761,7 @@ UObject* StaticLoadObjectInternal(UClass* ObjectClass, UObject* InOuter, const T
 
 UObject* StaticLoadObject(UClass* ObjectClass, UObject* InOuter, const TCHAR* InName, const TCHAR* Filename, uint32 LoadFlags, UPackageMap* Sandbox, bool bAllowObjectReconciliation )
 {
-	// Currently StaticLoadObject will not work if executed in PostLoad on the async loading thread
-	// It should be forbidden anyway but there's legacy code that is still doing it.
-	// Note that IsInAsyncLoadingThread() == true if async loading thread is disabled but we're inside of the Async Loading Tick
-	UE_CLOG(FUObjectThreadContext::Get().IsRoutingPostLoad && IsInAsyncLoadingThread() && !IsInGameThread(), LogUObjectGlobals, Fatal, TEXT("Calling StaticLoadObject during PostLoad is forbidden."));
+	UE_CLOG(FUObjectThreadContext::Get().IsRoutingPostLoad && IsInAsyncLoadingThread(), LogUObjectGlobals, Warning, TEXT("Calling StaticLoadObject during PostLoad may result in hitches during streaming."));
 
 	UObject* Result = StaticLoadObjectInternal(ObjectClass, InOuter, InName, Filename, LoadFlags, Sandbox, bAllowObjectReconciliation);
 	if (!Result)
@@ -1022,6 +1019,14 @@ UPackage* LoadPackageInternal(UPackage* InOuter, const TCHAR* InLongPackageName,
 
 UPackage* LoadPackage(UPackage* InOuter, const TCHAR* InLongPackageName, uint32 LoadFlags)
 {
+	// Change to 1 if you want more detailed stats for loading packages, but at the cost of adding dynamic stats.
+#if	STATS && 0
+	static FString Package = TEXT( "Package" );
+	const FString LongName = Package / InLongPackageName;
+	const TStatId StatId = FDynamicStats::CreateStatId<FStatGroup_STATGROUP_UObjects>( LongName );
+	FScopeCycleCounter CycleCounter( StatId );
+#endif // STATS
+
 	return LoadPackageInternal(InOuter, InLongPackageName, LoadFlags, /*ImportLinker =*/ nullptr);
 }
 
@@ -1043,7 +1048,7 @@ bool IsLoading()
 void BeginLoad()
 {
 	auto& ThreadContext = FUObjectThreadContext::Get();
-	if (++ThreadContext.ObjBeginLoadCount == 1 && !IsInAsyncLoadingThread())
+	if (ThreadContext.ObjBeginLoadCount == 0 && !IsInAsyncLoadingThread())
 	{
 		// Make sure we're finishing up all pending async loads, and trigger texture streaming next tick if necessary.
 		FlushAsyncLoading( NAME_None );
@@ -1051,6 +1056,8 @@ void BeginLoad()
 		// Validate clean load state.
 		check(ThreadContext.ObjLoaded.Num() == 0);
 	}
+
+	++ThreadContext.ObjBeginLoadCount;
 }
 
 // Sort objects by linker name and file offset
@@ -1765,13 +1772,16 @@ UObject* StaticAllocateObject
 	UObject* Obj = NULL;
 	if(InName == NAME_None)
 	{
-		InName = MakeUniqueObjectName( InOuter, InClass );
 #if WITH_EDITOR
+		static FName NAME_UniqueObjectNameForCooking(TEXT("UniqueObjectNameForCooking"));
 		if ( GOutputCookingWarnings && GetTransientPackage() != InOuter->GetOutermost() )
 		{
-			UE_LOG(LogUObjectGlobals, Warning, TEXT("Shouldn't create dynamic objects whilest cooking, if they are saved, they will be saved with unique names, this will damage patch sizes on release.  Package %s, Object %s."), *InOuter->GetOutermost()->GetName(), *InName.ToString() );
+			InName = MakeUniqueObjectName(InOuter, InClass, NAME_UniqueObjectNameForCooking);
 		}
+		else
 #endif
+		InName = MakeUniqueObjectName(InOuter, InClass);
+
 	}
 	else
 	{
@@ -1969,7 +1979,7 @@ FObjectInitializer::FObjectInitializer() :
 Obj(nullptr),
 	ObjectArchetype(nullptr),
 	bCopyTransientsFromClassDefaults(false),
-	bShouldIntializePropsFromArchetype(true),
+	bShouldIntializePropsFromArchetype(false),
 	bSubobjectClassInitializationAllowed(true),
 	InstanceGraph(nullptr),
 	LastConstructedObject(nullptr)
@@ -2000,6 +2010,8 @@ FObjectInitializer::FObjectInitializer(UObject* InObj, UObject* InObjectArchetyp
 	FTlsObjectInitializers::Push(this);
 }
 
+COREUOBJECT_API bool IgnoreFObjectInitializer = false;
+
 /**
  * Destructor for internal class to finalize UObject creation (initialize properties) after the real C++ constructor is called.
  **/
@@ -2011,6 +2023,11 @@ FObjectInitializer::~FObjectInitializer()
 	ThreadContext.IsInConstructor--;
 	check(ThreadContext.IsInConstructor >= 0);
 	ThreadContext.ConstructedObject = LastConstructedObject;
+
+	if( IgnoreFObjectInitializer )
+	{
+		return;
+	}
 
 	SCOPE_CYCLE_COUNTER(STAT_PostConstructInitializeProperties);
 	check(Obj);
@@ -2759,6 +2776,11 @@ UObject* FObjectInitializer::CreateDefaultSubobject(UObject* Outer, FName Subobj
 			}
 			if (Outer->HasAnyFlags(RF_ClassDefaultObject) && Outer->GetClass()->GetSuperClass())
 			{
+#if WITH_EDITOR
+				// Default subobjects on the CDO should be transactional, so that we can undo/redo changes made to those objects.
+				// One current example of this is editing natively defined components in the Blueprint Editor.
+				Result->SetFlags(RF_Transactional);
+#endif
 				Outer->GetClass()->AddDefaultSubobject(Result, ReturnType);
 			}
 			Result->SetFlags(RF_DefaultSubObject);

@@ -210,6 +210,41 @@ private:
 	float PlayRate;
 
 public:
+	/** Montage to Montage Synchronization.
+	 *
+	 * A montage can only have a single leader. A leader can have multiple followers.
+	 * Loops cause no harm.
+	 * If Follower gets ticked before Leader, then synchronization will be performed with a frame of lag.
+	 *		Essentially correcting the previous frame. Which is enough for simple cases (i.e. no timeline jumps from notifies).
+	 * If Follower gets ticked after Leader, then synchronization will be exact and support more complex cases (i.e. timeline jumps).
+	 *		This can be enforced by setting up tick pre-requisites if desired.
+	 */
+	ENGINE_API void MontageSync_Follow(struct FAnimMontageInstance* NewLeaderMontageInstance);
+	/** Stop leading, release all followers. */
+	void MontageSync_StopLeading();
+	/** Stop following our leader */
+	void MontageSync_StopFollowing();
+	/** PreUpdate - Sync if updated before Leader. */
+	void MontageSync_PreUpdate();
+	/** PostUpdate - Sync if updated after Leader. */
+	void MontageSync_PostUpdate();
+
+private:
+	/** Followers this Montage will synchronize */
+	TArray<struct FAnimMontageInstance*> MontageSyncFollowers;
+	/** Leader this Montage will follow */
+	struct FAnimMontageInstance* MontageSyncLeader;
+	/** Frame counter to sync montages once per frame */
+	uint32 MontageSyncUpdateFrameCounter;
+
+	/** true if montage has been updated this frame */
+	bool MontageSync_HasBeenUpdatedThisFrame() const;
+	/** This frame's counter, to track which Montages have been updated */
+	uint32 MontageSync_GetFrameCounter() const;
+	/** Synchronize ourselves to our leader */
+	void MontageSync_PerformSyncToLeader();
+
+public:
 	FAnimMontageInstance()
 		: Montage(NULL)
 		, DesiredWeight(0.f)
@@ -222,6 +257,8 @@ public:
 		, PreviousWeight(0.f)
 		, Position(0.f)
 		, PlayRate(1.f)
+		, MontageSyncLeader(NULL)
+		, MontageSyncUpdateFrameCounter(INDEX_NONE)
 	{
 	}
 
@@ -237,6 +274,8 @@ public:
 		, PreviousWeight(0.f)	
 		, Position(0.f)
 		, PlayRate(1.f)
+		, MontageSyncLeader(NULL)
+		, MontageSyncUpdateFrameCounter(INDEX_NONE)
 	{
 	}
 

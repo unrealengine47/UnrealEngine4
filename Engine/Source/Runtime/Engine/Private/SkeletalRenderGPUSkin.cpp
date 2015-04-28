@@ -36,8 +36,16 @@ DECLARE_CYCLE_STAT(TEXT("Morph Vertex Buffer Update"),STAT_MorphVertexBuffer_Upd
 DECLARE_CYCLE_STAT(TEXT("Morph Vertex Buffer Init"),STAT_MorphVertexBuffer_Init,STATGROUP_MorphTarget);
 DECLARE_CYCLE_STAT(TEXT("Morph Vertex Buffer Apply Delta"),STAT_MorphVertexBuffer_ApplyDelta,STATGROUP_MorphTarget);
 
-
+// accessed on the rendering thread[s]
 FPreviousPerBoneMotionBlur GPrevPerBoneMotionBlur;
+
+static TAutoConsoleVariable<int32> CVarMotionBlurDebug(
+	TEXT("r.MotionBlurDebug"),
+	0,
+	TEXT("Defines if we log debugging output for motion blur rendering.\n")
+	TEXT(" 0: off (default)\n")
+	TEXT(" 1: on"),
+	ECVF_Cheat | ECVF_RenderThreadSafe);
 
 /*-----------------------------------------------------------------------------
 FMorphVertexBuffer
@@ -577,7 +585,7 @@ void InitAPEXClothVertexFactoryComponents(typename VertexFactoryType::DataType* 
 		VertexBuffers.APEXClothVertexBuffer,STRUCT_OFFSET(FApexClothPhysToRenderVertData,TangentBaryCoordsAndDist),sizeof(FApexClothPhysToRenderVertData),VET_Float4);
 	// indices for reference physics mesh vertices
 	VertexFactoryData->SimulIndicesComponent = FVertexStreamComponent(
-		VertexBuffers.APEXClothVertexBuffer,STRUCT_OFFSET(FApexClothPhysToRenderVertData,SimulMeshVertIndices),sizeof(FApexClothPhysToRenderVertData),VET_Short4);
+		VertexBuffers.APEXClothVertexBuffer,STRUCT_OFFSET(FApexClothPhysToRenderVertData,SimulMeshVertIndices),sizeof(FApexClothPhysToRenderVertData),VET_UShort4);
 }
 
 /** 
@@ -1063,7 +1071,7 @@ FPreviousPerBoneMotionBlur
 -----------------------------------------------------------------------------*/
 
 FPreviousPerBoneMotionBlur::FPreviousPerBoneMotionBlur()
-	:BufferIndex(0), LockedData(0), LockedTexelCount(0), bWarningBufferSizeExceeded(false)
+	: LockedData(0), LockedTexelCount(0), bWarningBufferSizeExceeded(false)
 {
 }
 
@@ -1089,24 +1097,12 @@ void FPreviousPerBoneMotionBlur::ReleaseResources()
 	}
 }
 
-void FPreviousPerBoneMotionBlur::RestoreForPausedMotionBlur()
-{
-	if(BufferIndex == 0)
-	{
-		BufferIndex = PER_BONE_BUFFER_COUNT - 1;
-	}
-	else
-	{
-		--BufferIndex;
-	}
-}
-
 uint32 FPreviousPerBoneMotionBlur::GetSizeX() const
 {
 	return PerChunkBoneMatricesTexture[0].GetSizeX();
 }
 
-bool FPreviousPerBoneMotionBlur::IsLocked() const
+bool FPreviousPerBoneMotionBlur::IsAppendStarted() const
 {
 	return LockedData != 0;
 }
@@ -1118,21 +1114,32 @@ void FPreviousPerBoneMotionBlur::InitIfNeeded()
 		InitResources();
 	}
 }
-void FPreviousPerBoneMotionBlur::LockData()
+void FPreviousPerBoneMotionBlur::StartAppend(bool bWorldIsPaused)
 {
 	check(!LockedData);
 	check(IsInRenderingThread());
 
-	InitIfNeeded();
+	if(!bWorldIsPaused)
+	{		
+		InitIfNeeded();
 
-	FBoneDataVertexBuffer& WriteTexture = PerChunkBoneMatricesTexture[GetWriteBufferIndex()];
+		AdvanceBufferLocation();
 
-	if(WriteTexture.IsValid())
+		FBoneDataVertexBuffer& WriteTexture = PerChunkBoneMatricesTexture[GetWriteBufferIndex()];
+
+		if(WriteTexture.IsValid())
+		{
+			LockedData = WriteTexture.LockData();
+			check(LockedTexelPosition.GetValue() == 0); //otherwise it wasn't unlocked or it was unlocked before it was done being filled by async stuff
+			LockedTexelPosition.Set(0);
+			LockedTexelCount = WriteTexture.GetSizeX();
+		}
+	}
+
+	if (CVarMotionBlurDebug.GetValueOnRenderThread())
 	{
-		LockedData = WriteTexture.LockData();
-		check(LockedTexelPosition.GetValue() == 0); //otherwise it wasn't unlocked or it was unlocked before it was done being filled by async stuff
-		LockedTexelPosition.Set(0);
-		LockedTexelCount = WriteTexture.GetSizeX();
+		UE_LOG(LogEngine, Log, TEXT("r.MotionBlurDebug: BufferSize=%d Read=%d Write=%d IsLocked=%d"),
+			PER_BONE_BUFFER_COUNT, GetReadBufferIndex(), GetWriteBufferIndex(), IsAppendStarted() ? 1 : 0);
 	}
 }
 
@@ -1162,20 +1169,24 @@ uint32 FPreviousPerBoneMotionBlur::AppendData(FBoneSkinning *DataStart, uint32 B
 	}
 }
 
-void FPreviousPerBoneMotionBlur::UnlockData()
+void FPreviousPerBoneMotionBlur::EndAppend()
 {
-	if(IsLocked())
+	if(CVarMotionBlurDebug.GetValueOnRenderThread())
+	{
+		UE_LOG(LogEngine, Log, TEXT(" "));
+	}
+
+	if(IsAppendStarted())
 	{
 		check(IsInRenderingThread());
-		LockedTexelPosition.Set(0);
 		LockedTexelCount = 0;
 		LockedData = 0;
 
-		PerChunkBoneMatricesTexture[GetWriteBufferIndex()].UnlockData();
-
-		AdvanceBufferIndex();
+		// we use float4
+		PerChunkBoneMatricesTexture[GetWriteBufferIndex()].UnlockData(LockedTexelPosition.GetValue() * 4 * sizeof(float));
+		LockedTexelPosition.Set(0);
 	}
-	
+
 	{
 		static int LogSpawmPrevent = 0;
 
@@ -1196,35 +1207,25 @@ void FPreviousPerBoneMotionBlur::UnlockData()
 	}
 }
 
-FBoneDataVertexBuffer* FPreviousPerBoneMotionBlur::GetReadData()
+FString FPreviousPerBoneMotionBlur::GetDebugString() const
 {
-	return &PerChunkBoneMatricesTexture[GetReadBufferIndex()];
+	return FString::Printf(TEXT("BufferIndex=%d Pos=%d"), GPrevPerBoneMotionBlur.GetWriteBufferIndex(), GPrevPerBoneMotionBlur.LockedTexelPosition.GetValue());
 }
 
-uint32 FPreviousPerBoneMotionBlur::GetReadBufferIndex() const
+void FPreviousPerBoneMotionBlur::AdvanceBufferLocation()
 {
-	return BufferIndex;
-}
+	// roll the content on to the left
+	// e.g.
+	// ABCD -> BCDA
+	FBoneBufferTypeRef Temp = PerChunkBoneMatricesTexture[0].BoneBuffer;
 
-uint32 FPreviousPerBoneMotionBlur::GetWriteBufferIndex() const
-{
-	uint32 ret = BufferIndex + 1;
-
-	if(ret >= PER_BONE_BUFFER_COUNT)
+	for(uint32 ToIndex = 0; ToIndex < PER_BONE_BUFFER_COUNT - 1; ++ToIndex)
 	{
-		ret = 0;
-	}
-	return ret;
-}
+		uint32 FromIndex  = ToIndex + 1;
 
-void FPreviousPerBoneMotionBlur::AdvanceBufferIndex()
-{
-	++BufferIndex;
-
-	if(BufferIndex >= PER_BONE_BUFFER_COUNT)
-	{
-		BufferIndex = 0;
+		PerChunkBoneMatricesTexture[ToIndex].BoneBuffer = PerChunkBoneMatricesTexture[FromIndex].BoneBuffer;
 	}
+	PerChunkBoneMatricesTexture[PER_BONE_BUFFER_COUNT - 1].BoneBuffer = Temp;
 }
 
 /** 

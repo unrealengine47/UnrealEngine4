@@ -4,6 +4,7 @@
 #include "SequencerCurveOwner.h"
 #include "IKeyArea.h"
 #include "MovieSceneSection.h"
+#include "Sequencer.h"
 
 void GetAllKeyAreaNodes( TSharedPtr<FSequencerNodeTree> InSequencerNodeTree, TArray<TSharedRef<FSectionKeyAreaNode>>& KeyAreaNodes )
 {
@@ -61,7 +62,7 @@ FSequencerCurveOwner::FSequencerCurveOwner( TSharedPtr<FSequencerNodeTree> InSeq
 					bAddCurve = true;
 					break;
 				case ESequencerCurveVisibility::SelectedCurves:
-					bAddCurve = KeyAreaNode->IsSelected();
+					bAddCurve = KeyAreaNode->GetSequencer().GetSelection()->IsSelected(KeyAreaNode);
 					break;
 				case ESequencerCurveVisibility::AnimatedCurves:
 					bAddCurve = CurveInfo->Curve->GetNumKeys() > 0;

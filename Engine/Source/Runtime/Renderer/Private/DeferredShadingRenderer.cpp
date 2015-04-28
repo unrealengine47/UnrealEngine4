@@ -667,6 +667,11 @@ void FDeferredShadingSceneRenderer::RenderOcclusion(FRHICommandListImmediate& RH
 		// This is done after the downsampled depth buffer is created so that it can be used for issuing queries
 		BeginOcclusionTests(RHICmdList, bRenderQueries, bRenderHZB);
 
+
+		// Hint to the RHI to submit commands up to this point to the GPU if possible.  Can help avoid CPU stalls next frame waiting
+		// for these query results on some platforms.
+		RHICmdList.SubmitCommandsHint();
+
 		if (bRenderQueries && GRHIThread)
 		{
 			QUICK_SCOPE_CYCLE_COUNTER(STAT_OcclusionSubmittedFence_Dispatch);
@@ -735,7 +740,15 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 
 	if (ClearMethodCVar)
 	{
-		switch (ClearMethodCVar->GetValueOnRenderThread())
+		int32 clearMethod = ClearMethodCVar->GetValueOnRenderThread();
+
+		if (clearMethod == 0 && !ViewFamily.EngineShowFlags.Game)
+		{
+			// Do not clear the scene only if the view family is in game mode.
+			clearMethod = 1;
+		}
+
+		switch (clearMethod)
 		{
 		case 0: // No clear
 			{
@@ -784,6 +797,11 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		QUICK_SCOPE_CYCLE_COUNTER(STAT_FDeferredShadingSceneRenderer_FGlobalDynamicVertexBuffer_Commit);
 		FGlobalDynamicVertexBuffer::Get().Commit();
 		FGlobalDynamicIndexBuffer::Get().Commit();
+	}
+
+	{
+		QUICK_SCOPE_CYCLE_COUNTER(STAT_FDeferredShadingSceneRenderer_MotionBlurStartFrame);
+		Scene->MotionBlurInfoData.StartFrame(ViewFamily.bWorldIsPaused);
 	}
 
 	// Notify the FX system that the scene is about to be rendered.
@@ -838,10 +856,11 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		GSceneRenderTargets.ResolveSceneDepthTexture(RHICmdList);
 		GSceneRenderTargets.ResolveSceneDepthToAuxiliaryTexture(RHICmdList);
 
-		// e.g. ambient cubemaps, ambient occlusion, deferred decals
+		// e.g. DBuffer deferred decals
 		for(int32 ViewIndex = 0;ViewIndex < Views.Num();ViewIndex++)
 		{	
 			SCOPED_CONDITIONAL_DRAW_EVENTF(RHICmdList, EventView,Views.Num() > 1, TEXT("View%d"), ViewIndex);
+
 			GCompositionLighting.ProcessBeforeBasePass(RHICmdList, Views[ViewIndex]);
 		}
 	}
@@ -944,6 +963,22 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		RHICmdList.SetCurrentStat(GET_STATID(STAT_CLM_AfterVelocity));
 	}
 
+	// Pre-lighting composition lighting stage
+	// e.g. deferred decals
+	if (FeatureLevel >= ERHIFeatureLevel::SM4
+		&& bGBuffer)
+	{
+		QUICK_SCOPE_CYCLE_COUNTER(STAT_FDeferredShadingSceneRenderer_AfterBasePass);
+
+		GRenderTargetPool.AddPhaseEvent(TEXT("AfterBasePass"));
+
+		for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
+		{
+			SCOPED_CONDITIONAL_DRAW_EVENTF(RHICmdList, EventView, Views.Num() > 1, TEXT("View%d"), ViewIndex);
+			GCompositionLighting.ProcessAfterBasePass(RHICmdList, Views[ViewIndex]);
+		}
+	}
+
 	// Render lighting.
 	if (ViewFamily.EngineShowFlags.Lighting
 		&& FeatureLevel >= ERHIFeatureLevel::SM4
@@ -954,14 +989,6 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		QUICK_SCOPE_CYCLE_COUNTER(STAT_FDeferredShadingSceneRenderer_Lighting);
 
 		GRenderTargetPool.AddPhaseEvent(TEXT("Lighting"));
-
-		// Pre-lighting composition lighting stage
-		// e.g. deferred decals, blurred GBuffer
-		for(int32 ViewIndex = 0;ViewIndex < Views.Num();ViewIndex++)
-		{	
-			SCOPED_CONDITIONAL_DRAW_EVENTF(RHICmdList, EventView,Views.Num() > 1, TEXT("View%d"), ViewIndex);
-			GCompositionLighting.ProcessAfterBasePass(RHICmdList, Views[ViewIndex]);
-		}
 
 		// Clear the translucent lighting volumes before we accumulate
 		ClearTranslucentVolumeLighting(RHICmdList);
@@ -1178,7 +1205,7 @@ static void SetupPrePassView(FRHICommandList& RHICmdList, const FIntRect& ViewRe
 	RHICmdList.SetDepthStencilState(TStaticDepthStencilState<true,CF_DepthNearOrEqual>::GetRHI());
 	RHICmdList.SetViewport(ViewRect.Min.X, ViewRect.Min.Y, 0, ViewRect.Max.X, ViewRect.Max.Y, 1);
 	RHICmdList.SetRasterizerState(TStaticRasterizerState<FM_Solid, CM_None>::GetRHI());
-	RHICmdList.SetScissorRect(true, ViewRect.Min.X, ViewRect.Min.Y, ViewRect.Max.X, ViewRect.Max.Y);
+	RHICmdList.SetScissorRect(false, 0, 0, 0, 0);
 }
 
 bool FDeferredShadingSceneRenderer::RenderPrePassView(FRHICommandList& RHICmdList, const FViewInfo& View)
@@ -1385,7 +1412,7 @@ bool FDeferredShadingSceneRenderer::RenderBasePass(FRHICommandListImmediate& RHI
 	if (FVelocityRendering::OutputsToGBuffer())
 	{
 		QUICK_SCOPE_CYCLE_COUNTER(STAT_FDeferredShadingSceneRenderer_RenderBasePass_GPrevPerBoneMotionBlur_LockData);
-		GPrevPerBoneMotionBlur.LockData();
+		GPrevPerBoneMotionBlur.StartAppend(ViewFamily.bWorldIsPaused);
 	}
 
 	if(ViewFamily.EngineShowFlags.LightMapDensity && AllowDebugViewmodes())
@@ -1424,7 +1451,7 @@ bool FDeferredShadingSceneRenderer::RenderBasePass(FRHICommandListImmediate& RHI
 	if (FVelocityRendering::OutputsToGBuffer())
 	{
 		QUICK_SCOPE_CYCLE_COUNTER(STAT_FDeferredShadingSceneRenderer_RenderBasePass_GPrevPerBoneMotionBlur_UnlockData);
-		GPrevPerBoneMotionBlur.UnlockData();
+		GPrevPerBoneMotionBlur.EndAppend();
 	}
 
 	return bDirty;

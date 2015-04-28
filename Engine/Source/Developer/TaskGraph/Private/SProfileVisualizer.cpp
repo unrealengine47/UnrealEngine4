@@ -1,7 +1,7 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "SlateBasics.h"
-#include "EditorStyle.h"
+#include "TaskGraphStyle.h"
 #include "SProfileVisualizer.h"
 #include "TaskGraphInterfaces.h"
 #include "STaskGraph.h"
@@ -16,8 +16,7 @@ void SProfileVisualizer::Construct( const FArguments& InArgs )
 	HeaderMessageText = InArgs._HeaderMessageText;
 	HeaderMessageTextColor = InArgs._HeaderMessageTextColor;
 
-	const FSlateBrush* ContentAreaBrush = FEditorStyle::GetBrush( "Docking.Tab", ".ContentAreaBrush" );
-
+	const FSlateBrush* ContentAreaBrush = FTaskGraphStyle::Get()->GetBrush("TaskGraph.ContentAreaBrush");
 	ChildSlot
 	[
 		SNew(SVerticalBox)

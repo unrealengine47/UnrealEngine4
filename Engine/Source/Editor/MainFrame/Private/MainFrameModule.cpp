@@ -62,11 +62,9 @@ void FMainFrameModule::CreateDefaultMainFrame( const bool bStartImmersivePIE )
 			DefaultWindowLocation.InitiallyMaximized = false;
 
 			DefaultWindowLocation.WindowSize = GetProjectBrowserWindowSize();
+			DefaultWindowLocation.ScreenPosition = DefaultWindowLocation.GetCenteredScreenPosition();
 
-			// Do not let the user adjust the fixed size
 			bIsUserSizable = true;
-
-			// Since this will appear to be a dialog, there is no need to allow maximizing or minimizing
 			bSupportsMaximize = true;
 			bSupportsMinimize = true;
 
@@ -349,7 +347,7 @@ TSharedRef<SWidget> FMainFrameModule::MakeDeveloperTools() const
 		/** @return Returns true if frame rate and memory should be displayed in the UI */
 		static EVisibility ShouldShowFrameRateAndMemory()
 		{
-			return GEditor->GetEditorUserSettings().bShowFrameRateAndMemory ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed;
+			return GetDefault<UEditorPerProjectUserSettings>()->bShowFrameRateAndMemory ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed;
 		}
 	};
 
@@ -640,7 +638,7 @@ void FMainFrameModule::StartupModule( )
 	ModuleCompileStartTime = 0.0f;
 
 	// migrate old layout settings
-	FLayoutSaveRestore::MigrateConfig(GEditorUserSettingsIni, GEditorLayoutIni);
+	FLayoutSaveRestore::MigrateConfig(GEditorPerProjectIni, GEditorLayoutIni);
 }
 
 

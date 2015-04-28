@@ -24,7 +24,6 @@ DECLARE_MEMORY_STAT_EXTERN(TEXT("Animation Memory"),STAT_AnimationMemory,STATGRO
 DECLARE_MEMORY_STAT_EXTERN(TEXT("Precomputed Visibility Memory"),STAT_PrecomputedVisibilityMemory,STATGROUP_Memory, CORE_API);
 DECLARE_MEMORY_STAT_EXTERN(TEXT("Precomputed Shadow Depth Map Memory"),STAT_PrecomputedShadowDepthMapMemory,STATGROUP_Memory, CORE_API);
 DECLARE_MEMORY_STAT_EXTERN(TEXT("Precomputed Light Volume Memory"),STAT_PrecomputedLightVolumeMemory,STATGROUP_Memory, CORE_API);
-DECLARE_MEMORY_STAT_EXTERN(TEXT("StaticMesh Total Memory"),STAT_StaticMeshTotalMemory,STATGROUP_Memory, CORE_API);
 DECLARE_MEMORY_STAT_EXTERN(TEXT("SkeletalMesh Vertex Memory"),STAT_SkeletalMeshVertexMemory,STATGROUP_Memory, CORE_API);
 DECLARE_MEMORY_STAT_EXTERN(TEXT("SkeletalMesh Index Memory"),STAT_SkeletalMeshIndexMemory,STATGROUP_Memory, CORE_API);
 DECLARE_MEMORY_STAT_EXTERN(TEXT("SkeletalMesh M.BlurSkinning Memory"),STAT_SkeletalMeshMotionBlurSkinningMemory,STATGROUP_Memory, CORE_API);
@@ -37,13 +36,6 @@ DECLARE_MEMORY_STAT_EXTERN(TEXT("ICU Memory Used"),STAT_MemoryICUTotalAllocation
 DECLARE_MEMORY_STAT_EXTERN(TEXT("ICU Data File Memory Used"),STAT_MemoryICUDataFileAllocationSize,STATGROUP_Memory, CORE_API);
 DECLARE_CYCLE_STAT_EXTERN(TEXT("PhysX Scene ReadLock"), STAT_PhysSceneReadLock, STATGROUP_Physics, CORE_API);
 DECLARE_CYCLE_STAT_EXTERN(TEXT("PhysX Scene WriteLock"), STAT_PhysSceneWriteLock, STATGROUP_Physics, CORE_API);
-
-DECLARE_MEMORY_STAT_EXTERN(TEXT("StaticMesh Total Memory"),STAT_StaticMeshTotalMemory2,STATGROUP_MemoryStaticMesh, CORE_API);
-DECLARE_MEMORY_STAT_EXTERN(TEXT("StaticMesh Vertex Memory"),STAT_StaticMeshVertexMemory,STATGROUP_MemoryStaticMesh, CORE_API);
-DECLARE_MEMORY_STAT_EXTERN(TEXT("StaticMesh VxColor Resource Mem"),STAT_ResourceVertexColorMemory,STATGROUP_MemoryStaticMesh, CORE_API);
-DECLARE_MEMORY_STAT_EXTERN(TEXT("StaticMesh VxColor Inst Mem"),STAT_InstVertexColorMemory,STATGROUP_MemoryStaticMesh, CORE_API);
-DECLARE_MEMORY_STAT_EXTERN(TEXT("StaticMesh Index Memory"),STAT_StaticMeshIndexMemory,STATGROUP_MemoryStaticMesh, CORE_API);
-DECLARE_MEMORY_STAT_EXTERN(TEXT("StaticMesh Distance Field Memory"),STAT_StaticMeshDistanceFieldMemory,STATGROUP_MemoryStaticMesh, CORE_API);
 
 DECLARE_MEMORY_STAT_EXTERN(TEXT("Texture Memory Used"),STAT_TextureMemory,STATGROUP_Memory, CORE_API);
 DECLARE_MEMORY_STAT_EXTERN(TEXT("Reflection Capture Texture Memory"),STAT_ReflectionCaptureTextureMemory,STATGROUP_Memory, CORE_API);
@@ -70,24 +62,5 @@ DECLARE_CYCLE_STAT_EXTERN(TEXT("Flush Threaded Logs"),STAT_FlushThreadedLogs,STA
 DECLARE_CYCLE_STAT_EXTERN(TEXT("Pump Messages"),STAT_PumpMessages,STATGROUP_Threading, CORE_API);
 DECLARE_FLOAT_COUNTER_STAT_EXTERN(TEXT("Percentage CPU utilization"),STAT_CPUTimePct,STATGROUP_Threading, CORE_API);
 DECLARE_FLOAT_COUNTER_STAT_EXTERN(TEXT("Percentage CPU utilization (relative to one core)"),STAT_CPUTimePctRelative,STATGROUP_Threading, CORE_API);
-
-DECLARE_DWORD_ACCUMULATOR_STAT_EXTERN(TEXT("Fulfilled read count"),STAT_AsyncIO_FulfilledReadCount,STATGROUP_AsyncIO, CORE_API);
-DECLARE_MEMORY_STAT_EXTERN(TEXT("Fulfilled read size"),STAT_AsyncIO_FulfilledReadSize,STATGROUP_AsyncIO, CORE_API);
-DECLARE_DWORD_ACCUMULATOR_STAT_EXTERN(TEXT("Canceled read count"),STAT_AsyncIO_CanceledReadCount,STATGROUP_AsyncIO, CORE_API);
-DECLARE_MEMORY_STAT_EXTERN(TEXT("Canceled read size"),STAT_AsyncIO_CanceledReadSize,STATGROUP_AsyncIO, CORE_API);
-DECLARE_DWORD_ACCUMULATOR_STAT_EXTERN(TEXT("Outstanding read count"),STAT_AsyncIO_OutstandingReadCount,STATGROUP_AsyncIO, CORE_API);
-DECLARE_MEMORY_STAT_EXTERN(TEXT("Outstanding read size"),STAT_AsyncIO_OutstandingReadSize,STATGROUP_AsyncIO, CORE_API);
-DECLARE_FLOAT_ACCUMULATOR_STAT_EXTERN(TEXT("Platform read time"),STAT_AsyncIO_PlatformReadTime,STATGROUP_AsyncIO, CORE_API);
-DECLARE_FLOAT_ACCUMULATOR_STAT_EXTERN(TEXT("Uncompressor wait time"),STAT_AsyncIO_UncompressorWaitTime,STATGROUP_AsyncIO, CORE_API);
-DECLARE_FLOAT_ACCUMULATOR_STAT_EXTERN(TEXT("Async loading block time"),STAT_AsyncIO_AsyncLoadingBlockingTime,STATGROUP_AsyncIO, CORE_API);
-DECLARE_FLOAT_ACCUMULATOR_STAT_EXTERN(TEXT("Async package precache wait time"),STAT_AsyncIO_AsyncPackagePrecacheWaitTime,STATGROUP_AsyncIO, CORE_API);
-DECLARE_FLOAT_COUNTER_STAT_EXTERN(TEXT("Bandwidth (MByte/ sec)"),STAT_AsyncIO_Bandwidth,STATGROUP_AsyncIO, CORE_API);
-
-/**
- * Math stats
- */ 
-
-DECLARE_CYCLE_STAT_EXTERN(TEXT("Convert Rotator to Quat"), STAT_MathConvertRotatorToQuat, STATGROUP_Math, CORE_API);
-DECLARE_CYCLE_STAT_EXTERN(TEXT("Convert Quat to Rotator"), STAT_MathConvertQuatToRotator, STATGROUP_Math, CORE_API);
 
 DECLARE_CYCLE_STAT_EXTERN(TEXT("CPU Stall - Sleep"), STAT_Sleep, STATGROUP_CPUStalls, CORE_API);

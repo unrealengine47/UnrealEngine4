@@ -21,7 +21,8 @@ static TAutoConsoleVariable<int32> CVarRHICmdBypass(
 	TEXT("r.RHICmdBypass"),
 	FRHICommandListExecutor::DefaultBypass,
 	TEXT("Whether to bypass the rhi command list and send the rhi commands immediately.\n")
-	TEXT("0: Disable, 1: Enable"));
+	TEXT("0: Disable (required for the multithreaded renderer)\n")
+	TEXT("1: Enable (convenient for debugging low level graphics API calls, can supress artifacts from multithreaded renderer code)"));
 
 static TAutoConsoleVariable<int32> CVarRHICmdUseParallelAlgorithms(
 	TEXT("r.RHICmdUseParallelAlgorithms"),
@@ -532,7 +533,6 @@ void FRHICommandListBase::Reset()
 	NumCommands = 0;
 	Root = nullptr;
 	CommandLink = &Root;
-	static_assert(USE_DYNAMIC_RHI, "static RHIs are not supported.");
 	Context = GDynamicRHI ? RHIGetDefaultContext() : nullptr;
 #if USE_RHICOMMAND_STATE_REDUCTION
 	StateCache = nullptr;

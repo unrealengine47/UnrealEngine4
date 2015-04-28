@@ -13,6 +13,7 @@
 #include "Editor/UnrealEd/Public/Kismet2/StructureEditorUtils.h"
 #include "Editor/UnrealEd/Public/ObjectTools.h"
 #include "DefaultValueHelper.h"
+#include "Engine/UserDefinedStruct.h"
 
 #define LOCTEXT_NAMESPACE "KismetCompiler"
 
@@ -44,7 +45,7 @@ bool FKismetCompilerUtilities::IsTypeCompatibleWithProperty(UEdGraphPin* SourceP
 			if(OwningFunction)
 			{
 				// Check for the magic ArrayParm property, which always matches array types
-				FString ArrayPointerMetaData = OwningFunction->GetMetaData(TEXT("ArrayParm"));
+				FString ArrayPointerMetaData = OwningFunction->GetMetaData(FBlueprintMetadata::MD_ArrayParam);
 				TArray<FString> ArrayPinComboNames;
 				ArrayPointerMetaData.ParseIntoArray(ArrayPinComboNames, TEXT(","), true);
 
@@ -75,10 +76,10 @@ bool FKismetCompilerUtilities::IsTypeCompatibleWithProperty(UEdGraphPin* SourceP
 	}
 
 	// Check for the early out...if this is a type dependent parameter in an array function
-	if ( (OwningFunction != NULL) && OwningFunction->HasMetaData(TEXT("ArrayParm")) )
+	if ( (OwningFunction != NULL) && OwningFunction->HasMetaData(FBlueprintMetadata::MD_ArrayParam) )
 	{
 		// Check to see if this param is type dependent on an array parameter
-		const FString DependentParams = OwningFunction->GetMetaData(TEXT("ArrayTypeDependentParams"));
+		const FString DependentParams = OwningFunction->GetMetaData(FBlueprintMetadata::MD_ArrayDependentParam);
 		TArray<FString>	DependentParamNames;
 		DependentParams.ParseIntoArray(DependentParamNames, TEXT(","), true);
 		if (DependentParamNames.Find(SourcePin->PinName) != INDEX_NONE)
@@ -930,43 +931,177 @@ void FKismetCompilerUtilities::ValidateProperEndExecutionPath(FKismetFunctionCon
 {
 	struct FRecrursiveHelper
 	{
-		// returns if the path is properly ended
-		static void CheckPath(UK2Node* StartingNode, TSet<UK2Node*>& VisitedNodes, FKismetFunctionContext& Context)
+		static bool IsExecutionSequence(const UEdGraphNode* Node)
 		{
-			UK2Node* CurrentNode = StartingNode;
+			return Node && (UK2Node_ExecutionSequence::StaticClass() == Node->GetClass()); // no "SourceNode->IsA<UK2Node_ExecutionSequence>()" because MultiGate is based on ExecutionSequence
+		}
+
+		static void CheckPathEnding(const UK2Node* StartingNode, TSet<const UK2Node*>& VisitedNodes, FKismetFunctionContext& InContext, bool bPathShouldEndWithReturn, TSet<const UK2Node*>& BreakableNodesSeeds)
+		{
+			const UK2Node* CurrentNode = StartingNode;
 			while (CurrentNode)
 			{
-				UK2Node* SourceNode = CurrentNode;
+				const UK2Node* SourceNode = CurrentNode;
 				CurrentNode = nullptr;
 
 				bool bAlreadyVisited = false;
 				VisitedNodes.Add(SourceNode, &bAlreadyVisited);
 				if (!bAlreadyVisited && !SourceNode->IsA<UK2Node_FunctionResult>())
 				{
-					const bool bIsExecutionSequence = UK2Node_ExecutionSequence::StaticClass() == SourceNode->GetClass(); // no "SourceNode->IsA<UK2Node_ExecutionSequence>()" because MultiGate is based on ExecutionSequence
+					const bool bIsExecutionSequence = IsExecutionSequence(SourceNode); 
 					for (auto CurrentPin : SourceNode->Pins)
 					{
 						if (CurrentPin
 							&& (CurrentPin->Direction == EEdGraphPinDirection::EGPD_Output)
-							&& (CurrentPin->PinType.PinCategory == Context.Schema->PC_Exec)
-							&& (CurrentPin->LinkedTo.Num() > 0))
+							&& (CurrentPin->PinType.PinCategory == InContext.Schema->PC_Exec))
 						{
-							auto LinkedPin = CurrentPin->LinkedTo[0];
-							auto NextNode = ensure(LinkedPin) ? Cast<UK2Node>(LinkedPin->GetOwningNodeUnchecked()) : nullptr;
-							if (CurrentNode && !bIsExecutionSequence && ensure(NextNode)) // for sequence node, we want only the last output
+							if (!CurrentPin->LinkedTo.Num())
 							{
-								FRecrursiveHelper::CheckPath(NextNode, VisitedNodes, Context);
+								if (!bIsExecutionSequence)
+								{
+									BreakableNodesSeeds.Add(SourceNode);
+								}
+								if (bPathShouldEndWithReturn && !bIsExecutionSequence)
+								{
+									InContext.MessageLog.Note(*LOCTEXT("ExecutionEnd_Note", "The execution path doesn't end with a return node. @@").ToString(), CurrentPin);
+								}
+								continue;
 							}
-							else
+							auto LinkedPin = CurrentPin->LinkedTo[0];
+							auto NextNode = ensure(LinkedPin) ? Cast<const UK2Node>(LinkedPin->GetOwningNodeUnchecked()) : nullptr;
+							ensure(NextNode);
+							if (CurrentNode)
 							{
-								CurrentNode = NextNode;
+								FRecrursiveHelper::CheckPathEnding(CurrentNode, VisitedNodes, InContext, bPathShouldEndWithReturn && !bIsExecutionSequence, BreakableNodesSeeds);
+							}
+							CurrentNode = NextNode;
+						}
+					}
+				}
+			}
+		}
+
+		static void GatherBreakableNodes(const UK2Node* StartingNode, TSet<const UK2Node*>& BreakableNodes, FKismetFunctionContext& InContext)
+		{
+			const UK2Node* CurrentNode = StartingNode;
+			while (CurrentNode)
+			{
+				const UK2Node* SourceNode = CurrentNode;
+				CurrentNode = nullptr;
+
+				bool bAlreadyVisited = false;
+				BreakableNodes.Add(SourceNode, &bAlreadyVisited);
+				if (!bAlreadyVisited)
+				{
+					for (auto CurrentPin : SourceNode->Pins)
+					{
+						if (CurrentPin
+							&& (CurrentPin->Direction == EEdGraphPinDirection::EGPD_Input)
+							&& (CurrentPin->PinType.PinCategory == InContext.Schema->PC_Exec)
+							&& CurrentPin->LinkedTo.Num())
+						{
+							for (auto LinkedPin : CurrentPin->LinkedTo)
+							{
+								auto NextNode = ensure(LinkedPin) ? Cast<const UK2Node>(LinkedPin->GetOwningNodeUnchecked()) : nullptr;
+								ensure(NextNode);
+								if (!FRecrursiveHelper::IsExecutionSequence(NextNode))
+								{
+									if (CurrentNode)
+									{
+										GatherBreakableNodes(CurrentNode, BreakableNodes, InContext);
+									}
+									CurrentNode = NextNode;
+								}
 							}
 						}
 					}
+				}
+			}
+		}
 
-					if (!CurrentNode)
+		static void GatherBreakableNodesSeedsFromSequences(TSet<const UK2Node_ExecutionSequence*>& UnBreakableExecutionSequenceNodes
+			, TSet<const UK2Node*>& BreakableNodesSeeds
+			, TSet<const UK2Node*>& BreakableNodes
+			, FKismetFunctionContext& InContext)
+		{
+			for (auto SequenceNode : UnBreakableExecutionSequenceNodes)
+			{
+				bool bIsBreakable = true;
+				// Sequence is breakable when all it's outputs are breakable
+				for (auto CurrentPin : SequenceNode->Pins)
+				{
+					if (CurrentPin
+						&& (CurrentPin->Direction == EEdGraphPinDirection::EGPD_Output)
+						&& (CurrentPin->PinType.PinCategory == InContext.Schema->PC_Exec)
+						&& CurrentPin->LinkedTo.Num())
 					{
-						Context.MessageLog.Warning(*LOCTEXT("ExecutionEnd_Warning", "The execution path doesn't end with a return node. @@").ToString(), SourceNode);
+						auto LinkedPin = CurrentPin->LinkedTo[0];
+						auto NextNode = ensure(LinkedPin) ? Cast<const UK2Node>(LinkedPin->GetOwningNodeUnchecked()) : nullptr;
+						ensure(NextNode);
+						if (!BreakableNodes.Contains(NextNode))
+						{
+							bIsBreakable = false;
+							break;
+						}
+					}
+				}
+
+				if (bIsBreakable)
+				{
+					bool bWasAlreadyBreakable = false;
+					BreakableNodesSeeds.Add(SequenceNode, &bWasAlreadyBreakable);
+					ensure(!bWasAlreadyBreakable);
+					int32 WasRemoved = UnBreakableExecutionSequenceNodes.Remove(SequenceNode);
+					ensure(WasRemoved);
+				}
+			}
+		}
+
+		static void CheckDeadExecutionPath(TSet<const UK2Node*>& BreakableNodesSeeds, FKismetFunctionContext& InContext)
+		{
+			TSet<const UK2Node_ExecutionSequence*> UnBreakableExecutionSequenceNodes;
+			for (auto Node : InContext.SourceGraph->Nodes)
+			{
+				if (FRecrursiveHelper::IsExecutionSequence(Node))
+				{
+					UnBreakableExecutionSequenceNodes.Add(Cast<UK2Node_ExecutionSequence>(Node));
+				}
+			}
+
+			TSet<const UK2Node*> BreakableNodes;
+			while (BreakableNodesSeeds.Num())
+			{
+				for (auto StartingNode : BreakableNodesSeeds)
+				{
+					GatherBreakableNodes(StartingNode, BreakableNodes, InContext);
+				}
+				BreakableNodesSeeds.Empty();
+				FRecrursiveHelper::GatherBreakableNodesSeedsFromSequences(UnBreakableExecutionSequenceNodes, BreakableNodesSeeds, BreakableNodes, InContext);
+			}
+
+			for (auto UnBreakableExecutionSequenceNode : UnBreakableExecutionSequenceNodes)
+			{
+				bool bUnBreakableOutputWasFound = false;
+				for (auto CurrentPin : UnBreakableExecutionSequenceNode->Pins)
+				{
+					if (CurrentPin
+						&& (CurrentPin->Direction == EEdGraphPinDirection::EGPD_Output)
+						&& (CurrentPin->PinType.PinCategory == InContext.Schema->PC_Exec)
+						&& CurrentPin->LinkedTo.Num())
+					{
+						if (bUnBreakableOutputWasFound)
+						{
+							InContext.MessageLog.Note(*LOCTEXT("DeadExecution_Note", "The path is never executed. @@").ToString(), CurrentPin);
+							break;
+						}
+
+						auto LinkedPin = CurrentPin->LinkedTo[0];
+						auto NextNode = ensure(LinkedPin) ? Cast<const UK2Node>(LinkedPin->GetOwningNodeUnchecked()) : nullptr;
+						ensure(NextNode);
+						if (!BreakableNodes.Contains(NextNode))
+						{
+							bUnBreakableOutputWasFound = true;
+						}
 					}
 				}
 			}
@@ -980,8 +1115,13 @@ void FKismetCompilerUtilities::ValidateProperEndExecutionPath(FKismetFunctionCon
 		Context.SourceGraph->GetNodesOfClass(ReturnNodes);
 		if (ReturnNodes.Num() && ensure(Context.EntryPoint))
 		{
-			TSet<UK2Node*> VisitedNodes;
-			FRecrursiveHelper::CheckPath(Context.EntryPoint, VisitedNodes, Context);
+			TSet<const UK2Node*> VisitedNodes, BreakableNodesSeeds;
+			FRecrursiveHelper::CheckPathEnding(Context.EntryPoint, VisitedNodes, Context, true, BreakableNodesSeeds);
+
+			// A non-pure node, that lies on a execution path, that may result with "EndThread" state, is called Breakable.
+			// The execution path between the node and Return node can be broken.
+
+			FRecrursiveHelper::CheckDeadExecutionPath(BreakableNodesSeeds, Context);
 		}
 	}
 }

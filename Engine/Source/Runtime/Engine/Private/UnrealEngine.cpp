@@ -109,8 +109,6 @@ IMPLEMENT_MODULE( FEngineModule, Engine );
 
 #define LOCTEXT_NAMESPACE "UnrealEngine"
 
-DECLARE_CYCLE_STAT(TEXT("DrawStats"),STAT_DrawStats,STATGROUP_StatSystem);
-
 void FEngineModule::StartupModule()
 {
 	// Setup delegate callback for ProfilingHelpers to access current map name
@@ -320,6 +318,10 @@ void ScalabilityCVarsSinkCallback()
 				UMaterial::AllMaterialsCacheResourceShadersForRendering();
 				UMaterialInstance::AllMaterialsCacheResourceShadersForRendering();
 			}
+		}
+		else
+		{
+			GCachedScalabilityCVars = LocalScalabilityCVars;
 		}
 	}
 }
@@ -1216,7 +1218,7 @@ void UEngine::ParseCommandline()
 
 	if( !GIsEditor && MatineeScreenshotOptions.bStartWithMatineeCapture )
 	{
-		GConfig->GetBool( TEXT("MatineeCreateMovieOptions"), TEXT("HideHUD"), MatineeScreenshotOptions.bHideHud, GEditorUserSettingsIni );
+		GConfig->GetBool( TEXT("MatineeCreateMovieOptions"), TEXT("HideHUD"), MatineeScreenshotOptions.bHideHud, GEditorPerProjectIni );
 	}
 
 	// If we are capturing a matinee movie and we want to dump the buffer visualization shots too, for on all required functionality
@@ -5353,6 +5355,18 @@ bool UEngine::HandleObjCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 
 		return true;
 	}
+	else if (FParse::Command(&Cmd, TEXT("HASH")))
+	{
+		const bool bShowHashBucketCollisionInfo = FParse::Param(Cmd, TEXT("SHOWBUCKETCOLLISIONS"));
+		LogHashStatistics(Ar, bShowHashBucketCollisionInfo);
+		return true;
+	}
+	else if (FParse::Command(&Cmd, TEXT("HASHOUTER")))
+	{
+		const bool bShowHashBucketCollisionInfo = FParse::Param(Cmd, TEXT("SHOWBUCKETCOLLISIONS"));
+		LogHashOuterStatistics(Ar, bShowHashBucketCollisionInfo);
+		return true;
+	}
 	else
 	{
 		// OBJ command but not supported here
@@ -6151,6 +6165,7 @@ float UEngine::GetMaxTickRate(float DeltaTime, bool bAllowFrameRateSmoothing) co
 		if (RunningHitchTimer > 1.f)
 		{
 			// hitch!
+			UE_LOG(LogEngine, Display, TEXT("Hitching by request!"));
 			FPlatformProcess::Sleep(0.2f);
 			RunningHitchTimer = 0.f;
 		}
@@ -6169,6 +6184,17 @@ float UEngine::GetMaxTickRate(float DeltaTime, bool bAllowFrameRateSmoothing) co
 	}
 
 	return MaxTickRate;
+}
+
+int32 UEngine::GetMaxFPS() const
+{
+	return CVarMaxFPS.GetValueOnAnyThread();
+}
+
+void UEngine::SetMaxFPS(const int32 MaxFPS)
+{
+	IConsoleVariable* ConsoleVariable = CVarMaxFPS.AsVariable();
+	ConsoleVariable->Set(MaxFPS);
 }
 
 /**
@@ -6870,14 +6896,13 @@ bool UEngine::ShouldThrottleCPUUsage() const
  */
 void DrawStatsHUD( UWorld* World, FViewport* Viewport, FCanvas* Canvas, UCanvas* CanvasObject, TArray<FDebugDisplayProperty>& DebugProperties, const FVector& ViewLocation, const FRotator& ViewRotation )
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "DrawStatsHUD" ), STAT_DrawStatsHUD, STATGROUP_StatSystem );
+
 	// We cannot draw without a canvas
 	if (Canvas == NULL)
 	{
 		return;
 	}
-#if STATS
-	uint32 DrawStatsBeginTime = FPlatformTime::Cycles();
-#endif
 
 	//@todo joeg: Move this stuff to a function, make safe to use on consoles by
 	// respecting the various safe zones, and make it compile out.
@@ -7205,11 +7230,6 @@ void DrawStatsHUD( UWorld* World, FViewport* Viewport, FCanvas* Canvas, UCanvas*
 			}
 		}
 	}
-#endif
-
-#if STATS
-	uint32 DrawStatsEndTime = FPlatformTime::Cycles();
-	SET_CYCLE_COUNTER(STAT_DrawStats, DrawStatsEndTime - DrawStatsBeginTime);
 #endif
 }
 
@@ -7715,7 +7735,7 @@ UNetDriver* UEngine::FindNamedNetDriver(UWorld * InWorld, FName NetDriverName)
 	{
 		return FindNamedNetDriver_Local(WorldContext->ActiveNetDrivers, NetDriverName);
 	}
-		
+
 	return nullptr;
 #else
 	return FindNamedNetDriver_Local(GetWorldContextFromWorldChecked(InWorld).ActiveNetDrivers, NetDriverName);
@@ -7890,35 +7910,20 @@ void UEngine::HandleTravelFailure(UWorld* InWorld, ETravelFailure::Type FailureT
 	if (InWorld == NULL)
 	{
 		UE_LOG(LogNet, Error, TEXT("TravelFailure: %s, Reason for Failure: '%s' with a NULL UWorld"), ETravelFailure::ToString(FailureType), *ErrorString);
-		return;
 	}
-
-	UE_LOG(LogNet, Log, TEXT("TravelFailure: %s, Reason for Failure: '%s'"), ETravelFailure::ToString(FailureType), *ErrorString);
-
-	// Give the GameInstance a chance to handle the failure.
-	HandleTravelFailure_NotifyGameInstance(InWorld, FailureType);
-
-	ENetMode NetMode = GetNetMode(InWorld);
-
-	switch (FailureType)
+	else
 	{
-	case ETravelFailure::PackageMissing:
-	case ETravelFailure::PackageVersion:
-	case ETravelFailure::NoDownload:
-	case ETravelFailure::NoLevel:
-	case ETravelFailure::InvalidURL:
-	case ETravelFailure::TravelFailure:
-	case ETravelFailure::CheatCommands:
-	case ETravelFailure::PendingNetGameCreateFailure:
-	default:
-		break;
+		UE_LOG(LogNet, Log, TEXT("TravelFailure: %s, Reason for Failure: '%s'"), ETravelFailure::ToString(FailureType), *ErrorString);
+
+		// Give the GameInstance a chance to handle the failure.
+		HandleTravelFailure_NotifyGameInstance(InWorld, FailureType);
+
+		// Cancel pending net game if there was one
+		CancelPending(InWorld);
+
+		// Any of these errors should attempt to load back to some stable map
+		CallHandleDisconnectForFailure(InWorld, InWorld->GetNetDriver());
 	}
-
-	// Cancel pending net game if there was one
-	CancelPending(InWorld);
-
-	// Any of these errors should attempt to load back to some stable map
-	CallHandleDisconnectForFailure(InWorld, InWorld->GetNetDriver());
 }
 
 void UEngine::HandleNetworkFailure(UWorld *World, UNetDriver *NetDriver, ENetworkFailure::Type FailureType, const FString& ErrorString)
@@ -10513,7 +10518,7 @@ void UEngine::CopyPropertiesForUnrelatedObjects(UObject* OldObject, UObject* New
 	// If the new object is an Actor, save the root component reference, to be restored later
 	USceneComponent* SavedRootComponent = nullptr;
 	UObjectProperty* RootComponentProperty = nullptr;
-	if (NewActor != nullptr)
+	if (NewActor != nullptr && Params.bPreserveRootComponent)
 	{
 		RootComponentProperty = FindField<UObjectProperty>(NewActor->GetClass(), "RootComponent");
 		if (RootComponentProperty != nullptr)
@@ -10659,7 +10664,7 @@ void UEngine::CopyPropertiesForUnrelatedObjects(UObject* OldObject, UObject* New
 	}
 
 	// Restore the root component reference
-	if (NewActor != nullptr)
+	if (NewActor != nullptr && Params.bPreserveRootComponent)
 	{
 		if (RootComponentProperty != nullptr)
 		{
@@ -10801,6 +10806,13 @@ void FSystemResolution::RequestResolutionChange(int32 InResX, int32 InResY, EWin
 	CVarSystemResolution->Set(*NewValue, ECVF_SetByConsole);
 }
 
+void RemoveAlphaFromColors( TArray<FColor>& Colors )
+{
+	for( FColor& Color : Colors )
+	{
+		Color.A = 255;
+	}
+}
 
 void UEngine::HandleScreenshotCaptured(int32 Width, int32 Height, const TArray<FColor>& Colors)
 {
@@ -10854,7 +10866,12 @@ void UEngine::HandleScreenshotCaptured(int32 Width, int32 Height, const TArray<F
 				if (Filename.Len() > 0)
 				{
 					IImageWrapperPtr ImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
-					if (ImageWrapper.IsValid() && ImageWrapper->SetRaw(&Colors[0], Colors.Num() * sizeof(FColor), Width, Height, ERGBFormat::BGRA, 8))
+
+					TArray<FColor> FinalColors = Colors;
+					// Matinee PNG export does not support writing alpha values
+					RemoveAlphaFromColors( FinalColors );
+
+					if (ImageWrapper.IsValid() && ImageWrapper->SetRaw(&FinalColors[0], FinalColors.Num() * sizeof(FColor), Width, Height, ERGBFormat::BGRA, 8))
 					{
 						FFileHelper::SaveArrayToFile(ImageWrapper->GetCompressed(), *Filename);
 					}

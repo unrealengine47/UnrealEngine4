@@ -281,7 +281,7 @@ UFoliageType::UFoliageType(const FObjectInitializer& ObjectInitializer)
 	MinimumLayerWeight = 0.5f;
 	DisplayOrder = 0;
 	IsSelected = false;
-	ReapplyDensityAmount = 1.0f;
+	DensityAdjustmentFactor = 1.0f;
 	CollisionWithWorld = false;
 	CollisionScale = FVector(0.9f, 0.9f, 0.9f);
 	VertexColorMask = FOLIAGEVERTEXCOLORMASK_Disabled;
@@ -455,10 +455,10 @@ float UFoliageType::GetInitAge(FRandomStream& RandomStream) const
 	return RandomStream.FRandRange(0, InitialMaxAge);
 }
 
-float UFoliageType::GetNextAge(const float CurrentAge, const int32 NumSteps) const
+float UFoliageType::GetNextAge(const float CurrentAge, const int32 InNumSteps) const
 {
 	float NewAge = CurrentAge;
-	for (int32 Count = 0; Count < NumSteps; ++Count)
+	for (int32 Count = 0; Count < InNumSteps; ++Count)
 	{
 		const float GrowAge = NewAge + 1;
 		if (GrowAge <= MaxAge)
@@ -1529,20 +1529,23 @@ TMap<UFoliageType*, TArray<const FFoliageInstancePlacementInfo*>> AInstancedFoli
 {
 	TMap<UFoliageType*, TArray<const FFoliageInstancePlacementInfo*>> Result;
 	const auto BaseId = InstanceBaseCache.GetInstanceBaseId(InComponent);
-
-	for (auto& MeshPair : FoliageMeshes)
+	
+	if (BaseId != FFoliageInstanceBaseCache::InvalidBaseId)
 	{
-		const FFoliageMeshInfo& MeshInfo = *MeshPair.Value;
-		const auto* InstanceSet = MeshInfo.ComponentHash.Find(BaseId);
-		if (InstanceSet)
+		for (auto& MeshPair : FoliageMeshes)
 		{
-			TArray<const FFoliageInstancePlacementInfo*>& Array = Result.Add(MeshPair.Key, TArray<const FFoliageInstancePlacementInfo*>());
-			Array.Empty(InstanceSet->Num());
-
-			for (int32 InstanceIndex : *InstanceSet)
+			const FFoliageMeshInfo& MeshInfo = *MeshPair.Value;
+			const auto* InstanceSet = MeshInfo.ComponentHash.Find(BaseId);
+			if (InstanceSet)
 			{
-				const FFoliageInstancePlacementInfo* Instance = &MeshInfo.Instances[InstanceIndex];
-				Array.Add(Instance);
+				TArray<const FFoliageInstancePlacementInfo*>& Array = Result.Add(MeshPair.Key, TArray<const FFoliageInstancePlacementInfo*>());
+				Array.Empty(InstanceSet->Num());
+
+				for (int32 InstanceIndex : *InstanceSet)
+				{
+					const FFoliageInstancePlacementInfo* Instance = &MeshInfo.Instances[InstanceIndex];
+					Array.Add(Instance);
+				}
 			}
 		}
 	}
@@ -1743,10 +1746,13 @@ void AInstancedFoliageActor::SelectInstance(UInstancedStaticMeshComponent* InCom
 		{
 			FFoliageMeshInfo& MeshInfo = *MeshPair.Value;
 
-			check(MeshInfo.Component);
-			MeshInfo.Component->ClearInstanceSelection();
-			MeshInfo.Component->MarkRenderStateDirty();
-			MeshInfo.SelectedIndices.Empty();
+			if (MeshInfo.Instances.Num() > 0)
+			{
+				check(MeshInfo.Component);
+				MeshInfo.Component->ClearInstanceSelection();
+				MeshInfo.Component->MarkRenderStateDirty();
+				MeshInfo.SelectedIndices.Empty();
+			}	
 		}
 	}
 
@@ -2090,6 +2096,9 @@ void AInstancedFoliageActor::PostInitProperties()
 
 		GEngine->OnLevelActorDeleted().Remove(OnLevelActorDeletedDelegateHandle);
 		OnLevelActorDeletedDelegateHandle = GEngine->OnLevelActorDeleted().AddUObject(this, &AInstancedFoliageActor::OnLevelActorDeleted);
+
+		FWorldDelegates::PostApplyLevelOffset.Remove(OnPostApplyLevelOffsetDelegateHandle);
+		OnPostApplyLevelOffsetDelegateHandle = FWorldDelegates::PostApplyLevelOffset.AddUObject(this, &AInstancedFoliageActor::OnPostApplyLevelOffset);
 	}
 #endif
 }
@@ -2103,6 +2112,7 @@ void AInstancedFoliageActor::BeginDestroy()
 	{
 		GEngine->OnActorMoved().Remove(OnLevelActorMovedDelegateHandle);
 		GEngine->OnLevelActorDeleted().Remove(OnLevelActorDeletedDelegateHandle);
+		FWorldDelegates::PostApplyLevelOffset.Remove(OnPostApplyLevelOffsetDelegateHandle);
 	}
 #endif
 }
@@ -2259,6 +2269,34 @@ void AInstancedFoliageActor::OnLevelActorDeleted(AActor* InActor)
 	}
 }
 
+void AInstancedFoliageActor::OnPostApplyLevelOffset(ULevel* InLevel, UWorld* InWorld, const FVector& InOffset, bool bWorldShift)
+{
+	ULevel* OwningLevel = GetLevel();
+	if (InLevel != OwningLevel) // TODO: cross-level foliage 
+	{
+		return;
+	}
+	
+	if (GIsEditor && InWorld && !InWorld->IsGameWorld())
+	{
+		for (auto& MeshPair : FoliageMeshes)
+		{
+			FFoliageMeshInfo& MeshInfo = *MeshPair.Value;
+
+			InstanceBaseCache.UpdateInstanceBaseCachedTransforms();
+			
+			MeshInfo.InstanceHash->Empty();
+			for (int32 InstanceIdx = 0; InstanceIdx < MeshInfo.Instances.Num(); InstanceIdx++)
+			{
+				FFoliageInstance& Instance = MeshInfo.Instances[InstanceIdx];
+				Instance.Location += InOffset;
+				// Rehash instance location
+				MeshInfo.InstanceHash->InsertInstance(Instance.Location, InstanceIdx);
+			}
+		}
+	}
+}
+
 #endif
 
 //
@@ -2280,34 +2318,6 @@ void AInstancedFoliageActor::AddReferencedObjects(UObject* InThis, FReferenceCol
 	}
 	
 	Super::AddReferencedObjects(This, Collector);
-}
-
-void AInstancedFoliageActor::ApplyWorldOffset(const FVector& InOffset, bool bWorldShift)
-{
-	Super::ApplyWorldOffset(InOffset, bWorldShift);
-
-#if WITH_EDITORONLY_DATA	
-	UWorld* World = GetWorld();
-
-	if (GIsEditor && World && !World->IsGameWorld())
-	{
-		for (auto& MeshPair : FoliageMeshes)
-		{
-			FFoliageMeshInfo& MeshInfo = *MeshPair.Value;
-
-			InstanceBaseCache.UpdateInstanceBaseCachedTransforms();
-			
-			MeshInfo.InstanceHash->Empty();
-			for (int32 InstanceIdx = 0; InstanceIdx < MeshInfo.Instances.Num(); InstanceIdx++)
-			{
-				FFoliageInstance& Instance = MeshInfo.Instances[InstanceIdx];
-				Instance.Location += InOffset;
-				// Rehash instance location
-				MeshInfo.InstanceHash->InsertInstance(Instance.Location, InstanceIdx);
-			}
-		}
-	}
-#endif
 }
 
 bool AInstancedFoliageActor::FoliageTrace(const UWorld* InWorld, FHitResult& OutHit, const FDesiredFoliageInstance& DesiredInstance, FName InTraceTag, bool InbReturnFaceIndex)

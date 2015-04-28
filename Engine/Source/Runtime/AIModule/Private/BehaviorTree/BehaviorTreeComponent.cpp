@@ -1166,12 +1166,12 @@ void UBehaviorTreeComponent::ProcessExecutionRequest()
 		}
 		else
 		{
-			// apply new observer changes
-			ApplyDiscardedSearch();
-
 			// rollback search
 			ActiveInstanceIdx = PrevActiveInstanceIdx;
 			CopyInstanceMemoryFromPersistent();
+
+			// apply new observer changes
+			ApplyDiscardedSearch();
 		}
 
 		SearchData.bSearchInProgress = false;
@@ -2243,7 +2243,7 @@ bool UBehaviorTreeComponent::IsDebuggerActive()
 
 		if (GFrameCounter != PrevFrameCounter)
 		{
-			GConfig->GetBool(TEXT("/Script/UnrealEd.EditorUserSettings"), TEXT("bAlwaysGatherBehaviorTreeDebuggerData"), bAlwaysGatherData, GEditorUserSettingsIni);
+			GConfig->GetBool(TEXT("/Script/UnrealEd.EditorPerProjectUserSettings"), TEXT("bAlwaysGatherBehaviorTreeDebuggerData"), bAlwaysGatherData, GEditorPerProjectIni);
 			PrevFrameCounter = GFrameCounter;
 		}
 

@@ -19,8 +19,8 @@
 #include "DefaultValueHelper.h"
 #include "ObjectEditorUtils.h"
 #include "ActorEditorUtils.h"
-
-#include "K2ActionMenuBuilder.h"
+#include "ComponentTypeRegistry.h"
+#include "BlueprintComponentNodeSpawner.h"
 #include "AssetRegistryModule.h"
 #include "Blueprint/AIBlueprintHelperLibrary.h"
 
@@ -94,6 +94,9 @@ const FName FBlueprintMetadata::MD_NativeBreakFunction(TEXT("HasNativeBreak"));
 
 const FName FBlueprintMetadata::MD_DynamicOutputType(TEXT("DeterminesOutputType"));
 const FName FBlueprintMetadata::MD_DynamicOutputParam(TEXT("DynamicOutputParam"));
+
+const FName FBlueprintMetadata::MD_ArrayParam(TEXT("ArrayParm"));
+const FName FBlueprintMetadata::MD_ArrayDependentParam(TEXT("ArrayTypeDependentParams"));
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -515,7 +518,7 @@ bool UEdGraphSchema_K2::DoesFunctionHaveOutParameters( const UFunction* Function
 	return false;
 }
 
-bool UEdGraphSchema_K2::CanFunctionBeUsedInGraph(const UClass* InClass, const UFunction* InFunction, const UEdGraph* InDestGraph, uint32 InAllowedFunctionTypes, bool bInCalledForEach, const FFunctionTargetInfo& InTargetInfo, FText* OutReason) const
+bool UEdGraphSchema_K2::CanFunctionBeUsedInGraph(const UClass* InClass, const UFunction* InFunction, const UEdGraph* InDestGraph, uint32 InAllowedFunctionTypes, bool bInCalledForEach, FText* OutReason) const
 {
 	if (CanUserKismetCallFunction(InFunction))
 	{
@@ -651,7 +654,7 @@ bool UEdGraphSchema_K2::CanFunctionBeUsedInGraph(const UClass* InClass, const UF
 
 		const bool bFunctionStatic = InFunction->HasAllFunctionFlags(FUNC_Static);
 		const bool bHasReturnParams = (InFunction->GetReturnProperty() != NULL);
-		const bool bHasArrayPointerParms = InFunction->HasMetaData(TEXT("ArrayParm"));
+		const bool bHasArrayPointerParms = InFunction->HasMetaData(FBlueprintMetadata::MD_ArrayParam);
 
 		const bool bAllowForEachCall = !bFunctionStatic && !bIsLatent && !bIsPureFunc && !bIsConstFunc && !bHasReturnParams && !bHasArrayPointerParms;
 		if (bInCalledForEach && !bAllowForEachCall)
@@ -686,21 +689,6 @@ bool UEdGraphSchema_K2::CanFunctionBeUsedInGraph(const UClass* InClass, const UF
 				{
 					*OutReason = LOCTEXT("FunctionNotAllowedInForEachContext", "Function cannot be used within a ForEach context.");
 				}
-			}
-
-			return false;
-		}
-
-		const bool bClassIsAnActor = InClass->IsChildOf( AActor::StaticClass() );
-
-		// This will evaluate to false if there are multiple actors selected and the function has a return value or out parameters
-		const bool bFunctionHasReturnOrOutParameters = bHasReturnParams || DoesFunctionHaveOutParameters(InFunction);
-		const bool bAllowReturnValuesForNoneOrSingleActors = !bClassIsAnActor || InTargetInfo.Actors.Num() <= 1 || !bFunctionHasReturnOrOutParameters;
-		if (!bAllowReturnValuesForNoneOrSingleActors)
-		{
-			if(OutReason != nullptr)
-			{
-				*OutReason = LOCTEXT("FunctionNotAllowedWithMultipleTargets", "Functions that return a value cannot be used with multiple targets.");
 			}
 
 			return false;
@@ -1655,7 +1643,7 @@ void UEdGraphSchema_K2::GetBreakLinkToSubMenuActions( class FMenuBuilder& MenuBu
 		++Count;
 
 		MenuBuilder.AddMenuEntry( Description, Description, FSlateIcon(), FUIAction(
-			FExecuteAction::CreateUObject((USoundClassGraphSchema*const)this, &USoundClassGraphSchema::BreakSinglePinLink, const_cast< UEdGraphPin* >(InGraphPin), *Links) ) );
+			FExecuteAction::CreateUObject(this, &UEdGraphSchema_K2::BreakSinglePinLink, const_cast< UEdGraphPin* >(InGraphPin), *Links)));
 	}
 }
 
@@ -1700,33 +1688,6 @@ void UEdGraphSchema_K2::GetJumpToConnectionSubMenuActions( class FMenuBuilder& M
 		MenuBuilder.AddMenuEntry( Description, Description, FSlateIcon(), FUIAction(
 		FExecuteAction::CreateStatic(&FKismetEditorUtilities::BringKismetToFocusAttentionOnObject, Cast<const UObject>(PinLink), false)));
 	}
-}
-
-void UEdGraphSchema_K2::GetGraphContextActions(FGraphContextMenuBuilder& ContextMenuBuilder) const
-{
-	FBlueprintGraphActionListBuilder BlueprintContextMenuBuilder(ContextMenuBuilder.CurrentGraph);
-	BlueprintContextMenuBuilder.FromPin = ContextMenuBuilder.FromPin;
-	BlueprintContextMenuBuilder.SelectedObjects.Append(ContextMenuBuilder.SelectedObjects);
-	check(BlueprintContextMenuBuilder.Blueprint != NULL);
-
-	// Run thru all nodes and add any menu items they want to add
-	Super::GetGraphContextActions(BlueprintContextMenuBuilder);
-
-	// Now do schema-specific stuff
-	FK2ActionMenuBuilder(this).GetGraphContextActions(BlueprintContextMenuBuilder);
-	ContextMenuBuilder.Append(BlueprintContextMenuBuilder);
-}
-
-void UEdGraphSchema_K2::GetAllActions(FBlueprintPaletteListBuilder& PaletteBuilder)
-{
-	const UEdGraphSchema_K2* K2SchemaInst = GetDefault<UEdGraphSchema_K2>();
-	FK2ActionMenuBuilder(K2SchemaInst).GetAllActions(PaletteBuilder);
-}
-
-void UEdGraphSchema_K2::GetPaletteActions(FBlueprintPaletteListBuilder& ActionMenuBuilder, TWeakObjectPtr<UClass> FilterClass/* = NULL*/)
-{
-	const UEdGraphSchema_K2* K2SchemaInst = GetDefault<UEdGraphSchema_K2>();
-	FK2ActionMenuBuilder(K2SchemaInst).GetPaletteActions(ActionMenuBuilder, FilterClass);
 }
 
 const FPinConnectionResponse UEdGraphSchema_K2::DetermineConnectionResponseOfCompatibleTypedPins(const UEdGraphPin* PinA, const UEdGraphPin* PinB, const UEdGraphPin* InputPin, const UEdGraphPin* OutputPin) const
@@ -3488,10 +3449,10 @@ bool UEdGraphSchema_K2::ArePinTypesCompatible(const FEdGraphPinType& Output, con
 			{
 				OutFunction = NULL;
 			}
-			if (!OutFunction && Output.PinSubCategoryMemberReference.MemberParentClass)
+			if (!OutFunction && Output.PinSubCategoryMemberReference.GetMemberParentClass())
 			{
-				const auto ParentClass = Output.PinSubCategoryMemberReference.MemberParentClass;
-				const auto BPOwner = Cast<UBlueprint>(ParentClass->ClassGeneratedBy);
+				const UClass* ParentClass = Output.PinSubCategoryMemberReference.GetMemberParentClass();
+				const UBlueprint* BPOwner = Cast<UBlueprint>(ParentClass->ClassGeneratedBy);
 				if (BPOwner && BPOwner->SkeletonGeneratedClass && (BPOwner->SkeletonGeneratedClass != ParentClass))
 				{
 					OutFunction = BPOwner->SkeletonGeneratedClass->FindFunctionByName(Output.PinSubCategoryMemberReference.MemberName);
@@ -3502,10 +3463,10 @@ bool UEdGraphSchema_K2::ArePinTypesCompatible(const FEdGraphPinType& Output, con
 			{
 				InFunction = NULL;
 			}
-			if (!InFunction && Input.PinSubCategoryMemberReference.MemberParentClass)
+			if (!InFunction && Input.PinSubCategoryMemberReference.GetMemberParentClass())
 			{
-				const auto ParentClass = Input.PinSubCategoryMemberReference.MemberParentClass;
-				const auto BPOwner = Cast<UBlueprint>(ParentClass->ClassGeneratedBy);
+				const UClass* ParentClass = Input.PinSubCategoryMemberReference.GetMemberParentClass();
+				const UBlueprint* BPOwner = Cast<UBlueprint>(ParentClass->ClassGeneratedBy);
 				if (BPOwner && BPOwner->SkeletonGeneratedClass && (BPOwner->SkeletonGeneratedClass != ParentClass))
 				{
 					InFunction = BPOwner->SkeletonGeneratedClass->FindFunctionByName(Input.PinSubCategoryMemberReference.MemberName);
@@ -4419,8 +4380,11 @@ void UEdGraphSchema_K2::DroppedAssetsOnGraph(const TArray<FAssetData>& Assets, c
 				UEdGraph* TempOuter = NewObject<UEdGraph>((UObject*)Blueprint);
 				TempOuter->SetFlags(RF_Transient);
 
-				TSharedPtr<FEdGraphSchemaAction_K2AddComponent> Action = FK2ActionMenuBuilder::CreateAddComponentAction(TempOuter, Blueprint, DestinationComponentType, Asset);
-				Action->PerformAction(Graph, NULL, GraphPosition);
+				FComponentTypeEntry ComponentType = { FString(), FString(), DestinationComponentType };
+
+				IBlueprintNodeBinder::FBindingSet Bindings;
+				Bindings.Add(Asset);
+				UBlueprintComponentNodeSpawner::Create(ComponentType)->Invoke(Graph, Bindings, GraphPosition);
 			}
 		}
 	}

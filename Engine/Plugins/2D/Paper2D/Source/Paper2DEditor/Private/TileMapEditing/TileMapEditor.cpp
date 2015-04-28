@@ -112,6 +112,24 @@ void STileMapEditorViewport::BindCommands()
 		FExecuteAction::CreateSP(EditorViewportClientRef, &FTileMapEditorViewportClient::ToggleShowPivot),
 		FCanExecuteAction(),
 		FIsActionChecked::CreateSP(EditorViewportClientRef, &FTileMapEditorViewportClient::IsShowPivotChecked));
+
+	CommandList->MapAction(
+		Commands.SetShowTileGrid,
+		FExecuteAction::CreateSP(EditorViewportClientRef, &FTileMapEditorViewportClient::ToggleShowTileGrid),
+		FCanExecuteAction(),
+		FIsActionChecked::CreateSP(EditorViewportClientRef, &FTileMapEditorViewportClient::IsShowTileGridChecked));
+
+	CommandList->MapAction(
+		Commands.SetShowLayerGrid,
+		FExecuteAction::CreateSP(EditorViewportClientRef, &FTileMapEditorViewportClient::ToggleShowLayerGrid),
+		FCanExecuteAction(),
+		FIsActionChecked::CreateSP(EditorViewportClientRef, &FTileMapEditorViewportClient::IsShowLayerGridChecked));
+
+	CommandList->MapAction(
+		Commands.SetShowTileMapStats,
+		FExecuteAction::CreateSP(EditorViewportClientRef, &FTileMapEditorViewportClient::ToggleShowTileMapStats),
+		FCanExecuteAction(),
+		FIsActionChecked::CreateSP(EditorViewportClientRef, &FTileMapEditorViewportClient::IsShowTileMapStatsChecked));
 }
 
 TSharedRef<FEditorViewportClient> STileMapEditorViewport::MakeEditorViewportClient()
@@ -175,7 +193,7 @@ public:
 	{
 		TileMapEditorPtr = InTileMapEditor;
 
-		SSingleObjectDetailsPanel::Construct(SSingleObjectDetailsPanel::FArguments());
+		SSingleObjectDetailsPanel::Construct(SSingleObjectDetailsPanel::FArguments().HostCommandList(InTileMapEditor->GetToolkitCommands()));
 	}
 
 	// SSingleObjectDetailsPanel interface
@@ -221,7 +239,7 @@ TSharedRef<SDockTab> FTileMapEditor::SpawnTab_Viewport(const FSpawnTabArgs& Args
 					SNew(STextBlock)
 					.Visibility(EVisibility::HitTestInvisible)
 					.TextStyle(FEditorStyle::Get(), "Graph.CornerText")
-					.Text(LOCTEXT("TileMapEditorViewportExperimentalWarning", "Experimental!"))
+					.Text(LOCTEXT("TileMapEditorViewportEarlyAccessPreviewWarning", "Early access preview"))
 				]
 		];
 }
@@ -447,7 +465,10 @@ void FTileMapEditor::ExtendToolbar()
 	{
 		static void FillToolbar(FToolBarBuilder& ToolbarBuilder)
 		{
-			// Toolbar buttons would go here
+			const FTileMapEditorCommands& Commands = FTileMapEditorCommands::Get();
+			ToolbarBuilder.AddToolBarButton(Commands.SetShowTileGrid);
+			ToolbarBuilder.AddToolBarButton(Commands.SetShowLayerGrid);
+			ToolbarBuilder.AddToolBarButton(Commands.SetShowTileMapStats);
 		}
 	};
 

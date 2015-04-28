@@ -132,14 +132,16 @@ FSceneViewState::~FSceneViewState()
 	DestroyLightPropagationVolume();
 }
 
-FDistanceFieldSceneData::FDistanceFieldSceneData() 
+FDistanceFieldSceneData::FDistanceFieldSceneData(EShaderPlatform ShaderPlatform) 
 	: NumObjectsInBuffer(0)
 	, ObjectBuffers(NULL)
 	, SurfelBuffers(NULL)
 	, InstancedSurfelBuffers(NULL)
 	, AtlasGeneration(0)
 {
+	static const auto CVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.GenerateMeshDistanceFields"));
 
+	bTrackPrimitives = (DoesPlatformSupportDistanceFieldAO(ShaderPlatform) || DoesPlatformSupportDistanceFieldShadowing(ShaderPlatform)) && CVar->GetValueOnGameThread() != 0;
 }
 
 FDistanceFieldSceneData::~FDistanceFieldSceneData() 
@@ -151,7 +153,8 @@ void FDistanceFieldSceneData::AddPrimitive(FPrimitiveSceneInfo* InPrimitive)
 {
 	const FPrimitiveSceneProxy* Proxy = InPrimitive->Proxy;
 
-	if (Proxy->CastsDynamicShadow()
+	if (bTrackPrimitives 
+		&& Proxy->CastsDynamicShadow()
 		&& Proxy->AffectsDistanceFieldLighting())
 	{
 		if (Proxy->SupportsHeightfieldRepresentation())
@@ -172,10 +175,13 @@ void FDistanceFieldSceneData::UpdatePrimitive(FPrimitiveSceneInfo* InPrimitive)
 {
 	const FPrimitiveSceneProxy* Proxy = InPrimitive->Proxy;
 
-	if (Proxy->CastsDynamicShadow() 
+	if (bTrackPrimitives 
+		&& Proxy->CastsDynamicShadow() 
 		&& Proxy->AffectsDistanceFieldLighting()
 		&& Proxy->SupportsDistanceFieldRepresentation() 
 		&& !PendingAddOperations.Contains(InPrimitive)
+		// This is needed to prevent infinite buildup when DF features are off such that the pending operations don't get consumed
+		&& !PendingUpdateOperations.Contains(InPrimitive)
 		// This can happen when the primitive fails to allocate from the SDF atlas
 		&& InPrimitive->DistanceFieldInstanceIndices.Num() > 0)
 	{
@@ -187,7 +193,7 @@ void FDistanceFieldSceneData::RemovePrimitive(FPrimitiveSceneInfo* InPrimitive)
 {
 	const FPrimitiveSceneProxy* Proxy = InPrimitive->Proxy;
 
-	if (Proxy->AffectsDistanceFieldLighting())
+	if (bTrackPrimitives && Proxy->AffectsDistanceFieldLighting())
 	{
 		if (Proxy->SupportsDistanceFieldRepresentation())
 		{
@@ -375,6 +381,7 @@ FScene::FScene(UWorld* InWorld, bool bInRequiresHitProxies, bool bInIsEditorScen
 ,	ReflectionSceneData(InFeatureLevel)
 ,	IndirectLightingCache(InFeatureLevel)
 ,	SurfaceCacheResources(NULL)
+,	DistanceFieldSceneData(GShaderPlatformForFeatureLevel[InFeatureLevel])
 ,	PreshadowCacheLayout(0, 0, 0, 0, false, false)
 ,	AtmosphericFog(NULL)
 ,	PrecomputedVisibilityHandler(NULL)
@@ -2446,7 +2453,7 @@ FSceneInterface* FRendererModule::AllocateScene(UWorld* World, bool bInRequiresH
 	check(IsInGameThread());
 
 	// Create a full fledged scene if we have something to render.
-	if( GIsClient && !IsRunningCommandlet() && !GUsingNullRHI )
+	if (GIsClient && FApp::CanEverRender() && !GUsingNullRHI)
 	{
 		FScene* NewScene = new FScene(World, bInRequiresHitProxies, GIsEditor && !World->IsGameWorld(), bCreateFXSystem, InFeatureLevel);
 		AllocatedScenes.Add(NewScene);
@@ -2610,8 +2617,8 @@ TStaticMeshDrawList<TBasePassForForwardShadingDrawingPolicy<FMovableDirectionalL
 
 FMotionBlurInfoData::FMotionBlurInfoData()
 	: bShouldClearMotionBlurInfo(false)
+	, bWorldIsPaused(false)
 {
-
 }
 
 void FMotionBlurInfoData::UpdatePrimitiveMotionBlur(FPrimitiveSceneInfo* PrimitiveSceneInfo)
@@ -2666,37 +2673,39 @@ void FMotionBlurInfo::UpdateMotionBlurInfo()
 {
 	if(MBPrimitiveSceneInfo && MBPrimitiveSceneInfo->Proxy)
 	{
-		PausedLocalToWorld = PreviousLocalToWorld;
 		// only if the proxy is still there
-		PreviousLocalToWorld = MBPrimitiveSceneInfo->Proxy->GetLocalToWorld();
+		CurrentLocalToWorld = MBPrimitiveSceneInfo->Proxy->GetLocalToWorld();
 	}
 
 	bKeepAndUpdateThisFrame = false;
 }
 
-void FMotionBlurInfo::RestoreForPausedMotionBlur()
-{
-	PreviousLocalToWorld = PausedLocalToWorld;
-}
-
 // Doxygen has trouble parsing these functions because the header declaring them is in Engine, not Renderer
 #if !UE_BUILD_DOCS
 
-void FMotionBlurInfoData::RestoreForPausedMotionBlur()
+void FMotionBlurInfoData::StartFrame(bool bInWorldIsPaused)
 {
-	check(IsInRenderingThread());
+	bWorldIsPaused = bInWorldIsPaused;
 
-	for (TMap<FPrimitiveComponentId, FMotionBlurInfo>::TIterator It(MotionBlurInfos); It; ++It)
+	if(!bWorldIsPaused)
 	{
-		FMotionBlurInfo& MotionBlurInfo = It.Value();
+		for (TMap<FPrimitiveComponentId, FMotionBlurInfo>::TIterator It(MotionBlurInfos); It; ++It)
+		{
+			FMotionBlurInfo& MotionBlurInfo = It.Value();
 
-		MotionBlurInfo.RestoreForPausedMotionBlur();
+			MotionBlurInfo.OnStartFrame();
+		}
 	}
 }
 
 void FMotionBlurInfoData::UpdateMotionBlurCache(FScene* InScene)
 {
 	check(InScene && IsInRenderingThread());
+
+	if(bWorldIsPaused)
+	{
+		return;
+	}
 
 	if (InScene->GetFeatureLevel() >= ERHIFeatureLevel::SM4)
 	{
@@ -2736,6 +2745,11 @@ void FMotionBlurInfoData::ApplyOffset(FVector InOffset)
 	{
 		It.Value().ApplyOffset(InOffset);
 	}
+}
+
+FString FMotionBlurInfoData::GetDebugString() const
+{
+	return FString::Printf(TEXT("Num=%d Clear=%d"), MotionBlurInfos.Num(), bShouldClearMotionBlurInfo);
 }
 
 const FMotionBlurInfo* FMotionBlurInfoData::FindMBInfoIndex(FPrimitiveComponentId ComponentId) const

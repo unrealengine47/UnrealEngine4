@@ -63,6 +63,14 @@ void FChunkManifestGenerator::OnLastPackageLoaded( UPackage* Package )
 	}
 }
 
+void FChunkManifestGenerator::OnLastPackageLoaded( const FName& PackageName )
+{
+	if ( !AssetsLoadedWithLastPackage.Contains(PackageName))
+	{
+		AssetsLoadedWithLastPackage.Add(PackageName);
+	}
+}
+
 bool FChunkManifestGenerator::CleanTempPackagingDirectory(const FString& Platform) const
 {
 	FString TmpPackagingDir = GetTempPackagingDirectoryForPlatform(Platform);
@@ -200,8 +208,76 @@ void FChunkManifestGenerator::Initialize(bool InGenerateChunks)
 	}
 }
 
+void FChunkManifestGenerator::AddPackageToChunkManifest(const FName& PackageFName, const FString& PackagePathName, const FString& SandboxFilename, const FString& LastLoadedMapName, FSandboxPlatformFile* InSandboxFile)
+{
+	TArray<int32> TargetChunks;
+	TArray<int32> ExistingChunkIDs;
+
+	if (!bGenerateChunks)
+	{
+		TargetChunks.AddUnique(0);
+		ExistingChunkIDs.AddUnique(0);
+	}
+
+	if (bGenerateChunks)
+	{
+		// Try to determine if this package has been loaded as a result of loading a map package.
+		FString MapThisAssetWasLoadedWith;
+		if (!LastLoadedMapName.IsEmpty())
+		{
+			if (AssetsLoadedWithLastPackage.Contains(PackageFName))
+			{
+				MapThisAssetWasLoadedWith = LastLoadedMapName;
+			}
+		}
+
+		// Collect all chunk IDs associated with this package from the asset registry
+		TArray<int32> RegistryChunkIDs = GetAssetRegistryChunkAssignments(PackageFName);
+		ExistingChunkIDs = GetExistingPackageChunkAssignments(PackageFName);
+
+		// Try to call game-specific delegate to determine the target chunk ID
+		// FString Name = Package->GetPathName();
+		if (FGameDelegates::Get().GetAssignStreamingChunkDelegate().IsBound())
+		{
+			FGameDelegates::Get().GetAssignStreamingChunkDelegate().ExecuteIfBound(PackagePathName, MapThisAssetWasLoadedWith, RegistryChunkIDs, ExistingChunkIDs, TargetChunks);
+		}
+		else
+		{
+			//Take asset registry assignments and existing assignments
+			TargetChunks.Append(RegistryChunkIDs);
+			TargetChunks.Append(ExistingChunkIDs);
+		}
+	}
+
+	NotifyPackageWasCooked(SandboxFilename, PackageFName);
+
+	bool bAssignedToChunk = false;
+	// if the delegate requested a specific chunk assignment, add them package to it now.
+	for (const auto& PackageChunk : TargetChunks)
+	{
+		AddPackageToManifest(SandboxFilename, PackageFName, PackageChunk);
+		bAssignedToChunk = true;
+	}
+	// If the delegate requested to remove the package from any chunk, remove it now
+	for (const auto& PackageChunk : ExistingChunkIDs)
+	{
+		if (!TargetChunks.Contains(PackageChunk))
+		{
+			RemovePackageFromManifest(PackageFName, PackageChunk);
+		}
+	}
+
+	if (!bAssignedToChunk)
+	{
+		NotifyPackageWasNotAssigned(SandboxFilename, PackageFName);
+	}
+}
+
 void FChunkManifestGenerator::AddPackageToChunkManifest(UPackage* Package, const FString& SandboxFilename, const FString& LastLoadedMapName, FSandboxPlatformFile* InSandboxFile)
 {
+#if 0
+	AddPackageToChunkManifest(Package->GetFName(), Package->GetPathName(), SandboxFilename, LastLoadedMapName, InSandboxFile);
+#else
 	TArray<int32> TargetChunks;
 	TArray<int32> ExistingChunkIDs;
 	
@@ -264,6 +340,7 @@ void FChunkManifestGenerator::AddPackageToChunkManifest(UPackage* Package, const
 	{
 		NotifyPackageWasNotAssigned(SandboxFilename, PackageFName);
 	}
+#endif
 }
 
 void FChunkManifestGenerator::PrepareToLoadNewPackage(const FString& Filename)
@@ -330,22 +407,82 @@ bool FChunkManifestGenerator::SaveManifests(FSandboxPlatformFile* InSandboxFile)
 	return true;
 }
 
-bool FChunkManifestGenerator::SaveAssetRegistry(const FString& SandboxPath)
+bool FChunkManifestGenerator::LoadAssetRegistry(const FString& SandboxPath, const TSet<FName>* PackagesToKeep)
 {
 	UE_LOG(LogChunkManifestGenerator, Display, TEXT("Saving asset registry."));
+
+	// Load generated registry for each platform
+	check(Platforms.Num() == 1);
+
+	for (auto Platform : Platforms)
+	{
+		FString PlatformSandboxPath = SandboxPath.Replace(TEXT("[Platform]"), *Platform->PlatformName());
+		FArchive* AssetRegistryReader = IFileManager::Get().CreateFileReader(*PlatformSandboxPath);
+
+		TMap<FName, FAssetData*> SavedAssetRegistryData;
+		AssetRegistry.LoadRegistryData(*AssetRegistryReader, SavedAssetRegistryData);
+
+		for (FAssetData LoadedAssetData : AssetRegistryData)
+		{
+			if (PackagesToKeep &&
+				PackagesToKeep->Contains(LoadedAssetData.PackageName) == false)
+			{
+				continue;
+			}
+
+			FAssetData* FoundAssetData = SavedAssetRegistryData.FindRef(LoadedAssetData.ObjectPath);
+			if ( FoundAssetData )
+			{
+				LoadedAssetData.ChunkIDs.Append(FoundAssetData->ChunkIDs);
+				
+				SavedAssetRegistryData.Remove(LoadedAssetData.ObjectPath);
+				delete FoundAssetData;
+			}
+		}
+
+		for (const auto& SavedAsset : SavedAssetRegistryData)
+		{
+			if (PackagesToKeep && PackagesToKeep->Contains(SavedAsset.Value->PackageName))
+			AssetRegistryData.Add(*SavedAsset.Value);
+			delete SavedAsset.Value;
+		}
+		SavedAssetRegistryData.Empty();
+	}
+	return true;
+}
+
+bool FChunkManifestGenerator::SaveAssetRegistry(const FString& SandboxPath, const TArray<FName>* IgnorePackageList)
+{
+	UE_LOG(LogChunkManifestGenerator, Display, TEXT("Saving asset registry."));
+
+
+	TSet<FName> IgnorePackageSet;
+	if (IgnorePackageList != nullptr)
+	{
+		for (const auto& IgnorePackage : *IgnorePackageList)
+		{
+			IgnorePackageSet.Add(IgnorePackage);
+		}
+	}
+	
 
 	// Create asset registry data
 	FArrayWriter SerializedAssetRegistry;
 	TMap<FName, FAssetData*> GeneratedAssetRegistryData;
 	for (auto& AssetData : AssetRegistryData)
 	{
+		if (IgnorePackageSet.Contains(AssetData.PackageName))
+		{
+			continue;
+		}
+
 		// Add only assets that have actually been cooked and belong to any chunk
 		if (AssetData.ChunkIDs.Num() > 0)
 		{
 			GeneratedAssetRegistryData.Add(AssetData.ObjectPath, &AssetData);
 		}
 	}
-	AssetRegistry.SaveRegistryData(SerializedAssetRegistry, GeneratedAssetRegistryData, GeneratedAssetRegistryData.Num());
+	AssetRegistry.SaveRegistryData(SerializedAssetRegistry, GeneratedAssetRegistryData);
 	UE_LOG(LogChunkManifestGenerator, Display, TEXT("Generated asset registry num assets %d, size is %5.2fkb"), GeneratedAssetRegistryData.Num(), (float)SerializedAssetRegistry.Num() / 1024.f);
 
 	// Save the generated registry for each platform

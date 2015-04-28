@@ -3,6 +3,11 @@
 #include "Paper2DPrivatePCH.h"
 #include "PaperSpriteSceneProxy.h"
 #include "PhysicsEngine/BodySetup2D.h"
+#include "SceneManagement.h"
+#include "EngineGlobals.h"
+#include "Engine/Engine.h"
+#include "PaperSpriteComponent.h"
+#include "SpriteDrawCall.h"
 
 //////////////////////////////////////////////////////////////////////////
 // FPaperSpriteSceneProxy
@@ -86,6 +91,8 @@ void FPaperSpriteSceneProxy::GetDynamicMeshElements(const TArray<const FSceneVie
 
 void FPaperSpriteSceneProxy::SetSprite_RenderThread(const FSpriteDrawCallRecord& NewDynamicData, int32 SplitIndex)
 {
+	SCOPE_CYCLE_COUNTER(STAT_PaperRender_SetSpriteRT);
+
 	BatchedSprites.Empty();
 	AlternateBatchedSprites.Empty();
 

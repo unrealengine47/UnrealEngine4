@@ -8,6 +8,7 @@
 #include "BusyCursor.h"
 #include "ScopedTransaction.h"
 #include "STextEntryPopup.h"
+#include "Engine/LevelStreaming.h"
 
 #define LOCTEXT_NAMESPACE "Editor.StatsViewer.StaticMeshLightingInfo"
 
@@ -502,8 +503,6 @@ void FStaticMeshLightingInfoStatsPage::GetUserSetStaticLightmapResolution(TWeakP
 			FSlateApplication::Get().GetCursorPos(),
 			FPopupTransitionEffect( FPopupTransitionEffect::TypeInPopup )
 			);
-
-		TextEntry->FocusDefaultWidget();
 	}
 }
 

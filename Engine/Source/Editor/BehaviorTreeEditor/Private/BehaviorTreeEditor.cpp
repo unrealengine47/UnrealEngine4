@@ -35,6 +35,7 @@
 #include "ContentBrowserModule.h"
 #include "SDockTab.h"
 #include "GenericCommands.h"
+#include "Engine/BlueprintGeneratedClass.h"
 
 #define LOCTEXT_NAMESPACE "BehaviorTreeEditor"
 
@@ -1119,6 +1120,7 @@ void FBehaviorTreeEditor::OnFinishedChangingProperties(const FPropertyChangedEve
 		MyGraph->UpdateInjectedNodes();
 		MyGraph->UpdateAsset(UBehaviorTreeGraph::ClearDebuggerFlags);
 	}
+	BehaviorTree->BTGraph->GetSchema()->ForceVisualizationCacheClear();
 }
 
 void FBehaviorTreeEditor::OnPackageSaved(const FString& PackageFileName, UObject* Outer)

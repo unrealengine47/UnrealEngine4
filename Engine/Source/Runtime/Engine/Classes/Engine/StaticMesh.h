@@ -6,7 +6,7 @@
 #include "StaticMesh.generated.h"
 
 /** The maximum number of static mesh LODs allowed. */
-#define MAX_STATIC_MESH_LODS 4
+#define MAX_STATIC_MESH_LODS 8
 
 // Forward declarations
 class UFoliageType_InstancedStaticMesh;
@@ -439,7 +439,7 @@ public:
 	/**
 	 * Default constructor
 	 */
-	ENGINE_API UStaticMesh(const FObjectInitializer& ObjectInitializer);
+	ENGINE_API UStaticMesh(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	// Begin UObject interface.
 #if WITH_EDITOR

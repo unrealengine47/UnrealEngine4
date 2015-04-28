@@ -182,7 +182,7 @@ UBlueprintFunctionNodeSpawner* UBlueprintFunctionNodeSpawner::Create(UFunction c
 	check(Function != nullptr);
 
 	bool const bIsPure = Function->HasAllFunctionFlags(FUNC_BlueprintPure);
-	bool const bHasArrayPointerParms = Function->HasMetaData(TEXT("ArrayParm"));
+	bool const bHasArrayPointerParms = Function->HasMetaData(FBlueprintMetadata::MD_ArrayParam);
 	bool const bIsCommutativeAssociativeBinaryOp = Function->HasMetaData(FBlueprintMetadata::MD_CommutativeAssociativeBinaryOperator);
 	bool const bIsMaterialParamCollectionFunc = Function->HasMetaData(FBlueprintMetadata::MD_MaterialParameterCollectionFunction);
 	bool const bIsDataTableFunc = Function->HasMetaData(FBlueprintMetadata::MD_DataTablePin);
@@ -245,8 +245,13 @@ UBlueprintFunctionNodeSpawner* UBlueprintFunctionNodeSpawner::Create(TSubclassOf
 	MenuSignature.MenuName = UK2Node_CallFunction::GetUserFacingFunctionName(Function);
 	MenuSignature.Category = FText::FromString( UK2Node_CallFunction::GetDefaultCategoryForFunction(Function, TEXT("")) );
 	MenuSignature.Tooltip  = FText::FromString( UK2Node_CallFunction::GetDefaultTooltipForFunction(Function) );
-	// add at least one character, so that PrimeDefaultMenuSignature() doesn't attempt to query the template node
-	MenuSignature.Keywords = UK2Node_CallFunction::GetKeywordsForFunction(Function).AppendChar(TEXT(' '));
+	// add at least one character, so that PrimeDefaultUiSpec() doesn't attempt to query the template node
+	MenuSignature.Keywords = UK2Node_CallFunction::GetKeywordsForFunction(Function);
+	if (MenuSignature.Keywords.IsEmpty())
+	{
+		MenuSignature.Keywords = FText::FromString(TEXT(" "));
+	}
+
 	MenuSignature.IconName = UK2Node_CallFunction::GetPaletteIconForFunction(Function, MenuSignature.IconTint);
 
 	if (MenuSignature.Category.IsEmpty())

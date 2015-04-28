@@ -23,7 +23,6 @@ class FGeomPoly;
 class FGeomObject;
 class FScopedTransaction;
 class UFactory;
-struct FBlueprintGraphActionListBuilder;
 
 
 /** The shorthand identifier used for editor modes */
@@ -86,8 +85,6 @@ struct UNREALED_API FEditorDelegates
 	DECLARE_MULTICAST_DELEGATE_OneParam(FOnFocusViewportOnActors, const TArray<AActor*>&);
 	/** delegate type for triggering when a map is opened */
 	DECLARE_MULTICAST_DELEGATE_TwoParams(FOnMapOpened, const FString& /* Filename */, bool /*bAsTemplate*/);
-	/** delegate type for triggering when the Blueprint ContextMenu is created */
-	DECLARE_MULTICAST_DELEGATE_OneParam(FOnBlueprintContextMenuCreated, FBlueprintGraphActionListBuilder &/*ContextMenuBuilder*/);
 	/** Delegate used for entering or exiting an editor mode */
 	DECLARE_MULTICAST_DELEGATE_OneParam(FOnEditorModeTransitioned, FEdMode* /*Mode*/);
 	/** delegate type for when a user requests to delete certain assets... DOES NOT mean the asset(s) will be deleted (the user could cancel) */
@@ -185,8 +182,6 @@ struct UNREALED_API FEditorDelegates
 	static FOnEditorCameraMoved OnEditorCameraMoved;
 	/** Called when the editor camera is moved */
 	static FOnDollyPerspectiveCamera OnDollyPerspectiveCamera;
-	/** Called when the Blueprint ContextMenu is created */
-	static FOnBlueprintContextMenuCreated OnBlueprintContextMenuCreated;
 	/** Called on editor shutdown after packages have been successfully saved */
 	static FSimpleMulticastDelegate OnShutdownPostPackagesSaved;
 	/** Called when the user requests certain assets be deleted (DOES NOT imply that the asset will be deleted... the user could cancel) */
@@ -388,7 +383,7 @@ const TCHAR* ImportObjectProperties( FImportObjectParams& InParams );
  *								if SubobjectOuter is a subobject, corresponds to the first object in SubobjectOuter's Outer chain that is not a subobject itself.
  *								if SubobjectOuter is not a subobject, should normally be the same value as SubobjectOuter
  * @param	SubobjectOuter		the object corresponding to DestData; this is the object that will used as the outer when creating subobjects from definitions contained in SourceText
- * @param	Warn				ouptut device to use for log messages
+ * @param	Warn				output device to use for log messages
  * @param	Depth				current nesting level
  * @param	LineNumber			used when importing defaults during script compilation for tracking which line the defaultproperties block begins on
  * @param	InstanceGraph		contains the mappings of instanced objects and components to their templates; used when recursively calling ImportObjectProperties; generally
@@ -515,43 +510,6 @@ bool GetREMOVE( const TCHAR** Stream, const TCHAR* Match );
 bool GetSUBSTRING(const TCHAR*	Stream, const TCHAR* Match, TCHAR* Value, int32 MaxLen);
 TCHAR* SetFVECTOR( TCHAR* Dest, const FVector* Value );
 
-
-/** 
- * Info used to setup the rows of the sound quality previewer
- */
-class FPreviewInfo
-{
-public:
-	FPreviewInfo( int32 Quality );
-	~FPreviewInfo( void ) 
-	{ 
-		Cleanup(); 
-	}
-
-	void Cleanup( void );
-
-	int32			QualitySetting;
-
-	int32			OriginalSize;
-
-	int32			OggVorbisSize;
-	int32			XMASize;
-	int32			PS3Size;
-
-	uint8*		DecompressedOggVorbis;
-	uint8*		DecompressedXMA;
-	uint8*		DecompressedPS3;
-};
-
-
-/**
- * Compresses SoundWave for all available platforms, and then decompresses to PCM 
- *
- * @param	SoundWave				Wave file to compress
- * @param	PreviewInfo				Compressed stats and decompressed data
- */
-void SoundWaveQualityPreview( USoundWave* SoundWave, FPreviewInfo * PreviewInfo );
-
 /**
  * Takes an FName and checks to see that it is unique among all loaded objects.
  *
@@ -559,7 +517,7 @@ void SoundWaveQualityPreview( USoundWave* SoundWave, FPreviewInfo * PreviewInfo 
  * @param	Outer		The context for validating this object name. Should be a group/package, but could be ANY_PACKAGE if you want to check across the whole system (not recommended)
  * @param	InReason	If the check fails, this string is filled in with the reason why.
  *
- * @return	1 if the name is valid, 0 if it is not
+ * @return	true if the name is valid
  */
 
 UNREALED_API bool IsUniqueObjectName( const FName& InName, UObject* Outer, FText* InReason=NULL );
@@ -571,7 +529,7 @@ UNREALED_API bool IsUniqueObjectName( const FName& InName, UObject* Outer, FText
  * @param	Outer		The context for validating this object name. Should be a group/package, but could be ANY_PACKAGE if you want to check across the whole system (not recommended)
  * @param	InReason	If the check fails, this string is filled in with the reason why.
  *
- * @return	1 if the name is valid, 0 if it is not
+ * @return	true if the name is valid
  */
 
 UNREALED_API bool IsUniqueObjectName( const FName& InName, UObject* Outer, FText& InReason );

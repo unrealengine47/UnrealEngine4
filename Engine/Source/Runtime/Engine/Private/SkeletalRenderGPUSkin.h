@@ -10,6 +10,11 @@
 #include "SkeletalRenderPublic.h"
 #include "GPUSkinVertexFactory.h" 
 
+// 1 for a single buffer, this creates and releases textures every frame (the driver has to keep the reference and need to defer the release, low memory as it only occupies rendered buffers (up to 3 copies), best Xbox360 method?)
+// 2 for double buffering (works well for PC, caused Xbox360 to stall)
+// 3 for triple buffering (works well for PC and Xbox360, wastes a bit of memory)
+#define PER_BONE_BUFFER_COUNT 2
+
 /** 
 * Stores the updated matrices needed to skin the verts.
 * Created by the game thread and sent to the rendering thread as an update 
@@ -160,11 +165,6 @@ private:
 	FSkeletalMeshResource* SkelMeshResource;
 };
 
-// 1 for a single buffer, this creates and releases textures every frame (the driver has to keep the reference and need to defer the release, low memory as it only occupies rendered buffers (up to 3 copies), best Xbox360 method?)
-// 2 for double buffering (works well for PC, caused Xbox360 to stall)
-// 3 for triple buffering (works well for PC and Xbox360, wastes a bit of memory)
-#define PER_BONE_BUFFER_COUNT 2
-
 // only used on the render thread
 class FPreviousPerBoneMotionBlur
 {
@@ -179,19 +179,16 @@ public:
 	*/
 	void ReleaseResources();
 
-	/** */
-	ENGINE_API void RestoreForPausedMotionBlur();
-
 	void InitIfNeeded();
 
 	/** Returns the width of the texture in pixels. */
 	uint32 GetSizeX() const;
 
 	/** so we update only during velocity rendering pass */
-	bool IsLocked() const;
+	bool IsAppendStarted() const;
 
 	/** needed before AppendData() ccan be called */
-	ENGINE_API void LockData();
+	ENGINE_API void StartAppend(bool bWorldIsPaused);
 
 	/**
 	 * use between LockData() and UnlockData()
@@ -201,18 +198,41 @@ public:
 	 */
 	uint32 AppendData(FBoneSkinning *DataStart, uint32 BoneCount);
 
-	/** only call if LockData() */
-	ENGINE_API void UnlockData();
+	/** only call if StartAppend(), if the append wasn't started it silently ignores the call */
+	ENGINE_API void EndAppend();
 
-	/** @return 0 if there should be no bone based motion blur (no previous data available or it's not active) */
-	FBoneDataVertexBuffer* GetReadData();
+	/**
+	 * @param Index 0 .. PER_BONE_BUFFER_COUNT - 1, usually from GetReadBufferIndex()
+	 * @return 0 if there should be no bone based motion blur (no previous data available or it's not active)
+	 */
+	FBoneDataVertexBuffer* GetBoneDataVertexBuffer(uint32 Index)
+	{
+		checkSlow(Index < PER_BONE_BUFFER_COUNT);
+
+		return &PerChunkBoneMatricesTexture[Index];
+	}
+
+	FString GetDebugString() const;
+
+	/** @return 0 .. PER_BONE_BUFFER_COUNT-1 */
+	uint32 GetReadBufferIndex() const
+	{
+		// we move the buffers for easier internal so it's a fixed position
+		return 0;
+	}
+
+	/** @return 0 .. PER_BONE_BUFFER_COUNT-1 */
+	uint32 GetWriteBufferIndex() const
+	{
+		// we move the buffers for easier internal so it's a fixed position
+		return 1;
+	}
+
 
 private:
 
 	/** Stores the bone information with one frame delay, required for per bone motion blur. Buffered to avoid stalls on texture Lock() */
 	FBoneDataVertexBuffer PerChunkBoneMatricesTexture[PER_BONE_BUFFER_COUNT];
-	/** cycles between the buffers to avoid stalls (when CPU would need to wait on GPU) */
-	uint32 BufferIndex;
 	/* !=0 if data is locked, does not change during the lock */
 	float* LockedData;
 	/** only valid if LockedData != 0, advances with every Append() */
@@ -222,14 +242,9 @@ private:
 
 	bool bWarningBufferSizeExceeded;
 
-	/** @return 0 .. PER_BONE_BUFFER_COUNT-1 */
-	uint32 GetReadBufferIndex() const;
-
-	/** @return 0 .. PER_BONE_BUFFER_COUNT-1 */
-	uint32 GetWriteBufferIndex() const;
 
 	/** to cycle the internal buffer counter */
-	void AdvanceBufferIndex();
+	void AdvanceBufferLocation();
 };
 
 
@@ -505,4 +520,5 @@ private:
 
 };
 
+// accessed on the rendering thread[s]
 extern ENGINE_API FPreviousPerBoneMotionBlur GPrevPerBoneMotionBlur;

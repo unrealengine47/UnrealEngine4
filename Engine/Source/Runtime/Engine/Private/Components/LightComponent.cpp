@@ -78,6 +78,11 @@ void ULightComponentBase::SetCastShadows(bool bNewValue)
 	}
 }
 
+FLinearColor ULightComponentBase::GetLightColor() const
+{
+	return FLinearColor(LightColor);
+}
+
 void ULightComponentBase::Serialize(FArchive& Ar)
 {
 	Super::Serialize(Ar);
@@ -333,7 +338,7 @@ ULightComponent::ULightComponent(const FObjectInitializer& ObjectInitializer)
 	BloomThreshold = 0;
 	BloomTint = FColor::White;
 
-	RayStartOffsetDepthScale = .01f;
+	RayStartOffsetDepthScale = .003f;
 }
 
 
@@ -482,11 +487,19 @@ bool ULightComponent::CanEditChange(const UProperty* InProperty) const
 			}
 		}
 		
+		const bool bIsRayStartOffset = PropertyName == GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, RayStartOffsetDepthScale);
+
 		if (PropertyName == GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, bUseRayTracedDistanceFieldShadows)
-			|| PropertyName == GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, RayStartOffsetDepthScale))
+			|| bIsRayStartOffset)
 		{
 			static const auto CVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.GenerateMeshDistanceFields"));
 			bool bCanEdit = CastShadows && CastDynamicShadows && Mobility != EComponentMobility::Static && CVar->GetValueOnGameThread() != 0;
+
+			if (bIsRayStartOffset)
+			{
+				bCanEdit = bCanEdit && bUseRayTracedDistanceFieldShadows;
+			}
+
 			return bCanEdit;
 		}
 

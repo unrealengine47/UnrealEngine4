@@ -82,7 +82,7 @@ bool FOnlineLeaderboardsIOS::ReadLeaderboardCompletionDelegate(NSArray* players,
                             
                 if (bWasSuccessful)
                 {
-                    bool bWasSuccessful = [scores count] > 0;
+                    bWasSuccessful = [scores count] > 0;
                     UE_LOG(LogOnline, Display, TEXT("FOnlineLeaderboardsIOS::loadScoresWithCompletionHandler() - %s"), (bWasSuccessful ? TEXT("Success!") : TEXT("Failed!, no scores retrieved")));
                     for (GKScore* score in scores)
                     {
@@ -118,13 +118,12 @@ bool FOnlineLeaderboardsIOS::ReadLeaderboardCompletionDelegate(NSArray* players,
                         {
                             const FColumnMetaData& ColumnMeta = ReadObject->ColumnMetadata[StatIdx];
                             
-                            FVariantData* LastColumn = NULL;
                             switch (ColumnMeta.DataType)
                             {
                                 case EOnlineKeyValuePairDataType::Int32:
                                 {
                                     int32 Value = score.value;
-                                    LastColumn = UserRow->Columns.Add(ColumnMeta.ColumnName, FVariantData(Value));
+                                    UserRow->Columns.Add(ColumnMeta.ColumnName, FVariantData(Value));
                                     bWasSuccessful = true;
                                     break;
                                 }
@@ -206,7 +205,7 @@ bool FOnlineLeaderboardsIOS::ReadLeaderboards(const TArray< TSharedRef<FUniqueNe
              
                 if (bWasSuccessful)
                 {
-                    bool bWasSuccessful = [players count] > 0;
+                    bWasSuccessful = [players count] > 0;
                     ReadLeaderboardCompletionDelegate(players, InReadObject);
                 }
              }];

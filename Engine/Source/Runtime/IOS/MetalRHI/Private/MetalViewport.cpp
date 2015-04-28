@@ -16,6 +16,10 @@ FMetalViewport::~FMetalViewport()
 {
 }
 
+void FMetalViewport::Resize(uint32 InSizeX,uint32 InSizeY,bool bInIsFullscreen)
+{
+	FMetalManager::Get()->ResizeBackBuffer(InSizeX, InSizeY);
+}
 
 /*=============================================================================
  *	The following RHI functions must be called from the main thread.
@@ -30,7 +34,8 @@ void FMetalDynamicRHI::RHIResizeViewport(FViewportRHIParamRef ViewportRHI,uint32
 {
 	check( IsInGameThread() );
 
-	DYNAMIC_CAST_METALRESOURCE(Viewport,Viewport);
+	FMetalViewport* Viewport = ResourceCast(ViewportRHI);
+	Viewport->Resize(SizeX,SizeY,bIsFullscreen);
 }
 
 void FMetalDynamicRHI::RHITick( float DeltaTime )

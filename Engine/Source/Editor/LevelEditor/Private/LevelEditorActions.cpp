@@ -23,7 +23,6 @@
 #include "Editor/NewLevelDialog/Public/NewLevelDialogModule.h"
 #include "DelegateFilter.h"
 #include "BlueprintUtilities.h"
-#include "LightingTools.h"
 #include "MRUFavoritesList.h"
 #include "Editor/SceneOutliner/Private/SSocketChooser.h"
 #include "SnappingUtils.h"
@@ -41,6 +40,7 @@
 #include "AnalyticsEventAttribute.h"
 #include "IAnalyticsProvider.h"
 #include "ReferenceViewer.h"
+#include "ISizeMapModule.h"
 #include "Developer/MeshUtilities/Public/MeshUtilities.h"
 #include "EditorClassUtils.h"
 #include "ComponentEditorUtils.h"
@@ -309,11 +309,16 @@ void FLevelEditorActionCallbacks::RemoveFavorite( int32 FavoriteFileIndex )
 
 bool FLevelEditorActionCallbacks::ToggleFavorite_CanExecute()
 {
-	FString FileName;
-	const bool bMapFileExists = FPackageName::DoesPackageExist(GetWorld()->GetOutermost()->GetName(), NULL, &FileName);
-	
-	// Disable the favorites button if the map isn't associated to a file yet (new map, never before saved, etc.)
-	return bMapFileExists;
+	if( GetWorld() && GetWorld()->GetOutermost() )
+	{
+		FString FileName;
+		const bool bMapFileExists = FPackageName::DoesPackageExist(GetWorld()->GetOutermost()->GetName(), NULL, &FileName);
+
+		// Disable the favorites button if the map isn't associated to a file yet (new map, never before saved, etc.)
+		return bMapFileExists;
+	}
+
+	return false;
 }
 
 
@@ -458,8 +463,9 @@ void FLevelEditorActionCallbacks::AttachToSocketSelection(const FName SocketName
 
 void FLevelEditorActionCallbacks::SetMaterialQualityLevel( EMaterialQualityLevel::Type NewQualityLevel )
 {
-	GUnrealEd->AccessEditorUserSettings().MaterialQualityLevel = NewQualityLevel;
-	GUnrealEd->AccessEditorUserSettings().PostEditChange();
+	auto* Settings = GetMutableDefault<UEditorPerProjectUserSettings>();
+	Settings->MaterialQualityLevel = NewQualityLevel;
+	Settings->PostEditChange();
 
 	//Ensure the material quality cvar is also set.
 	static IConsoleVariable* MaterialQualityLevelVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.MaterialQualityLevel"));
@@ -502,10 +508,10 @@ bool FLevelEditorActionCallbacks::IsFeatureLevelPreviewChecked(ERHIFeatureLevel:
 
 void FLevelEditorActionCallbacks::ConfigureLightingBuildOptions( const FLightingBuildOptions& Options )
 {
-	GConfig->SetBool( TEXT("LightingBuildOptions"), TEXT("OnlyBuildSelected"),		Options.bOnlyBuildSelected,			GEditorUserSettingsIni );
-	GConfig->SetBool( TEXT("LightingBuildOptions"), TEXT("OnlyBuildCurrentLevel"),	Options.bOnlyBuildCurrentLevel,		GEditorUserSettingsIni );
-	GConfig->SetBool( TEXT("LightingBuildOptions"), TEXT("OnlyBuildSelectedLevels"),Options.bOnlyBuildSelectedLevels,	GEditorUserSettingsIni );
-	GConfig->SetBool( TEXT("LightingBuildOptions"), TEXT("OnlyBuildVisibility"),	Options.bOnlyBuildVisibility,		GEditorUserSettingsIni );
+	GConfig->SetBool( TEXT("LightingBuildOptions"), TEXT("OnlyBuildSelected"),		Options.bOnlyBuildSelected,			GEditorPerProjectIni );
+	GConfig->SetBool( TEXT("LightingBuildOptions"), TEXT("OnlyBuildCurrentLevel"),	Options.bOnlyBuildCurrentLevel,		GEditorPerProjectIni );
+	GConfig->SetBool( TEXT("LightingBuildOptions"), TEXT("OnlyBuildSelectedLevels"),Options.bOnlyBuildSelectedLevels,	GEditorPerProjectIni );
+	GConfig->SetBool( TEXT("LightingBuildOptions"), TEXT("OnlyBuildVisibility"),	Options.bOnlyBuildVisibility,		GEditorPerProjectIni );
 }
 
 
@@ -566,7 +572,7 @@ void FLevelEditorActionCallbacks::BuildLightingOnly_VisibilityOnly_Execute()
 bool FLevelEditorActionCallbacks::LightingBuildOptions_UseErrorColoring_IsChecked()
 {
 	bool bUseErrorColoring = false;
-	GConfig->GetBool(TEXT("LightingBuildOptions"), TEXT("UseErrorColoring"), bUseErrorColoring, GEditorUserSettingsIni);
+	GConfig->GetBool(TEXT("LightingBuildOptions"), TEXT("UseErrorColoring"), bUseErrorColoring, GEditorPerProjectIni);
 	return bUseErrorColoring;
 }
 
@@ -574,15 +580,15 @@ bool FLevelEditorActionCallbacks::LightingBuildOptions_UseErrorColoring_IsChecke
 void FLevelEditorActionCallbacks::LightingBuildOptions_UseErrorColoring_Toggled()
 {
 	bool bUseErrorColoring = false;
-	GConfig->GetBool( TEXT("LightingBuildOptions"), TEXT("UseErrorColoring"), bUseErrorColoring, GEditorUserSettingsIni );
-	GConfig->SetBool( TEXT("LightingBuildOptions"), TEXT("UseErrorColoring"), !bUseErrorColoring, GEditorUserSettingsIni );
+	GConfig->GetBool( TEXT("LightingBuildOptions"), TEXT("UseErrorColoring"), bUseErrorColoring, GEditorPerProjectIni );
+	GConfig->SetBool( TEXT("LightingBuildOptions"), TEXT("UseErrorColoring"), !bUseErrorColoring, GEditorPerProjectIni );
 }
 
 
 bool FLevelEditorActionCallbacks::LightingBuildOptions_ShowLightingStats_IsChecked()
 {
 	bool bShowLightingBuildInfo = false;
-	GConfig->GetBool(TEXT("LightingBuildOptions"), TEXT("ShowLightingBuildInfo"), bShowLightingBuildInfo, GEditorUserSettingsIni);
+	GConfig->GetBool(TEXT("LightingBuildOptions"), TEXT("ShowLightingBuildInfo"), bShowLightingBuildInfo, GEditorPerProjectIni);
 	return bShowLightingBuildInfo;
 }
 
@@ -590,8 +596,8 @@ bool FLevelEditorActionCallbacks::LightingBuildOptions_ShowLightingStats_IsCheck
 void FLevelEditorActionCallbacks::LightingBuildOptions_ShowLightingStats_Toggled()
 {
 	bool bShowLightingBuildInfo = false;
-	GConfig->GetBool( TEXT("LightingBuildOptions"), TEXT("ShowLightingBuildInfo"), bShowLightingBuildInfo, GEditorUserSettingsIni );
-	GConfig->SetBool( TEXT("LightingBuildOptions"), TEXT("ShowLightingBuildInfo"), !bShowLightingBuildInfo, GEditorUserSettingsIni );
+	GConfig->GetBool( TEXT("LightingBuildOptions"), TEXT("ShowLightingBuildInfo"), bShowLightingBuildInfo, GEditorPerProjectIni );
+	GConfig->SetBool( TEXT("LightingBuildOptions"), TEXT("ShowLightingBuildInfo"), !bShowLightingBuildInfo, GEditorPerProjectIni );
 }
 
 
@@ -630,73 +636,13 @@ void FLevelEditorActionCallbacks::BuildLODsOnly_Execute()
 bool FLevelEditorActionCallbacks::IsLightingQualityChecked( ELightingBuildQuality TestQuality )
 {
 	int32 CurrentQualityLevel;
-	GConfig->GetInt(TEXT("LightingBuildOptions"), TEXT("QualityLevel"), CurrentQualityLevel, GEditorUserSettingsIni);
+	GConfig->GetInt(TEXT("LightingBuildOptions"), TEXT("QualityLevel"), CurrentQualityLevel, GEditorPerProjectIni);
 	return TestQuality == CurrentQualityLevel;
 }
 
 void FLevelEditorActionCallbacks::SetLightingQuality( ELightingBuildQuality NewQuality )
 {
-	GConfig->SetInt(TEXT("LightingBuildOptions"), TEXT("QualityLevel"), (int32)NewQuality, GEditorUserSettingsIni);
-}
-
-void FLevelEditorActionCallbacks::SetLightingToolShowBounds()
-{
-	FLightingToolsSettings& Settings = FLightingToolsSettings::Get();
-	Settings.bShowLightingBounds = !Settings.bShowLightingBounds;
-	Settings.ApplyToggle();
-}
-
-bool FLevelEditorActionCallbacks::IsLightingToolShowBoundsChecked()
-{
-	return FLightingToolsSettings::Get().bShowLightingBounds;
-}
-
-void FLevelEditorActionCallbacks::SetLightingToolShowTraces()
-{
-	FLightingToolsSettings& Settings = FLightingToolsSettings::Get();
-	Settings.bShowShadowTraces = !Settings.bShowShadowTraces;
-	Settings.ApplyToggle();
-}
-
-bool FLevelEditorActionCallbacks::IsLightingToolShowTracesChecked()
-{
-	return FLightingToolsSettings::Get().bShowShadowTraces;
-}
-
-void FLevelEditorActionCallbacks::SetLightingToolShowDirectOnly()
-{
-	FLightingToolsSettings& Settings = FLightingToolsSettings::Get();
-	Settings.bShowDirectOnly = !Settings.bShowDirectOnly;
-	Settings.ApplyToggle();
-}
-
-bool FLevelEditorActionCallbacks::IsLightingToolShowDirectOnlyChecked()
-{
-	return FLightingToolsSettings::Get().bShowDirectOnly;
-}
-
-void FLevelEditorActionCallbacks::SetLightingToolShowIndirectOnly()
-{
-	FLightingToolsSettings& Settings = FLightingToolsSettings::Get();
-	Settings.bShowIndirectOnly = !Settings.bShowIndirectOnly;
-	Settings.ApplyToggle();
-}
-
-bool FLevelEditorActionCallbacks::IsLightingToolShowIndirectOnlyChecked()
-{
-	return FLightingToolsSettings::Get().bShowIndirectOnly;
-}
-
-void FLevelEditorActionCallbacks::SetLightingToolShowIndirectSamples()
-{
-	FLightingToolsSettings& Settings = FLightingToolsSettings::Get();
-	Settings.bShowIndirectSamples = !Settings.bShowIndirectSamples;
-	Settings.ApplyToggle();
-}
-
-bool FLevelEditorActionCallbacks::IsLightingToolShowIndirectSamplesChecked()
-{
-	return FLightingToolsSettings::Get().bShowIndirectSamples;
+	GConfig->SetInt(TEXT("LightingBuildOptions"), TEXT("QualityLevel"), (int32)NewQuality, GEditorPerProjectIni);
 }
 
 float FLevelEditorActionCallbacks::GetLightingDensityIdeal()
@@ -1045,6 +991,38 @@ void FLevelEditorActionCallbacks::ViewReferences_Execute()
 }
 
 bool FLevelEditorActionCallbacks::CanViewReferences()
+{
+	TArray< UObject* > ReferencedAssets;
+	GEditor->GetReferencedAssetsForEditorSelection(ReferencedAssets);
+	return ReferencedAssets.Num() > 0;
+}
+
+void FLevelEditorActionCallbacks::ViewSizeMap_Execute()
+{
+	if( GEditor->GetSelectedActorCount() > 0 )
+	{
+		TArray< UObject* > ReferencedAssets;
+		GEditor->GetReferencedAssetsForEditorSelection( ReferencedAssets );
+
+		if (ReferencedAssets.Num() > 0)
+		{
+			TArray< FName > ViewableObjects;
+			for( auto ObjectIter = ReferencedAssets.CreateConstIterator(); ObjectIter; ++ObjectIter )
+			{
+				// Don't allow user to perform certain actions on objects that aren't actually assets (e.g. Level Script blueprint objects)
+				const auto EditingObject = *ObjectIter;
+				if( EditingObject != NULL && EditingObject->IsAsset() )
+				{
+					ViewableObjects.Add( EditingObject->GetOuter()->GetFName());
+				}
+			}
+
+			ISizeMapModule::Get().InvokeSizeMapTab(ViewableObjects);
+		}
+	}
+}
+
+bool FLevelEditorActionCallbacks::CanViewSizeMap()
 {
 	TArray< UObject* > ReferencedAssets;
 	GEditor->GetReferencedAssetsForEditorSelection(ReferencedAssets);
@@ -2146,9 +2124,11 @@ bool FLevelEditorActionCallbacks::OnGetTransformWidgetVisibility()
 
 void FLevelEditorActionCallbacks::OnAllowTranslucentSelection()
 {
+	auto* Settings = GetMutableDefault<UEditorPerProjectUserSettings>();
+
 	// Toggle 'allow select translucent'
-	GEditor->AccessEditorUserSettings().bAllowSelectTranslucent = !GEditor->AccessEditorUserSettings().bAllowSelectTranslucent;
-	GEditor->AccessEditorUserSettings().PostEditChange();
+	Settings->bAllowSelectTranslucent = !Settings->bAllowSelectTranslucent;
+	Settings->PostEditChange();
 
 	// Need to refresh hit proxies as we changed what should be rendered into them
 	GUnrealEd->RedrawAllViewports();
@@ -2156,7 +2136,7 @@ void FLevelEditorActionCallbacks::OnAllowTranslucentSelection()
 
 bool FLevelEditorActionCallbacks::OnIsAllowTranslucentSelectionEnabled()
 {
-	return GEditor->GetEditorUserSettings().bAllowSelectTranslucent == true;
+	return GetDefault<UEditorPerProjectUserSettings>()->bAllowSelectTranslucent == true;
 }
 
 void FLevelEditorActionCallbacks::OnAllowGroupSelection()
@@ -2850,11 +2830,6 @@ void FLevelEditorCommands::RegisterCommands()
 	UI_COMMAND( LightingQuality_High, "High", "Sets precomputed lighting quality to high quality", EUserInterfaceActionType::RadioButton, FInputChord() );
 	UI_COMMAND( LightingQuality_Medium, "Medium", "Sets precomputed lighting quality to medium quality", EUserInterfaceActionType::RadioButton, FInputChord() );
 	UI_COMMAND( LightingQuality_Preview, "Preview", "Sets precomputed lighting quality to preview quality (fastest computation time.)", EUserInterfaceActionType::RadioButton, FInputChord() );
-	UI_COMMAND( LightingTools_ShowBounds, "Show Lighting Bounds", "Draws a wireframe sphere for the lighting bounds of the Light Environment, and a point for the center, or multiple points if NumVolumeVisibilitySamples is greater than zero.", EUserInterfaceActionType::ToggleButton, FInputChord() );
-	UI_COMMAND( LightingTools_ShowTraces, "Show Shadow Traces", "Draws lines for any shadow rays that the Light Environment traced. The lines will be white if the light is not shadowed, and red otherwise.", EUserInterfaceActionType::ToggleButton, FInputChord() );
-	UI_COMMAND( LightingTools_ShowDirectOnly, "Show Direct Lighting", "Renders only the influence of direct lighting on the Light Environments.", EUserInterfaceActionType::ToggleButton, FInputChord() );
-	UI_COMMAND( LightingTools_ShowIndirectOnly, "Show Indirect Lighting", "Renders only the influence of indirect lighting on the Light Environments.", EUserInterfaceActionType::ToggleButton, FInputChord() );
-	UI_COMMAND( LightingTools_ShowIndirectSamples, "Show Indirect Lighting Samples", "Draws the indirect lighting samples that contributed to the indirect lighting for the Light Environments.", EUserInterfaceActionType::ToggleButton, FInputChord() );
 	UI_COMMAND( LightingDensity_RenderGrayscale, "Render Grayscale", "Renders the lightmap density.", EUserInterfaceActionType::ToggleButton, FInputChord() );
 	UI_COMMAND( LightingResolution_CurrentLevel, "Current Level", "Adjust only primitives in the current level.", EUserInterfaceActionType::RadioButton, FInputChord() );
 	UI_COMMAND( LightingResolution_SelectedLevels, "Selected Levels", "Adjust only primitives in the selected levels.", EUserInterfaceActionType::RadioButton, FInputChord() );
@@ -3077,7 +3052,7 @@ void FLevelEditorCommands::RegisterCommands()
 	static const FText FeatureLevelLabels[ERHIFeatureLevel::Num] = 
 	{
 		NSLOCTEXT("LevelEditorCommands", "FeatureLevelPreviewType_ES2", "Mobile / HTML5"),
-		NSLOCTEXT("LevelEditorCommands", "FeatureLevelPreviewType_ES3", "High-End Mobile"),
+		NSLOCTEXT("LevelEditorCommands", "FeatureLevelPreviewType_ES31", "High-End Mobile / Metal"),
 		NSLOCTEXT("LevelEditorCommands", "FeatureLevelPreviewType_SM4", "Shader Model 4"),
 		NSLOCTEXT("LevelEditorCommands", "FeatureLevelPreviewType_SM5", "Shader Model 5"),
 	};
@@ -3085,7 +3060,7 @@ void FLevelEditorCommands::RegisterCommands()
 	static const FText FeatureLevelToolTips[ERHIFeatureLevel::Num] = 
 	{
 		NSLOCTEXT("LevelEditorCommands", "FeatureLevelPreviewTooltip_ES2", "OpenGLES 2"),
-		NSLOCTEXT("LevelEditorCommands", "FeatureLevelPreviewTooltip_ES3", "OpenGLES 3"),
+		NSLOCTEXT("LevelEditorCommands", "FeatureLevelPreviewTooltip_ES3", "OpenGLES 3.1, Metal"),
 		NSLOCTEXT("LevelEditorCommands", "FeatureLevelPreviewTooltip_SM4", "DirectX 10, OpenGL 3.3+"),
 		NSLOCTEXT("LevelEditorCommands", "FeatureLevelPreviewTooltip_SM5", "DirectX 11, OpenGL 4.3+, PS4, XB1"),
 	};

@@ -1,6 +1,8 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "Paper2DEditorPrivatePCH.h"
+#include "PaperTileMapFactory.h"
+#include "TileMapEditing/TileMapEditorSettings.h"
 
 #define LOCTEXT_NAMESPACE "Paper2D"
 
@@ -26,6 +28,7 @@ UObject* UPaperTileMapFactory::FactoryCreateNew(UClass* Class, UObject* InParent
 		NewTileMap->SelectedTileSet = InitialTileSet;
 	}
 
+	NewTileMap->BackgroundColor = GetDefault<UTileMapEditorSettings>()->DefaultBackgroundColor;
 	NewTileMap->InitializeNewEmptyTileMap();
 
 	return NewTileMap;

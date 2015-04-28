@@ -66,7 +66,6 @@ FMaterialShader::FMaterialShader(const FMaterialShaderType::CompiledShaderInitia
 	LightAttenuation.Bind(Initializer.ParameterMap, TEXT("LightAttenuationTexture"));
 	LightAttenuationSampler.Bind(Initializer.ParameterMap, TEXT("LightAttenuationTextureSampler"));
 	AtmosphericFogTextureParameters.Bind(Initializer.ParameterMap);
-	PostprocessParameter.Bind(Initializer.ParameterMap);
 	EyeAdaptation.Bind(Initializer.ParameterMap, TEXT("EyeAdaptation"));
 	// only used it Material has expression that requires PerlinNoiseGradientTexture
 	PerlinNoiseGradientTexture.Bind(Initializer.ParameterMap,TEXT("PerlinNoiseGradientTexture"));
@@ -348,7 +347,6 @@ bool FMaterialShader::Serialize(FArchive& Ar)
 		Ar << DebugDescription;
 	}
 	Ar << AtmosphericFogTextureParameters;
-	Ar << PostprocessParameter;
 	Ar << EyeAdaptation;
 	Ar << PerlinNoiseGradientTexture;
 	Ar << PerlinNoiseGradientTextureSampler;
@@ -396,6 +394,7 @@ void FMeshMaterialShader::SetMesh(
 	const FSceneView& View,
 	const FPrimitiveSceneProxy* Proxy,
 	const FMeshBatchElement& BatchElement,
+	float DitheredLODTransitionValue,
 	uint32 DataFlags )
 {
 	// Set the mesh for the vertex factory
@@ -416,6 +415,10 @@ void FMeshMaterialShader::SetMesh(
 	{
 		SetUniformBufferParameter(RHICmdList, ShaderRHI,LODParameter,GetPrimitiveFadeUniformBufferParameter(View, Proxy));
 	}
+	if (NonInstancedDitherLODFactorParameter.IsBound())
+	{
+		SetShaderValue(RHICmdList, ShaderRHI, NonInstancedDitherLODFactorParameter, DitheredLODTransitionValue);
+	}
 }
 
 #define IMPLEMENT_MESH_MATERIAL_SHADER_SetMesh( ShaderRHIParamRef ) \
@@ -426,6 +429,7 @@ void FMeshMaterialShader::SetMesh(
 		const FSceneView& View,					\
 		const FPrimitiveSceneProxy* Proxy,		\
 		const FMeshBatchElement& BatchElement,	\
+		float DitheredLODTransitionValue,		\
 		uint32 DataFlags						\
 	);
 
@@ -440,6 +444,7 @@ bool FMeshMaterialShader::Serialize(FArchive& Ar)
 {
 	bool bShaderHasOutdatedParameters = FMaterialShader::Serialize(Ar);
 	bShaderHasOutdatedParameters |= Ar << VertexFactoryParameters;
+	Ar << NonInstancedDitherLODFactorParameter;
 	return bShaderHasOutdatedParameters;
 }
 

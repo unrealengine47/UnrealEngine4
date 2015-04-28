@@ -725,6 +725,12 @@ void AActor::PreReplication( IRepChangedPropertyTracker & ChangedPropertyTracker
 	}
 
 	DOREPLIFETIME_ACTIVE_OVERRIDE( AActor, ReplicatedMovement, bReplicateMovement );
+
+	UBlueprintGeneratedClass* BPClass = Cast<UBlueprintGeneratedClass>(GetClass());
+	if (BPClass != NULL)
+	{
+		BPClass->InstancePreReplication(ChangedPropertyTracker);
+	}
 }
 
 void AActor::PostActorCreated()
@@ -1221,14 +1227,6 @@ void AActor::AttachRootComponentTo(USceneComponent* InParent, FName InSocketName
 	if(RootComponent && InParent)
 	{
 		RootComponent->AttachTo(InParent, InSocketName, AttachLocationType, bWeldSimulatedBodies);
-
-
-		AttachmentReplication.AttachParent = InParent->GetAttachmentRootActor();
-		AttachmentReplication.LocationOffset = RootComponent->RelativeLocation;
-		AttachmentReplication.RotationOffset = RootComponent->RelativeRotation;
-		AttachmentReplication.RelativeScale3D = RootComponent->RelativeScale3D;
-		AttachmentReplication.AttachSocket = InSocketName;
-		AttachmentReplication.AttachComponent = InParent;
 	}
 }
 
@@ -1276,14 +1274,6 @@ void AActor::AttachRootComponentToActor(AActor* InParentActor, FName InSocketNam
 		if (ParentRootComponent)
 		{
 			RootComponent->AttachTo(ParentRootComponent, InSocketName, AttachLocationType, bWeldSimulatedBodies );
-
-
-			AttachmentReplication.AttachParent = InParentActor;
-			AttachmentReplication.LocationOffset = RootComponent->RelativeLocation;
-			AttachmentReplication.RotationOffset = RootComponent->RelativeRotation;
-			AttachmentReplication.RelativeScale3D = RootComponent->RelativeScale3D;
-			AttachmentReplication.AttachSocket = InSocketName;
-			AttachmentReplication.AttachComponent = NULL;
 		}
 	}
 }
@@ -1305,7 +1295,6 @@ void AActor::DetachRootComponentFromParent(bool bMaintainWorldPosition)
 	if(RootComponent)
 	{
 		RootComponent->DetachFromParent(bMaintainWorldPosition);
-		AttachmentReplication.AttachParent = NULL;
 	}
 }
 
@@ -1707,7 +1696,11 @@ void AActor::Destroyed()
 }
 
 void AActor::TornOff() {}
-void AActor::Reset() {}
+
+void AActor::Reset()
+{
+	K2_OnReset();
+}
 
 void AActor::FellOutOfWorld(const UDamageType& dmgType)
 {
@@ -2341,6 +2334,48 @@ void AActor::PostEditImport()
 }
 #endif
 
+/** Util that sets up the actor's component hierarchy (when users forget to do so, in their native ctor) */
+static USceneComponent* FixupNativeActorComponents(AActor* Actor)
+{
+	TArray<USceneComponent*> SceneComponents;
+	Actor->GetComponents(SceneComponents);
+
+	USceneComponent* SceneRootComponent = Actor->GetRootComponent();
+	if ((SceneRootComponent == nullptr) && (SceneComponents.Num() > 0))
+	{
+		UE_LOG(LogActor, Warning, TEXT("%s has natively added scene component(s), but none of them were set as the actor's RootComponent - picking one arbitrarily"), *Actor->GetFullName());
+	}
+
+	// if the user forgot to set one of their native components as the root, 
+	// we arbitrarily pick one for them (otherwise the SCS could attempt to 
+	// create its own root, and nest native components under it)
+	for (USceneComponent* Component : SceneComponents)
+	{
+		if ((Component == nullptr) || 
+			(Component->AttachParent != nullptr) || 
+			(Component->CreationMethod != EComponentCreationMethod::Native) || 
+			(Component == SceneRootComponent))
+		{
+			continue;
+		}
+
+		// if we've already picked a root component (and this was left 
+		// unattached), then attach this one to the root
+		if (SceneRootComponent != nullptr)
+		{
+			UE_LOG(LogActor, Warning, TEXT("Natively added component (%s) was left unattached from the actor's root."), *SceneRootComponent->GetReadableName());
+			Component->AttachTo(SceneRootComponent);
+		}
+		else
+		{
+			SceneRootComponent = Component;
+			Actor->SetRootComponent(Component);
+		}
+	}
+
+	return SceneRootComponent;
+}
+
 void AActor::PostSpawnInitialize(FVector const& SpawnLocation, FRotator const& SpawnRotation, AActor* InOwner, APawn* InInstigator, bool bRemoteOwned, bool bNoFail, bool bDeferConstruction)
 {
 	// General flow here is like so
@@ -2361,11 +2396,12 @@ void AActor::PostSpawnInitialize(FVector const& SpawnLocation, FRotator const& S
 	// Set network role.
 	check(Role == ROLE_Authority);
 	ExchangeNetRoles(bRemoteOwned);
-
+	
+	USceneComponent* SceneRootComponent = FixupNativeActorComponents(this);
 	// Set the actor's location and rotation.
-	if (GetRootComponent() != NULL)
+	if (SceneRootComponent != NULL)
 	{
-		GetRootComponent()->SetWorldLocationAndRotation(SpawnLocation, SpawnRotation);
+		SceneRootComponent->SetWorldLocationAndRotation(SpawnLocation, SpawnRotation);
 	}
 
 	// Call OnComponentCreated on all default (native) components
@@ -2657,7 +2693,7 @@ bool AActor::SetActorLocation(const FVector& NewLocation, bool bSweep, FHitResul
 	if (RootComponent)
 	{
 		const FVector Delta = NewLocation - GetActorLocation();
-		return RootComponent->MoveComponent( Delta, GetActorRotation(), bSweep, OutSweepHitResult );
+		return RootComponent->MoveComponent(Delta, GetActorQuat(), bSweep, OutSweepHitResult);
 	}
 	else if (OutSweepHitResult)
 	{
@@ -2671,7 +2707,17 @@ bool AActor::SetActorRotation(FRotator NewRotation)
 {
 	if (RootComponent)
 	{
-		return RootComponent->MoveComponent( FVector::ZeroVector, NewRotation, true );
+		return RootComponent->MoveComponent(FVector::ZeroVector, NewRotation, true);
+	}
+
+	return false;
+}
+
+bool AActor::SetActorRotation(const FQuat& NewRotation)
+{
+	if (RootComponent)
+	{
+		return RootComponent->MoveComponent(FVector::ZeroVector, NewRotation, true);
 	}
 
 	return false;
@@ -2682,7 +2728,22 @@ bool AActor::SetActorLocationAndRotation(FVector NewLocation, FRotator NewRotati
 	if (RootComponent)
 	{
 		const FVector Delta = NewLocation - GetActorLocation();
-		return RootComponent->MoveComponent( Delta, NewRotation, bSweep, OutSweepHitResult );
+		return RootComponent->MoveComponent(Delta, NewRotation, bSweep, OutSweepHitResult);
+	}
+	else if (OutSweepHitResult)
+	{
+		*OutSweepHitResult = FHitResult();
+	}
+
+	return false;
+}
+
+bool AActor::SetActorLocationAndRotation(FVector NewLocation, const FQuat& NewRotation, bool bSweep, FHitResult* OutSweepHitResult)
+{
+	if (RootComponent)
+	{
+		const FVector Delta = NewLocation - GetActorLocation();
+		return RootComponent->MoveComponent(Delta, NewRotation, bSweep, OutSweepHitResult);
 	}
 	else if (OutSweepHitResult)
 	{
@@ -2723,6 +2784,18 @@ void AActor::AddActorWorldOffset(FVector DeltaLocation, bool bSweep, FHitResult*
 }
 
 void AActor::AddActorWorldRotation(FRotator DeltaRotation, bool bSweep, FHitResult* OutSweepHitResult)
+{
+	if (RootComponent)
+	{
+		RootComponent->AddWorldRotation(DeltaRotation, bSweep, OutSweepHitResult);
+	}
+	else if (OutSweepHitResult)
+	{
+		*OutSweepHitResult = FHitResult();
+	}
+}
+
+void AActor::AddActorWorldRotation(const FQuat& DeltaRotation, bool bSweep, FHitResult* OutSweepHitResult)
 {
 	if (RootComponent)
 	{
@@ -2799,6 +2872,18 @@ void AActor::AddActorLocalRotation(FRotator DeltaRotation, bool bSweep, FHitResu
 	}
 }
 
+void AActor::AddActorLocalRotation(const FQuat& DeltaRotation, bool bSweep, FHitResult* OutSweepHitResult)
+{
+	if (RootComponent)
+	{
+		RootComponent->AddLocalRotation(DeltaRotation, bSweep, OutSweepHitResult);
+	}
+	else if (OutSweepHitResult)
+	{
+		*OutSweepHitResult = FHitResult();
+	}
+}
+
 void AActor::AddActorLocalTransform(const FTransform& NewTransform, bool bSweep, FHitResult* OutSweepHitResult)
 {
 	if(RootComponent)
@@ -2824,6 +2909,18 @@ void AActor::SetActorRelativeLocation(FVector NewRelativeLocation, bool bSweep, 
 }
 
 void AActor::SetActorRelativeRotation(FRotator NewRelativeRotation, bool bSweep, FHitResult* OutSweepHitResult)
+{
+	if (RootComponent)
+	{
+		RootComponent->SetRelativeRotation(NewRelativeRotation, bSweep, OutSweepHitResult);
+	}
+	else if (OutSweepHitResult)
+	{
+		*OutSweepHitResult = FHitResult();
+	}
+}
+
+void AActor::SetActorRelativeRotation(const FQuat& NewRelativeRotation, bool bSweep, FHitResult* OutSweepHitResult)
 {
 	if (RootComponent)
 	{
@@ -3240,15 +3337,6 @@ bool AActor::CallRemoteFunction( UFunction* Function, void* Parameters, FOutParm
 	if (NetDriver)
 	{
 		NetDriver->ProcessRemoteFunction(this, Function, Parameters, OutParms, Stack, NULL);
-		if (NetDriver->NetDriverName == NAME_GameNetDriver)
-		{
-			// Replicate any RPCs to the replay net driver so that they can get saved in network replays
-			NetDriver = GEngine->FindNamedNetDriver(GetWorld(), NAME_DemoNetDriver);
-			if (NetDriver)
-			{
-				NetDriver->ProcessRemoteFunction(this, Function, Parameters, OutParms, Stack, NULL);
-			}
-		}
 		return true;
 	}
 
@@ -3375,6 +3463,7 @@ bool AActor::IncrementalRegisterComponents(int32 NumComponentsToRegister)
 	int32 NumRegisteredComponentsThisRun = 0;
 	TInlineComponentArray<UActorComponent*> Components;
 	GetComponents(Components);
+	TSet<UActorComponent*> RegisteredParents;
 	
 	for (int32 CompIdx = 0; CompIdx < Components.Num() && NumRegisteredComponentsThisRun < NumComponentsToRegister; CompIdx++)
 	{
@@ -3385,6 +3474,14 @@ bool AActor::IncrementalRegisterComponents(int32 NumComponentsToRegister)
 			USceneComponent* ParentComponent = GetUnregisteredParent(Component);
 			if (ParentComponent)
 			{
+				bool bParentAlreadyHandled = false;
+				RegisteredParents.Add(ParentComponent, &bParentAlreadyHandled);
+				if (bParentAlreadyHandled)
+				{
+					UE_LOG(LogActor, Error, TEXT("AActor::IncrementalRegisterComponents parent component '%s' cannot be registered in actor '%s'"), *GetPathNameSafe(ParentComponent), *GetPathName());
+					break;
+				}
+
 				// Register parent first, then return to this component on a next iteration
 				Component = ParentComponent;
 				CompIdx--;

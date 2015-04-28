@@ -2,11 +2,12 @@
 
 #include "UnrealHeaderTool.h"
 #include "ParserHelper.h"
+#include "Scope.h"
 
 extern FCompilerMetadataManager GScriptHelper;
 
-FScope::FScope(FScope* Parent)
-	: Parent(Parent)
+FScope::FScope(FScope* InParent)
+	: Parent(InParent)
 {
 	check(Parent);
 }
@@ -142,8 +143,8 @@ bool FScope::ContainsTypes() const
 
 TMap<UStruct*, TSharedRef<FScope> > FScope::ScopeMap;
 
-FFileScope::FFileScope(FName Name, FUnrealSourceFile* SourceFile)
-	: SourceFile(SourceFile), Name(Name)
+FFileScope::FFileScope(FName InName, FUnrealSourceFile* InSourceFile)
+	: SourceFile(InSourceFile), Name(InName)
 {
 
 }
@@ -173,8 +174,8 @@ FName FStructScope::GetName() const
 	return Struct->GetFName();
 }
 
-FStructScope::FStructScope(UStruct* Struct, FScope* Parent)
-	: FScope(Parent), Struct(Struct)
+FStructScope::FStructScope(UStruct* InStruct, FScope* InParent)
+	: FScope(InParent), Struct(InStruct)
 {
 
 }

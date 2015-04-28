@@ -1748,6 +1748,12 @@ public:
 	/** Get tick rate limiter. */
 	virtual float GetMaxTickRate(float DeltaTime, bool bAllowFrameRateSmoothing = true) const;
 
+	/** Get max fps. */
+	virtual int32 GetMaxFPS() const;
+
+	/** Set max fps. Overrides console variable. */
+	virtual void SetMaxFPS(const int32 MaxFPS);
+
 	/** Updates the running average delta time */
 	virtual void UpdateRunningAverageDeltaTime(float DeltaTime, bool bAllowFrameRateSmoothing = true);
 
@@ -2170,12 +2176,14 @@ public:
 		bool bDoDelta;
 		bool bReplaceObjectClassReferences;
 		bool bCopyDeprecatedProperties;
+		bool bPreserveRootComponent;
 
 		FCopyPropertiesForUnrelatedObjectsParams()
 			: bAggressiveDefaultSubobjectReplacement(false)
 			, bDoDelta(true)
 			, bReplaceObjectClassReferences(true)
 			, bCopyDeprecatedProperties(false)
+			, bPreserveRootComponent(true)
 		{}
 	};
 	static void CopyPropertiesForUnrelatedObjects(UObject* OldObject, UObject* NewObject, FCopyPropertiesForUnrelatedObjectsParams Params = FCopyPropertiesForUnrelatedObjectsParams());//bool bAggressiveDefaultSubobjectReplacement = false, bool bDoDelta = true);
@@ -2522,7 +2530,9 @@ public:
 	/** @return true if editor analytics are enabled */
 	virtual bool AreEditorAnalyticsEnabled() const { return false; }
 	virtual void CreateStartupAnalyticsAttributes( TArray<struct FAnalyticsEventAttribute>& StartSessionAttributes ) const {}
-
+	
+	/** @return true if the engine is autosaving a package */
+	virtual bool IsAutosaving() const { return false; }
 protected:
 
 	TIndirectArray<FWorldContext>	WorldList;

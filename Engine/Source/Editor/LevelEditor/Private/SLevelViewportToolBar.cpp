@@ -21,6 +21,7 @@
 #include "Editor/UnrealEd/Public/SEditorViewportViewMenu.h"
 #include "StatsData.h"
 #include "BufferVisualizationData.h"
+#include "GameFramework/WorldSettings.h"
 
 #define LOCTEXT_NAMESPACE "LevelViewportToolBar"
 
@@ -607,7 +608,7 @@ TSharedRef<SWidget> SLevelViewportToolBar::GenerateDevicePreviewMenu() const
 	{
 		// Build the menu from the contents of the game ini
 		//@todo This should probably be using GConfig->GetText [10/21/2013 justin.sargent]
-		if ( GConfig->GetString( *INISection, *FString::Printf( TEXT("%s%d"), *INIKeyBase, ItemIdx ), CurItem, GEditorUserSettingsIni ) )
+		if ( GConfig->GetString( *INISection, *FString::Printf( TEXT("%s%d"), *INIKeyBase, ItemIdx ), CurItem, GEditorPerProjectIni ) )
 		{
 			const FName PlatformIcon = UIManager->GetDeviceIconName( CurItem );
 
@@ -670,6 +671,23 @@ void SLevelViewportToolBar::SetLevelProfile( FString DeviceProfileName )
 	UIManager->SetProfile( DeviceProfileName );
 }
 
+void SLevelViewportToolBar::GeneratePlacedCameraMenuEntries( FMenuBuilder& Builder, TArray<ACameraActor*> Cameras ) const
+{
+	FSlateIcon CameraIcon( FEditorStyle::GetStyleSetName(), "ClassIcon.CameraComponent" );
+
+	for( ACameraActor* CameraActor : Cameras )
+	{
+		// Needed for the delegate hookup to work below
+		AActor* GenericActor = CameraActor;
+
+		FText ActorDisplayName = FText::FromString(CameraActor->GetActorLabel());
+		FUIAction LookThroughCameraAction;
+		LookThroughCameraAction.ExecuteAction.BindSP(Viewport.Pin().ToSharedRef(), &SLevelViewport::OnActorLockToggleFromMenu, GenericActor);
+		LookThroughCameraAction.IsCheckedDelegate.BindSP(Viewport.Pin().ToSharedRef(), &SLevelViewport::IsActorLocked, TWeakObjectPtr<AActor>(GenericActor) );
+
+		Builder.AddMenuEntry( ActorDisplayName, FText::Format(LOCTEXT("LookThroughCameraActor_ToolTip", "Look through and pilot {0}"), ActorDisplayName), CameraIcon, LookThroughCameraAction, NAME_None, EUserInterfaceActionType::RadioButton );
+	}
+}
 
 TSharedRef<SWidget> SLevelViewportToolBar::GenerateCameraMenu() const
 {
@@ -689,6 +707,31 @@ TSharedRef<SWidget> SLevelViewportToolBar::GenerateCameraMenu() const
 		CameraMenuBuilder.AddMenuEntry(FEditorViewportCommands::Get().Front);
 		CameraMenuBuilder.AddMenuEntry(FEditorViewportCommands::Get().Back);
 	CameraMenuBuilder.EndSection();
+
+
+	TArray<ACameraActor*> Cameras;
+
+	for( TActorIterator<ACameraActor> It(GetWorld().Get()); It; ++It )
+	{
+		Cameras.Add( *It );
+	}
+
+	FText CameraActorsHeading = LOCTEXT("CameraActorsHeading", "Placed Cameras");
+
+	// Don't add too many cameras to the top level menu or else it becomes too large
+	const uint32 MaxCamerasInTopLevelMenu = 10;
+	if( Cameras.Num() > MaxCamerasInTopLevelMenu )
+	{
+		CameraMenuBuilder.BeginSection("CameraActors");
+			CameraMenuBuilder.AddSubMenu( CameraActorsHeading, LOCTEXT("LookThroughCameraActor_ToolTip", "Look through and pilot placed cameras"), FNewMenuDelegate::CreateSP(this, &SLevelViewportToolBar::GeneratePlacedCameraMenuEntries, Cameras ) );
+		CameraMenuBuilder.EndSection();
+	}
+	else
+	{
+		CameraMenuBuilder.BeginSection("CameraActors", CameraActorsHeading );
+			GeneratePlacedCameraMenuEntries( CameraMenuBuilder, Cameras );
+		CameraMenuBuilder.EndSection();
+	}
 
 	return CameraMenuBuilder.MakeWidget();
 }

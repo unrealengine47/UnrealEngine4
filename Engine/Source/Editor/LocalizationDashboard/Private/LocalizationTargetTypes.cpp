@@ -6,10 +6,217 @@
 #include "LocalizationConfigurationScript.h"
 #include "LocalizationDashboardSettings.h"
 
-FLocalizationTargetSettings::FLocalizationTargetSettings()
-	: Guid(FGuid::NewGuid())
-	, ConflictStatus(ELocalizationTargetConflictStatus::Unknown)
+#define LOCTEXT_NAMESPACE "LocalizationTargetTypes"
+
+bool FGatherTextSearchDirectory::Validate(const FString& RootDirectory, FText& OutError) const
 {
+	if (Path.IsEmpty())
+	{
+		OutError = LOCTEXT("SearchDirectoryEmptyError", "Search directory not specified. Use \".\" to specify the root directory.");
+		return false;
+	}
+
+	FText InvalidPathReason;
+	if (!FPaths::ValidatePath(Path, &InvalidPathReason))
+	{
+		OutError = InvalidPathReason;
+		return false;
+	}
+
+	if (!FPaths::DirectoryExists(FPaths::Combine(*RootDirectory, *Path)))
+	{
+		OutError = LOCTEXT("SearchDirectoryNonExistentError", "Search directory does not exist.");
+		return false;
+	}
+
+	return true;
+}
+
+bool FGatherTextIncludePath::Validate(const FString& RootDirectory, FText& OutError) const
+{
+	if (Pattern.IsEmpty())
+	{
+		OutError = LOCTEXT("IncludePathEmptyError", "Include path not specified. Use \".\" to specify the root directory.");
+		return false;
+	}
+
+	if (!Pattern.Contains(TEXT("*")))
+	{
+		OutError = LOCTEXT("IncludePathNoWildcardError", "Include path does not specify a wild card (\"*\"). Append \"*\" or only the file at the exact specified directory will be gathered from.");
+		return false;
+	}
+
+	return true;
+}
+
+bool FGatherTextExcludePath::Validate(FText& OutError) const
+{
+	if (Pattern.IsEmpty())
+	{
+		OutError = LOCTEXT("ExcludePathEmptyError", "Exclude path not specified. Use \".\" to specify the root directory.");
+		return false;
+	}
+
+	if (!Pattern.Contains(TEXT("*")))
+	{
+		OutError = LOCTEXT("ExcludePathNoWildcardError", "Exclude path does not specify a wild card (\"*\"). Append \"*\" or only the file at the exact specified directory will be excluded.");
+		return false;
+	}
+
+	return true;
+}
+
+bool FGatherTextFileExtension::Validate(FText& OutError) const
+{
+	if (Pattern.IsEmpty())
+	{
+		OutError = LOCTEXT("FileExtensionEmptyError", "File extension not specified.");
+		return false;
+	}
+
+	return true;
+}
+
+const TArray<FGatherTextFileExtension> FGatherTextFromTextFilesConfiguration::DefaultTextFileExtensions = []()
+{
+	TArray<FGatherTextFileExtension> Result;
+	Result.Add(FGatherTextFileExtension{TEXT("h")});
+	Result.Add(FGatherTextFileExtension{TEXT("cpp")});
+	Result.Add(FGatherTextFileExtension{TEXT("ini")});
+	return Result;
+}();
+
+const TArray<FGatherTextFileExtension> FGatherTextFromPackagesConfiguration::DefaultPackageFileExtensions = []()
+{
+	TArray<FGatherTextFileExtension> Result;
+	Result.Add(FGatherTextFileExtension{TEXT("umap")});
+	Result.Add(FGatherTextFileExtension{TEXT("uasset")});
+	return Result;
+}();
+
+bool FGatherTextFromTextFilesConfiguration::Validate(const FString& RootDirectory, FText& OutError) const
+{
+	const auto& InvalidSearchDirectoryPredicate = [RootDirectory](const FGatherTextSearchDirectory& Element) -> bool
+	{
+		FText ElementError;
+		return !(Element.Validate(RootDirectory, ElementError));
+	};
+	const auto& InvalidExcludePathPredicate = [RootDirectory](const FGatherTextExcludePath& Element) -> bool
+	{
+		FText ElementError;
+		return !(Element.Validate(ElementError));
+	};
+	const auto& InvalidFileExtensionPredicate = [RootDirectory](const FGatherTextFileExtension& Element) -> bool
+	{
+		FText ElementError;
+		return !(Element.Validate(ElementError));
+	};
+
+	if (SearchDirectories.Num() > 0 && !SearchDirectories.ContainsByPredicate(InvalidSearchDirectoryPredicate) &&
+		!ExcludePathWildcards.ContainsByPredicate(InvalidExcludePathPredicate) &&
+		FileExtensions.Num() > 0 && !FileExtensions.ContainsByPredicate(InvalidFileExtensionPredicate))
+	{
+		return true;
+	}
+
+	OutError = LOCTEXT("InvalidGatherTextFromFilesConfigurationError", "Must have at least one search directory, one file extension, and no invalid settings.");
+	return false;
+}
+
+bool FGatherTextFromPackagesConfiguration::Validate(const FString& RootDirectory, FText& OutError) const
+{
+	const auto& InvalidIncludePathPredicate = [RootDirectory](const FGatherTextIncludePath& Element) -> bool
+	{
+		FText ElementError;
+		return !(Element.Validate(RootDirectory, ElementError));
+	};
+	const auto& InvalidExcludePathPredicate = [RootDirectory](const FGatherTextExcludePath& Element) -> bool
+	{
+		FText ElementError;
+		return !(Element.Validate(ElementError));
+	};
+	const auto& InvalidFileExtensionPredicate = [RootDirectory](const FGatherTextFileExtension& Element) -> bool
+	{
+		FText ElementError;
+		return !(Element.Validate(ElementError));
+	};
+
+	if (IncludePathWildcards.Num() > 0 && !IncludePathWildcards.ContainsByPredicate(InvalidIncludePathPredicate) &&
+		!ExcludePathWildcards.ContainsByPredicate(InvalidExcludePathPredicate) &&
+		FileExtensions.Num() > 0 && !FileExtensions.ContainsByPredicate(InvalidFileExtensionPredicate))
+	{
+		return true;
+	}
+
+	OutError = LOCTEXT("InvalidGatherTextFromPackagesConfigurationError", "Must have at least one include path, one file extension, and no invalid settings.");
+	return false;
+}
+
+const TArray<FString> FMetaDataTextKeyPattern::PossiblePlaceHolders = []() -> TArray<FString>
+{
+	TArray<FString> Result;
+	Result.Add(TEXT("{FieldPath}"));
+	Result.Add(TEXT("{MetaDataValue}"));
+	return Result;
+}();
+
+bool FMetaDataTextKeyPattern::Validate(FText& OutError) const
+{
+	for (const auto& PossiblePlaceHolder : PossiblePlaceHolders)
+	{
+		if (Pattern.Contains(PossiblePlaceHolder))
+		{
+			return true;
+		}
+	}
+
+	OutError = LOCTEXT("NoMetaDataLocalizationKeyPlaceHolderError", "No place holders used. All generated keys will conflict!");
+	return false;
+}
+
+bool FMetaDataKeyName::Validate(FText& OutError) const
+{
+	if (Name.IsEmpty())
+	{
+		OutError = LOCTEXT("MetaDataKeyNameEmptyError", "Meta data key not specified.");
+		return false;
+	}
+
+	return true;
+}
+
+bool FMetaDataKeyGatherSpecification::Validate(FText& OutError) const
+{
+	return MetaDataKey.Validate(OutError) && TextKeyPattern.Validate(OutError);
+}
+
+bool FGatherTextFromMetaDataConfiguration::Validate(const FString& RootDirectory, FText& OutError) const
+{
+	const auto& InvalidIncludePathPredicate = [RootDirectory](const FGatherTextIncludePath& Element) -> bool
+	{
+		FText ElementError;
+		return !(Element.Validate(RootDirectory, ElementError));
+	};
+	const auto& InvalidExcludePathPredicate = [RootDirectory](const FGatherTextExcludePath& Element) -> bool
+	{
+		FText ElementError;
+		return !(Element.Validate(ElementError));
+	};
+	const auto& InvalidMetaDataKeySpecificationPredicate = [RootDirectory](const FMetaDataKeyGatherSpecification& Element) -> bool
+	{
+		FText ElementError;
+		return !(Element.Validate(ElementError));
+	};
+
+	if (IncludePathWildcards.Num() > 0 && !IncludePathWildcards.ContainsByPredicate(InvalidIncludePathPredicate) &&
+		!ExcludePathWildcards.ContainsByPredicate(InvalidExcludePathPredicate) &&
+		KeySpecifications.Num() > 0 && !KeySpecifications.ContainsByPredicate(InvalidMetaDataKeySpecificationPredicate))
+	{
+		return true;
+	}
+
+	OutError = LOCTEXT("InvalidGatherTextFromMetadataConfigurationError", "Must have at least one include path, one meta data key specification, and no invalid settings.");
+	return false;
 }
 
 namespace
@@ -23,7 +230,10 @@ namespace
 		{
 			// Load CSV file to string.
 			FString CSVString;
-			FFileHelper::LoadFileToString(CSVString, *CSVFilePath);
+			if (!FFileHelper::LoadFileToString(CSVString, *CSVFilePath))
+			{
+				return false;
+			}
 
 			// Parse CSV file string.
 			FCsvParser CSVParser(CSVString);
@@ -43,12 +253,6 @@ namespace
 			if ( !Instance.ParseWordCountRow(CSVRows.Top(), WordCounts) )
 			{
 				return false;
-			}
-
-			uint32* NativeWordCount = WordCounts.Find(Target.NativeCultureStatistics.CultureName);
-			if (NativeWordCount)
-			{
-				Target.NativeCultureStatistics.WordCount = *NativeWordCount;
 			}
 
 			for (FCultureStatistics& SupportedCultureStatistics : Target.SupportedCulturesStatistics)
@@ -131,12 +335,6 @@ namespace
 				return false;
 			}
 
-			// Parse native culture word count.
-			{
-				const uint32 WordCount = static_cast<uint32>( FCString::Atoi(WordCountRow[1]) );
-				OutCultureWordCounts.Add(Target.NativeCultureStatistics.CultureName, WordCount);
-			}
-
 			// Parse supported culture word counts.
 			for (int32 j = MandatoryColumnNames.Num(); j < WordCountRow.Num(); ++j)
 			{
@@ -176,7 +374,15 @@ bool ULocalizationTarget::IsMemberOfEngineTargetSet() const
 bool ULocalizationTarget::UpdateWordCountsFromCSV()
 {
 	const FString CSVFilePath = LocalizationConfigurationScript::GetWordCountCSVPath(this);
-	return FWordCountCSVParser::Execute(Settings, CSVFilePath);
+	const bool Succeeded = FWordCountCSVParser::Execute(Settings, CSVFilePath);
+	if (!Succeeded)
+	{
+		for (FCultureStatistics& CultureStatistics : Settings.SupportedCulturesStatistics)
+		{
+			CultureStatistics.WordCount = 0;
+		}
+	}
+	return Succeeded;
 }
 
 void ULocalizationTarget::UpdateStatusFromConflictReport()
@@ -263,18 +469,11 @@ bool ULocalizationTarget::RenameTargetAndFiles(const FString& NewName)
 		NamedPaths.Add(LocalizationConfigurationScript::GetWordCountCSVPath(this));
 		NamedPaths.Add(LocalizationConfigurationScript::GetConflictReportPath(this));
 
-		TArray<const FCultureStatistics*> Cultures;
-		Cultures.Add(&Settings.NativeCultureStatistics);
 		for (const FCultureStatistics& Culture : Settings.SupportedCulturesStatistics)
 		{
-			Cultures.Add(&Culture);
-		}
-
-		for (const FCultureStatistics* Culture : Cultures)
-		{
-			NamedPaths.Add(LocalizationConfigurationScript::GetArchivePath(this, Culture->CultureName));
-			NamedPaths.Add(LocalizationConfigurationScript::GetDefaultPOPath(this, Culture->CultureName));
-			NamedPaths.Add(LocalizationConfigurationScript::GetLocResPath(this, Culture->CultureName));
+			NamedPaths.Add(LocalizationConfigurationScript::GetArchivePath(this, Culture.CultureName));
+			NamedPaths.Add(LocalizationConfigurationScript::GetDefaultPOPath(this, Culture.CultureName));
+			NamedPaths.Add(LocalizationConfigurationScript::GetLocResPath(this, Culture.CultureName));
 		}
 
 		NamedPaths.Add(LocalizationConfigurationScript::GetDataDirectory(this));
@@ -367,7 +566,6 @@ bool ULocalizationTarget::DeleteFiles(const FString* const Culture) const
 		TArray<FString> FilesInDataDirectory;
 		IFileManager::Get().FindFilesRecursive(FilesInDataDirectory, *DataDirectory, TEXT("*"), true, false);
 
-		ISourceControlProvider& SourceControlProvider = ISourceControlModule::Get().GetProvider();
 		TArray<FSourceControlStateRef> SourceControlStates;
 		ECommandResult::Type Result = SourceControlProvider.GetState( FilesInDataDirectory, SourceControlStates, EStateCacheUsage::ForceUpdate );
 		if (Result == ECommandResult::Succeeded)
@@ -408,7 +606,6 @@ bool ULocalizationTarget::DeleteFiles(const FString* const Culture) const
 
 		// Remove script files from source control.
 		{
-			ISourceControlProvider& SourceControlProvider = ISourceControlModule::Get().GetProvider();
 			TArray<FSourceControlStateRef> SourceControlStates;
 			ECommandResult::Type Result = SourceControlProvider.GetState( ScriptPaths, SourceControlStates, EStateCacheUsage::ForceUpdate );
 			if (Result == ECommandResult::Succeeded)
@@ -460,3 +657,5 @@ void ULocalizationTargetSet::PostEditChangeProperty(FPropertyChangedEvent& Prope
 		LocalizationDashboardSettings->PostEditChange();
 	}
 }
+
+#undef LOCTEXT_NAMESPACE

@@ -9,6 +9,8 @@
 #include "Editor/PropertyEditor/Public/IDetailsView.h"
 #include "ContentBrowserModule.h"
 #include "AssetToolsModule.h"
+#include "CanvasTypes.h"
+#include "PaperSpriteFactory.h"
 
 #define LOCTEXT_NAMESPACE "PaperEditor"
 
@@ -52,7 +54,7 @@ void FPaperExtractSpritesViewportClient::Draw(FViewport* Viewport, FCanvas* Canv
 		Texture->SetForceMipLevelsToBeResident(30.0f);
 		Texture->WaitForStreaming();
 
-		FLinearColor TextureDrawColor = Settings->TextureTint;
+		FLinearColor TextureDrawColor = Settings->ViewportTextureTint;
 		//FLinearColor RectOutlineColor = FLinearColor::Yellow;
 		const FLinearColor RectOutlineColor = Settings->OutlineColor;
 
@@ -140,12 +142,12 @@ void SPaperExtractSpritesDialog::Construct(const FArguments& InArgs, UTexture2D*
 
 	ExtractSpriteSettings = NewObject<UPaperExtractSpritesSettings>();
 	ExtractSpriteSettings->AddToRoot();
+	ExtractSpriteSettings->NamingTemplate = "Sprite_{0}";
 
 	ExtractSpriteGridSettings = NewObject<UPaperExtractSpriteGridSettings>();
 	ExtractSpriteGridSettings->AddToRoot();
-	ExtractSpriteGridSettings->NamingTemplate = "Sprite_{0}";
-	ExtractSpriteGridSettings->CellWidth = InSourceTexture->GetSizeX();
-	ExtractSpriteGridSettings->CellHeight = InSourceTexture->GetSizeY();
+	ExtractSpriteGridSettings->CellWidth = InSourceTexture->GetImportedSize().X;
+	ExtractSpriteGridSettings->CellHeight = InSourceTexture->GetImportedSize().Y;
 
 	PreviewExtractedSprites();
 
@@ -265,6 +267,13 @@ void SPaperExtractSpritesDialog::PreviewExtractedSprites()
 	SlowTask.MakeDialog(false);
 	SlowTask.EnterProgressFrame();
 
+	FString NamingTemplate = ExtractSpriteSettings->NamingTemplate;
+	if (NamingTemplate.Find(TEXT("{0}")) == INDEX_NONE)
+	{
+		NamingTemplate.Append(TEXT("_{0}"));
+	}
+	int32 ExtractedRectIndex = ExtractSpriteSettings->NamingStartIndex;
+
 	const FString DefaultSuffix = TEXT("Sprite");
 	if (ExtractSpriteSettings->SpriteExtractMode == ESpriteExtractMode::Auto)
 	{
@@ -316,30 +325,26 @@ void SPaperExtractSpritesDialog::PreviewExtractedSprites()
 		};
 		FRectangleSortHelper RectSorter(ExtractedRects);
 
-		int32 ExtractedRectIndex = 0;
 		for (FIntRect Rect : ExtractedRects)
 		{
 			FPaperExtractedSprite* Sprite = new(ExtractedSprites)FPaperExtractedSprite();
 			Sprite->Rect = Rect;
-			Sprite->Name = FString::Printf(TEXT("%s_%d"), *DefaultSuffix, ExtractedRectIndex);
+			Sprite->Name = NamingTemplate;
+			Sprite->Name.ReplaceInline(TEXT("{0}"), *FString::Printf(TEXT("%d"), ExtractedRectIndex));
+			
 			ExtractedRectIndex++;
 		}
 	}
 	else
 	{
-		FString NamingTemplate = ExtractSpriteGridSettings->NamingTemplate;
-		if (NamingTemplate.Find(TEXT("{0}")) == INDEX_NONE)
-		{
-			NamingTemplate.Append(TEXT("_{0}"));
-		}
-
 		// Calculate rects
 		ExtractedSprites.Empty();
 		if (SourceTexture != nullptr)
 		{
-			int32 ExtractedRectIndex = ExtractSpriteGridSettings->NamingStartIndex;
-			int32 TextureWidth = SourceTexture->GetSizeX();
-			int32 TextureHeight = SourceTexture->GetSizeY();
+			const FIntPoint TextureSize(SourceTexture->GetImportedSize());
+			const int32 TextureWidth = TextureSize.X;
+			const int32 TextureHeight = TextureSize.Y;
+
 			int NumExtractedCellsY = 0;
 			for (int32 Y = ExtractSpriteGridSettings->MarginY; Y + ExtractSpriteGridSettings->CellHeight <= TextureHeight; Y += ExtractSpriteGridSettings->CellHeight + ExtractSpriteGridSettings->SpacingY)
 			{
@@ -379,7 +384,7 @@ void SPaperExtractSpritesDialog::OnFinishedChangingProperties(const FPropertyCha
 		
 		if (PropertyName != GET_MEMBER_NAME_CHECKED(UPaperExtractSpritesSettings, OutlineColor) &&
 			PropertyName != GET_MEMBER_NAME_CHECKED(UPaperExtractSpritesSettings, BackgroundColor) &&
-			PropertyName != GET_MEMBER_NAME_CHECKED(UPaperExtractSpritesSettings, TextureTint))
+			PropertyName != GET_MEMBER_NAME_CHECKED(UPaperExtractSpritesSettings, ViewportTextureTint))
 		{
 			PreviewExtractedSprites();
 		}
@@ -423,7 +428,7 @@ void SPaperExtractSpritesDialog::CreateExtractedSprites()
 	TArray<UObject*> ObjectsToSync;
 
 	// Create the factory used to generate the sprite
-	auto SpriteFactory = NewObject<UPaperSpriteFactory>();
+	UPaperSpriteFactory* SpriteFactory = NewObject<UPaperSpriteFactory>();
 	SpriteFactory->InitialTexture = SourceTexture;
 
 	// Create the sprite

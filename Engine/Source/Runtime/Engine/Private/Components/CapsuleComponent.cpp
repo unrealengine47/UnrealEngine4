@@ -168,7 +168,7 @@ void UCapsuleComponent::UpdateBodySetup()
 	
 	SE->SetTransform(FTransform::Identity);
 	SE->Radius = CapsuleRadius;
-	SE->Length = 2 * FMath::Max(CapsuleHalfHeight - CapsuleRadius, 1.f);	//SphylElem uses height from center of capsule spheres, but UCapsuleComponent uses halfHeight from end of the sphere
+	SE->Length = 2 * FMath::Max(CapsuleHalfHeight - CapsuleRadius, 0.f);	//SphylElem uses height from center of capsule spheres, but UCapsuleComponent uses halfHeight from end of the sphere
 }
 
 bool UCapsuleComponent::IsZeroExtent() const
@@ -179,8 +179,9 @@ bool UCapsuleComponent::IsZeroExtent() const
 
 FCollisionShape UCapsuleComponent::GetCollisionShape(float Inflation) const
 {
-	const float Radius = FMath::Max(0.f, GetScaledCapsuleRadius() + Inflation);
-	const float HalfHeight = FMath::Max(0.f, GetScaledCapsuleHalfHeight() + Inflation);
+	const float ShapeScale = GetShapeScale();
+	const float Radius = FMath::Max(0.f, (CapsuleRadius * ShapeScale) + Inflation);
+	const float HalfHeight = FMath::Max(0.f, (CapsuleHalfHeight * ShapeScale) + Inflation);
 	return FCollisionShape::MakeCapsule(Radius, HalfHeight);
 }
 

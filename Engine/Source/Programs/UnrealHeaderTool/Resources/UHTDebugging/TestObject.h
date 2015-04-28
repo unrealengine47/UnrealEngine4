@@ -21,8 +21,14 @@ public:
 	UPROPERTY()
 	ECppEnum EnumProperty;
 
+	UPROPERTY()
+	TMap<int32, FString> TestMap;
+
 	UFUNCTION()
 	void CodeGenTestForEnumClasses(ECppEnum Val);
+
+	UFUNCTION(Category="Xyz", BlueprintCallable)
+	TArray<UClass*> ReturnArrayOfUClassPtrs();
 
 	UFUNCTION()
 	int32 InlineFunc()
@@ -37,6 +43,9 @@ public:
 		return FString("Hello").Len();
 	}
 #endif
+
+	UFUNCTION(BlueprintNativeEvent, Category="Game")
+	UClass* BrokenReturnTypeForFunction();
 
 #if 0
 	UPROPERTY()

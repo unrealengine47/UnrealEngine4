@@ -369,6 +369,12 @@ public:
 	/** A map from static mesh ID to a boolean shadow depth visibility value. */
 	FSceneBitArray StaticMeshShadowDepthMap;
 
+	/** A map from static mesh ID to a boolean dithered LOD fade out value. */
+	FSceneBitArray StaticMeshFadeOutDitheredLODMap;
+
+	/** A map from static mesh ID to a boolean dithered LOD fade in value. */
+	FSceneBitArray StaticMeshFadeInDitheredLODMap;
+
 	/** An array of batch element visibility masks, valid only for meshes
 	 set visible in either StaticMeshVisibilityMap or StaticMeshShadowDepthMap. */
 	TArray<uint64,SceneRenderingAllocator> StaticMeshBatchVisibility;
@@ -442,8 +448,8 @@ public:
 	uint32 bDisableQuerySubmissions : 1;
 	/** Whether we should disable distance-based fade transitions for this frame (usually after a large camera movement.) */
 	uint32 bDisableDistanceBasedFadeTransitions : 1;
-	/** Bitmask of all lighting profiles used by primitives in this view */
-	uint16 LightingProfilesActiveInView;
+	/** Bitmask of all shading models used by primitives in this view */
+	uint16 ShadingModelMaskInView;
 
 	FViewMatrices PrevViewMatrices;
 
@@ -516,6 +522,23 @@ public:
 
 	/** Create acceleration data structure and information to do forward lighting with dynamic branching. */
 	void CreateLightGrid();
+
+	FORCEINLINE_DEBUGGABLE float GetDitheredLODTransitionValue(const FStaticMesh& Mesh) const
+	{
+		float DitherValue = 0.0f;
+		if (Mesh.bDitheredLODTransition)
+		{
+			if (StaticMeshFadeOutDitheredLODMap[Mesh.Id])
+			{
+				DitherValue = GetTemporalLODTransition();
+			}
+			else if (StaticMeshFadeInDitheredLODMap[Mesh.Id])
+			{
+				DitherValue = GetTemporalLODTransition() - 1.0f;
+			}
+		}
+		return DitherValue;
+	}
 
 private:
 

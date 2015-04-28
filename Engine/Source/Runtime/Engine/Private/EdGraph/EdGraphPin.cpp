@@ -53,7 +53,7 @@ bool FEdGraphPinType::Serialize(FArchive& Ar)
 			if (const UFunction* Signature = Cast<const UFunction>(PinSubCategoryObject.Get()))
 			{
 				PinSubCategoryMemberReference.MemberName = Signature->GetFName();
-				PinSubCategoryMemberReference.MemberParentClass = Signature->GetOwnerClass();
+				PinSubCategoryMemberReference.MemberParent = Signature->GetOwnerClass();
 				PinSubCategoryObject = NULL;
 			}
 			else
@@ -262,6 +262,13 @@ FText UEdGraphPin::GetDisplayName() const
 	else
 	{
 		DisplayName = (!PinFriendlyName.IsEmpty()) ? PinFriendlyName : FText::FromString(PinName);
+
+		bool bShowNodesAndPinsUnlocalized;
+		GConfig->GetBool( TEXT("Internationalization"), TEXT("ShowNodesAndPinsUnlocalized"), bShowNodesAndPinsUnlocalized, GEditorSettingsIni );
+		if (bShowNodesAndPinsUnlocalized)
+		{
+			return FText::FromString(DisplayName.BuildSourceString());
+		}
 	}
 	return DisplayName;
 }

@@ -315,8 +315,6 @@ void FMeshBuildSettingsLayout::GenerateHeaderRowContent( FDetailWidgetRow& NodeR
 	];
 }
 
-TAutoConsoleVariable<int32> GEnableMikkTSpaceCVar(TEXT("r.MikkTSPaceOptional"),0,TEXT("Set to be non-zero to display the option of using MikkTSpace to generate tangents for static meshes. MikkTSpace is the default."),ECVF_Default);
-
 FString FMeshBuildSettingsLayout::GetCurrentDistanceFieldReplacementMeshPath() const
 {
 	return BuildSettings.DistanceFieldReplacementMesh ? BuildSettings.DistanceFieldReplacementMesh->GetPathName() : FString("");
@@ -362,14 +360,13 @@ void FMeshBuildSettingsLayout::GenerateChildContent( IDetailChildrenBuilder& Chi
 		];
 	}
 
-	if (GEnableMikkTSpaceCVar.GetValueOnAnyThread())
 	{
-		ChildrenBuilder.AddChildContent( LOCTEXT("UseMikkTSpace", "Use MikkTSpace") )
+		ChildrenBuilder.AddChildContent( LOCTEXT("UseMikkTSpace", "Use MikkTSpace Tangent Space") )
 		.NameContent()
 		[
 			SNew(STextBlock)
 			.Font( IDetailLayoutBuilder::GetDetailFont() )
-			.Text(LOCTEXT("UseMikkTSpace", "Use MikkTSpace"))
+			.Text(LOCTEXT("UseMikkTSpace", "Use MikkTSpace Tangent Space"))
 		]
 		.ValueContent()
 		[
@@ -1464,7 +1461,8 @@ void FLevelOfDetailSettingsLayout::AddToDetailsPanel( IDetailLayoutBuilder& Deta
 	IDetailCategoryBuilder& LODSettingsCategory =
 		DetailBuilder.EditCategory( "LodSettings", LOCTEXT("LodSettingsCategory", "LOD Settings") );
 
-	
+	int32 LODGroupIndex = LODGroupNames.Find(StaticMesh->LODGroup);
+	check(LODGroupIndex == INDEX_NONE || LODGroupIndex < LODGroupOptions.Num());
 
 	LODSettingsCategory.AddCustomRow( LOCTEXT("LODGroup", "LOD Group") )
 	.NameContent()
@@ -1478,7 +1476,7 @@ void FLevelOfDetailSettingsLayout::AddToDetailsPanel( IDetailLayoutBuilder& Deta
 		SNew(STextComboBox)
 		.ContentPadding(0)
 		.OptionsSource(&LODGroupOptions)
-		.InitiallySelectedItem(LODGroupOptions[LODGroupNames.Find(StaticMesh->LODGroup)])
+		.InitiallySelectedItem(LODGroupOptions[(LODGroupIndex == INDEX_NONE) ? 0 : LODGroupIndex])
 		.OnSelectionChanged(this, &FLevelOfDetailSettingsLayout::OnLODGroupChanged)
 	];
 	

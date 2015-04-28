@@ -437,8 +437,10 @@ public:
 	UPROPERTY()
 	UFunction* UberGraphFunction;
 
+	// This is a list of event graph call function nodes that are simple (no argument) thunks into the event graph (typically used for animation delegates, etc...)
+	// It is a deprecated list only used for backwards compatibility prior to VER_UE4_SERIALIZE_BLUEPRINT_EVENTGRAPH_FASTCALLS_IN_UFUNCTION.
 	UPROPERTY()
-	TArray<FEventGraphFastCallPair> FastCallPairs;
+	TArray<FEventGraphFastCallPair> FastCallPairs_DEPRECATED;
 
 #if WITH_EDITORONLY_DATA
 	UPROPERTY(Transient)
@@ -505,4 +507,16 @@ public:
 
 	// Finds the desired dynamic binding object for this blueprint generated class
 	UDynamicBlueprintBinding* GetDynamicBindingObject(UClass* Class) const;
+
+	/** called to gather blueprint replicated properties */
+	virtual void GetLifetimeBlueprintReplicationList(TArray<class FLifetimeProperty>& OutLifetimeProps) const;
+	/** called prior to replication of an instance of this BP class */
+	virtual void InstancePreReplication(class IRepChangedPropertyTracker& ChangedPropertyTracker) const
+	{
+		UBlueprintGeneratedClass* SuperBPClass = Cast<UBlueprintGeneratedClass>(GetSuperStruct());
+		if (SuperBPClass != NULL)
+		{
+			SuperBPClass->InstancePreReplication(ChangedPropertyTracker);
+		}
+	}
 };

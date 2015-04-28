@@ -129,6 +129,15 @@ void FCategorizedGraphActionListBuilder::AddActionList(TArray<TSharedPtr<FEdGrap
 }
 
 /////////////////////////////////////////////////////
+// FGraphContextMenuBuilder
+
+FGraphContextMenuBuilder::FGraphContextMenuBuilder(const UEdGraph* InGraph) 
+	: CurrentGraph(InGraph)
+{
+	OwnerOfTemporaries =  NewObject<UEdGraph>((UObject*)GetTransientPackage());
+}
+
+/////////////////////////////////////////////////////
 // FEdGraphSchemaAction_NewNode
 
 #define SNAP_GRID (16) // @todo ensure this is the same as SNodePanel::GetSnapGridSize()
@@ -491,8 +500,23 @@ FPinConnectionResponse UEdGraphSchema::CopyPinLinks(UEdGraphPin& CopyFromPin, UE
 
 FText UEdGraphSchema::GetPinDisplayName(const UEdGraphPin* Pin) const
 {
+	FText ResultPinName;
 	check(Pin != NULL);
-	return !Pin->PinFriendlyName.IsEmpty() ? Pin->PinFriendlyName : FText::FromString(Pin->PinName);
+	if (Pin->PinFriendlyName.IsEmpty())
+	{
+		ResultPinName = FText::FromString(Pin->PinName);
+	}
+	else
+	{
+		ResultPinName = Pin->PinFriendlyName;
+		bool bShowNodesAndPinsUnlocalized;
+		GConfig->GetBool( TEXT("Internationalization"), TEXT("ShowNodesAndPinsUnlocalized"), bShowNodesAndPinsUnlocalized, GEditorSettingsIni );
+		if (bShowNodesAndPinsUnlocalized)
+		{
+			ResultPinName = FText::FromString(ResultPinName.BuildSourceString());
+		}
+	}
+	return ResultPinName;
 }
 
 void UEdGraphSchema::ConstructBasicPinTooltip(UEdGraphPin const& Pin, FText const& PinDescription, FString& TooltipOut) const

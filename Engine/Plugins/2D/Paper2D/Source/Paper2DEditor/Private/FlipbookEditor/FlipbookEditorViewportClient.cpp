@@ -8,6 +8,7 @@
 #include "ScopedTransaction.h"
 #include "CanvasTypes.h"
 #include "PaperEditorShared/SocketEditing.h"
+#include "FlipbookEditorSettings.h"
 
 #define LOCTEXT_NAMESPACE "FlipbookEditor"
 
@@ -31,7 +32,7 @@ FFlipbookEditorViewportClient::FFlipbookEditorViewportClient(const TAttribute<UP
 
 	bShowPivot = false;
 	bShowSockets = true;
-	DrawHelper.bDrawGrid = false;
+	DrawHelper.bDrawGrid = GetDefault<UFlipbookEditorSettings>()->bShowGridByDefault;
 
 	EngineShowFlags.DisableAdvancedFeatures();
 	EngineShowFlags.CompositeEditorPrimitives = true;
@@ -49,7 +50,7 @@ void FFlipbookEditorViewportClient::DrawCanvas(FViewport& Viewport, FSceneView& 
 
 	int32 YPos = 42;
 
-	static const FText FlipbookHelpStr = LOCTEXT("FlipbookEditHelp", "Flipbook editor");
+	static const FText FlipbookHelpStr = LOCTEXT("FlipbookEditHelp", "Flipbook editor\n\nAdd keys using the toolbar or by drag-dropping sprite assets\nChange the timeline scale using Ctrl+MouseWheel\nEdit keys using the handles and right-click menu\nReorder keys by dragging and dropping");
 
 	// Display tool help
 	{
@@ -61,7 +62,7 @@ void FFlipbookEditorViewportClient::DrawCanvas(FViewport& Viewport, FSceneView& 
 
 	if (bShowSockets)
 	{
-		FSocketEditingHelper::DrawSocketNames(AnimatedRenderComponent.Get(), Viewport, View, Canvas);
+		FSocketEditingHelper::DrawSocketNames(nullptr, AnimatedRenderComponent.Get(), Viewport, View, Canvas);
 	}
 }
 
@@ -76,7 +77,7 @@ void FFlipbookEditorViewportClient::Draw(const FSceneView* View, FPrimitiveDrawI
 
 	if (bShowSockets)
 	{
-		FSocketEditingHelper::DrawSockets(AnimatedRenderComponent.Get(), View, PDI);
+		FSocketEditingHelper::DrawSockets(nullptr, AnimatedRenderComponent.Get(), View, PDI);
 	}
 }
 
@@ -116,7 +117,7 @@ bool FFlipbookEditorViewportClient::InputKey(FViewport* Viewport, int32 Controll
 
 FLinearColor FFlipbookEditorViewportClient::GetBackgroundColor() const
 {
-	return FEditorViewportClient::GetBackgroundColor();
+	return GetDefault<UFlipbookEditorSettings>()->BackgroundColor;
 }
 
 //////////////////////////////////////////////////////////////////////////

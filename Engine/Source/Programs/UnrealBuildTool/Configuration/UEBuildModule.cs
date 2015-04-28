@@ -58,42 +58,23 @@ namespace UnrealBuildTool
 		public static readonly string EditorFolder = String.Format("{0}Editor{0}", Path.DirectorySeparatorChar);
 		public static readonly string ProgramsFolder = String.Format("{0}Programs{0}", Path.DirectorySeparatorChar);
 
-		public static UEBuildModuleType GetPluginModuleType(string ModuleName)
+		public static UEBuildModuleType GetModuleTypeFromDescriptor(ModuleDescriptor Module)
 		{
-			UEBuildModuleType ModuleType = UEBuildModuleType.Unknown;
-			PluginInfo Info = Plugins.GetPluginInfoForModule(ModuleName);
-			if (null == Info)
+			switch (Module.Type)
 			{
-				return ModuleType;
+				case ModuleHostType.Developer:
+					return UEBuildModuleType.Developer;
+				case ModuleHostType.Editor:
+				case ModuleHostType.EditorNoCommandlet:
+					return UEBuildModuleType.Editor;
+				case ModuleHostType.Program:
+					return UEBuildModuleType.Program;
+				case ModuleHostType.Runtime:
+				case ModuleHostType.RuntimeNoCommandlet:
+					return UEBuildModuleType.Runtime;
+				default:
+					throw new BuildException("Unhandled module type {0}", Module.Type.ToString());
 			}
-			foreach (PluginInfo.PluginModuleInfo ModuleInfo in Info.Modules)
-			{
-				if (ModuleInfo.Name == ModuleName)
-				{
-					switch (ModuleInfo.Type)
-					{
-						case PluginInfo.PluginModuleType.Developer:
-							ModuleType = UEBuildModuleType.Developer;
-							break;
-						case PluginInfo.PluginModuleType.Editor:
-						case PluginInfo.PluginModuleType.EditorNoCommandlet:
-							ModuleType = UEBuildModuleType.Editor;
-							break;
-						case PluginInfo.PluginModuleType.Program:
-							ModuleType = UEBuildModuleType.Program;
-							break;
-						case PluginInfo.PluginModuleType.Runtime:
-						case PluginInfo.PluginModuleType.RuntimeNoCommandlet:
-							ModuleType = UEBuildModuleType.Runtime;
-							break;
-						default:
-							throw new BuildException("Unhandled plugin module type {0}", ModuleInfo.Type.ToString());
-					}
-					// break out of loop
-					break;
-				}
-			}
-			return ModuleType;
 		}
 
 		public static UEBuildModuleType GetEngineModuleTypeBasedOnLocation(string ModuleName, UEBuildModuleType ModuleType, string ModuleFileRelativeToEngineDirectory)
@@ -193,9 +174,6 @@ namespace UnrealBuildTool
 		/** Path to the module directory */
 		public readonly string ModuleDirectory;
 
-		/** An optional output path for the module */
-		public readonly string OutputDirectory;
-
 		/** Is this module allowed to be redistributed. */
 		private readonly bool? IsRedistributableOverride;
 
@@ -265,7 +243,6 @@ namespace UnrealBuildTool
 			string InName,
 			UEBuildModuleType InType,
 			string InModuleDirectory,
-			string InOutputDirectory,
 			bool? InIsRedistributableOverride,
 			IEnumerable<string> InPublicDefinitions = null,
 			IEnumerable<string> InPublicIncludePaths = null,
@@ -293,7 +270,6 @@ namespace UnrealBuildTool
 			Name = InName;
 			Type = InType;
 			ModuleDirectory = InModuleDirectory;
-			OutputDirectory = InOutputDirectory;
 			PublicDefinitions = HashSetFromOptionalEnumerableStringParameter(InPublicDefinitions);
 			PublicIncludePaths = HashSetFromOptionalEnumerableStringParameter(InPublicIncludePaths);
 			PublicSystemIncludePaths = HashSetFromOptionalEnumerableStringParameter(InPublicSystemIncludePaths);
@@ -581,29 +557,6 @@ namespace UnrealBuildTool
 			PublicDefinitions.Remove(InDefintion);
 		}
 
-		/** Return the (optional) output directory */
-		public string GetOutputDirectory()
-		{
-			return OutputDirectory;
-		}
-
-		/** Fix up the output path */
-		public virtual string FixupOutputPath(string InOutputPath)
-		{
-			string ModuleOutputPath = InOutputPath;
-			if (OutputDirectory.Length != 0)
-			{
-				// Use from 'Binaries/' on as it is setup w/ the correct platform already
-				int BinariesIndex = ModuleOutputPath.LastIndexOf("Binaries");
-				if (BinariesIndex != -1)
-				{
-					ModuleOutputPath = OutputDirectory + ModuleOutputPath.Substring(BinariesIndex);
-				}
-			}
-
-			return ModuleOutputPath;
-		}
-
 		/** Sets up the environment for compiling any module that includes the public interface of this module. */
 		protected virtual void SetupPublicCompileEnvironment(
 			UEBuildBinary SourceBinary,
@@ -871,7 +824,7 @@ namespace UnrealBuildTool
 		}
 
 		/** Compiles the module, and returns a list of files output by the compiler. */
-		public abstract List<FileItem> Compile( CPPEnvironment GlobalCompileEnvironment, CPPEnvironment CompileEnvironment, bool bCompileMonolithic );
+		public abstract List<FileItem> Compile( CPPEnvironment GlobalCompileEnvironment, CPPEnvironment CompileEnvironment );
 		
 		// Object interface.
 		public override string ToString()
@@ -904,14 +857,8 @@ namespace UnrealBuildTool
 
 		/**
 		 * Gathers and binds binaries for this module and all of it's dependent modules
-		 *
-		 * @param	Target				The target we are currently building
-		 * @param	Binaries			Dictionary of all binaries we've gathered so far
-		 * @param	ExecutableBinary	The binary for the target's main executable (used only when linking monolithically)
-		 * @param	bBuildOnlyModules	True to build only specific modules, false for all
-		 * @param	ModulesToBuild		The specific modules to build
 		 */
-		public virtual void RecursivelyProcessUnboundModules(UEBuildTarget Target, Dictionary<string, UEBuildBinary> Binaries, UEBuildBinary ExecutableBinary)
+		public virtual void RecursivelyProcessUnboundModules()
 		{
 		}
 
@@ -934,7 +881,6 @@ namespace UnrealBuildTool
 			UEBuildModuleType InType,
 			string InName,
 			string InModuleDirectory,
-			string InOutputDirectory,
 			bool? InIsRedistributableOverride,
 			IEnumerable<string> InPublicDefinitions = null,
 			IEnumerable<string> InPublicIncludePaths = null,
@@ -955,7 +901,6 @@ namespace UnrealBuildTool
 			InType:							InType,
 			InName:							InName,
 			InModuleDirectory:				InModuleDirectory,
-			InOutputDirectory:				InOutputDirectory,
 			InIsRedistributableOverride:	InIsRedistributableOverride,
 			InPublicDefinitions:			InPublicDefinitions,
 			InPublicIncludePaths:			InPublicIncludePaths,
@@ -976,7 +921,7 @@ namespace UnrealBuildTool
 		}
 
 		// UEBuildModule interface.
-		public override List<FileItem> Compile(CPPEnvironment GlobalCompileEnvironment, CPPEnvironment CompileEnvironment, bool bCompileMonolithic)
+		public override List<FileItem> Compile(CPPEnvironment GlobalCompileEnvironment, CPPEnvironment CompileEnvironment)
 		{
 			return new List<FileItem>();
 		}
@@ -1049,6 +994,9 @@ namespace UnrealBuildTool
 
 		/** A list of the absolute paths of source files to be built in this module. */
 		public readonly SourceFilesClass SourceFilesToBuild = new SourceFilesClass();
+
+		/** The directory for this module's generated code */
+		public readonly string GeneratedCodeDirectory;
 
 		/** The preprocessor definitions used to compile this module's private implementation. */
 		HashSet<string> Definitions;
@@ -1138,7 +1086,7 @@ namespace UnrealBuildTool
 			string InName,
 			UEBuildModuleType InType,
 			string InModuleDirectory,
-			string InOutputDirectory,
+			string InGeneratedCodeDirectory,
 			bool? InIsRedistributableOverride,
 			IntelliSenseGatherer InIntelliSenseGatherer,
 			IEnumerable<FileItem> InSourceFiles,
@@ -1176,7 +1124,6 @@ namespace UnrealBuildTool
 					InName, 
 					InType,
 					InModuleDirectory,
-					InOutputDirectory,
 					InIsRedistributableOverride,
 					InDefinitions, 
 					InPublicIncludePaths,
@@ -1200,6 +1147,7 @@ namespace UnrealBuildTool
 					InRuntimeDependencies
 				)
 		{
+			GeneratedCodeDirectory = InGeneratedCodeDirectory;
 			IntelliSenseGatherer = InIntelliSenseGatherer;
 
 			if (bInBuildSourceFiles)
@@ -1223,7 +1171,7 @@ namespace UnrealBuildTool
 		}
 
 		// UEBuildModule interface.
-		public override List<FileItem> Compile(CPPEnvironment GlobalCompileEnvironment, CPPEnvironment CompileEnvironment, bool bCompileMonolithic)
+		public override List<FileItem> Compile(CPPEnvironment GlobalCompileEnvironment, CPPEnvironment CompileEnvironment)
 		{
 			var BuildPlatform = UEBuildPlatform.GetBuildPlatformForCPPTargetPlatform(CompileEnvironment.Config.Target.Platform);
 
@@ -1348,13 +1296,12 @@ namespace UnrealBuildTool
 				// In the case of a shared PCH, we also need to keep track of which module that PCH's header file is a member of
 				string SharedPCHModuleName = String.Empty;
 
-				bool bDisableSharedPCHFiles = (Binary.Config.bCompileMonolithic && CompileEnvironment.Config.bIsBuildingLibrary);
-				if( BuildConfiguration.bUseSharedPCHs && bDisableSharedPCHFiles )
+				if( BuildConfiguration.bUseSharedPCHs && CompileEnvironment.Config.bIsBuildingLibrary )
 				{
-					Log.TraceVerbose("Module '{0}' was not allowed to use Shared PCHs, because we're compiling to a library in monolithic mode", this.Name );
+					Log.TraceVerbose("Module '{0}' was not allowed to use Shared PCHs, because we're compiling to a library", this.Name );
 				}
 
-				bool bUseSharedPCHFiles  = BuildConfiguration.bUseSharedPCHs && (bDisableSharedPCHFiles == false) && GlobalCompileEnvironment.SharedPCHHeaderFiles.Count > 0;
+				bool bUseSharedPCHFiles  = BuildConfiguration.bUseSharedPCHs && !CompileEnvironment.Config.bIsBuildingLibrary && GlobalCompileEnvironment.SharedPCHHeaderFiles.Count > 0;
 
 				if( bUseSharedPCHFiles )
 				{
@@ -1365,9 +1312,9 @@ namespace UnrealBuildTool
 						SharingPCHHeaderFilePath = Path.GetFullPath( Path.Combine( ProjectFileGenerator.RootRelativePath, "Engine", "Source", this.SharedPCHHeaderFile ) );
 					}
 
-					// When compiling in modular mode, we can't use a shared PCH file when compiling a module
+					// We can't use a shared PCH file when compiling a module
 					// with exports, because the shared PCH can only have imports in it to work correctly.
-					bool bCanModuleUseOwnSharedPCH = bAllowSharedPCH && bIsASharedPCHModule && bCompileMonolithic && ProcessedDependencies.UniquePCHHeaderFile.AbsolutePath.Equals( SharingPCHHeaderFilePath, StringComparison.InvariantCultureIgnoreCase );
+					bool bCanModuleUseOwnSharedPCH = bAllowSharedPCH && bIsASharedPCHModule && !Binary.Config.bAllowExports && ProcessedDependencies.UniquePCHHeaderFile.AbsolutePath.Equals( SharingPCHHeaderFilePath, StringComparison.InvariantCultureIgnoreCase );
 					if( bAllowSharedPCH && ( !bIsASharedPCHModule || bCanModuleUseOwnSharedPCH ) )
 					{
 						// Figure out which shared PCH tier we're in
@@ -1873,8 +1820,7 @@ namespace UnrealBuildTool
 			// Switch the optimization flag if we're building a game module. Also pass the definition for building in DebugGame along (see ModuleManager.h for notes).
 			if (Target.Configuration == UnrealTargetConfiguration.DebugGame)
 			{
-				PluginInfo Plugin = Plugins.GetPluginInfoForModule(Name);
-				if((Plugin != null && Plugin.LoadedFrom == PluginInfo.LoadedFromType.GameProject) || Type == UEBuildModuleType.Game)
+				if(!Utils.IsFileUnderDirectory(ModuleDirectory, BuildConfiguration.RelativeEnginePath))
 				{
 					Result.Config.Target.Configuration = CPPTargetConfiguration.Debug;
 					Result.Config.Definitions.Add("UE_BUILD_DEVELOPMENT_WITH_DEBUGGAME=1");
@@ -1940,7 +1886,7 @@ namespace UnrealBuildTool
 				bool HasUObjects;
 				var DirectIncludes = CPPEnvironment.GetDirectIncludeDependencies( Target, UObjectHeaderFileItem, BuildPlatform, bOnlyCachedDependencies:false, HasUObjects:out HasUObjects );
 				Debug.Assert( DirectIncludes != null );
-
+				
 				if (HasUObjects)
 				{ 
 					if (UObjectHeaderFileItem.AbsolutePath.StartsWith(ClassesFolder))
@@ -1965,7 +1911,8 @@ namespace UnrealBuildTool
 				ModuleType					= this.Type.ToString(),
 				PublicUObjectClassesHeaders = _AllClassesHeaders    .ToList(),
 				PublicUObjectHeaders        = _PublicUObjectHeaders .ToList(),
-				PrivateUObjectHeaders       = _PrivateUObjectHeaders.ToList()
+				PrivateUObjectHeaders       = _PrivateUObjectHeaders.ToList(),
+				GeneratedCodeVersion = this.Target.Rules.GetGeneratedCodeVersion()
 			};
 
 			return CachedModuleUHTInfo;
@@ -2048,7 +1995,7 @@ namespace UnrealBuildTool
 			}
 		}
 
-		public override void RecursivelyProcessUnboundModules(UEBuildTarget Target, Dictionary<string, UEBuildBinary> Binaries, UEBuildBinary ExecutableBinary)
+		public override void RecursivelyProcessUnboundModules()
 		{
 			try
 			{
@@ -2071,57 +2018,17 @@ namespace UnrealBuildTool
 					// Skip modules that are included with the target (externals)
 					if( !DependencyModule.bIncludedInTarget )
 					{
-						if( !Binaries.ContainsKey( DependencyModule.Name ) )
-						{
-							UEBuildBinary BinaryToBindTo;
-							if (Target.ShouldCompileMonolithic())
-							{
-								// When linking monolithically, any unbound modules will be linked into the main executable
-								BinaryToBindTo = ExecutableBinary;
-							}
-							else
-							{
-								// Is this a plugin module?
-								var PluginInfo = Plugins.GetPluginInfoForModule( DependencyName );
+						bool bIsCrossTarget = PlatformSpecificDynamicallyLoadedModuleNames.Contains(DependencyName) && !DynamicallyLoadedModuleNames.Contains(DependencyName);
 
-								string[] OutputFilePaths = Target.MakeBinaryPaths(DependencyModule.Name, Target.GetAppName() + "-" + DependencyModule.Name, UEBuildBinaryType.DynamicLinkLibrary, Target.TargetType, PluginInfo, "");
+						// Get the binary that this module should be bound to
+						UEBuildBinary BinaryToBindTo = Target.FindOrAddBinaryForModule(DependencyName, bIsCrossTarget);
 
-								// If it's an engine module, output intermediates to the engine intermediates directory. 
-								string IntermediateDirectory = Binary.Config.IntermediateDirectory;
-								if (IntermediateDirectory != Target.EngineIntermediateDirectory && Path.GetFullPath(DependencyModule.ModuleDirectory).StartsWith(Path.GetFullPath(BuildConfiguration.RelativeEnginePath)))
-								{
-									IntermediateDirectory = Target.EngineIntermediateDirectory;
-								}
+						// Bind this module
+						DependencyModule.Binary = BinaryToBindTo;
+						DependencyModule.bIncludedInTarget = true;
 
-								// When using modular linkage, unbound modules will be linked into their own DLL files
-								UEBuildBinaryConfiguration Config = new UEBuildBinaryConfiguration( InType: UEBuildBinaryType.DynamicLinkLibrary,
-																									InOutputFilePaths: OutputFilePaths,
-																									InIntermediateDirectory: IntermediateDirectory,
-																									bInAllowExports: true,
-																									InModuleNames: new List<string> { DependencyModule.Name },
-																									InTargetName: Target.GetAppName(),
-																									bInIsCrossTarget: PlatformSpecificDynamicallyLoadedModuleNames.Contains(DependencyName) && !DynamicallyLoadedModuleNames.Contains(DependencyName),
-																									InTargetConfiguration: Target.Configuration,
-																									bInCompileMonolithic: Target.ShouldCompileMonolithic() );
-
-								// Fix up the binary path if this is module specifies an alternate output directory
-								for (int Index = 0; Index < Config.OutputFilePaths.Length; Index++)
-								{
-									Config.OutputFilePaths[Index] = DependencyModule.FixupOutputPath(Config.OutputFilePaths[Index]);
-								}
-	
-								BinaryToBindTo = new UEBuildBinaryCPP( Target, Config );
-							}
-
-							Binaries[ DependencyModule.Name ] = BinaryToBindTo;
-
-							// Bind this module
-							DependencyModule.Binary = BinaryToBindTo;
-							DependencyModule.bIncludedInTarget = true;
-
-							// Also add binaries for this module's dependencies
-							DependencyModule.RecursivelyProcessUnboundModules( Target, Binaries, ExecutableBinary );
-						}
+						// Also add binaries for this module's dependencies
+						DependencyModule.RecursivelyProcessUnboundModules();
 					}
 
 					if (Target.ShouldCompileMonolithic() == false)
@@ -2148,67 +2055,7 @@ namespace UnrealBuildTool
 				throw new ModuleProcessingException(this, ex);
 			}
 		}
-
-
-		/// <summary>
-		/// Determines where generated code files will be stored for this module
-		/// </summary>
-		/// <param name="ModuleDirectory">Module's base directory</param>
-		/// <param name="ModuleName">Name of module</param>
-		/// <returns></returns>
-		public static string GetGeneratedCodeDirectoryForModule(UEBuildTarget Target, string ModuleDirectory, string ModuleName)
-		{
-			string BaseDirectory = null;
-			if (Target.ShouldCompileMonolithic() || Target.TargetType == TargetRules.TargetType.Program || UnrealBuildTool.RunningRocket())
-			{
-				// Monolithic configurations, programs and Rocket games have their intermediate headers stored under their respective project folders.
-				string RootDirectory = UnrealBuildTool.GetUProjectPath();
-				if (String.IsNullOrEmpty(RootDirectory))
-				{
-					// Intermediates under Engine intermediate folder (program name will be appended later)
-					RootDirectory = Path.GetFullPath(BuildConfiguration.RelativeEnginePath);
-				}
-				BaseDirectory = Path.Combine(RootDirectory, BuildConfiguration.PlatformIntermediateFolder, Target.GetTargetName(), "Inc");
-			}
-			else if (Plugins.IsPluginModule(ModuleName))
-			{
-				// Plugin module
-				string PluginIntermediateIncPath;
-				{ 
-					PluginInfo Plugin = Plugins.GetPluginInfoForModule(ModuleName);
-					if (Plugin.LoadedFrom == PluginInfo.LoadedFromType.Engine)
-					{
-						// Plugin folder is in the engine directory
-						PluginIntermediateIncPath = Path.GetFullPath(Path.Combine(BuildConfiguration.RelativeEnginePath, BuildConfiguration.PlatformIntermediateFolder));
-					}
-					else
-					{
-						// Plugin folder is in the project directory
-						PluginIntermediateIncPath   = Path.GetFullPath(Path.Combine( Target.ProjectDirectory, BuildConfiguration.PlatformIntermediateFolder));
-					}
-					PluginIntermediateIncPath = Path.Combine(PluginIntermediateIncPath, "Inc", "Plugins");
-				}
-				BaseDirectory = PluginIntermediateIncPath;
-			}
-			else
-			{
-				var AllProjectFolders = UEBuildTarget.DiscoverAllGameFolders();		// @todo ubtmake: This will be called again and again for every UObject module (80+)
-				BaseDirectory = AllProjectFolders.Find(ProjectFolder => Utils.IsFileUnderDirectory( ModuleDirectory, ProjectFolder ));
-				if (BaseDirectory == null)
-				{
-					// Must be an engine module or program module
-					BaseDirectory = ProjectFileGenerator.EngineRelativePath;
-				}
-
-				BaseDirectory = Path.GetFullPath(Path.Combine(BaseDirectory, BuildConfiguration.PlatformIntermediateFolder, "Inc"));
-			}
-
-			// Construct the intermediate path.
-			var GeneratedCodeDirectory = Path.Combine(BaseDirectory, ModuleName);
-			return GeneratedCodeDirectory + Path.DirectorySeparatorChar;
-		}
-
-	};
+	}
 
 	/** A module that is compiled from C++ CLR code. */
 	class UEBuildModuleCPPCLR : UEBuildModuleCPP
@@ -2221,7 +2068,7 @@ namespace UnrealBuildTool
 			string InName,
 			UEBuildModuleType InType,
 			string InModuleDirectory,
-			string InOutputDirectory,
+			string InGeneratedCodeDirectory,
 			bool? InIsRedistributableOverride,
 			IntelliSenseGatherer InIntelliSenseGatherer,
 			IEnumerable<FileItem> InSourceFiles,
@@ -2255,7 +2102,7 @@ namespace UnrealBuildTool
 			bool InEnableExceptions,
 			bool bInBuildSourceFiles
 			)
-			: base(InTarget,InName,InType,InModuleDirectory,InOutputDirectory,InIsRedistributableOverride,InIntelliSenseGatherer,
+			: base(InTarget,InName,InType,InModuleDirectory,InGeneratedCodeDirectory,InIsRedistributableOverride,InIntelliSenseGatherer,
 			InSourceFiles,InPublicIncludePaths,InPublicSystemIncludePaths,null,InDefinitions,
 			InPublicIncludePathModuleNames,InPublicDependencyModuleNames,InPublicDelayLoadDLLs,InPublicAdditionalLibraries,InPublicFrameworks,InPublicWeakFrameworks,InPublicAdditionalFrameworks,InPublicAdditionalShadowFiles,InPublicAdditionalBundleResources,
 			InPrivateIncludePaths,InPrivateIncludePathModuleNames,InPrivateDependencyModuleNames,
@@ -2267,7 +2114,7 @@ namespace UnrealBuildTool
 		}
 
 		// UEBuildModule interface.
-		public override List<FileItem> Compile( CPPEnvironment GlobalCompileEnvironment, CPPEnvironment CompileEnvironment, bool bCompileMonolithic )
+		public override List<FileItem> Compile( CPPEnvironment GlobalCompileEnvironment, CPPEnvironment CompileEnvironment )
 		{
 			var ModuleCLREnvironment = CompileEnvironment.DeepCopy();
 
@@ -2281,7 +2128,7 @@ namespace UnrealBuildTool
 			}
 
 			// Pass the CLR compilation environment to the standard C++ module compilation code.
-			return base.Compile(GlobalCompileEnvironment, ModuleCLREnvironment, bCompileMonolithic );
+			return base.Compile(GlobalCompileEnvironment, ModuleCLREnvironment );
 		}
 
 		public override void SetupPrivateLinkEnvironment(

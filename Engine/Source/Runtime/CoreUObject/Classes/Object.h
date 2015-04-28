@@ -206,6 +206,47 @@ namespace EMouseCursor
 	};
 }
 
+/** A set of numerical unit types supported by the engine. Mirrored from UnitConversion.h */
+UENUM(BlueprintType)
+enum class EUnit
+{
+	/** Scalar distance/length units */
+	Micrometers, Millimeters, Centimeters, Meters, Kilometers,
+	Inches, Feet, Yards, Miles,
+	Lightyears,
+
+	/** Angular units */
+	Degrees, Radians,
+
+	/** Speed units */
+	MetersPerSecond, KilometersPerHour, MilesPerHour,
+
+	/** Temperature units */
+	Celsius, Farenheit, Kelvin,
+
+	/** Mass units */
+	Micrograms, Milligrams, Grams, Kilograms, MetricTons,
+	Ounces, Pounds, Stones,
+
+	/** Force units */
+	Newtons, PoundsForce, KilogramsForce,
+
+	/** Frequency units */
+	Hertz, Kilohertz, Megahertz, Gigahertz, RevolutionsPerMinute,
+
+	/** Data Size units */
+	Bytes, Kilobytes, Megabytes, Gigabytes, Terabytes,
+
+	/** Luminous flux units */
+	Lumens,
+
+	/** Time units */
+	Milliseconds, Seconds, Minutes, Hours, Days, Months, Years,
+
+	/** Symbolic entry, not specifyable on meta data */
+	Unspecified
+};
+
 // A globally unique identifier.
 USTRUCT(immutable, noexport, BlueprintType)
 struct FGuid
@@ -560,6 +601,11 @@ struct FInterpCurveFloat
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveFloat)
 	TArray<FInterpCurvePointFloat> Points;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveFloat)
+	bool bIsLooped;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveFloat)
+	float LoopKeyOffset;
 };
 
 
@@ -592,6 +638,11 @@ struct FInterpCurveVector2D
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveVector2D)
 	TArray<FInterpCurvePointVector2D> Points;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveVector2D)
+	bool bIsLooped;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveVector2D)
+	float LoopKeyOffset;
 };
 
 
@@ -624,6 +675,48 @@ struct FInterpCurveVector
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveVector)
 	TArray<FInterpCurvePointVector> Points;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveVector)
+	bool bIsLooped;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveVector)
+	float LoopKeyOffset;
+};
+
+
+
+USTRUCT(noexport)
+struct FInterpCurvePointQuat
+{
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurvePointQuat)
+	float InVal;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurvePointQuat)
+	FQuat OutVal;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurvePointQuat)
+	FQuat ArriveTangent;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurvePointQuat)
+	FQuat LeaveTangent;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurvePointQuat)
+	TEnumAsByte<enum EInterpCurveMode> InterpMode;
+
+};
+
+
+
+USTRUCT(noexport)
+struct FInterpCurveQuat
+{
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveQuat)
+	TArray<FInterpCurvePointQuat> Points;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveQuat)
+	bool bIsLooped;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveQuat)
+	float LoopKeyOffset;
 };
 
 
@@ -656,6 +749,11 @@ struct FInterpCurveTwoVectors
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveTwoVectors)
 	TArray<FInterpCurvePointTwoVectors> Points;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveTwoVectors)
+	bool bIsLooped;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveTwoVectors)
+	float LoopKeyOffset;
 };
 
 
@@ -688,6 +786,11 @@ struct FInterpCurveLinearColor
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveLinearColor)
 	TArray<FInterpCurvePointLinearColor> Points;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveLinearColor)
+	bool bIsLooped;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=InterpCurveLinearColor)
+	float LoopKeyOffset;
 };
 
 
@@ -881,7 +984,7 @@ public:
 	/**
 	 * Default UObject constructor.
 	 */
-	UObject(const FObjectInitializer& ObjectInitializer);
+	UObject(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 #if WITH_HOT_RELOAD_CTORS
 	/** DO NOT USE. This constructor is for internal usage only for hot-reload purposes. */
 	UObject(FVTableHelper& Helper);

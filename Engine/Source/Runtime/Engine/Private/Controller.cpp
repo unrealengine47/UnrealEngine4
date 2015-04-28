@@ -433,7 +433,7 @@ void AController::InitPlayerState()
 			{
 				// don't call SetPlayerName() as that will broadcast entry messages but the GameMode hasn't had a chance
 				// to potentially apply a player/bot name yet
-				PlayerState->PlayerName = GameMode->DefaultPlayerName;
+				PlayerState->PlayerName = GameMode->DefaultPlayerName.ToString();
 			}
 		}
 	}
@@ -560,6 +560,12 @@ void AController::GetMoveGoalReachTest(class AActor* MovingActor, const FVector&
 bool AController::ShouldPostponePathUpdates() const
 {
 	return Pawn ? Pawn->ShouldPostponePathUpdates() : false;
+}
+
+bool AController::IsFollowingAPath() const
+{
+	UPathFollowingComponent* PathFollowingComp = FindComponentByClass<UPathFollowingComponent>();
+	return (PathFollowingComp != nullptr) && PathFollowingComp->HasValidPath();
 }
 
 void AController::UpdateNavigationComponents()

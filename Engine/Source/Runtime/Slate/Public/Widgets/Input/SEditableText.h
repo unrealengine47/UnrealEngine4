@@ -156,6 +156,48 @@ public:
 	 */
 	void SetFont( const TAttribute< FSlateFontInfo >& InNewFont );
 
+	/**
+	 * Sets the minimum width that a text block should be.
+	 *
+	 * @param  InMinDesiredWidth	The minimum width
+	 */
+	void SetMinDesiredWidth(const TAttribute<float>& InMinDesiredWidth);
+
+	/**
+	 * Workaround as we loose focus when the auto completion closes.
+	 *
+	 * @param  InIsCaretMovedWhenGainFocus	Workaround
+	 */
+	void SetIsCaretMovedWhenGainFocus(const TAttribute<bool>& InIsCaretMovedWhenGainFocus);
+
+	/**
+	 * Sets whether to select all text when the user clicks to give focus on the widget
+	 *
+	 * @param  InSelectAllTextWhenFocused	Select all text when the user clicks?
+	 */
+	void SetSelectAllTextWhenFocused(const TAttribute<bool>& InSelectAllTextWhenFocused);
+
+	/**
+	 * Sets whether to allow the user to back out of changes when they press the escape key
+	 *
+	 * @param  InRevertTextOnEscape			Allow the user to back out of changes?
+	 */
+	void SetRevertTextOnEscape(const TAttribute<bool>& InRevertTextOnEscape);
+
+	/**
+	 * Sets whether to clear keyboard focus when pressing enter to commit changes
+	 *
+	 * @param  InClearKeyboardFocusOnCommit		Clear keyboard focus when pressing enter?
+	 */
+	void SetClearKeyboardFocusOnCommit(const TAttribute<bool>& InClearKeyboardFocusOnCommit);
+
+	/**
+	 * Sets whether to select all text when pressing enter to commit changes
+	 *
+	 * @param  InSelectAllTextOnCommit		Select all text when pressing enter?
+	 */
+	void SetSelectAllTextOnCommit(const TAttribute<bool>& InSelectAllTextOnCommit);
+
 protected:
 
 	friend class FTextInputMethodContext;
@@ -312,7 +354,7 @@ public:
 	virtual void Undo() override;
 	virtual void Redo() override;
 	virtual TSharedRef< SWidget > GetWidget() override;
-	virtual void SummonContextMenu( const FVector2D& InLocation ) override;
+	virtual void SummonContextMenu(const FVector2D& InLocation, TSharedPtr<SWindow> ParentWindow = TSharedPtr<SWindow>()) override;
 	virtual void LoadText() override;
 	// END ITextEditorWidget interface
 

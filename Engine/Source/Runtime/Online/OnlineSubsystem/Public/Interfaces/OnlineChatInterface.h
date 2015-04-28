@@ -32,19 +32,17 @@ class FChatRoomConfig
 {
 public:
 	FChatRoomConfig()
-		: bMembersOnly(false)
-		, bHidden(false)
-		, bPasswordRequired(false)
-		, bPersistent(false)
-		, bAllowMemberInvites(false)
-		, bLoggingEnabled(false)
-		, MessageHistory(0)
-		, MaxMembers(0)
+		: bPasswordRequired(false)
+		, Password(TEXT(""))
 	{}
 
+	bool bPasswordRequired;
+	FString Password;
+
+private:
+	// Below are unused, move to public when hooking up to functionality
 	bool bMembersOnly;
 	bool bHidden;
-	bool bPasswordRequired;
 	bool bPersistent;
 	bool bAllowMemberInvites;
 	bool bLoggingEnabled;
@@ -160,13 +158,25 @@ public:
 	/**
 	 * Kick off request for creating a chat room with a provided configuration
 	 * 
-	 * @param UserId id of user that is joining
-	 * @param RoomConfig configuration for the room
+	 * @param UserId id of user that is creating the room
+	 * @param RoomId name of room to create
 	 * @param Nickname display name for the chat room. Name must be unique and is reserved for duration of join
+	 * @param RoomConfig configuration for the room
 	 *
 	 * @return if successfully started the async operation
 	 */
-	virtual bool CreateRoom(const FUniqueNetId& UserId, const FChatRoomConfig& RoomConfig, const FString& Nickname) = 0;
+	virtual bool CreateRoom(const FUniqueNetId& UserId, const FChatRoomId& RoomId, const FString& Nickname, const FChatRoomConfig& ChatRoomConfig) = 0;
+
+	/**
+	* Kick off request for configuring a chat room with a provided configuration
+	*
+	* @param UserId id of user that is creating the room
+	* @param RoomId name of room to create
+	* @param RoomConfig configuration for the room
+	*
+	* @return if successfully started the async operation
+	*/
+	virtual bool ConfigureRoom(const FUniqueNetId& UserId, const FChatRoomId& RoomId, const FChatRoomConfig& ChatRoomConfig) = 0;
 	
 	/**
 	 * Kick off request for joining a public chat room

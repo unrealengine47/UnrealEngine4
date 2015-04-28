@@ -6,6 +6,8 @@
 
 #include "EnginePrivate.h"
 #include "PhysicsPublic.h"
+#include "PhysicalMaterials/PhysicalMaterial.h"
+#include "PhysicsEngine/ConvexElem.h"
 
 #if WITH_PHYSX
 
@@ -397,10 +399,11 @@ PxFilterFlags PhysXSimFilterShader(	PxFilterObjectAttributes attributes0, PxFilt
 		pairFlags |= (PxPairFlag::eNOTIFY_TOUCH_FOUND | PxPairFlag::eNOTIFY_TOUCH_PERSISTS | PxPairFlag::eNOTIFY_CONTACT_POINTS );
 	}
 
-	if ((FilterFlags0&EPDF_ModifyContacts) || (FilterFlags1&EPDF_ModifyContacts))
+	//TODO: have to temporarily turn this off while getting a fix for shared shape crash
+	/*if ((FilterFlags0&EPDF_ModifyContacts) || (FilterFlags1&EPDF_ModifyContacts))
 	{
 		pairFlags |= (PxPairFlag::eMODIFY_CONTACTS);
-	}
+	}*/	
 
 	return PxFilterFlags();
 }
@@ -766,6 +769,10 @@ bool FApexChunkReport::releaseOnNoChunksVisible(const NxDestructibleActor* destr
 ///////// FApexPhysX3Interface //////////////////////////////////
 void FApexPhysX3Interface::setContactReportFlags(physx::PxShape* PShape, physx::PxPairFlags PFlags, NxDestructibleActor* actor, PxU16 actorChunkIndex)
 {
+	UDestructibleComponent* DestructibleComponent = Cast<UDestructibleComponent>(FPhysxUserData::Get<UPrimitiveComponent>(PShape->userData));
+	check(DestructibleComponent);
+
+	DestructibleComponent->Pair(actorChunkIndex, PShape);
 }
 
 physx::PxPairFlags FApexPhysX3Interface::getContactReportFlags(const physx::PxShape* PShape) const
@@ -879,6 +886,43 @@ void FPhysxSharedData::DumpSharedMemoryUsage(FOutputDevice* Ar)
 	{
 		Ar->Logf(TEXT("%-10d %s (%d)"), It.Value().MemorySize, *It.Key(), It.Value().Count );
 	}
+}
+
+void AddToCollection(PxCollection* PCollection, PxBase* PBase)
+{
+	if (PBase)
+	{
+		PCollection->add(*PBase);
+	}
+}
+
+PxCollection* MakePhysXCollection(const TArray<UPhysicalMaterial*>& PhysicalMaterials, const TArray<UBodySetup*>& BodySetups, uint64 BaseId)
+{
+	QUICK_SCOPE_CYCLE_COUNTER(STAT_CreateSharedData);
+	PxCollection* PCollection = PxCreateCollection();
+	for (UPhysicalMaterial* PhysicalMaterial : PhysicalMaterials)
+	{
+		if (PhysicalMaterial)
+		{
+			PCollection->add(*PhysicalMaterial->GetPhysXMaterial());
+		}
+	}
+
+	for (UBodySetup* BodySetup : BodySetups)
+	{
+		AddToCollection(PCollection, BodySetup->TriMesh);
+		AddToCollection(PCollection, BodySetup->TriMeshNegX);
+
+		for (const FKConvexElem& ConvexElem : BodySetup->AggGeom.ConvexElems)
+		{
+			AddToCollection(PCollection, ConvexElem.ConvexMesh);
+			AddToCollection(PCollection, ConvexElem.ConvexMeshNegX);
+		}
+	}
+
+	PxSerialization::createSerialObjectIds(*PCollection, PxSerialObjectId(BaseId));
+
+	return PCollection;
 }
 
 #endif // WITH_PHYSX

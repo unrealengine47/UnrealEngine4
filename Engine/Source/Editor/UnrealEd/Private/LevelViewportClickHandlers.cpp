@@ -17,6 +17,7 @@
 #include "Engine/Selection.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/TargetPoint.h"
+#include "EngineUtils.h"
 
 #define LOCTEXT_NAMESPACE "ClickHandlers"
 
@@ -193,17 +194,6 @@ namespace ClickHandlers
 				if( SelectedClass )
 				{
 					PrivateAddActor( SelectedClass );
-				}
-
-				return true;
-			}
-			else if( Click.GetKey() == EKeys::LeftMouseButton && ViewportClient->Viewport->KeyState(EKeys::Period) )
-			{
-				if(Click.IsControlDown())
-				{
-					// create a pylon
-					UClass* PylonClass = GEditor->GetClassFromPairMap( FString(TEXT("Pylon")) );
-					PrivateAddActor( PylonClass );
 				}
 
 				return true;
@@ -830,15 +820,6 @@ namespace ClickHandlers
 			// Create a static mesh.
 			PrivateAddActor( AStaticMeshActor::StaticClass() );
 		}
-		else if( Click.GetKey() == EKeys::LeftMouseButton && ViewportClient->Viewport->KeyState(EKeys::Period) )
-		{
-			if(Click.IsControlDown())
-			{
-				// create a pylon
-				UClass* PylonClass = GEditor->GetClassFromPairMap( FString(TEXT("Pylon")) );
-				PrivateAddActor( PylonClass );
-			}
-		}
 		else if( Click.GetKey() == EKeys::LeftMouseButton && ViewportClient->Viewport->KeyState(EKeys::Semicolon) )
 		{
 			PrivateAddActor( ATargetPoint::StaticClass() );
@@ -1023,16 +1004,6 @@ namespace ClickHandlers
 		{
 			// Create a static mesh.
 			PrivateAddActor( AStaticMeshActor::StaticClass() );
-		}
-		else if( Click.GetKey() == EKeys::LeftMouseButton && ViewportClient->Viewport->KeyState(EKeys::Period) )
-		{
-			// Create a pathnode.
-			if(Click.IsControlDown())
-			{
-				// create a pylon
-				UClass* PylonClass = GEditor->GetClassFromPairMap( FString(TEXT("Pylon")) );
-				PrivateAddActor( PylonClass );
-			}
 		}
 		else if( Click.GetKey() == EKeys::RightMouseButton && !Click.IsControlDown() && !ViewportClient->Viewport->KeyState(EKeys::LeftMouseButton) )
 		{

@@ -9,9 +9,35 @@ namespace ETileMapEditorTool
 	{
 		Paintbrush,
 		Eraser,
-		PaintBucket
+		PaintBucket,
+		EyeDropper,
+		TerrainBrush
 	};
 }
+
+//////////////////////////////////////////////////////////////////////////
+// FTileMapDirtyRegion
+
+struct FTileMapDirtyRegion
+{
+public:
+	TWeakObjectPtr<UPaperTileMapComponent> ComponentPtr;
+	FBox DirtyRegionInWorldSpace;
+
+public:
+	FTileMapDirtyRegion()
+	{
+	}
+
+	FTileMapDirtyRegion(UPaperTileMapComponent* InComponent, const FBox& DirtyRegionInTileSpace);
+
+	void PushToNavSystem() const;
+	
+	UPaperTileMapComponent* GetComponent() const
+	{
+		return ComponentPtr.Get();
+	}
+};
 
 //////////////////////////////////////////////////////////////////////////
 // FEdModeTileMap
@@ -33,6 +59,7 @@ public:
 	virtual bool UsesToolkits() const override;
 	virtual void Enter() override;
 	virtual void Exit() override;
+	virtual void Tick(FEditorViewportClient* ViewportClient, float DeltaTime) override;
 	virtual bool MouseEnter(FEditorViewportClient* ViewportClient, FViewport* Viewport, int32 x, int32 y) override;
 	virtual bool MouseLeave(FEditorViewportClient* ViewportClient, FViewport* Viewport) override;
 	virtual bool MouseMove(FEditorViewportClient* ViewportClient, FViewport* Viewport, int32 x, int32 y) override;
@@ -53,6 +80,7 @@ public:
 	ETileMapEditorTool::Type GetActiveTool() const;
 
 	void SetActivePaint(UPaperTileSet* TileSet, FIntPoint TopLeft, FIntPoint Dimensions);
+	void SetActivePaintFromLayer(UPaperTileLayer* SourceLayer, FIntPoint TopLeft, FIntPoint Dimensions);
 
 	void DestructiveResizePreviewComponent(int32 NewWidth, int32 NewHeight);
 
@@ -67,9 +95,11 @@ public:
 protected:
 	bool UseActiveToolAtLocation(const FViewportCursorLocation& Ray);
 
+	bool SelectTiles(const FViewportCursorLocation& Ray);
 	bool PaintTiles(const FViewportCursorLocation& Ray);
 	bool EraseTiles(const FViewportCursorLocation& Ray);
 	bool FloodFillTiles(const FViewportCursorLocation& Ray);
+	bool PaintTilesWithTerrain(const FViewportCursorLocation& Ray);
 
 
 	void UpdatePreviewCursor(const FViewportCursorLocation& Ray);
@@ -91,6 +121,10 @@ protected:
 	void RotateTilesInSelection(bool bIsClockwise);
 
 	bool IsToolReadyToBeUsed() const;
+
+	bool BlitLayer(UPaperTileLayer* SourceLayer, UPaperTileLayer* TargetLayer, FBox& OutDirtyRect, int32 OffsetX = 0, int32 OffsetY = 0, bool bBlitEmptyTiles = false);
+
+	void FlushPendingDirtyRegions();
 public:
 	UPaperTileMapComponent* FindSelectedComponent() const;
 
@@ -102,12 +136,20 @@ public:
 	int32 GetCursorWidth() const;
 	int32 GetCursorHeight() const;
 protected:
+	// Were we previously painting?
+	bool bWasPainting;
+
+	// Are we currently painting?
 	bool bIsPainting;
 
 	// Ink source
 	bool bHasValidInkSource;
-	FIntPoint PaintSourceTopLeft;
 	
+	// State for eyedropper
+	bool bWasHoldingSelectWhenPaintingStarted;
+	FIntPoint EyeDropperStart;
+	FIntRect LastEyeDropperBounds;
+
 	//
 	FTransform DrawPreviewSpace;
 
@@ -130,6 +172,11 @@ protected:
 
 	UPaperTileMapComponent* CursorPreviewComponent;
 
+	// Nav mesh rebuilding
+	float TimeUntilNavMeshRebuild;
+	TArray<FTileMapDirtyRegion> PendingDirtyRegions;
+
+	//
 	ETileMapEditorTool::Type ActiveTool;
 	mutable FTransform ComponentToWorld;
 };

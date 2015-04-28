@@ -490,6 +490,18 @@ enum EUnrealEngineObjectUE4Version
 	VER_UE4_LANDSCAPE_SPLINE_CROSS_LEVEL_MESHES,
 	// Deprecate the variables used for sizing in the designer on UUserWidget
 	VER_UE4_DEPRECATE_USER_WIDGET_DESIGN_SIZE,
+	// Make the editor views array dynamically sized
+	VER_UE4_ADD_EDITOR_VIEWS,
+	// Updated foliage to work with either FoliageType assets or blueprint classes
+	VER_UE4_FOLIAGE_WITH_ASSET_OR_CLASS,
+	// Allows PhysicsSerializer to serialize shapes and actors for faster load times
+	VER_UE4_BODYINSTANCE_BINARY_SERIALIZATION,
+	// Added fastcall data serialization directly in UFunction
+	VER_UE4_SERIALIZE_BLUEPRINT_EVENTGRAPH_FASTCALLS_IN_UFUNCTION,
+	// Changes to USplineComponent and FInterpCurve
+	VER_UE4_INTERPCURVE_SUPPORTS_LOOPING,
+	// Material Instances overriding base material LOD transitions
+	VER_UE4_MATERIAL_INSTANCE_BASE_PROPERTY_OVERRIDES_DITHERED_LOD_TRANSITION,
 
 	// -----<new versions can be added before this line>-------------------------------------------------
 	// - this needs to be the last line (see note below)

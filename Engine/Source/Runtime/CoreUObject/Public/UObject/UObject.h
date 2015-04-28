@@ -536,11 +536,11 @@ public:
 		};
 
 		FName Name;
-		FString Value;
 		ETagType Type;
+		FString Value;
 
 		FAssetRegistryTag(FName InName, const FString& InValue, ETagType InType)
-			: Name(InName), Value(InValue), Type(InType) {}
+			: Name(InName), Type(InType), Value(InValue) {}
 
 		/** Gathers a list of asset registry searchable tags from given objects properties */
 		COREUOBJECT_API static void GetAssetRegistryTagsFromSearchableProperties(const UObject* Object, TArray<FAssetRegistryTag>& OutTags);
@@ -779,7 +779,7 @@ public:
 	/**
 	 * Saves just the section(s) for this class into the default ini file for the class (with just the changes from base)
 	 */
-	void UpdateDefaultConfigFile();
+	void UpdateDefaultConfigFile(const FString& SpecificFileLocation = "");
 
 	/**
 	 * Saves just the section(s) for this class into the global user ini file for the class (with just the changes from base)

@@ -4,6 +4,7 @@
 
 #include "Camera/CameraTypes.h"
 #include "ContentWidget.h"
+#include "SceneManagement.h"
 #include "Viewport.generated.h"
 
 class FPreviewScene;
@@ -87,16 +88,13 @@ private:
 };
 
 
-class UMG_API FUMGViewportClient : public FCommonViewportClient, public FViewElementDrawer, public FGCObject
+class UMG_API FUMGViewportClient : public FCommonViewportClient, public FViewElementDrawer
 {
 public:
 	FUMGViewportClient(FPreviewScene* InPreviewScene = nullptr);
 	virtual ~FUMGViewportClient();
 
 	using FViewElementDrawer::Draw;
-
-	// FGCObject interface
-	virtual void AddReferencedObjects(FReferenceCollector & Collector) override;
 
 	// FViewportClient interface
 	virtual UWorld* GetWorld() const override;

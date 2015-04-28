@@ -198,6 +198,26 @@ bool FDesktopPlatformBase::IsStockEngineRelease(const FString &Identifier)
 	return !FGuid::Parse(Identifier, Guid);
 }
 
+bool FDesktopPlatformBase::TryParseStockEngineVersion(const FString& Identifier, FEngineVersion& OutVersion)
+{
+	TCHAR* End;
+
+	uint64 Major = FCString::Strtoui64(*Identifier, &End, 10);
+	if (Major > MAX_uint16 || *(End++) != '.')
+	{
+		return false;
+	}
+
+	uint64 Minor = FCString::Strtoui64(End, &End, 10);
+	if (Minor > MAX_uint16 || *End != 0)
+	{
+		return false;
+	}
+
+	OutVersion = FEngineVersion(Major, Minor, 0, 0, TEXT(""));
+	return true;
+}
+
 bool FDesktopPlatformBase::IsSourceDistribution(const FString &EngineRootDir)
 {
 	// Check for the existence of a SourceBuild.txt file
@@ -844,18 +864,18 @@ void FDesktopPlatformBase::GetProjectBuildProducts(const FString& ProjectDir, TA
 	}
 }
 
-bool FDesktopPlatformBase::EnumerateProjectsKnownByEngine(const FString &Identifier, bool bIncludeNativeProjects, TArray<FString> &OutProjectFileNames)
+FString FDesktopPlatformBase::GetEngineSavedConfigDirectory(const FString& Identifier)
 {
 	// Get the engine root directory
 	FString RootDir;
-	if(!GetEngineRootDirFromIdentifier(Identifier, RootDir))
+	if (!GetEngineRootDirFromIdentifier(Identifier, RootDir))
 	{
-		return false;
+		return FString();
 	}
 
 	// Get the path to the game agnostic settings
 	FString UserDir;
-	if(IsStockEngineRelease(Identifier))
+	if (IsStockEngineRelease(Identifier))
 	{
 		UserDir = FPaths::Combine(FPlatformProcess::UserSettingsDir(), *FString(EPIC_PRODUCT_IDENTIFIER), *Identifier);
 	}
@@ -865,7 +885,24 @@ bool FDesktopPlatformBase::EnumerateProjectsKnownByEngine(const FString &Identif
 	}
 
 	// Get the game agnostic config dir
-	FString GameAgnosticConfigDir = UserDir / TEXT("Saved/Config") / ANSI_TO_TCHAR(FPlatformProperties::PlatformName());
+	return UserDir / TEXT("Saved/Config") / ANSI_TO_TCHAR(FPlatformProperties::PlatformName());
+}
+
+bool FDesktopPlatformBase::EnumerateProjectsKnownByEngine(const FString &Identifier, bool bIncludeNativeProjects, TArray<FString> &OutProjectFileNames)
+{
+	// Get the engine root directory
+	FString RootDir;
+	if (!GetEngineRootDirFromIdentifier(Identifier, RootDir))
+	{
+		return false;
+	}
+
+	FString GameAgnosticConfigDir = GetEngineSavedConfigDirectory(Identifier);
+
+	if (GameAgnosticConfigDir.Len() == 0)
+	{
+		return false;
+	}
 
 	// Find all the created project directories. Start with the default project creation path.
 	TArray<FString> SearchDirectories;
@@ -873,10 +910,10 @@ bool FDesktopPlatformBase::EnumerateProjectsKnownByEngine(const FString &Identif
 
 	// Load the config file
 	FConfigFile GameAgnosticConfig;
-	FConfigCacheIni::LoadExternalIniFile(GameAgnosticConfig, TEXT("EditorGameAgnostic"), NULL, *GameAgnosticConfigDir, false);
+	FConfigCacheIni::LoadExternalIniFile(GameAgnosticConfig, TEXT("EditorSettings"), NULL, *GameAgnosticConfigDir, false);
 
 	// Find the editor game-agnostic settings
-	FConfigSection* Section = GameAgnosticConfig.Find(TEXT("/Script/UnrealEd.EditorGameAgnosticSettings"));
+	FConfigSection* Section = GameAgnosticConfig.Find(TEXT("/Script/UnrealEd.EditorSettings"));
 	if(Section != NULL)
 	{
 		// Add in every path that the user has ever created a project file. This is to catch new projects showing up in the user's project folders

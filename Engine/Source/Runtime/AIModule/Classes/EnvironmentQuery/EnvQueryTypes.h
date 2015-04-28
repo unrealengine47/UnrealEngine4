@@ -822,14 +822,20 @@ public:
 			Deadline = -1.0f;
 		}
 
-		operator bool() const
+		int32 GetIndex() const
 		{
-			return CurrentItem < Instance->Items.Num() && !Instance->bFoundSingleResult && (Deadline < 0 || FPlatformTime::Seconds() < Deadline);
+			return CurrentItem;
 		}
 
+		DEPRECATED(4.8, "This function is now deprecatewd, please use GetIndex() for current index or GetItemData() for raw data pointer")
 		int32 operator*() const
 		{
-			return CurrentItem; 
+			return GetIndex();
+		}
+
+		FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const
+		{
+			return CurrentItem < Instance->Items.Num() && !Instance->bFoundSingleResult && (Deadline < 0 || FPlatformTime::Seconds() < Deadline);
 		}
 
 		void operator++()

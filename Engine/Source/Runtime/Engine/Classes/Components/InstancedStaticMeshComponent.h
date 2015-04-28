@@ -108,7 +108,7 @@ class ENGINE_API UInstancedStaticMeshComponent : public UStaticMeshComponent
 	
 	/** Update the transform for the instance specified. Instance is given in local space of this component unless bWorldSpace is set.  Returns True on success. */
 	UFUNCTION(BlueprintCallable, Category = "Components|InstancedStaticMesh")
-	virtual bool UpdateInstanceTransform(int32 InstanceIndex, const FTransform& NewInstanceTransform, bool bWorldSpace=false);
+	virtual bool UpdateInstanceTransform(int32 InstanceIndex, const FTransform& NewInstanceTransform, bool bWorldSpace=false, bool bMarkRenderStateDirty = false);
 
 	/** Remove the instance specified. Returns True on success. */
 	UFUNCTION(BlueprintCallable, Category = "Components|InstancedStaticMesh")
@@ -150,6 +150,10 @@ public:
 
 	/** Physics representation of the instance bodies */
 	TArray<FBodyInstance*> InstanceBodies;
+
+	/** Serialization of all the InstanceBodies. Helps speed up physics creation time*/
+	UPROPERTY()
+	class UPhysicsSerializer* PhysicsSerializer;
 
 	// Begin UActorComponent interface 
 	virtual FActorComponentInstanceData* GetComponentInstanceData() const override;

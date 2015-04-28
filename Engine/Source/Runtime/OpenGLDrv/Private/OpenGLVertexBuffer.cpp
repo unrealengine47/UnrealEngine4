@@ -167,7 +167,7 @@ void* FOpenGLDynamicRHI::RHILockVertexBuffer(FVertexBufferRHIParamRef VertexBuff
 	check(Size > 0);
 
 	VERIFY_GL_SCOPE();
-	DYNAMIC_CAST_OPENGLRESOURCE(VertexBuffer,VertexBuffer);
+	FOpenGLVertexBuffer* VertexBuffer = ResourceCast(VertexBufferRHI);
 	if( !(FOpenGL::SupportsVertexAttribBinding() && OpenGLConsoleVariables::bUseVAB) && VertexBuffer->GetUsage() & BUF_ZeroStride )
 	{
 		check( Offset + Size <= VertexBuffer->GetSize() );
@@ -192,7 +192,7 @@ void* FOpenGLDynamicRHI::RHILockVertexBuffer(FVertexBufferRHIParamRef VertexBuff
 void FOpenGLDynamicRHI::RHIUnlockVertexBuffer(FVertexBufferRHIParamRef VertexBufferRHI)
 {
 	VERIFY_GL_SCOPE();
-	DYNAMIC_CAST_OPENGLRESOURCE(VertexBuffer,VertexBuffer);
+	FOpenGLVertexBuffer* VertexBuffer = ResourceCast(VertexBufferRHI);
 	if( (FOpenGL::SupportsVertexAttribBinding() && OpenGLConsoleVariables::bUseVAB) || !( VertexBuffer->GetUsage() & BUF_ZeroStride ) )
 	{
 		if (!RetireAllocation(VertexBuffer))
@@ -202,15 +202,12 @@ void FOpenGLDynamicRHI::RHIUnlockVertexBuffer(FVertexBufferRHIParamRef VertexBuf
 	}
 }
 
-// Ignore functions from RHIMethods.h when parsing documentation; Doxygen's preprocessor can't parse the declaration, so spews warnings for the definitions.
-#if !UE_BUILD_DOCS
-
 void FOpenGLDynamicRHI::RHICopyVertexBuffer(FVertexBufferRHIParamRef SourceBufferRHI,FVertexBufferRHIParamRef DestBufferRHI)
 {
 	VERIFY_GL_SCOPE();
 	check( FOpenGL::SupportsCopyBuffer() );
-	DYNAMIC_CAST_OPENGLRESOURCE(VertexBuffer,SourceBuffer);
-	DYNAMIC_CAST_OPENGLRESOURCE(VertexBuffer,DestBuffer);
+	FOpenGLVertexBuffer* SourceBuffer = ResourceCast(SourceBufferRHI);
+	FOpenGLVertexBuffer* DestBuffer = ResourceCast(DestBufferRHI);
 	check(SourceBuffer->GetSize() == DestBuffer->GetSize());
 
 	glBindBuffer(GL_COPY_READ_BUFFER,SourceBuffer->Resource);
@@ -220,4 +217,3 @@ void FOpenGLDynamicRHI::RHICopyVertexBuffer(FVertexBufferRHIParamRef SourceBuffe
 	glBindBuffer(GL_COPY_WRITE_BUFFER,0);
 }
 
-#endif

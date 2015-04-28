@@ -5,9 +5,15 @@
 
 #include "PaperRenderSceneProxy.h"
 #include "PaperGeomTools.h"
+#include "PhysicsEngine/BodySetup.h"
+#include "PhysicsEngine/ConvexElem.h"
+#include "PaperTerrainComponent.h"
+#include "PaperTerrainSplineComponent.h"
+#include "PaperTerrainMaterial.h"
 
 #define PAPER_USE_MATERIAL_SLOPES 1
 
+DECLARE_CYCLE_STAT(TEXT("Terrain Spline Proxy"), STAT_TerrainSpline_GetDynamicMeshElements, STATGROUP_Paper2D);
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -25,10 +31,11 @@ static FBox2D GetSpriteRenderDataBounds2D(const TArray<FVector4>& Data)
 
 //////////////////////////////////////////////////////////////////////////
 
-FTerrainSpriteStamp::FTerrainSpriteStamp(const UPaperSprite* InSprite, float InTime, bool bIsEndCap) : Sprite(InSprite)
-, Time(InTime)
-, Scale(1.0f)
-, bCanStretch(!bIsEndCap)
+FTerrainSpriteStamp::FTerrainSpriteStamp(const UPaperSprite* InSprite, float InTime, bool bIsEndCap)
+	: Sprite(InSprite)
+	, Time(InTime)
+	, Scale(1.0f)
+	, bCanStretch(!bIsEndCap)
 {
 	const FBox2D Bounds2D = GetSpriteRenderDataBounds2D(InSprite->BakedRenderData);
 	NominalWidth = FMath::Max<float>(Bounds2D.GetSize().X, 1.0f);
@@ -76,6 +83,8 @@ FPaperTerrainSceneProxy::FPaperTerrainSceneProxy(const UPaperTerrainComponent* I
 
 void FPaperTerrainSceneProxy::GetDynamicMeshElementsForView(const FSceneView* View, int32 ViewIndex, bool bUseOverrideColor, const FLinearColor& OverrideColor, FMeshElementCollector& Collector) const
 {
+	SCOPE_CYCLE_COUNTER(STAT_TerrainSpline_GetDynamicMeshElements);
+
 	for (const FPaperTerrainSpriteGeometry& Batch : DrawingData)
 	{
 		if (Batch.Material != nullptr)
@@ -326,8 +335,37 @@ static void SimplifyPolygon(TArray<FVector2D> &SplinePolyVertices2D, TArray<floa
 	}
 }
 
+// Makes sure all spline points are constrained to the XZ plane
+void UPaperTerrainComponent::ConstrainSplinePointsToXZ()
+{
+	if (AssociatedSpline != nullptr)
+	{
+		bool bSplineChanged = false;
+		auto& Points = AssociatedSpline->SplineInfo.Points;
+		int32 NumPoints = Points.Num();
+		for (int PointIndex = 0; PointIndex < NumPoints; ++PointIndex)
+		{
+			auto& CurrentPoint = Points[PointIndex];
+			if (CurrentPoint.ArriveTangent.Y != 0 || CurrentPoint.LeaveTangent.Y != 0 || CurrentPoint.OutVal.Y != 0)
+			{
+				CurrentPoint.ArriveTangent.Y = 0;
+				CurrentPoint.LeaveTangent.Y = 0;
+				CurrentPoint.OutVal.Y = 0;
+				bSplineChanged = true;
+			}
+		}
+
+		if (bSplineChanged)
+		{
+			AssociatedSpline->UpdateSpline();
+		}
+	}
+}
+
 void UPaperTerrainComponent::OnSplineEdited()
 {
+	ConstrainSplinePointsToXZ();
+
 	// Ensure we have the data structure for the desired collision method
 	if (SpriteCollisionDomain == ESpriteCollisionMode::Use3DPhysics)
 	{

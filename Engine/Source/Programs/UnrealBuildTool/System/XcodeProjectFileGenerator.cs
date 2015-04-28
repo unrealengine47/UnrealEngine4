@@ -1100,6 +1100,11 @@ namespace UnrealBuildTool
 							WantProjectFileForTarget = true;
 						}
 					}
+
+					if (bGeneratingRocketProjectFiles && TargetName.EndsWith("Server"))
+					{
+						WantProjectFileForTarget = false;
+					}
 				}
 
 				if (WantProjectFileForTarget)
@@ -1198,6 +1203,35 @@ namespace UnrealBuildTool
 			else
 			{
 				TargetBinariesFolder = Path.GetDirectoryName(Directory.GetCurrentDirectory());
+
+                if (!ExeBaseName.EndsWith("Editor") && !string.IsNullOrWhiteSpace(Target.TargetFilePath) && !Utils.IsFileUnderDirectory(Target.TargetFilePath, TargetBinariesFolder))
+                {
+					string DepotRoot = TargetBinariesFolder.TrimEnd(Path.DirectorySeparatorChar);
+					DepotRoot = DepotRoot.Substring(0, DepotRoot.LastIndexOf(Path.DirectorySeparatorChar));
+					DepotRoot = DepotRoot.TrimEnd(Path.DirectorySeparatorChar);
+
+					Log.TraceInformation(string.Format("Target.TargetFilePath={0}", Target.TargetFilePath));
+					Log.TraceInformation(string.Format("DepotRoot={0}", DepotRoot));
+
+                    if (Utils.IsFileUnderDirectory(Target.TargetFilePath, DepotRoot))
+                    {
+                        string PreviousPath = Target.TargetFilePath;
+                        string CurrentPath = Target.TargetFilePath;
+                        while (!string.IsNullOrWhiteSpace(CurrentPath) && CurrentPath != DepotRoot)
+                        {
+                            PreviousPath = CurrentPath;
+                            CurrentPath = CurrentPath.Substring(0, CurrentPath.LastIndexOf(Path.DirectorySeparatorChar));
+                        }
+
+                        if (CurrentPath == DepotRoot && !string.IsNullOrWhiteSpace(PreviousPath))
+                        {
+                            TargetBinariesFolder = PreviousPath;
+                        }
+
+						Log.TraceInformation(string.Format("TargetBinariesFolder={0}", TargetBinariesFolder));
+						Log.TraceInformation(string.Format("ExeBaseName={0}", ExeBaseName));
+                    }
+                }
 
 				if (ExeBaseName == Target.TargetName && ExeBaseName.EndsWith("Game") && ExeExtension == ".app")
 				{

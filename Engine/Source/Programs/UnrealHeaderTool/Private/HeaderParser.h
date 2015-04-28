@@ -6,9 +6,13 @@
 #include "BaseParser.h"
 #include "CompilationResult.h"
 #include "ScopedTimers.h"
+#include "Scope.h"
+#include "GeneratedCodeVersion.h"
 
 class FClass;
 class FClasses;
+class FScope;
+class FHeaderProvider;
 
 extern double GPluginOverheadTime;
 extern double GHeaderCodeGenTime;
@@ -78,9 +82,9 @@ public:
 	/**
 	 * Sets nesting scope.
 	 */
-	void SetScope(FScope* Scope)
+	void SetScope(FScope* InScope)
 	{
-		this->Scope = Scope;
+		this->Scope = InScope;
 	}
 
 	/** Statement that caused the nesting. */
@@ -125,8 +129,11 @@ class FSimplifiedParsingClassInfo
 {
 public:
 	// Constructor.
-	FSimplifiedParsingClassInfo(FString ClassName, FString BaseClassName, int32 ClassDefLine, bool bClassIsAnInterface)
-		: ClassName(MoveTemp(ClassName)), BaseClassName(MoveTemp(BaseClassName)), ClassDefLine(ClassDefLine), bClassIsAnInterface(bClassIsAnInterface)
+	FSimplifiedParsingClassInfo(FString InClassName, FString InBaseClassName, int32 InClassDefLine, bool bInClassIsAnInterface)
+		: ClassName          (MoveTemp(InClassName))
+		, BaseClassName      (MoveTemp(InBaseClassName))
+		, ClassDefLine       (InClassDefLine)
+		, bClassIsAnInterface(bInClassIsAnInterface)
 	{}
 
 	/**
@@ -185,6 +192,9 @@ private:
 class FHeaderParser : public FBaseParser, public FContextSupplier
 {
 public:
+	// Default version of generated code. Defaults to oldest possible, unless specified otherwise in config.
+	static EGeneratedCodeVersion DefaultGeneratedCodeVersion;
+
 	// Compute the function parameter size and save the return offset
 	static void ComputeFunctionParametersSize(UClass* InClass);
 
@@ -248,15 +258,6 @@ public:
 	 * @return	Result enumeration.
 	 */
 	static ECompilationResult::Type ParseHeaders(FClasses& AllClasses, FHeaderParser& HeaderParser, FUnrealSourceFile& SourceFile, bool bParseSubclasses);
-
-	/**
-	 * Parse Class's properties to generate its declaration data.
-	 *
-	 * @param	InClassSpecifiers Class properties collected from its UCLASS macro
-	 * @param	InRequiredAPIMacroIfPresent *_API macro if present (empty otherwise)
-	 * @param	OutClassData Parsed class meta data
-	 */
-	static void ParseClassProperties(const TArray<FPropertySpecifier>& InClassSpecifiers, const FString& InRequiredAPIMacroIfPresent, FClassDeclarationMetaData& OutClassData);
 
 protected:
 	friend struct FScriptLocation;
@@ -452,9 +453,12 @@ protected:
 	// Parse the parameter list of a function or delegate declaration
 	void ParseParameterList(FClasses& AllClasses, UFunction* Function, bool bExpectCommaBeforeName = false, TMap<FName, FString>* MetaData = NULL);
 
+public:
 	// Throws if a specifier value wasn't provided
 	static void RequireSpecifierValue(const FPropertySpecifier& Specifier, bool bRequireExactlyOne = false);
 	static FString RequireExactlyOneSpecifierValue(const FPropertySpecifier& Specifier);
+
+protected:
 
 	/**
 	 * Parse rest of the module's source files.
@@ -732,6 +736,9 @@ protected:
 	static void ValidatePropertyIsDeprecatedIfNecessary(FPropertyBase& VarProperty, FToken* OuterPropertyType);
 
 private:
+	// Module currently parsed by UHT.
+	const FManifestModule* CurrentlyParsedModule;
+
 	/**
 	 * Tries to match constructor parameter list. Assumes that constructor
 	 * name is already matched.
@@ -745,6 +752,8 @@ private:
 	bool TryToMatchConstructorParameterList(FToken Token);
 	void SkipDeprecatedMacroIfNecessary();
 
+	// Parses possible version declaration in generated code, e.g. GENERATED_BODY(<some_version>).
+	void CompileVersionDeclaration(FUnrealSourceFile& SourceFile, UStruct* Struct);
 };
 
 /////////////////////////////////////////////////////

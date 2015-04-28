@@ -38,6 +38,16 @@ static FBoneMatricesUniformShaderParameters GBoneUniformStruct;
 	template class FactoryClass<false>;	\
 	template class FactoryClass<true>;
 
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+static TAutoConsoleVariable<int32> CVarVelocityTest(
+	TEXT("r.VelocityTest"),
+	0,
+	TEXT("Allows to enable some low level testing code for the velocity rendering (Affects object motion blur and TemporalAA).")
+	TEXT(" 0: off (default)")
+	TEXT(" 1: add random data to the buffer where we store skeletal mesh bone data to test if the code (good to test in PAUSED as well)."),
+	ECVF_Cheat | ECVF_RenderThreadSafe);
+#endif // if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+
 /*-----------------------------------------------------------------------------
  FSharedPoolPolicyData
  -----------------------------------------------------------------------------*/
@@ -180,11 +190,11 @@ float* FBoneDataVertexBuffer::LockData()
 	return Data;
 }
 
-void FBoneDataVertexBuffer::UnlockData()
+void FBoneDataVertexBuffer::UnlockData(uint32 SizeInBytes)
 {
 	check(IsValidRef(BoneBuffer));
 	check(IsInRenderingThread() && AllocBlock && AllocSize);
-	FRHICommandListExecutor::GetImmediateCommandList().UpdateVertexBuffer(BoneBuffer.VertexBufferRHI, AllocBlock, AllocSize);
+	FRHICommandListExecutor::GetImmediateCommandList().UpdateVertexBuffer(BoneBuffer.VertexBufferRHI, AllocBlock, SizeInBytes ? SizeInBytes : 4);
 	FMemory::Free(AllocBlock);
 	AllocBlock = nullptr;
 	AllocSize = 0;
@@ -366,6 +376,13 @@ public:
 		Ar << BoneMatrices;
 		Ar << PreviousBoneMatrices;
 	}
+
+	/** Are we are in the velocity rendering pass or render velocity in the base pass? */
+	bool IsRenderingVelocity() const
+	{
+		return BoneIndexOffset.IsBound();
+	}
+
 	/**
 	* Set any shader data specific to this vertex factory
 	*/
@@ -405,12 +422,25 @@ public:
 
 			bool bLocalPerBoneMotionBlur = false;
 			
-			if (FeatureLevel >= ERHIFeatureLevel::SM4 && GPrevPerBoneMotionBlur.IsLocked())
+			if (FeatureLevel >= ERHIFeatureLevel::SM4 && PreviousBoneMatrices.IsBound())
 			{
+				const bool bWorldIsPaused = View.Family->bWorldIsPaused;
+
 				// we are in the velocity rendering pass
 
 				// 0xffffffff or valid index
-				uint32 OldBoneDataIndex = ShaderData.GetOldBoneData(FrameNumber);
+				uint32 OldBoneDataIndex = ShaderData.GetOldBoneData(bWorldIsPaused ? (FrameNumber - 1) : FrameNumber);
+
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+				{
+					static const auto MotionBlurDebugVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.MotionBlurDebug"));
+
+					if (MotionBlurDebugVar && MotionBlurDebugVar->GetValueOnRenderThread())
+					{
+						UE_LOG(LogEngine, Log, TEXT("%s"), *ShaderData.GetDebugString(VertexFactory, OldBoneDataIndex));
+					}
+				}
+#endif // !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 
 				// Read old data if it was written last frame (normal data) or this frame (e.g. split screen)
 				bLocalPerBoneMotionBlur = (OldBoneDataIndex != 0xffffffff);
@@ -418,7 +448,10 @@ public:
 				// we tell the shader where to pickup the data (always, even if we don't have bone data, to avoid false binding)
 				if(PreviousBoneMatrices.IsBound())
 				{
-					RHICmdList.SetShaderResourceViewParameter(Shader->GetVertexShader(), PreviousBoneMatrices.GetBaseIndex(), GPrevPerBoneMotionBlur.GetReadData()->BoneBuffer.VertexBufferSRV);
+					RHICmdList.SetShaderResourceViewParameter(
+						Shader->GetVertexShader(),
+						PreviousBoneMatrices.GetBaseIndex(),
+						GPrevPerBoneMotionBlur.GetBoneDataVertexBuffer(GPrevPerBoneMotionBlur.GetReadBufferIndex())->BoneBuffer.VertexBufferSRV);
 				}
 
 				if(bLocalPerBoneMotionBlur)
@@ -438,18 +471,37 @@ public:
 						);
 				}
 				FScopeLock Lock(&ShaderData.OldBoneDataLock);
+
+				const FGPUBaseSkinVertexFactory* GPUVertexFactory = (const FGPUBaseSkinVertexFactory*)VertexFactory;
+
 				// if we haven't copied the data yet we skip the update (e.g. split screen)
 				if(ShaderData.IsOldBoneDataUpdateNeeded(FrameNumber))
 				{
-					const FGPUBaseSkinVertexFactory* GPUVertexFactory = (const FGPUBaseSkinVertexFactory*)VertexFactory;
+					if (bWorldIsPaused)
+					{
+						GPUVertexFactory->MaintainBoneDataStartIndex();
+					}
+					else
+					{
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+						if (CVarVelocityTest.GetValueOnRenderThread())
+						{
+							FBoneSkinning Tab[10];
 
-					// copy the bone data and tell the instance where it can pick it up next frame
-					// append data to a buffer we bind next frame to read old matrix data for motion blur
-					uint32 OldBoneDataStartIndex = GPrevPerBoneMotionBlur.AppendData(ShaderData.BoneMatrices.GetData(), ShaderData.BoneMatrices.Num());
-					GPUVertexFactory->SetOldBoneDataStartIndex(FrameNumber, OldBoneDataStartIndex);
+							FMemory::Memset(Tab, 0, sizeof(FBoneSkinning) * 10);
+							// We add some black gap between the elements, to ensure we pick the right data for this frame
+							// wwe create different gap size on alternating frames.
+							GPrevPerBoneMotionBlur.AppendData(Tab, (FrameNumber % 2) + 4);
+						}
+#endif // if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+
+						// copy the bone data and tell the instance where it can pick it up next frame
+						// append data to a buffer we bind next frame to read old matrix data for motion blur
+						uint32 OldBoneDataStartIndex = GPrevPerBoneMotionBlur.AppendData(ShaderData.BoneMatrices.GetData(), ShaderData.BoneMatrices.Num());
+						GPUVertexFactory->SetOldBoneDataStartIndex(FrameNumber, OldBoneDataStartIndex);
+					}
 				}
 			}
-
 			SetShaderValue(RHICmdList, Shader->GetVertexShader(), PerBoneMotionBlur, bLocalPerBoneMotionBlur);
 		}
 	}
@@ -513,7 +565,7 @@ public:
 
 		bool bIsGPUCached = false;
 
-		if (GEnableGPUSkinCache && GGPUSkinCache.SetVertexStreamFromCache(RHICmdList, BatchElement.UserIndex, Shader, VertexFactory, BatchElement.MinVertexIndex, GPrevPerBoneMotionBlur.IsLocked(), GPUSkinCacheStreamFloatOffset, GPUSkinCacheStreamStride, GPUSkinCacheStreamBuffer))
+		if (GEnableGPUSkinCache && GGPUSkinCache.SetVertexStreamFromCache(RHICmdList, BatchElement.UserIndex, Shader, VertexFactory, BatchElement.MinVertexIndex, GPrevPerBoneMotionBlur.IsAppendStarted(), GPUSkinCacheStreamFloatOffset, GPUSkinCacheStreamStride, GPUSkinCacheStreamBuffer))
 		{
 			bIsGPUCached = true;
 		}

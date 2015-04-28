@@ -9,7 +9,7 @@ FShaderResourceViewRHIRef FOpenGLDynamicRHI::RHICreateShaderResourceView(FVertex
 	GLuint TextureID = 0;
 	if ( FOpenGL::SupportsResourceView() )
 	{
-		DYNAMIC_CAST_OPENGLRESOURCE(VertexBuffer,VertexBuffer);
+		FOpenGLVertexBuffer* VertexBuffer = ResourceCast(VertexBufferRHI);
 
 		const uint32 FormatBPP = GPixelFormats[Format].BlockBytes;
 
@@ -51,14 +51,14 @@ FOpenGLShaderResourceView::~FOpenGLShaderResourceView()
 
 FUnorderedAccessViewRHIRef FOpenGLDynamicRHI::RHICreateUnorderedAccessView(FStructuredBufferRHIParamRef StructuredBufferRHI, bool bUseUAVCounter, bool bAppendBuffer)
 {
-	DYNAMIC_CAST_OPENGLRESOURCE(StructuredBuffer,StructuredBuffer);
+	FOpenGLStructuredBuffer* StructuredBuffer = ResourceCast(StructuredBufferRHI);
 	UE_LOG(LogRHI, Fatal,TEXT("%s not implemented yet"),ANSI_TO_TCHAR(__FUNCTION__)); 
 	return new FOpenGLUnorderedAccessView();
 }
 
 FUnorderedAccessViewRHIRef FOpenGLDynamicRHI::RHICreateUnorderedAccessView(FTextureRHIParamRef TextureRHI)
 {
-	DYNAMIC_CAST_OPENGLRESOURCE(Texture,Texture);
+	FOpenGLTexture* Texture = ResourceCast(TextureRHI);
 	check(Texture->GetFlags() & TexCreate_UAV);
 	return new FOpenGLTextureUnorderedAccessView(TextureRHI);
 }
@@ -82,7 +82,7 @@ FOpenGLVertexBufferUnorderedAccessView::FOpenGLVertexBufferUnorderedAccessView(	
 	OpenGLRHI(InOpenGLRHI)
 {
 	VERIFY_GL_SCOPE();
-	DYNAMIC_CAST_OPENGLRESOURCE(VertexBuffer, InVertexBuffer);
+	FOpenGLVertexBuffer* InVertexBuffer = FOpenGLDynamicRHI::ResourceCast(InVertexBufferRHI);
 
 
 	const FOpenGLTextureFormat& GLFormat = GOpenGLTextureFormats[Format];
@@ -114,19 +114,16 @@ FOpenGLVertexBufferUnorderedAccessView::~FOpenGLVertexBufferUnorderedAccessView(
 
 FUnorderedAccessViewRHIRef FOpenGLDynamicRHI::RHICreateUnorderedAccessView(FVertexBufferRHIParamRef VertexBufferRHI,uint8 Format)
 {
-	DYNAMIC_CAST_OPENGLRESOURCE(VertexBuffer,VertexBuffer);
+	FOpenGLVertexBuffer* VertexBuffer = ResourceCast(VertexBufferRHI);
 	return new FOpenGLVertexBufferUnorderedAccessView(this, VertexBufferRHI, Format);
 }
 
 FShaderResourceViewRHIRef FOpenGLDynamicRHI::RHICreateShaderResourceView(FStructuredBufferRHIParamRef StructuredBufferRHI)
 {
-	DYNAMIC_CAST_OPENGLRESOURCE(StructuredBuffer,StructuredBuffer);
+	FOpenGLStructuredBuffer* StructuredBuffer = ResourceCast(StructuredBufferRHI);
 	UE_LOG(LogRHI, Fatal,TEXT("OpenGL RHI doesn't support RHICreateShaderResourceView yet!"));
 	return new FOpenGLShaderResourceView(this,0,GL_TEXTURE_BUFFER);
 }
-
-// Ignore functions from RHIMethods.h when parsing documentation; Doxygen's preprocessor can't parse the declaration, so spews warnings for the definitions.
-#if !UE_BUILD_DOCS
 
 void FOpenGLDynamicRHI::RHIClearUAV(FUnorderedAccessViewRHIParamRef UnorderedAccessViewRHI, const uint32* Values)
 {
@@ -134,4 +131,4 @@ void FOpenGLDynamicRHI::RHIClearUAV(FUnorderedAccessViewRHIParamRef UnorderedAcc
 	GPUProfilingData.RegisterGPUWork(1);
 }
 
-#endif
+

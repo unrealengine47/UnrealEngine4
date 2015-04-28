@@ -90,6 +90,7 @@ public:
 					[
 						SNew(SBorder)
 						.BorderImage(&FriendStyle.ChatFooterBrush)
+						.BorderBackgroundColor(this, &SChatWindowImpl::GetTimedFadeSlateColor)
 						.Padding(FMargin(10, 10, 10, 10))
 						[
 							SNew(SHorizontalBox)
@@ -782,7 +783,7 @@ private:
 	void SendChatMessage()
 	{
 		const FText& CurrentText = ChatTextBox->GetText();
-		if (CheckLimit(CurrentText) && !CurrentText.IsEmptyOrWhitespace())
+		if (CheckLimit(CurrentText))
 		{
 			if (DisplayViewModel->SendMessage(CurrentText))
 			{

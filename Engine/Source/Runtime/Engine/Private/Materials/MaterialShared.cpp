@@ -181,6 +181,8 @@ int32 FMaterialAttributesInput::CompileWithDefault(class FMaterialCompiler* Comp
 		}
 	}
 
+	SetConnectedProperty(Property, Ret != INDEX_NONE);
+
 	if( Ret == INDEX_NONE )
 	{
 		Ret = GetDefaultExpressionForMaterialProperty(Compiler, Property);
@@ -800,7 +802,9 @@ bool FMaterialResource::OutputsVelocityOnBasePass() const
 
 bool FMaterialResource::IsNonmetal() const
 {
-	return !Material->Metallic.IsConnected() && !Material->Specular.IsConnected();
+	return !Material->bUseMaterialAttributes ?
+			(!Material->Metallic.IsConnected() && !Material->Specular.IsConnected()) :
+			!(Material->MaterialAttributes.IsConnected(MP_Specular) || Material->MaterialAttributes.IsConnected(MP_Metallic));
 }
 
 bool FMaterialResource::UseLmDirectionality() const
@@ -838,6 +842,11 @@ EMaterialShadingModel FMaterialResource::GetShadingModel() const
 bool FMaterialResource::IsTwoSided() const 
 {
 	return MaterialInstance ? MaterialInstance->IsTwoSided() : Material->IsTwoSided();
+}
+
+bool FMaterialResource::IsDitheredLODTransition() const 
+{
+	return MaterialInstance ? MaterialInstance->IsDitheredLODTransition() : Material->IsDitheredLODTransition();
 }
 
 bool FMaterialResource::IsMasked() const 
@@ -1135,13 +1144,13 @@ void FMaterial::SetupMaterialEnvironment(
 
 	switch(GetBlendMode())
 	{
-	case BLEND_Opaque: OutEnvironment.SetDefine(TEXT("MATERIALBLENDING_SOLID"),TEXT("1")); break;
+	case BLEND_Opaque:
 	case BLEND_Masked:
 		{
 			// Only set MATERIALBLENDING_MASKED if the material is truly masked
 			//@todo - this may cause mismatches with what the shader compiles and what the renderer thinks the shader needs
 			// For example IsTranslucentBlendMode doesn't check IsMasked
-			if(IsMasked())
+			if(!WritesEveryPixel())
 			{
 				OutEnvironment.SetDefine(TEXT("MATERIALBLENDING_MASKED"),TEXT("1"));
 			}
@@ -1182,6 +1191,7 @@ void FMaterial::SetupMaterialEnvironment(
 		OutEnvironment.SetDefine(TEXT("MATERIALDECALRESPONSEMASK"), MaterialDecalResponseMask);
 	}
 
+	OutEnvironment.SetDefine(TEXT("USE_DITHERED_LOD_TRANSITION"), IsDitheredLODTransition() ? TEXT("1") : TEXT("0"));
 	OutEnvironment.SetDefine(TEXT("MATERIAL_TWOSIDED"), IsTwoSided() ? TEXT("1") : TEXT("0"));
 	OutEnvironment.SetDefine(TEXT("MATERIAL_TANGENTSPACENORMAL"), IsTangentSpaceNormal() ? TEXT("1") : TEXT("0"));
 	OutEnvironment.SetDefine(TEXT("GENERATE_SPHERICAL_PARTICLE_NORMALS"),ShouldGenerateSphericalParticleNormals() ? TEXT("1") : TEXT("0"));
@@ -1690,43 +1700,6 @@ bool FLightingDensityMaterialRenderProxy::GetVectorValue(const FName ParameterNa
 		return true;
 	}
 	return FColoredMaterialRenderProxy::GetVectorValue(ParameterName, OutValue, Context);
-}
-
-/*-----------------------------------------------------------------------------
-	FFontMaterialRenderProxy
------------------------------------------------------------------------------*/
-
-const class FMaterial* FFontMaterialRenderProxy::GetMaterial(ERHIFeatureLevel::Type InFeatureLevel) const
-{
-	return Parent->GetMaterial(InFeatureLevel);
-}
-
-bool FFontMaterialRenderProxy::GetVectorValue(const FName ParameterName, FLinearColor* OutValue, const FMaterialRenderContext& Context) const
-{
-	return Parent->GetVectorValue(ParameterName, OutValue, Context);
-}
-
-bool FFontMaterialRenderProxy::GetScalarValue(const FName ParameterName, float* OutValue, const FMaterialRenderContext& Context) const
-{
-	return Parent->GetScalarValue(ParameterName, OutValue, Context);
-}
-
-bool FFontMaterialRenderProxy::GetTextureValue(const FName ParameterName,const UTexture** OutValue, const FMaterialRenderContext& Context) const
-{
-	// find the matching font parameter
-	if( ParameterName == FontParamName &&
-		Font->Textures.IsValidIndex(FontPage) )
-	{
-		// use the texture page from the font specified for the parameter
-		UTexture2D* Texture = Font->Textures[FontPage];
-		if( Texture && Texture->Resource )
-		{
-			*OutValue = Texture;
-			return true;
-		}		
-	}
-	// try parent if not valid parameter
-	return Parent->GetTextureValue(ParameterName,OutValue,Context);
 }
 
 /*-----------------------------------------------------------------------------
@@ -2360,10 +2333,12 @@ FMaterialInstanceBasePropertyOverrides::FMaterialInstanceBasePropertyOverrides()
 	,bOverride_BlendMode(false)
 	,bOverride_ShadingModel(false)
 	,bOverride_TwoSided(false)
+	,bOverride_DitheredLODTransition(false)
 	,OpacityMaskClipValue(.333333f)
 	,BlendMode(BLEND_Opaque)
 	,ShadingModel(MSM_DefaultLit)
 	,TwoSided(0)
+	,DitheredLODTransition(0)
 {
 
 }
@@ -2374,10 +2349,12 @@ bool FMaterialInstanceBasePropertyOverrides::operator==(const FMaterialInstanceB
 			bOverride_BlendMode == Other.bOverride_BlendMode &&
 			bOverride_ShadingModel == Other.bOverride_ShadingModel &&
 			bOverride_TwoSided == Other.bOverride_TwoSided &&
+			bOverride_DitheredLODTransition == Other.bOverride_DitheredLODTransition &&
 			OpacityMaskClipValue == Other.OpacityMaskClipValue &&
 			BlendMode == Other.BlendMode &&
 			ShadingModel == Other.ShadingModel &&
-			TwoSided == Other.TwoSided;
+			TwoSided == Other.TwoSided &&
+			DitheredLODTransition == Other.DitheredLODTransition;
 }
 
 bool FMaterialInstanceBasePropertyOverrides::operator!=(const FMaterialInstanceBasePropertyOverrides& Other)const

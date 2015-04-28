@@ -36,7 +36,11 @@
 #include "hlslcc_private.h"
 #include "GlslBackend.h"
 #include "compiler.h"
+
+PRAGMA_DISABLE_SHADOW_VARIABLE_WARNINGS
 #include "glsl_parser_extras.h"
+PRAGMA_POP
+
 #include "hash_table.h"
 #include "ir_rvalue_visitor.h"
 #include "PackUniformBuffers.h"
@@ -3406,7 +3410,6 @@ static ir_rvalue* GenShaderInputSemantic(
 	bool& ApplyClipSpaceAdjustment
 	)
 {
-	ir_variable* Variable = NULL;
 	if (Semantic && FCStringAnsi::Strnicmp(Semantic, "SV_", 3) == 0)
 	{
 		FSystemValue* SystemValues = SystemValueTable[Frequency];
@@ -3420,7 +3423,7 @@ static ir_rvalue* GenShaderInputSemantic(
 				{
 					// Built-in array variable. Like gl_in[x].gl_Position.
 					// The variable for it has already been created in GenShaderInput().
-					/*ir_variable**/ Variable = ParseState->symbols->get_variable("gl_in");
+					ir_variable* Variable = ParseState->symbols->get_variable("gl_in");
 					check(Variable);
 					ir_dereference_variable* ArrayDeref = new(ParseState)ir_dereference_variable(Variable);
 					ir_dereference_array* StructDeref = new(ParseState)ir_dereference_array(
@@ -3504,6 +3507,7 @@ static ir_rvalue* GenShaderInputSemantic(
 		}
 	}
 
+	ir_variable* Variable = NULL;
 	if (Variable == NULL && Frequency == HSF_DomainShader)
 	{
 		const int PrefixLength = 13;
@@ -3579,7 +3583,7 @@ static ir_rvalue* GenShaderInputSemantic(
 		if (ParseState->bGenerateES && Type->is_integer())
 		{
 			// Convert integer attributes to floats
-			ir_variable* Variable = new(ParseState)ir_variable(
+			Variable = new(ParseState)ir_variable(
 				Type,
 				ralloc_asprintf(ParseState, "%s_%s_I", Prefix, Semantic),
 				ir_var_temporary
@@ -3653,7 +3657,7 @@ static ir_rvalue* GenShaderInputSemantic(
 			VariableType = glsl_type::get_array_instance(VariableType, SemanticArraySize);
 		}
 
-		ir_variable* Variable = new(ParseState)ir_variable(VariableType, ralloc_asprintf(ParseState, "in_%s", Semantic), ir_var_in);
+		Variable = new(ParseState)ir_variable(VariableType, ralloc_asprintf(ParseState, "in_%s", Semantic), ir_var_in);
 		Variable->read_only = true;
 		Variable->is_interface_block = true;
 		Variable->centroid = InputQualifier.Fields.bCentroid;

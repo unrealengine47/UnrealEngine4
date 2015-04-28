@@ -259,8 +259,11 @@ void UK2Node::PinConnectionListChanged(UEdGraphPin* Pin)
 		{
 			const UEdGraphSchema_K2* Schema = Cast<const UEdGraphSchema_K2>(GetSchema());
 
-			Pin->DefaultObject = NULL;
-			Schema->SetPinDefaultValueBasedOnType(Pin);
+			Pin->ResetDefaultValue();
+			if (EEdGraphPinDirection::EGPD_Input == Pin->Direction)
+			{
+				Schema->SetPinDefaultValueBasedOnType(Pin);
+			}
 		}
 	}
 
@@ -942,6 +945,28 @@ UEdGraphPin* UK2Node::GetExecPin() const
 	UEdGraphPin* Pin = FindPin(K2Schema->PN_Execute);
 	check(Pin == NULL || Pin->Direction == EGPD_Input); // If pin exists, it must be input
 	return Pin;
+}
+
+UEdGraphPin* UK2Node::GetPassThroughPin(const UEdGraphPin* FromPin) const
+{
+	UEdGraphPin* MatchedPin = nullptr;
+	if(FromPin && Pins.Contains(FromPin))
+	{
+		const UEdGraphSchema_K2* K2Schema = GetDefault<UEdGraphSchema_K2>();
+		if(K2Schema->IsExecPin(*FromPin))
+		{
+			if(FromPin->Direction == EGPD_Input)
+			{
+				MatchedPin = FindPin(K2Schema->PN_Then);
+			}
+			else
+			{
+				MatchedPin = FindPin(K2Schema->PN_Execute);
+			}
+		}
+	}
+
+	return MatchedPin;
 }
 
 bool UK2Node::CanCreateUnderSpecifiedSchema(const UEdGraphSchema* DesiredSchema) const

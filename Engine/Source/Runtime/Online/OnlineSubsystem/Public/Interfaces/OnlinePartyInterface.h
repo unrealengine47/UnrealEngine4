@@ -6,9 +6,9 @@
 #include "OnlineChatInterface.h"
 
 /**
- * Id of a party instance
+ * Key value data that can be sent to party members
  */
-typedef FUniqueNetId FOnlinePartyId;
+typedef FOnlineKeyValuePairs<FString, FVariantData> FOnlinePartyAttrs;
 
 /**
  * Party member user info returned by IOnlineParty interface
@@ -30,7 +30,7 @@ public:
 	/**
 	 * @return true if this is the party owner/leader
 	 */
-	virtual bool IsOwner() const = 0;
+	virtual bool IsLeader() const = 0;
 };
 
 /**
@@ -43,7 +43,7 @@ public:
 	/**
 	 * @return id of the party this data is associated with
 	 */
-	virtual const FOnlinePartyId& GetPartyId() const = 0;
+	virtual TSharedRef<FOnlinePartyId> GetPartyId() const = 0;
 
 	/**
 	 * Get an attribute from the party data
@@ -51,17 +51,16 @@ public:
 	 * @param AttrName - key for the attribute
 	 * @param OutAttrValue - [out] value for the attribute if found
 	 *
-	 * @returnm true if the attribute was vound
+	 * @return true if the attribute was vound
 	 */
 	virtual bool GetAttribute(const FString& AttrName, FVariantData& OutAttrValue) const = 0;
 
 	/**
-	 * Set an attribute on the party data
+	 * Get all attributes from the party data
 	 *
-	 * @param AttrName - key for the attribute
-	 * @param AttrValue - value for the attribute to set
+	 * @return key/val attributes
 	 */
-	virtual void SetAttribute(const FString& AttrName, const FVariantData& AttrValue) const = 0;
+	virtual const FOnlinePartyAttrs& GetAttributes() const = 0;
 };
 
 /**
@@ -74,7 +73,39 @@ public:
 	/**
 	 * @return id of the party member this data is associated with
 	 */
-	virtual const FUniqueNetId& GetPartyMemberId() = 0;
+	virtual TSharedRef<FUniqueNetId> GetPartyMemberId() const = 0;
+};
+
+/**
+ * Data associated with a party invite
+ */
+
+namespace EInviteState
+{
+	enum Type
+	{
+		Unanswered,
+		Accepted
+	};
+}
+
+class IOnlinePartyInviteData
+{
+public:
+	IOnlinePartyInviteData() : InviteState(EInviteState::Unanswered) {}
+	virtual ~IOnlinePartyInviteData() {}
+
+	/**
+	 * @return id of the user this invite is from
+	 */
+	virtual TSharedRef<FUniqueNetId> GetSenderId() const = 0;
+
+	/**
+	 * @return id of the party associated with this invite
+	 */
+	virtual TSharedRef<FOnlinePartyId> GetPartyId() const = 0;
+
+	EInviteState::Type InviteState;
 };
 
 /**
@@ -84,11 +115,9 @@ namespace EPartyPermissions
 {
 	enum Type
 	{
-		/** any user can discover/join the party */
+		/** any user that discovers the party can join */
 		Public,
-		/** only friends can discover/join the party */
-		FriendsOnly,
-		/** invite required to discover/join the party */
+		/** invite required to join the party */
 		Private
 	};
 }
@@ -98,23 +127,72 @@ namespace EPartyPermissions
  */
 struct FPartyConfiguration
 {
+	FPartyConfiguration()
+		: Permissions(EPartyPermissions::Public)
+		, MaxMembers(0)
+	{}
+
 	/** Permission for configuring party */
-	EPartyPermissions::Type JoinPerms;
-	/** Maximum active members allowed */
+	EPartyPermissions::Type Permissions;
+	/** Maximum active members allowed. 0 means no maximum. */
 	int32 MaxMembers;
+	/** Human readable nickname */
+	FString Nickname;
+	/** Human readable description */
+	FString Description;
+	/** Password to use. */
+	FString Password;
 };
+
+struct FDebugPartyConfiguration : TSharedFromThis<FDebugPartyConfiguration>
+{
+	/** PartyId to use */
+	FString PartyId;
+	/** Access token to use. */
+	FString AccessToken;
+};
+
+namespace EPartyState
+{
+	enum Type
+	{
+		None,
+		CreatePending,
+		DestroyPending,
+		JoinPending,
+		LeavePending,
+		Success,
+		Failed
+	};
+}
 
 /**
  * Current state associated with a party
  */
-struct FOnlinePartyInfo
+class FOnlinePartyInfo : public TSharedFromThis<FOnlinePartyInfo>
 {
+public:
+	FOnlinePartyInfo(const TSharedPtr<FOnlinePartyId>& InPartyId = TSharedPtr<FOnlinePartyId>())
+		: State(EPartyState::None)
+		, PartyId(InPartyId )
+	{}
+
+	virtual ~FOnlinePartyInfo() 
+	{}
+
+	EPartyState::Type State;
 	/** Current state of configuration */
 	FPartyConfiguration Config;
-	/** unique id of hte party */
+	/** (optional) Debug configuration */
+	TSharedPtr<FDebugPartyConfiguration> DebugConfig;
+	/** unique id of the party */
 	TSharedPtr<FOnlinePartyId> PartyId;
-	/** password needed for private parties */
-	FString Password;
+	/** leader of the party */
+	TSharedPtr<FUniqueNetId> PartyLeader;
+	/** access token that changes when you switch from public to invite-only */
+	FString AccessToken;
+	/** password needed for to join the room */
+	FString RoomPassword;
 	/** id of chat room associated with the party */
 	FChatRoomId RoomId;
 };
@@ -177,6 +255,24 @@ DECLARE_DELEGATE_FourParams(FOnLeavePartyComplete, const FUniqueNetId& /*LocalUs
  */
 DECLARE_DELEGATE_FiveParams(FOnSendPartyInviteComplete, const FUniqueNetId& /*LocalUserId*/, bool /*bWasSuccessful*/, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*RecipientId*/, const FString& /*Error*/);
 /**
+ * Accepting an invite to a user to join party async task completed callback
+ *
+ * @param LocalUserId - id of user that initiated the request
+ * @param bWasSuccessful - true if successfully sent invite
+ * @param PartyId - id associated with the party
+ * @param Error - string with error info if any
+ */
+DECLARE_DELEGATE_FourParams(FOnAcceptPartyInviteComplete, const FUniqueNetId& /*LocalUserId*/, bool /*bWasSuccessful*/, const FOnlinePartyId& /*PartyId*/, const FString& /*Error*/);
+/**
+ * Rejecting an invite to a user to join party async task completed callback
+ *
+ * @param LocalUserId - id of user that initiated the request
+ * @param bWasSuccessful - true if successfully sent invite
+ * @param PartyId - id associated with the party
+ * @param Error - string with error info if any
+ */
+DECLARE_DELEGATE_FourParams(FOnRejectPartyInviteComplete, const FUniqueNetId& /*LocalUserId*/, bool /*bWasSuccessful*/, const FOnlinePartyId& /*PartyId*/, const FString& /*Error*/);
+/**
  * Kicking a member of a party async task completed callback
  *
  * @param LocalUserId - id of user that initiated the request
@@ -208,6 +304,14 @@ DECLARE_DELEGATE_FiveParams(FOnPromotePartyMemberComplete, const FUniqueNetId& /
  */
 DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnPartyInviteReceived, const FUniqueNetId& /*RecipientId*/, const FUniqueNetId& /*SenderId*/, const FOnlinePartyId& /*PartyId*/);
 typedef FOnPartyInviteReceived::FDelegate FOnPartyInviteReceivedDelegate;
+
+/**
+ * Notification when a party has been disbanded 
+ *
+ * @param PartyId - id associated with the party
+ */
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnPartyDisbanded, const FOnlinePartyId& /*PartyId*/);
+typedef FOnPartyDisbanded::FDelegate FOnPartyDisbandedDelegate;
 
 /**
  * Notification when a member joins the party
@@ -256,6 +360,24 @@ DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnPartyMemberDataReceived, const FOnline
 typedef FOnPartyMemberDataReceived::FDelegate FOnPartyMemberDataReceivedDelegate;
 
 /**
+ * Notification when an invite is rejected
+ *
+ * @param PartyId - id associated with the party
+ * @param MemberId - id of member that rejected the invite
+ */
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnPartyInviteAccepted, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*RejectorId*/);
+typedef FOnPartyInviteAccepted::FDelegate FOnPartyInviteAcceptedDelegate;
+
+/**
+ * Notification when an invite is rejected
+ *
+ * @param PartyId - id associated with the party
+ * @param MemberId - id of member that rejected the invite
+ */
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnPartyInviteRejected, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*RejectorId*/);
+typedef FOnPartyInviteRejected::FDelegate FOnPartyInviteRejectedDelegate;
+
+/**
  * Interface definition for the online party services 
  * Allows for forming a party and communicating with party members
  */
@@ -273,6 +395,7 @@ public:
 	 * @param LocalUserId - user making the request
 	 * @param PartyConfig - configuration for the party (can be updated later)
 	 * @param Delegate - called on completion
+	 * @param UserRoomId - this forces the name of the room to be this value
 	 *
 	 * @return true if task was started
 	 */
@@ -312,7 +435,7 @@ public:
 	 *
 	 * @return true if task was started
 	 */
-	virtual bool JoinParty(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, const FOnJoinPartyComplete& Delegate = FOnJoinPartyComplete()) = 0;
+	virtual bool JoinParty(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, const FString& AccessToken, const FString& Password = TEXT(""), const FOnJoinPartyComplete& Delegate = FOnJoinPartyComplete()) = 0;
 
 	/**
 	 * Leave an existing party
@@ -327,17 +450,43 @@ public:
 	virtual bool LeaveParty(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, const FOnLeavePartyComplete& Delegate = FOnLeavePartyComplete()) = 0;
 
 	/**
-	 * Invite a user to an existing party
-	 * Recipient will be notified of the new invite (see FOnPartyInviteReceived)
-	 *
-	 * @param LocalUserId - user making the request
-	 * @param PartyId - id of an existing party
-	 * @param RecipientId - id of the user being invited
-	 * @param Delegate - called on completion
-	 *
-	 * @return true if task was started
-	 */
+	* Invite a user to an existing party
+	* Recipient will be notified of the new invite (see FOnPartyInviteReceived)
+	*
+	* @param LocalUserId - user making the request
+	* @param PartyId - id of an existing party
+	* @param RecipientId - id of the user being invited
+	* @param Delegate - called on completion
+	*
+	* @return true if task was started
+	*/
 	virtual bool SendInvite(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, const FUniqueNetId& RecipientId, const FOnSendPartyInviteComplete& Delegate = FOnSendPartyInviteComplete()) = 0;
+
+	/**
+	* Invite a user to an existing party
+	* Recipient will be notified of the new invite (see FOnPartyInviteReceived)
+	*
+	* @param LocalUserId - user making the request
+	* @param PartyId - id of an existing party
+	* @param RecipientId - id of the user being invited
+	* @param Delegate - called on completion
+	*
+	* @return true if task was started
+	*/
+	virtual bool AcceptInvite(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, const FOnAcceptPartyInviteComplete& Delegate = FOnAcceptPartyInviteComplete()) = 0;
+
+	/**
+	* Invite a user to an existing party
+	* Recipient will be notified of the new invite (see FOnPartyInviteReceived)
+	*
+	* @param LocalUserId - user making the request
+	* @param PartyId - id of an existing party
+	* @param RecipientId - id of the user being invited
+	* @param Delegate - called on completion
+	*
+	* @return true if task was started
+	*/
+	virtual bool RejectInvite(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, const FOnRejectPartyInviteComplete& Delegate = FOnRejectPartyInviteComplete()) = 0;
 
 	/**
 	 * Kick a user from an existing party
@@ -377,7 +526,7 @@ public:
 	 *
 	 * @return true if task was started
 	 */
-	virtual bool UpdatePartyData(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, const IOnlinePartyData& PartyData) = 0;
+	virtual bool UpdatePartyData(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, const FOnlinePartyAttrs& PartyData) = 0;
 
 	/**
 	 * Set party data for a single party member and broadcast to all members
@@ -391,7 +540,7 @@ public:
 	 *
 	 * @return true if task was started
 	 */
-	virtual bool UpdatePartyMemberData(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, const IOnlinePartyMemberData& PartyMemberData) = 0;
+	virtual bool UpdatePartyMemberData(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, const FOnlinePartyAttrs& PartyMemberData) = 0;
 
 	/**
 	 * Get a list of currently joined parties for the user
@@ -402,6 +551,16 @@ public:
 	 * @return true if entries found
 	 */
 	virtual bool GetJoinedParties(const FUniqueNetId& LocalUserId, TArray< TSharedRef<FOnlinePartyId> >& OutPartyIds) const = 0;
+
+	/**
+	 * Get a list of parties the user has been invited to
+	 *
+	 * @param LocalUserId - user making the request
+	 * @param OutPartyIds - list of party ids joined by the current user
+	 *
+	 * @return true if entries found
+	 */
+	virtual bool GetPartyInvites(const FUniqueNetId& LocalUserId, TArray< TSharedRef<IOnlinePartyInviteData> >& OutPartyInviteData) const = 0;
 
 	/**
 	 * Get info associated with a party
@@ -468,6 +627,79 @@ public:
 	 * @return party member data or nullptr if not found
 	 */
 	virtual TSharedPtr<IOnlinePartyMemberData> GetPartyMemberData(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, const FUniqueNetId& MemberId) const = 0;
+
+	/**
+	 * Notification when a new invite is received
+	 *
+	 * @param RecipientId - id of user that this invite is for
+	 * @param SenderId - id of member that sent the invite
+	 * @param PartyId - id associated with the party
+	 */
+	DEFINE_ONLINE_DELEGATE_THREE_PARAM(OnPartyInviteReceived, const FUniqueNetId& /*RecipientId*/, const FUniqueNetId& /*SenderId*/, const FOnlinePartyId& /*PartyId*/);
+
+	/**
+	 * Notification when a party has been disbanded 
+	 *
+	 * @param PartyId - id associated with the party
+	 */
+	DEFINE_ONLINE_DELEGATE_ONE_PARAM(OnPartyDisbanded, const FOnlinePartyId& /*PartyId*/);
+
+	/**
+	 * Notification when a member joins the party
+	 *
+	 * @param PartyId - id associated with the party
+	 * @param MemberId - id of member that joined
+	 */
+	DEFINE_ONLINE_DELEGATE_TWO_PARAM(OnPartyMemberJoined, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*MemberId*/);
+
+	/**
+	 * Notification when a member leaves the party
+	 *
+	 * @param PartyId - id associated with the party
+	 * @param MemberId - id of member that left
+	 */
+	DEFINE_ONLINE_DELEGATE_TWO_PARAM(OnPartyMemberLeft, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*MemberId*/);
+
+	/**
+	 * Notification when a member is promoted to admin in the party
+	 *
+	 * @param PartyId - id associated with the party
+	 * @param MemberId - id of member that was promoted to admin
+	 */
+	DEFINE_ONLINE_DELEGATE_TWO_PARAM(OnPartyMemberPromoted, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*MemberId*/);
+
+	/**
+	 * Notification when party data is updated
+	 *
+	 * @param PartyId - id associated with the party
+	 * @param PartyData - party data that was updated
+	 */
+	DEFINE_ONLINE_DELEGATE_TWO_PARAM(OnPartyDataReceived, const FOnlinePartyId& /*PartyId*/, const TSharedRef<IOnlinePartyData>& /*PartyData*/);
+
+	/**
+	 * Notification when party member data is updated
+	 *
+	 * @param PartyId - id associated with the party
+	 * @param MemberId - id of member that had updated data
+	 * @param PartyMemberData - party member data that was updated
+	 */
+	DEFINE_ONLINE_DELEGATE_THREE_PARAM(OnPartyMemberDataReceived, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*MemberId*/, const TSharedRef<IOnlinePartyMemberData>& /*PartyMemberData*/);
+
+	/**
+	 * Notification when an invite is accepted
+	 *
+	 * @param PartyId - id associated with the party
+	 * @param MemberId - id of member that accepted the invite
+	 */
+	DEFINE_ONLINE_DELEGATE_TWO_PARAM(OnPartyInviteAccepted, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*RejectorId*/);
+
+	/**
+	 * Notification when an invite is rejected
+	 *
+	 * @param PartyId - id associated with the party
+	 * @param MemberId - id of member that rejected the invite
+	 */
+	DEFINE_ONLINE_DELEGATE_TWO_PARAM(OnPartyInviteRejected, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*RejectorId*/);
 };
 
 typedef TSharedPtr<IOnlineParty, ESPMode::ThreadSafe> IOnlinePartyPtr;

@@ -247,6 +247,10 @@ void UGameplayDebuggingComponent::ClientEnableTargetSelection_Implementation(boo
 void UGameplayDebuggingComponent::SetActorToDebug(AActor* Actor)
 {
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+	if (TargetActor != Actor)
+	{
+		MarkRenderStateDirty();
+	}
 	TargetActor = Actor;
 	EQSLocalData.Reset();
 #endif //!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
@@ -284,7 +288,9 @@ void UGameplayDebuggingComponent::SelectTargetToDebug()
 {
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	AGameplayDebuggingReplicator* Replicator = Cast<AGameplayDebuggingReplicator>(GetOwner());
-	APlayerController* MyPC = Replicator->GetLocalPlayerOwner();
+
+	UGameplayDebuggingControllerComponent* GDC = Replicator->FindComponentByClass<UGameplayDebuggingControllerComponent>();
+	APlayerController* MyPC = GDC && GDC->GetDebugCameraController().IsValid() ? GDC->GetDebugCameraController().Get() : Replicator->GetLocalPlayerOwner();
 
 	if (MyPC )
 	{
@@ -333,6 +339,7 @@ void UGameplayDebuggingComponent::SelectTargetToDebug()
 			if (AGameplayDebuggingReplicator* DebuggingReplicator = Cast<AGameplayDebuggingReplicator>(GetOwner()))
 			{
 				DebuggingReplicator->ServerSetActorToDebug(Cast<AActor>(PossibleTarget));
+				MarkRenderStateDirty();
 			}
 
 			ServerReplicateData(EDebugComponentMessage::ActivateReplication, EAIDebugDrawDataView::Empty);
@@ -344,7 +351,8 @@ void UGameplayDebuggingComponent::SelectTargetToDebug()
 void UGameplayDebuggingComponent::CollectDataToReplicate(bool bCollectExtendedData)
 {
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-	if (!GetSelectedActor())
+	const AActor *SelectedActor = GetSelectedActor();
+	if (!SelectedActor || SelectedActor->IsPendingKill())
 	{
 		return;
 	}
@@ -448,7 +456,7 @@ void UGameplayDebuggingComponent::CollectBasicPathData(APawn* MyPawn)
 	UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(MyPawn->GetWorld());
 	AAIController* MyAIController = Cast<AAIController>(MyPawn->GetController());
 
-	const ANavigationData* NavData = NavSys->GetNavDataForProps(MyAIController->GetNavAgentPropertiesRef());
+	const ANavigationData* NavData = NavSys ? NavSys->GetNavDataForProps(MyAIController->GetNavAgentPropertiesRef()) : nullptr;
 	if (NavData)
 	{
 		NavDataInfo = NavData->GetConfig().Name.ToString();
@@ -1409,7 +1417,7 @@ FPrimitiveSceneProxy* UGameplayDebuggingComponent::CreateSceneProxy()
 		return NULL;
 	}
 
-	if (!Replicator || !Replicator->IsDrawEnabled())
+	if (!Replicator || !Replicator->IsDrawEnabled() || GetSelectedActor() == NULL || GetSelectedActor()->IsPendingKill())
 	{
 		return NULL;
 	}

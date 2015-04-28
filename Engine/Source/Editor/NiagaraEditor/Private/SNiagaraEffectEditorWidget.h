@@ -11,12 +11,13 @@
 #include "SCurveEditor.h"
 #include "AssetThumbnail.h"
 #include "SNiagaraEffectEditorViewport.h"
-#include "Components/NiagaraComponent.h"
-#include "Engine/NiagaraEffect.h"
-#include "Engine/NiagaraSimulation.h"
+#include "NiagaraComponent.h"
+#include "NiagaraEffect.h"
+#include "NiagaraSimulation.h"
 #include "Engine/NiagaraEffectRenderer.h"
 #include "ComponentReregisterContext.h"
 #include "SNumericEntryBox.h"
+#include "Curves/CurveVector.h"
 
 
 #define NGED_SECTION_BORDER SNew(SBorder).BorderImage(FEditorStyle::GetBrush("ToolPanel.GroupBorder")).Padding(2.0f).HAlign(HAlign_Left)

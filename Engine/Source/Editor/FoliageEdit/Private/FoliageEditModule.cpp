@@ -15,7 +15,9 @@ const FName FoliageEditAppIdentifier = FName(TEXT("FoliageEdApp"));
 #include "ActorFactoryProceduralFoliage.h"
 #include "ComponentVisualizer.h"
 #include "ProceduralFoliageVolume.h"
+#include "ProceduralFoliageBlockingVolume.h"
 #include "ProceduralFoliageComponent.h"
+#include "FoliageTypeObjectCustomization.h"
 
 /**
  * Foliage Edit Mode module
@@ -39,7 +41,8 @@ public:
 		// Register the details customizer
 		FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
 		PropertyModule.RegisterCustomClassLayout("FoliageType", FOnGetDetailCustomizationInstance::CreateStatic(&FFoliageTypeDetails::MakeInstance));
-
+		PropertyModule.RegisterCustomPropertyTypeLayout("FoliageTypeObject", FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FFoliageTypeObjectCustomization::MakeInstance));
+		
 		GUnrealEd->RegisterComponentVisualizer(UProceduralFoliageComponent::StaticClass()->GetFName(), MakeShareable(new FProceduralFoliageComponentVisualizer));
 
 		FPropertyEditorModule& PropertyEditor = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
@@ -50,6 +53,13 @@ public:
 		GEditor->ActorFactories.Add(ProceduralFoliageVolumeFactory);
 
 #if WITH_EDITOR
+		// Volume placeability
+		if (!GetDefault<UEditorExperimentalSettings>()->bProceduralFoliage)
+		{
+			AProceduralFoliageVolume::StaticClass()->ClassFlags |= CLASS_NotPlaceable;
+			AProceduralFoliageBlockingVolume::StaticClass()->ClassFlags |= CLASS_NotPlaceable;
+		}
+
 		SubscribeEvents();
 #endif
 	}
@@ -96,14 +106,34 @@ public:
 	{
 		GEngine->OnLevelActorDeleted().Remove(OnLevelActorDeletedDelegateHandle);
 		OnLevelActorDeletedDelegateHandle = GEngine->OnLevelActorDeleted().AddRaw(this, &FFoliageEditModule::OnLevelActorDeleted);
+
+		auto ExperimentalSettings = GetMutableDefault<UEditorExperimentalSettings>();
+		ExperimentalSettings->OnSettingChanged().Remove(OnExperimentalSettingChangedDelegateHandle);
+		OnExperimentalSettingChangedDelegateHandle =  ExperimentalSettings->OnSettingChanged().AddRaw(this, &FFoliageEditModule::HandleExperimentalSettingChanged);
 	}
 
 	void UnsubscribeEvents()
 	{
 		GEngine->OnLevelActorDeleted().Remove(OnLevelActorDeletedDelegateHandle);
+		GetMutableDefault<UEditorExperimentalSettings>()->OnSettingChanged().Remove(OnExperimentalSettingChangedDelegateHandle);
+	}
+
+	void HandleExperimentalSettingChanged(FName PropertyName)
+	{
+		if (GetDefault<UEditorExperimentalSettings>()->bProceduralFoliage)
+		{
+			AProceduralFoliageVolume::StaticClass()->ClassFlags &= ~CLASS_NotPlaceable;
+			AProceduralFoliageBlockingVolume::StaticClass()->ClassFlags &= ~CLASS_NotPlaceable;
+		}
+		else
+		{
+			AProceduralFoliageVolume::StaticClass()->ClassFlags |= CLASS_NotPlaceable;
+			AProceduralFoliageBlockingVolume::StaticClass()->ClassFlags |= CLASS_NotPlaceable;
+		}
 	}
 
 	FDelegateHandle OnLevelActorDeletedDelegateHandle;
+	FDelegateHandle OnExperimentalSettingChangedDelegateHandle;
 #endif
 };
 

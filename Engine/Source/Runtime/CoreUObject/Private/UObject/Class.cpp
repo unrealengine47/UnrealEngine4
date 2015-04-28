@@ -323,6 +323,37 @@ const FString& UField::GetMetaData(const FName& Key) const
 	return MetaDataString;
 }
 
+const FText UField::GetMetaDataText(const TCHAR* MetaDataKey, const FString LocalizationNamespace, const FString LocalizationKey) const
+{
+	FText LocalizedMetaData;
+	if ( !( FText::FindText( LocalizationNamespace, LocalizationKey, /*OUT*/LocalizedMetaData ) ) )
+	{
+		FString DefaultMetaData;
+		if( HasMetaData( MetaDataKey ))
+		{
+			DefaultMetaData = GetMetaData(MetaDataKey);
+			LocalizedMetaData = FText::FromString(DefaultMetaData);
+		}
+	}
+
+	return LocalizedMetaData;
+}
+
+const FText UField::GetMetaDataText(const FName& MetaDataKey, const FString LocalizationNamespace, const FString LocalizationKey) const
+{
+	FText LocalizedMetaData;
+	if ( !( FText::FindText( LocalizationNamespace, LocalizationKey, /*OUT*/LocalizedMetaData ) ) )
+	{
+		FString DefaultMetaData;
+		if( HasMetaData( MetaDataKey ))
+		{
+			DefaultMetaData = GetMetaData(MetaDataKey);
+			LocalizedMetaData = FText::FromString(DefaultMetaData);
+		}
+	}
+	return LocalizedMetaData;
+}
+
 /**
  * Sets the metadata value associated with the key
  * 
@@ -389,6 +420,7 @@ IMPLEMENT_CORE_INTRINSIC_CLASS(UField, UObject,
 //
 UStruct::UStruct( EStaticConstructor, int32 InSize, EObjectFlags InFlags )
 :	UField			( EC_StaticConstructor, InFlags )
+,	SuperStruct		( nullptr )
 ,	Children		( NULL )
 ,	PropertiesSize	( InSize )
 ,	MinAlignment	( 1 )
@@ -396,6 +428,19 @@ UStruct::UStruct( EStaticConstructor, int32 InSize, EObjectFlags InFlags )
 ,	RefLink			( NULL )
 ,	DestructorLink	( NULL )
 , PostConstructLink( NULL )
+{
+}
+
+UStruct::UStruct(UStruct* InSuperStruct, SIZE_T ParamsSize, SIZE_T Alignment)
+	: UField(FObjectInitializer::Get())
+	, SuperStruct(InSuperStruct)
+	, Children(NULL)
+	, PropertiesSize(ParamsSize ? ParamsSize : (InSuperStruct ? InSuperStruct->GetPropertiesSize() : 0))
+	, MinAlignment(Alignment ? Alignment : (FMath::Max(InSuperStruct ? InSuperStruct->GetMinAlignment() : 1, 1)))
+	, PropertyLink(NULL)
+	, RefLink(NULL)
+	, DestructorLink(NULL)
+	, PostConstructLink(NULL)
 {
 }
 
@@ -1250,8 +1295,7 @@ void UStruct::SerializeTaggedProperties(FArchive& Ar, uint8* Data, UStruct* Defa
 				{
 					uint8* DataPtr      = Property->ContainerPtrToValuePtr           <uint8>(Data, Idx);
 					uint8* DefaultValue = Property->ContainerPtrToValuePtrForDefaults<uint8>(DefaultsStruct, Defaults, Idx);
-					if( (!dynamic_cast<const UClass*>(this) && !Defaults) || !Ar.DoDelta() || 
-						!Property->Identical( DataPtr, DefaultValue, Ar.GetPortFlags()) || Ar.IsTransacting() )
+					if( !Ar.DoDelta() || Ar.IsTransacting() || (!Defaults && !dynamic_cast<const UClass*>(this)) || !Property->Identical( DataPtr, DefaultValue, Ar.GetPortFlags()) )
 					{
 						if (bUseAtomicSerialization)
 						{
@@ -1297,7 +1341,7 @@ void UStruct::Serialize( FArchive& Ar )
 {
 	Super::Serialize( Ar );
 
-	Ar << SuperStruct;
+	SerializeSuperStruct(Ar);
 	Ar << Children;
 
 	if (Ar.IsLoading())
@@ -1444,6 +1488,11 @@ void UStruct::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collect
 void UStruct::SetSuperStruct(UStruct* NewSuperStruct)
 {
 	SuperStruct = NewSuperStruct;
+}
+
+void UStruct::SerializeSuperStruct(FArchive& Ar)
+{
+	Ar << SuperStruct;
 }
 
 #if WITH_EDITOR
@@ -1820,9 +1869,9 @@ UScriptStruct::UScriptStruct( EStaticConstructor, int32 InSize, EObjectFlags InF
 #if HACK_HEADER_GENERATOR
 	, StructMacroDeclaredLineNumber(INDEX_NONE)
 #endif
-	, CppStructOps(NULL)
 	, bCppStructOpsFromBaseClass(false)
 	, bPrepareCppStructOpsCompleted(false)
+	, CppStructOps(NULL)
 {
 }
 
@@ -1832,9 +1881,9 @@ UScriptStruct::UScriptStruct(const FObjectInitializer& ObjectInitializer, UScrip
 #if HACK_HEADER_GENERATOR
 	, StructMacroDeclaredLineNumber(INDEX_NONE)
 #endif
-	, CppStructOps(InCppStructOps)
 	, bCppStructOpsFromBaseClass(false)
 	, bPrepareCppStructOpsCompleted(false)
+	, CppStructOps(InCppStructOps)
 {
 	PrepareCppStructOps(); // propgate flags, etc
 }
@@ -1845,9 +1894,9 @@ UScriptStruct::UScriptStruct(const FObjectInitializer& ObjectInitializer)
 #if HACK_HEADER_GENERATOR
 	, StructMacroDeclaredLineNumber(INDEX_NONE)
 #endif
-	, CppStructOps(NULL)
 	, bCppStructOpsFromBaseClass(false)
 	, bPrepareCppStructOpsCompleted(false)
+	, CppStructOps(NULL)
 {
 }
 
@@ -2881,6 +2930,12 @@ void UClass::Link(FArchive& Ar, bool bRelinkExistingProperties)
 		{
 			FORCEINLINE bool operator()( UProperty & A, UProperty & B ) const
 			{
+				// Ensure stable sort
+				if ( A.GetOffset_ForGC() == B.GetOffset_ForGC() )
+				{
+					return A.GetName() < B.GetName();
+				}
+
 				return A.GetOffset_ForGC() < B.GetOffset_ForGC();
 			}
 		};
@@ -2909,11 +2964,198 @@ void UClass::Link(FArchive& Ar, bool bRelinkExistingProperties)
 	}
 }
 
+#if UCLASS_FAST_ISA_IMPL & 2
+
+	/**
+	 * Tree for fast IsA implementation.
+	 *
+	 * Structure is:
+	 * - every class is located at index Class->ClassTreeIndex.
+	 * - the Class->ClassTreeNumChildren classes immediately following each class are the children of the class.
+	 */
+	class FFastIndexingClassTree
+	{
+		friend class UClass;
+		friend class FFastIndexingClassTreeRegistrar;
+
+		static void Register(UClass* NewClass);
+		static void Unregister(UClass* NewClass);
+
+		static TArray<UClass*>& GetClasses()
+		{
+			static TArray<UClass*> Classes;
+			return Classes;
+		}
+		static TMap<UClass*, TArray<UClass*>>& GetOrphans()
+		{
+			static TMap<UClass*, TArray<UClass*>> Orphans;
+			return Orphans;
+		}
+		static FCriticalSection& GetClassesCriticalSection()
+		{
+			static FCriticalSection ClassesCriticalSection;
+			return ClassesCriticalSection;
+		}
+	};
+
+	void FFastIndexingClassTree::Register(UClass* Class)
+	{
+		FScopeLock Lock(&GetClassesCriticalSection());
+		TMap<UClass*, TArray<UClass*>>& Orphans = GetOrphans();
+		TArray<UClass*>& Classes = GetClasses();
+
+		UClass* ParentClass = Class->GetSuperClass();
+
+		// If the parent has previously been orphaned, flag the child as orphaned
+		if (TArray<UClass*>* ParentOrphans = Orphans.Find(ParentClass))
+		{
+			ParentOrphans->Add(Class);
+			return;
+		}
+
+		int32 NewIndex;
+		if (ParentClass)
+		{
+			// Can happen if a child is registered *after* the parent
+			if (!Classes.Contains(ParentClass))
+			{
+				Orphans.Add(ParentClass).Add(Class);
+				return;
+			}
+
+			NewIndex = ParentClass->ClassTreeIndex + ParentClass->ClassTreeNumChildren + 1;
+		}
+		else
+		{
+			NewIndex = Classes.Num();
+		}
+
+		// Increment indices of following classes
+		for (auto Index = NewIndex, LastIndex = Classes.Num(); Index != LastIndex; ++Index)
+		{
+			++Classes[Index]->ClassTreeIndex;
+		}
+
+		// Update children count of all parents
+		for (auto* Parent = ParentClass; Parent; Parent = Parent->GetSuperClass())
+		{
+			++Parent->ClassTreeNumChildren;
+		}
+
+		// Add class
+		Class->ClassTreeIndex       = NewIndex;
+		Class->ClassTreeNumChildren = 0;
+		Classes.Insert(Class, NewIndex);
+
+		// Re-register any children orphaned by a previous Unregister call
+		if (TArray<UClass*>* FoundOrphans = Orphans.Find(Class))
+		{
+			TArray<UClass*> OrphansToReregister = MoveTemp(*FoundOrphans);
+			Orphans.Remove(Class);
+			Orphans.Compact();
+
+			for (UClass* Orphan : OrphansToReregister)
+			{
+				Register(Orphan);
+			}
+		}
+	}
+
+	void FFastIndexingClassTree::Unregister(UClass* Class)
+	{
+		FScopeLock Lock(&GetClassesCriticalSection());
+		TMap<UClass*, TArray<UClass*>>& Orphans = GetOrphans();
+		TArray<UClass*>& Classes = GetClasses();
+
+		UClass* ParentClass = Class->GetSuperClass();
+
+		// Remove class if it was orphaned
+		if (TArray<UClass*>* Children = Orphans.Find(ParentClass))
+		{
+			// Remove the child, or the entire array if it's the only child left.
+			if (Children->Num() != 1)
+			{
+				int32 ChildIndex = Children->Find(Class);
+				check(ChildIndex != INDEX_NONE);
+				Children->RemoveAt(ChildIndex);
+			}
+			else
+			{
+				check(Children->Last() == Class);
+				Orphans.Remove(ParentClass);
+				Orphans.Compact();
+			}
+
+			return;
+		}
+
+		// Remove it and mark its children as orphaned
+		int32 ClassIndex       = Class->ClassTreeIndex;
+		int32 ClassNumChildren = Class->ClassTreeNumChildren;
+		int32 NumRemoved       = ClassNumChildren + 1;
+
+		// Mark any children as orphaned
+		for (int32 Index = ClassIndex + 1, EndIndex = ClassIndex + NumRemoved; Index != EndIndex; ++Index)
+		{
+			Orphans.FindOrAdd(Classes[Index]->GetSuperClass()).Add(Classes[Index]);
+		}
+
+		// Decrement indices of following classes
+		for (int32 Index = ClassIndex + NumRemoved, IndexEnd = Classes.Num(); Index != IndexEnd; ++Index)
+		{
+			Classes[Index]->ClassTreeIndex -= NumRemoved;
+		}
+
+		// Update children count of all parents
+		for (auto* Parent = ParentClass; Parent; Parent = Parent->GetSuperClass())
+		{
+			Parent->ClassTreeNumChildren -= NumRemoved;
+		}
+
+		Classes.RemoveAt(ClassIndex, NumRemoved, false);
+	}
+
+	FFastIndexingClassTreeRegistrar::FFastIndexingClassTreeRegistrar()
+	{
+		ClassTreeIndex = -1;
+		FFastIndexingClassTree::Register((UClass*)this);
+	}
+
+	FFastIndexingClassTreeRegistrar::FFastIndexingClassTreeRegistrar(const FFastIndexingClassTreeRegistrar&)
+	{
+		ClassTreeIndex = -1;
+		FFastIndexingClassTree::Register((UClass*)this);
+	}
+
+	FFastIndexingClassTreeRegistrar::~FFastIndexingClassTreeRegistrar()
+	{
+		FFastIndexingClassTree::Unregister((UClass*)this);
+	}
+
+#endif
+
 void UClass::SetSuperStruct(UStruct* NewSuperStruct)
 {
 	UnhashObject(this);
+#if UCLASS_FAST_ISA_IMPL & 2
+	FFastIndexingClassTree::Unregister(this);
+#endif
 	Super::SetSuperStruct(NewSuperStruct);
+#if UCLASS_FAST_ISA_IMPL & 2
+	FFastIndexingClassTree::Register(this);
+#endif
 	HashObject(this);
+}
+
+void UClass::SerializeSuperStruct(FArchive& Ar)
+{
+#if UCLASS_FAST_ISA_IMPL & 2
+	FFastIndexingClassTree::Unregister(this);
+#endif
+	Super::SerializeSuperStruct(Ar);
+#if UCLASS_FAST_ISA_IMPL & 2
+	FFastIndexingClassTree::Register(this);
+#endif
 }
 
 void UClass::Serialize( FArchive& Ar )
@@ -3298,13 +3540,13 @@ bool UClass::HasProperty(UProperty* InProperty) const
  */
 UClass::UClass(const FObjectInitializer& ObjectInitializer)
 :	UStruct( ObjectInitializer )
+,	ClassUnique(0)
 ,	ClassFlags(0)
 ,	ClassCastFlags(0)
-,	ClassUnique(0)
 ,	ClassWithin( UObject::StaticClass() )
 ,	ClassGeneratedBy(NULL)
-,	ClassDefaultObject(NULL)
 ,	bCooked(false)
+,	ClassDefaultObject(NULL)
 {
 	// If you add properties here, please update the other constructors and PurgeClass()
 }
@@ -3314,13 +3556,13 @@ UClass::UClass(const FObjectInitializer& ObjectInitializer)
  */
 UClass::UClass(const FObjectInitializer& ObjectInitializer, UClass* InBaseClass )
 :	UStruct( ObjectInitializer, InBaseClass )
+,	ClassUnique(0)
 ,	ClassFlags(0)
 ,	ClassCastFlags(0)
-,	ClassUnique(0)
 ,	ClassWithin( UObject::StaticClass() )
 ,	ClassGeneratedBy(NULL)
-,	ClassDefaultObject(NULL)
 ,	bCooked(false)
+,	ClassDefaultObject(NULL)
 {
 	// If you add properties here, please update the other constructors and PurgeClass()
 
@@ -3368,15 +3610,15 @@ UClass::UClass
 ,	ClassVTableHelperCtorCaller(InClassVTableHelperCtorCaller)
 #endif // WITH_HOT_RELOAD_CTORS
 ,	ClassAddReferencedObjects( InClassAddReferencedObjects )
+,	ClassUnique				( 0 )
 ,	ClassFlags				( InClassFlags | CLASS_Native )
 ,	ClassCastFlags			( InClassCastFlags )
-,	ClassUnique				( 0 )
 ,	ClassWithin				( NULL )
 ,	ClassGeneratedBy		( NULL )
 ,	ClassConfigName			()
+,	bCooked					( false )
 ,	NetFields				()
 ,	ClassDefaultObject		( NULL )
-,	bCooked( false )
 {
 	// If you add properties here, please update the other constructors and PurgeClass()
 
@@ -3599,9 +3841,17 @@ const FString UClass::GetConfigName() const
 	{
 		return GGameIni;
 	}
-	else if ( ClassConfigName == NAME_EditorGameAgnostic )
+	else if ( ClassConfigName == NAME_EditorSettings )
 	{
-		return GEditorGameAgnosticIni;
+		return GEditorSettingsIni;
+	}
+	else if ( ClassConfigName == NAME_EditorLayout )
+	{
+		return GEditorLayoutIni;
+	}
+	else if ( ClassConfigName == NAME_EditorKeyBindings )
+	{
+		return GEditorKeyBindingsIni;
 	}
 	else if( ClassConfigName == NAME_None )
 	{
@@ -3743,6 +3993,17 @@ UFunction::UFunction(const FObjectInitializer& ObjectInitializer, UFunction* InS
 {
 }
 
+UFunction::UFunction(UFunction* InSuperFunction, uint32 InFunctionFlags, uint16 InRepOffset, SIZE_T ParamsSize)
+	: UStruct(InSuperFunction, ParamsSize)
+	, FunctionFlags(InFunctionFlags)
+	, RepOffset(InRepOffset)
+	, RPCId(0)
+	, RPCResponseId(0)
+	, FirstPropertyToInit(NULL)
+{
+}
+
+
 void UFunction::InitializeDerivedMembers()
 {
 	NumParms = 0;
@@ -3786,7 +4047,7 @@ void UFunction::Invoke(UObject* Obj, FFrame& Stack, RESULT_DECL)
 	}
 
 	TGuardValue<UFunction*> NativeFuncGuard(Stack.CurrentNativeFunction, this);
-	return (Obj->*Func)(Stack, Result);
+	return (Obj->*Func)(Stack, RESULT_PARAM);
 }
 
 void UFunction::Serialize( FArchive& Ar )
@@ -3801,6 +4062,18 @@ void UFunction::Serialize( FArchive& Ar )
 	if (FunctionFlags & FUNC_Net)
 	{
 		Ar << RepOffset;
+	}
+
+#if !UE_BLUEPRINT_EVENTGRAPH_FASTCALLS
+	// We need to serialize these values even if the feature is disabled, in order to keep the serialization stream in sync
+	UFunction* EventGraphFunction = nullptr;
+	int32 EventGraphCallOffset = 0;
+#endif
+
+	if (Ar.UE4Ver() >= VER_UE4_SERIALIZE_BLUEPRINT_EVENTGRAPH_FASTCALLS_IN_UFUNCTION)
+	{
+		Ar << EventGraphFunction;
+		Ar << EventGraphCallOffset;
 	}
 
 	// Precomputation.
@@ -3933,6 +4206,12 @@ IMPLEMENT_CORE_INTRINSIC_CLASS(UFunction, UStruct,
 
 UDelegateFunction::UDelegateFunction(const FObjectInitializer& ObjectInitializer, UFunction* InSuperFunction, uint32 InFunctionFlags, uint16 InRepOffset, SIZE_T ParamsSize)
 	: UFunction(ObjectInitializer, InSuperFunction, InFunctionFlags, InRepOffset, ParamsSize)
+{
+
+}
+
+UDelegateFunction::UDelegateFunction(UFunction* InSuperFunction, uint32 InFunctionFlags, uint16 InRepOffset, SIZE_T ParamsSize)
+	: UFunction(InSuperFunction, InFunctionFlags, InRepOffset, ParamsSize)
 {
 
 }

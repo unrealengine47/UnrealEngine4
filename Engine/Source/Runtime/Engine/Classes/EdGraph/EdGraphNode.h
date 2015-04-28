@@ -285,9 +285,6 @@ public:
 
 	/** Gets the name of this node, shown in title bar */
 	virtual FText GetNodeTitle(ENodeTitleType::Type TitleType) const;
-	
-	/** Forces a refresh of the node title if it's cached */
-	virtual void RefreshNodeTitle() {};
 
 	/** 
 	 * Gets the draw color of a node's title bar
@@ -312,7 +309,7 @@ public:
 	 *
 	 * @TODO: Should search keywords be localized? Probably.
 	 */
-	virtual FString GetKeywords() const { return TEXT(""); }
+	virtual FText GetKeywords() const;
 	 
 	/**
 	 * Returns the link used for external documentation for the graph node
@@ -426,6 +423,12 @@ public:
 
 	/** Return the requested metadata for the pin if there is any */
 	virtual FString GetPinMetaData(FString InPinName, FName InKey) { return FString(); }
+
+	/** Return false if the node and any expansion will isolate itself during compile */
+	virtual bool IsCompilerRelevant() const { return true; }
+
+	/** Return the matching "pass-through" pin for the given pin (if supported by this node) */
+	virtual UEdGraphPin* GetPassThroughPin(const UEdGraphPin* FromPin) const { return nullptr; }
 #endif // WITH_EDITOR
 
 };

@@ -1557,6 +1557,8 @@ private:
 	int64							CurrentChunkIndex;
 	/** Compression flags determining compression of CompressedChunks.				*/
 	ECompressionFlags				CompressionFlags;
+	/** Caches the return value of FPlatformMisc::SupportsMultithreading (comes up in profiles often) */
+	bool PlatformIsSinglethreaded;
 };
 
 /*----------------------------------------------------------------------------
@@ -1586,7 +1588,10 @@ public:
 	*/
 	uint32 Crc32(UObject* Object, uint32 CRC = 0);
 
-private:
+protected:
+	/** Return if object was already serialized */
+	virtual bool CustomSerialize(class UObject* Object) { return false; }
+
 	/** Internal byte array used for serialization */
 	TArray<uint8> SerializedObjectData;
 	/** Internal archive used for serialization */

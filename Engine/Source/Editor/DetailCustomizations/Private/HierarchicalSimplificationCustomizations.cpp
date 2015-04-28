@@ -3,6 +3,7 @@
 #include "DetailCustomizationsPrivatePCH.h"
 #include "HierarchicalSimplificationCustomizations.h"
 #include "Developer/MeshUtilities/Public/MeshUtilities.h"
+#include "GameFramework/WorldSettings.h"
 
 TSharedRef<IPropertyTypeCustomization> FHierarchicalSimplificationCustomizations::MakeInstance() 
 {
@@ -11,6 +12,15 @@ TSharedRef<IPropertyTypeCustomization> FHierarchicalSimplificationCustomizations
 
 void FHierarchicalSimplificationCustomizations::CustomizeHeader(TSharedRef<IPropertyHandle> StructPropertyHandle, FDetailWidgetRow& HeaderRow, IPropertyTypeCustomizationUtils& StructCustomizationUtils)
 {
+	HeaderRow.
+	NameContent()
+	[
+		StructPropertyHandle->CreatePropertyNameWidget()
+	]
+	.ValueContent()
+	[
+		StructPropertyHandle->CreatePropertyValueWidget()
+	];
 }
 
 void FHierarchicalSimplificationCustomizations::CustomizeChildren( TSharedRef<IPropertyHandle> StructPropertyHandle, class IDetailChildrenBuilder& ChildBuilder, IPropertyTypeCustomizationUtils& StructCustomizationUtils )

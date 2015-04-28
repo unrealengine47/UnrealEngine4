@@ -2,6 +2,7 @@
 
 #pragma once
 #include "STableViewBase.h"
+#include "TableViewTypeTraits.h"
 
 
 /**
@@ -59,6 +60,8 @@ public:
 		{ }
 
 		SLATE_EVENT( FOnGenerateRow, OnGenerateRow )
+
+		SLATE_EVENT( FOnTableViewScrolled, OnListViewScrolled )
 
 		SLATE_EVENT( FOnItemScrolledIntoView, OnItemScrolledIntoView )
 
@@ -140,7 +143,7 @@ public:
 		else
 		{
 			// Make the TableView
-			ConstructChildren( 0, InArgs._ItemHeight, EListItemAlignment::LeftAligned, InArgs._HeaderRow, InArgs._ExternalScrollbar );
+			ConstructChildren( 0, InArgs._ItemHeight, EListItemAlignment::LeftAligned, InArgs._HeaderRow, InArgs._ExternalScrollbar, InArgs._OnListViewScrolled );
 			if(ScrollBar.IsValid())
 			{
 				ScrollBar->SetUserVisibility(InArgs._ScrollbarVisibility);
@@ -1102,7 +1105,7 @@ protected:
 	 * 
 	 * @param ListViewGeometry  The geometry of the listView; can be useful for centering the item.
 	 */
-	virtual void ScrollIntoView( const FGeometry& ListViewGeometry ) override
+	virtual EScrollIntoViewResult ScrollIntoView( const FGeometry& ListViewGeometry ) override
 	{
 		if ( TListTypeTraits<ItemType>::IsPtrValid(ItemToScrollIntoView) && ItemsSource != nullptr )
 		{
@@ -1114,20 +1117,29 @@ protected:
 				{
 					// Use the last number of widgets on screen to estimate if we actually need to scroll.
 					NumLiveWidgets = LastGenerateResults.ExactNumRowsOnScreen;
-				}
 
+					// If we still don't have any widgets, we're not in a situation where we can scroll an item into view
+					// (probably as nothing has been generated yet), so we'll defer this again until the next frame
+					if (NumLiveWidgets == 0)
+					{
+						return EScrollIntoViewResult::Deferred;
+					}
+				}
+				
 				// Only scroll the item into view if it's not already in the visible range
 				const double IndexPlusOne = IndexOfItem+1;
 				if (IndexOfItem < ScrollOffset || IndexPlusOne > (ScrollOffset + NumLiveWidgets))
 				{
 					// Scroll the top of the listview to the item in question
-					ScrollOffset = IndexOfItem;
+					double NewScrollOffset = IndexOfItem;
 					// Center the list view on the item in question.
-					ScrollOffset -= (NumLiveWidgets / 2);
+					NewScrollOffset -= (NumLiveWidgets / 2);
 					//we also don't want the widget being chopped off if it is at the end of the list
-					const double MoveBackBy = FMath::Clamp<double>(IndexPlusOne - (ScrollOffset + NumLiveWidgets), 0, FLT_MAX);
+					const double MoveBackBy = FMath::Clamp<double>(IndexPlusOne - (NewScrollOffset + NumLiveWidgets), 0, FLT_MAX);
 					//Move to the correct center spot
-					ScrollOffset += MoveBackBy;
+					NewScrollOffset += MoveBackBy;
+
+					SetScrollOffset( NewScrollOffset );
 				}
 
 				RequestListRefresh();
@@ -1137,6 +1149,8 @@ protected:
 
 			TListTypeTraits<ItemType>::ResetPtr(ItemToScrollIntoView);
 		}
+
+		return EScrollIntoViewResult::Success;
 	}
 
 	virtual void NotifyItemScrolledIntoView() override

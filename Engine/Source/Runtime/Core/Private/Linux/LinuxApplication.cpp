@@ -193,31 +193,15 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 	// We need to make a copy of the events that need to be processed or we may end up processing the same messages twice
 	SDL_HWindow NativeWindow = NULL;
 
-	if (Event.type == SDL_DROPFILE)
-	{
-		FString tmp = StringUtility::UnescapeURI(UTF8_TO_TCHAR(Event.drop.file));
-		DragAndDropQueue.Add(tmp);
-		SDL_free(Event.drop.file);
-		UE_LOG(LogLinuxWindow, Verbose, TEXT("File dropped: %s"), *tmp);
-		return;
-	}
-	else if (Event.type == SDL_DROPTEXT)
-	{
-		FString tmp = UTF8_TO_TCHAR(Event.drop.file);
-		DragAndDropTextQueue.Add(tmp);
-		SDL_free(Event.drop.file);
-		UE_LOG(LogLinuxWindow, Verbose, TEXT("Text dropped: %s"), *tmp);
-		return;
-	}
-
 	// get pointer to window that received this event
-	TSharedPtr< FLinuxWindow > CurrentEventWindow = FindEventWindow(&Event);
+	bool bWindowlessEvent = false;
+	TSharedPtr< FLinuxWindow > CurrentEventWindow = FindEventWindow(&Event, bWindowlessEvent);
 
 	if (CurrentEventWindow.IsValid())
 	{
 		NativeWindow = CurrentEventWindow->GetHWnd();
 	}
-	if (!NativeWindow && Event.type != SDL_USEREVENT)
+	if (!NativeWindow && !bWindowlessEvent)
 	{
 		return;
 	}
@@ -809,27 +793,6 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 						UE_LOG(LogLinuxWindow, Verbose, TEXT("WM_ACTIVATE(FL),    wParam = WA_INACTIVE     : %d"), CurrentEventWindow->GetID());
 					}
 					break;
-				case SDL_WINDOWEVENT_DROPFILE_FINISH:
-					{
-						if (DragAndDropQueue.Num() > 0)
-						{
-							MessageHandler->OnDragEnterFiles(CurrentEventWindow.ToSharedRef(), DragAndDropQueue);
-							MessageHandler->OnDragDrop(CurrentEventWindow.ToSharedRef());
-							DragAndDropQueue.Empty();
-						}
-
-						if (DragAndDropTextQueue.Num() > 0)
-						{
-							for (const auto & Text : DragAndDropTextQueue)
-							{
-								MessageHandler->OnDragEnterText(CurrentEventWindow.ToSharedRef(), Text);
-								MessageHandler->OnDragDrop(CurrentEventWindow.ToSharedRef());
-							}
-							DragAndDropTextQueue.Empty();
-						}
-						UE_LOG(LogLinuxWindow, Verbose, TEXT("DragAndDrop finished for Window              : %d"), CurrentEventWindow->GetID());
-					}
-					break;
 				case SDL_WINDOWEVENT_HIDDEN:		// intended fall-through
 				case SDL_WINDOWEVENT_EXPOSED:		// intended fall-through
 				case SDL_WINDOWEVENT_MINIMIZED:		// intended fall-through
@@ -838,6 +801,54 @@ void FLinuxApplication::ProcessDeferredMessage( SDL_Event Event )
 			}
 		}
 		break;
+
+	case SDL_DROPBEGIN:
+		{
+			check(DragAndDropQueue.Num() == 0);  // did we get confused?
+			check(DragAndDropTextQueue.Num() == 0);  // did we get confused?
+		}
+		break;
+
+	case SDL_DROPFILE:
+		{
+			FString tmp = StringUtility::UnescapeURI(UTF8_TO_TCHAR(Event.drop.file));
+			DragAndDropQueue.Add(tmp);
+			SDL_free(Event.drop.file);
+			UE_LOG(LogLinuxWindow, Verbose, TEXT("File dropped: %s"), *tmp);
+		}
+		break;
+
+	case SDL_DROPTEXT:
+		{
+			FString tmp = UTF8_TO_TCHAR(Event.drop.file);
+			DragAndDropTextQueue.Add(tmp);
+			SDL_free(Event.drop.file);
+			UE_LOG(LogLinuxWindow, Verbose, TEXT("Text dropped: %s"), *tmp);
+		}
+		break;
+
+	case SDL_DROPCOMPLETE:
+		{
+			if (DragAndDropQueue.Num() > 0)
+			{
+				MessageHandler->OnDragEnterFiles(CurrentEventWindow.ToSharedRef(), DragAndDropQueue);
+				MessageHandler->OnDragDrop(CurrentEventWindow.ToSharedRef());
+				DragAndDropQueue.Empty();
+			}
+
+			if (DragAndDropTextQueue.Num() > 0)
+			{
+				for (const auto & Text : DragAndDropTextQueue)
+				{
+					MessageHandler->OnDragEnterText(CurrentEventWindow.ToSharedRef(), Text);
+					MessageHandler->OnDragDrop(CurrentEventWindow.ToSharedRef());
+				}
+				DragAndDropTextQueue.Empty();
+			}
+			UE_LOG(LogLinuxWindow, Verbose, TEXT("DragAndDrop finished for Window              : %d"), CurrentEventWindow->GetID());
+		}
+		break;
+
 	case SDL_USEREVENT:
 		{
 			if(Event.user.code == CheckForDeactivation)
@@ -1010,9 +1021,11 @@ TCHAR FLinuxApplication::ConvertChar( SDL_Keysym Keysym )
     return Char;
 }
 
-TSharedPtr< FLinuxWindow > FLinuxApplication::FindEventWindow( SDL_Event* Event )
+TSharedPtr< FLinuxWindow > FLinuxApplication::FindEventWindow(SDL_Event* Event, bool& bOutWindowlessEvent)
 {
 	uint16 WindowID = 0;
+	bOutWindowlessEvent = false;
+
 	switch (Event->type)
 	{
 		case SDL_TEXTINPUT:
@@ -1035,11 +1048,18 @@ TSharedPtr< FLinuxWindow > FLinuxApplication::FindEventWindow( SDL_Event* Event 
 		case SDL_MOUSEWHEEL:
 			WindowID = Event->wheel.windowID;
 			break;
-
 		case SDL_WINDOWEVENT:
 			WindowID = Event->window.windowID;
 			break;
+		case SDL_DROPBEGIN:
+		case SDL_DROPFILE:
+		case SDL_DROPTEXT:
+		case SDL_DROPCOMPLETE:
+			WindowID = Event->drop.windowID;
+			break;
+
 		default:
+			bOutWindowlessEvent = true;
 			return TSharedPtr< FLinuxWindow >(nullptr);
 	}
 
@@ -1237,8 +1257,9 @@ void FDisplayMetrics::GetDisplayMetrics(FDisplayMetrics& OutDisplayMetrics)
 	OutDisplayMetrics.MonitorInfo.Empty();
 	
 	FMonitorInfo Primary;
-	SDL_Rect PrimaryBounds;
+	SDL_Rect PrimaryBounds, PrimaryUsableBounds;
 	SDL_GetDisplayBounds(0, &PrimaryBounds);
+	SDL_GetDisplayUsableBounds(0, &PrimaryUsableBounds);
 
 	Primary.Name = UTF8_TO_TCHAR(SDL_GetDisplayName(0));
 	Primary.ID = TEXT("display0");
@@ -1247,14 +1268,13 @@ void FDisplayMetrics::GetDisplayMetrics(FDisplayMetrics& OutDisplayMetrics)
 	Primary.bIsPrimary = true;
 	OutDisplayMetrics.MonitorInfo.Add(Primary);
 
-	// @TODO [RCL] 2014-09-30 - try to account for real work area and not just display size.
-	OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Left = PrimaryBounds.x;
-	OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Top = PrimaryBounds.y;
-	OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Right = PrimaryBounds.x + PrimaryBounds.w;
-	OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Bottom = PrimaryBounds.y + PrimaryBounds.h;
+	OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Left = PrimaryUsableBounds.x;
+	OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Top = PrimaryUsableBounds.y;
+	OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Right = PrimaryUsableBounds.x + PrimaryUsableBounds.w;
+	OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Bottom = PrimaryUsableBounds.y + PrimaryUsableBounds.h;
 
 	OutDisplayMetrics.PrimaryDisplayWidth = PrimaryBounds.w;
- 	OutDisplayMetrics.PrimaryDisplayHeight = PrimaryBounds.h;
+	OutDisplayMetrics.PrimaryDisplayHeight = PrimaryBounds.h;
 
 	// accumulate the total bound rect
 	OutDisplayMetrics.VirtualDisplayRect = OutDisplayMetrics.PrimaryDisplayWorkAreaRect;

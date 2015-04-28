@@ -755,6 +755,20 @@ void FLinkerLoad::ResolveDeferredDependencies(UStruct* LoadStruct)
 		{
 			FObjectImport& Import = ImportMap[ImportIndex];
 
+			const FLinkerLoad* SourceLinker = (Import.SourceLinker != nullptr) ? Import.SourceLinker :
+				(Import.XObject != nullptr) ? Import.XObject->GetLinker() : nullptr;
+
+			const UPackage* SourcePackage = (SourceLinker != nullptr) ? SourceLinker->LinkerRoot : nullptr;
+			// this package may not have introduced any (possible) cyclic 
+			// dependencies, but it still could have been deferred (kept from
+			// fully loading... we need to make sure metadata gets loaded, etc.)
+			if ((SourcePackage != nullptr) && !SourcePackage->HasAnyFlags(RF_WasLoaded))
+			{
+				uint32 InternalLoadFlags = LoadFlags & (LOAD_NoVerify | LOAD_NoWarn | LOAD_Quiet);
+				// make sure LoadAllObjects() is called for this package
+				LoadPackageInternal(/*Outer =*/nullptr, *SourceLinker->Filename, InternalLoadFlags, this);
+			}
+
 			if (ULinkerPlaceholderClass* PlaceholderClass = Cast<ULinkerPlaceholderClass>(Import.XObject))
 			{
 				DEFERRED_DEPENDENCY_CHECK(PlaceholderClass->PackageIndex.ToImport() == ImportIndex);
@@ -781,13 +795,6 @@ void FLinkerLoad::ResolveDeferredDependencies(UStruct* LoadStruct)
 				// deferred dependencies in the struct 
 				if (Import.SourceLinker != nullptr)
 				{
-					// Make sure meta data is loaded first, so that we have structure field names available to any blueprints that load:
-					if (!Import.SourceLinker->LinkerRoot->HasAnyFlags(RF_WasLoaded))
-					{
-						uint32 InternalLoadFlags = LoadFlags & (LOAD_NoVerify | LOAD_NoWarn | LOAD_Quiet);
-						LoadPackageInternal(nullptr, *(Import.SourceLinker->Filename), InternalLoadFlags, this);
-					}
-
 					Import.SourceLinker->ResolveDeferredDependencies(StructObj);
 				}
 			}
@@ -895,8 +902,17 @@ int32 FLinkerLoad::ResolveDependencyPlaceholder(FLinkerPlaceholderBase* Placehol
 		RealImportObj = CreateImport(ImportIndex);
 	}
 
+#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
+	UFunction* AsFunction = Cast<UFunction>(RealImportObj);
+	// it's ok if super functions come in not fully loaded (missing 
+	// RF_LoadCompleted... meaning it's in the middle of serializing in somewhere 
+	// up the stack); the function will be forcefully ran through Preload(), 
+	// when we regenerate the super class (see FRegenerationHelper::ForcedLoadMembers)
+	bool const bIsSuperFunction = (AsFunction != nullptr) && (ReferencingClass != nullptr) && ReferencingClass->IsChildOf(AsFunction->GetOwnerClass());
+
 	DEFERRED_DEPENDENCY_CHECK(RealImportObj != PlaceholderObj);
-	DEFERRED_DEPENDENCY_CHECK(RealImportObj == nullptr || RealImportObj->HasAnyFlags(RF_LoadCompleted));
+	DEFERRED_DEPENDENCY_CHECK(RealImportObj == nullptr || bIsSuperFunction || RealImportObj->HasAnyFlags(RF_LoadCompleted));
+#endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 
 	int32 ReplacementCount = 0;
 	if (ReferencingClass != nullptr)

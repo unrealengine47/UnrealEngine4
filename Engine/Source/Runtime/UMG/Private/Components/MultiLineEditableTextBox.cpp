@@ -1,6 +1,7 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "UMGPrivatePCH.h"
+#include "SlateFontInfo.h"
 
 #define LOCTEXT_NAMESPACE "UMG"
 
@@ -66,6 +67,11 @@ void UMultiLineEditableTextBox::SynchronizeProperties()
 //	MyEditableTextBlock->SetIsReadOnly(IsReadOnly);
 //	MyEditableTextBlock->SetIsPassword(IsPassword);
 //	MyEditableTextBlock->SetColorAndOpacity(ColorAndOpacity);
+
+//	MyEditableTextBlock->SetFont(Font);		@todo: can't set the font on an existing multiline text block
+	MyEditableTextBlock->SetTextBoxForegroundColor(ForegroundColor);
+	MyEditableTextBlock->SetTextBoxBackgroundColor(BackgroundColor);
+	MyEditableTextBlock->SetReadOnlyForegroundColor(ReadOnlyForegroundColor);
 
 	// TODO UMG Complete making all properties settable on SMultiLineEditableTextBox
 }

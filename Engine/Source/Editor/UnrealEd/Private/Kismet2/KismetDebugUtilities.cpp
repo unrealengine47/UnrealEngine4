@@ -322,8 +322,8 @@ void FKismetDebugUtilities::OnScriptException(const UObject* ActiveObject, const
 
 						// Display a UObject link to the UFunction that is crashing. Will open the Blueprint if able and focus on the function's graph
 						Message->AddToken(FTextToken::Create(LOCTEXT( "InfiniteLoopWarning_Function", ", asserted during ")));
-						const int32 BreakpointOffset = StackFrame.Code - StackFrame.Node->Script.GetData() - 1; //@TODO: Might want to make this a parameter of Info
-						UEdGraphNode* SourceNode = FindSourceNodeForCodeLocation(ActiveObject, StackFrame.Node, BreakpointOffset, /*bAllowImpreciseHit=*/ true);
+						const int32 BreakpointOpCodeOffset = StackFrame.Code - StackFrame.Node->Script.GetData() - 1; //@TODO: Might want to make this a parameter of Info
+						UEdGraphNode* SourceNode = FindSourceNodeForCodeLocation(ActiveObject, StackFrame.Node, BreakpointOpCodeOffset, /*bAllowImpreciseHit=*/ true);
 
 						// If a source node is found, that's the token we want to link, otherwise settle with the UFunction
 						if(SourceNode)
@@ -897,18 +897,18 @@ FKismetDebugUtilities::EWatchTextResult FKismetDebugUtilities::GetWatchText(FStr
 
 			// Try at member scope if it wasn't part of a current function scope
 			UClass* PropertyClass = Cast<UClass>(Property->GetOuter());
-			if( !PropertyBase && PropertyClass )
+			if (!PropertyBase && PropertyClass)
 			{
-				if( ActiveObject->GetClass()->IsChildOf( PropertyClass ))
+				if (ActiveObject->GetClass()->IsChildOf(PropertyClass))
 				{
 					PropertyBase = ActiveObject;
 				}
-				else if( AActor* Actor = Cast<AActor>( ActiveObject ))
+				else if (AActor* Actor = Cast<AActor>(ActiveObject))
 				{
 					// Try and locate the propertybase in the actor components
-					for( auto ComponentIter : Actor->GetComponents() )
+					for (auto ComponentIter : Actor->GetComponents())
 					{
-						if( ComponentIter->GetClass()->IsChildOf(PropertyClass))
+						if (ComponentIter->GetClass()->IsChildOf(PropertyClass))
 						{
 							PropertyBase = ComponentIter;
 							break;
@@ -918,12 +918,12 @@ FKismetDebugUtilities::EWatchTextResult FKismetDebugUtilities::GetWatchText(FStr
 			}
 #if USE_UBER_GRAPH_PERSISTENT_FRAME
 			// Try find the propertybase in the persistent ubergraph frame
-			UFunction* OuterFunction = Cast<UFunction>( Property->GetOuter() );
-			if( !PropertyBase && OuterFunction )
+			UFunction* OuterFunction = Cast<UFunction>(Property->GetOuter());
+			if(!PropertyBase && OuterFunction)
 			{
-				if( UBlueprintGeneratedClass* BPGC = Cast<UBlueprintGeneratedClass>( Blueprint->GeneratedClass ))
+				if(UBlueprintGeneratedClass* BPGC = Cast<UBlueprintGeneratedClass>(Blueprint->GeneratedClass))
 				{
-					PropertyBase = BPGC->GetPersistentUberGraphFrame( ActiveObject, OuterFunction );
+					PropertyBase = BPGC->GetPersistentUberGraphFrame(ActiveObject, OuterFunction);
 				}
 			}
 #endif // USE_UBER_GRAPH_PERSISTENT_FRAME

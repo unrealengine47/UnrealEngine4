@@ -20,6 +20,7 @@
 #include "BlueprintEditorUtils.h"	// for FindBlueprintForGraph()
 #include "BlueprintActionDatabaseRegistrar.h"
 #include "BlueprintActionFilter.h"	// for FBlueprintActionContext
+#include "Engine/LevelScriptBlueprint.h" // for ULevelScriptBlueprint
 
 // used below in FBlueprintNodeSpawnerFactory::MakeMacroNodeSpawner()
 #include "K2Node_MacroInstance.h"
@@ -163,7 +164,7 @@ static UBlueprintNodeSpawner* FBlueprintNodeSpawnerFactory::MakeMessageNodeSpawn
 	auto SetNodeFunctionLambda = [](UEdGraphNode* NewNode, UField const* FuncField)
 	{
 		UK2Node_Message* MessageNode = CastChecked<UK2Node_Message>(NewNode);
-		MessageNode->FunctionReference.SetExternalMember(FuncField->GetFName(), FuncField->GetOwnerClass());
+		MessageNode->FunctionReference.SetFromField<UFunction>(FuncField, /*bIsConsideredSelfContext =*/false);
 	};
 	NodeSpawner->SetNodeFieldDelegate = UBlueprintFunctionNodeSpawner::FSetNodeFieldDelegate::CreateStatic(SetNodeFunctionLambda);
 
@@ -449,11 +450,25 @@ namespace BlueprintActionDatabaseImpl
 	static void OnAssetRenamed(FAssetData const& AssetInfo, const FString& InOldName);
 
 	/**
+	 * Callback to refresh/add all level blueprints owned by this world to the database
+	 * 
+	 * @param  NewWorld		The world that was added.
+	 */
+	static void OnWorldAdded(UWorld* NewWorld);
+
+	/**
 	 * Callback to clear all levels from the database when a world is destroyed 
 	 * 
 	 * @param  DestroyedWorld	The world that was destroyed
 	 */
 	static void OnWorldDestroyed(UWorld* DestroyedWorld);
+
+	/**
+	 * Callback to re-evaluate all level blueprints owned by the world when the layout has changed
+	 * 
+	 * @param  World			The owner of the level and the world to be re-evaluated.
+	 */
+	static void OnRefreshLevelScripts(UWorld* World);
 
 	/**
 	 * Returns TRUE if the Object is valid for the database
@@ -886,14 +901,29 @@ static void BlueprintActionDatabaseImpl::OnAssetRenamed(FAssetData const& AssetI
 }
 
 //------------------------------------------------------------------------------
+static void BlueprintActionDatabaseImpl::OnWorldAdded(UWorld* NewWorld)
+{
+	if (IsObjectValidForDatabase(NewWorld))
+	{
+		FBlueprintActionDatabase::Get().RefreshAssetActions((UObject*)NewWorld);
+	}
+}
+
+//------------------------------------------------------------------------------
 static void BlueprintActionDatabaseImpl::OnWorldDestroyed(UWorld* DestroyedWorld)
 {
-	for(auto It = DestroyedWorld->GetLevelIterator() ; It ; ++It)
+	if (IsObjectValidForDatabase(DestroyedWorld))
 	{
-		if(const ULevelScriptBlueprint* LevelScript = (*It)->GetLevelScriptBlueprint(/*bDontCreate =*/true))
-		{
-			FBlueprintActionDatabase::Get().ClearAssetActions((UObject*)LevelScript);
-		}
+		FBlueprintActionDatabase::Get().ClearAssetActions((UObject*)DestroyedWorld);
+	}
+}
+
+//------------------------------------------------------------------------------
+static void BlueprintActionDatabaseImpl::OnRefreshLevelScripts(UWorld* World)
+{
+	if (IsObjectValidForDatabase(World))
+	{
+		FBlueprintActionDatabase::Get().RefreshAssetActions((UObject*)World);
 	}
 }
 
@@ -918,6 +948,14 @@ static bool BlueprintActionDatabaseImpl::IsObjectValidForDatabase(UObject const*
 	{
 		// Level scripts are sometimes not assets because they have not been saved yet, but they are still valid for the database.
 		bReturn = FBlueprintEditorUtils::IsLevelScriptBlueprint(Blueprint);
+	}
+	else if(UWorld const* World = Cast<UWorld>(Object))
+	{
+		// We now use worlds as databse keys to manage the level scripts they own, but we only want Editor worlds.
+		if(World->WorldType == EWorldType::Editor )
+		{
+			bReturn = true;
+		}
 	}
 	return bReturn;
 }
@@ -952,7 +990,9 @@ FBlueprintActionDatabase::FBlueprintActionDatabase()
 	FEditorDelegates::OnAssetsPreDelete.AddStatic(&BlueprintActionDatabaseImpl::OnAssetsPendingDelete);
 	FKismetEditorUtilities::OnBlueprintUnloaded.AddStatic(&BlueprintActionDatabaseImpl::OnBlueprintUnloaded);
 
+	GEngine->OnWorldAdded().AddStatic(&BlueprintActionDatabaseImpl::OnWorldAdded);
 	GEngine->OnWorldDestroyed().AddStatic(&BlueprintActionDatabaseImpl::OnWorldDestroyed);
+	FWorldDelegates::RefreshLevelScriptActions.AddStatic(&BlueprintActionDatabaseImpl::OnRefreshLevelScripts);
 
 	IHotReloadInterface& HotReloadSupport = FModuleManager::LoadModuleChecked<IHotReloadInterface>("HotReload");
 	HotReloadSupport.OnHotReload().AddStatic(&BlueprintActionDatabaseImpl::OnProjectHotReloaded);
@@ -1059,6 +1099,27 @@ void FBlueprintActionDatabase::RefreshAll()
 	// this handles creating entries for components that were loaded before the database was alive:
 	FComponentTypeRegistry::Get().SubscribeToComponentList(ComponentTypes).AddRaw(this, &FBlueprintActionDatabase::RefreshComponentActions);
 	RefreshComponentActions();
+
+	// Refresh existing worlds
+	RefreshWorlds();
+}
+
+//------------------------------------------------------------------------------
+void FBlueprintActionDatabase::RefreshWorlds()
+{
+	// Add all level scripts from current world
+	const TIndirectArray<FWorldContext>& WorldContexts = GEngine->GetWorldContexts();
+
+	for( auto Context : WorldContexts )
+	{
+		if( Context.WorldType == EWorldType::Editor )
+		{
+			if( UWorld* CurrentWorld = Context.World())
+			{
+				RefreshAssetActions((UObject*)CurrentWorld);
+			}
+		}
+	}
 }
 
 //------------------------------------------------------------------------------
@@ -1068,9 +1129,10 @@ void FBlueprintActionDatabase::RefreshClassActions(UClass* const Class)
 	check(Class != nullptr);
 
 	bool const bOutOfDateClass   = Class->HasAnyClassFlags(CLASS_NewerVersionExists);
-	bool const bIsBlueprintClass = (Cast<UBlueprintGeneratedClass>(Class) != nullptr);	
+	bool const bIsBlueprintClass = (Cast<UBlueprintGeneratedClass>(Class) != nullptr);
+	bool const bIsLevelScript	 = Class->ClassGeneratedBy && Cast<UBlueprint>(Class->ClassGeneratedBy)->BlueprintType == EBlueprintType::BPTYPE_LevelScript;
 
-	if (bOutOfDateClass)
+	if (bOutOfDateClass || bIsLevelScript)
 	{
 		ActionRegistry.Remove(Class);
 		return;
@@ -1200,6 +1262,32 @@ void FBlueprintActionDatabase::RefreshAssetActions(UObject* const AssetObject)
 		}
 	}
 
+	UWorld* WorldAsset = Cast<UWorld>(AssetObject);
+	if (WorldAsset && WorldAsset->WorldType == EWorldType::Editor)
+	{
+		for( auto Level : WorldAsset->GetLevels() )
+		{
+			UBlueprint* LevelScript = Cast<UBlueprint>(Level->GetLevelScriptBlueprint(true));
+			if (Level->bIsVisible && LevelScript)
+			{
+				AddBlueprintGraphActions(LevelScript, AssetActionList);
+				if (UClass* SkeletonClass = LevelScript->SkeletonGeneratedClass)
+				{
+					GetClassMemberActions(SkeletonClass, AssetActionList);
+				}
+				// Register for change and compilation notifications
+				if (!LevelScript->OnChanged().IsBoundToObject(this))
+				{
+					LevelScript->OnChanged().AddRaw(this, &FBlueprintActionDatabase::OnBlueprintChanged);
+				}
+				if (!LevelScript->OnCompiled().IsBoundToObject(this))
+				{
+					LevelScript->OnCompiled().AddRaw(this, &FBlueprintActionDatabase::OnBlueprintChanged);
+				}
+			}
+		}
+	}
+
 	FBlueprintActionDatabaseRegistrar Registrar(ActionRegistry, UnloadedActionRegistry, ActionPrimingQueue);
 	Registrar.ActionKeyFilter = AssetObject; // make sure actions only associated with this asset get added
 	// nodes may have actions they wish to add actions for this asset
@@ -1220,8 +1308,8 @@ void FBlueprintActionDatabase::RefreshAssetActions(UObject* const AssetObject)
 	// we don't want to clear entries for blueprints, mainly because we 
 	// use the presence of an entry to know if we've set the blueprint's 
 	// OnChanged(), but also because most blueprints will have actions at some 
-	// later point
-	else if (BlueprintAsset == nullptr)
+	// later point. Same goes for world assets because they are used to managed level scripts blueprints.
+	else if (!BlueprintAsset && !WorldAsset)
 	{
 		ClearAssetActions(AssetObject);
 	}
@@ -1344,7 +1432,15 @@ void FBlueprintActionDatabase::RegisterAllNodeActions(FBlueprintActionDatabaseRe
 
 void FBlueprintActionDatabase::OnBlueprintChanged(UBlueprint* InBlueprint)
 {
-	BlueprintActionDatabaseImpl::OnBlueprintChanged(InBlueprint);
+	if( InBlueprint->BlueprintType == BPTYPE_LevelScript )
+	{
+		// Levelscript blueprints are managed through their owning worlds.
+		RefreshWorlds();
+	}
+	else
+	{
+		BlueprintActionDatabaseImpl::OnBlueprintChanged(InBlueprint);
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

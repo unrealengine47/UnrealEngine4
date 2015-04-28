@@ -483,17 +483,20 @@ namespace PropertyEditorHelpers
 		UProperty* NodeProperty = PropertyNode->GetProperty();
 
 		// If no property is bound, don't create any buttons.
-		// If property is const, don't create any buttons.
-		if ( !NodeProperty || PropertyNode->IsEditConst() )
+		if ( !NodeProperty )
 		{
 			return;
 		}
 
 		// If the property is an item of a const array, don't create any buttons.
 		const UArrayProperty* OuterArrayProp = Cast<UArrayProperty>( NodeProperty->GetOuter() );
-		if (OuterArrayProp != NULL && (OuterArrayProp->PropertyFlags & CPF_EditConst))
+
+		if (NodeProperty->HasAnyPropertyFlags(CPF_GlobalConfig|CPF_Config))
 		{
-			return;
+			if (NodeProperty->HasMetaData(TEXT("ConfigHierarchyEditable")))
+			{
+				OutRequiredButtons.Add( EPropertyButton::EditConfigHierarchy );
+			}
 		}
 
 		//////////////////////////////
@@ -709,6 +712,12 @@ namespace PropertyEditorHelpers
 		return SelectionPathName;
 	}
 
+	
+	static bool IsPropertyButtonEnabled( TWeakPtr<FPropertyNode> PropertyNode )
+	{
+		return PropertyNode.IsValid() ? !PropertyNode.Pin()->IsEditConst() : false;
+	}
+
 	/**
 	 * A helper method that checks to see if the editor's current selection is 
 	 * compatible with the specified property.
@@ -716,9 +725,10 @@ namespace PropertyEditorHelpers
 	 * @param  PropertyNode		The property you desire to set from the "use selected" button.
 	 * @return False if the currently selected object is restricted for the specified property, true otherwise.
 	 */
-	static bool IsUseSelectedUnrestricted(TSharedRef<FPropertyNode> PropertyNode)
+	static bool IsUseSelectedUnrestricted(TWeakPtr<FPropertyNode> PropertyNode)
 	{
-		return !PropertyNode->IsRestricted(GetSelectionPathNameForProperty(PropertyNode));
+		TSharedPtr<FPropertyNode> PropertyNodePin = PropertyNode.Pin();
+		return ( PropertyNodePin.IsValid() && IsPropertyButtonEnabled(PropertyNode) ) ? !PropertyNodePin->IsRestricted( GetSelectionPathNameForProperty( PropertyNodePin.ToSharedRef() ) ) : false;
 	}
 
 	/**
@@ -729,10 +739,11 @@ namespace PropertyEditorHelpers
 	 * @param  PropertyNode		The property that would be set from the "use selected" button.
 	 * @return A tooltip for the "use selected" button.
 	 */
-	static FText GetUseSelectedTooltip(TSharedRef<FPropertyNode> PropertyNode)
+	static FText GetUseSelectedTooltip(TWeakPtr<FPropertyNode> PropertyNode)
 	{
+		TSharedPtr<FPropertyNode> PropertyNodePin = PropertyNode.Pin();
 		FText ToolTip;
-		if (!PropertyNode->GenerateRestrictionToolTip(GetSelectionPathNameForProperty(PropertyNode), ToolTip))
+		if (PropertyNodePin.IsValid() && !PropertyNodePin->GenerateRestrictionToolTip(GetSelectionPathNameForProperty(PropertyNodePin.ToSharedRef()), ToolTip))
 		{
 			ToolTip = LOCTEXT("UseButtonToolTipText", "Use Selected Asset from Content Browser");
 		}
@@ -744,14 +755,19 @@ namespace PropertyEditorHelpers
 	{
 		TSharedPtr<SWidget> NewButton;
 
+		TWeakPtr<FPropertyNode> WeakPropertyEditor = PropertyEditor->GetPropertyNode();
+
+		TAttribute<bool>::FGetter IsPropertyButtonEnabledDelegate = TAttribute<bool>::FGetter::CreateStatic(&IsPropertyButtonEnabled, WeakPropertyEditor);
+		TAttribute<bool> IsEnabledAttribute = TAttribute<bool>::Create( IsPropertyButtonEnabledDelegate );
+
 		switch( ButtonType )
 		{
 		case EPropertyButton::Add:
-			NewButton = PropertyCustomizationHelpers::MakeAddButton( FSimpleDelegate::CreateSP( PropertyEditor, &FPropertyEditor::AddItem ) );
+			NewButton = PropertyCustomizationHelpers::MakeAddButton( FSimpleDelegate::CreateSP( PropertyEditor, &FPropertyEditor::AddItem ), FText(), IsEnabledAttribute );
 			break;
 
 		case EPropertyButton::Empty:
-			NewButton = PropertyCustomizationHelpers::MakeEmptyButton( FSimpleDelegate::CreateSP( PropertyEditor, &FPropertyEditor::EmptyArray ) );
+			NewButton = PropertyCustomizationHelpers::MakeEmptyButton( FSimpleDelegate::CreateSP( PropertyEditor, &FPropertyEditor::EmptyArray ), FText(), IsEnabledAttribute );
 			break;
 
 		case EPropertyButton::Insert_Delete:
@@ -766,7 +782,7 @@ namespace PropertyEditorHelpers
 				}
 
 				NewButton = PropertyCustomizationHelpers::MakeInsertDeleteDuplicateButton( InsertAction, DeleteAction, DuplicateAction );
-
+				NewButton->SetEnabled( IsEnabledAttribute );
 				break;
 			}
 
@@ -775,14 +791,14 @@ namespace PropertyEditorHelpers
 			break;
 
 		case EPropertyButton::Clear:
-			NewButton = PropertyCustomizationHelpers::MakeClearButton( FSimpleDelegate::CreateSP( PropertyEditor, &FPropertyEditor::ClearItem ) );
+			NewButton = PropertyCustomizationHelpers::MakeClearButton( FSimpleDelegate::CreateSP( PropertyEditor, &FPropertyEditor::ClearItem ), FText(), IsEnabledAttribute );
 			break;
 
 		case EPropertyButton::Use:
 			{
 				FSimpleDelegate OnClickDelegate = FSimpleDelegate::CreateSP(PropertyEditor, &FPropertyEditor::UseSelected);
-				TAttribute<bool>::FGetter EnabledDelegate = TAttribute<bool>::FGetter::CreateStatic(&IsUseSelectedUnrestricted, PropertyEditor->GetPropertyNode());
-				TAttribute<FText>::FGetter TooltipDelegate = TAttribute<FText>::FGetter::CreateStatic(&GetUseSelectedTooltip, PropertyEditor->GetPropertyNode());
+				TAttribute<bool>::FGetter EnabledDelegate = TAttribute<bool>::FGetter::CreateStatic(&IsUseSelectedUnrestricted, WeakPropertyEditor);
+				TAttribute<FText>::FGetter TooltipDelegate = TAttribute<FText>::FGetter::CreateStatic(&GetUseSelectedTooltip, WeakPropertyEditor);
 
 				NewButton = PropertyCustomizationHelpers::MakeUseSelectedButton(OnClickDelegate, TAttribute<FText>::Create(TooltipDelegate), TAttribute<bool>::Create(EnabledDelegate));
 				break;
@@ -802,6 +818,10 @@ namespace PropertyEditorHelpers
 
 		case EPropertyButton::NewBlueprint:
 			NewButton = PropertyCustomizationHelpers::MakeNewBlueprintButton( FSimpleDelegate::CreateSP( PropertyEditor, &FPropertyEditor::MakeNewBlueprint )  );
+			break;
+
+		case EPropertyButton::EditConfigHierarchy:
+			NewButton = PropertyCustomizationHelpers::MakeEditConfigHierarchyButton(FSimpleDelegate::CreateSP(PropertyEditor, &FPropertyEditor::EditConfigHierarchy));
 			break;
 
 		default:

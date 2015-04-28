@@ -799,7 +799,7 @@ void FDeferredShadingSceneRenderer::RenderLight(FRHICommandList& RHICmdList, con
 		// Set the device viewport for the view.
 		RHICmdList.SetViewport(View.ViewRect.Min.X, View.ViewRect.Min.Y, 0.0f, View.ViewRect.Max.X, View.ViewRect.Max.Y, 1.0f);
 
-		bool bClearCoatNeeded = (View.LightingProfilesActiveInView & (1 << MSM_ClearCoat)) != 0;
+		bool bClearCoatNeeded = (View.ShadingModelMaskInView & (1 << MSM_ClearCoat)) != 0;
 		if (LightSceneInfo->Proxy->GetLightType() == LightType_Directional)
 		{
 			TShaderMapRef<TDeferredLightVS<false> > VertexShader(View.ShaderMap);
@@ -929,6 +929,12 @@ void FDeferredShadingSceneRenderer::RenderLight(FRHICommandList& RHICmdList, con
 				float FarDepth = 0.f;
 				CalculateLightNearFarDepthFromBounds(View,LightBounds,NearDepth,FarDepth);
 
+				if (NearDepth <= FarDepth)
+				{
+					NearDepth = 1.0f;
+					FarDepth = 0.0f;
+				}
+
 				// UE4 uses reversed depth, so far < near
 				RHICmdList.EnableDepthBoundsTest(true,FarDepth,NearDepth);
 			}
@@ -990,7 +996,7 @@ void FDeferredShadingSceneRenderer::RenderSimpleLightsStandardDeferred(FRHIComma
 
 			SetBoundingGeometryRasterizerAndDepthState(RHICmdList, View, LightBounds);
 
-			bool bClearCoatNeeded = (View.LightingProfilesActiveInView & (1 << MSM_ClearCoat)) != 0;
+			bool bClearCoatNeeded = (View.ShadingModelMaskInView & (1 << MSM_ClearCoat)) != 0;
 			if (SimpleLight.Exponent == 0)
 			{
 				// inverse squared

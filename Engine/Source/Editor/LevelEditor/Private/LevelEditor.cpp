@@ -20,6 +20,7 @@
 #include "ToolkitManager.h"
 #include "TargetPlatform.h"
 #include "IIntroTutorials.h"
+#include "IProjectManager.h"
 
 // @todo Editor: remove this circular dependency
 #include "Editor/MainFrame/Public/Interfaces/IMainFrameModule.h"
@@ -50,7 +51,7 @@ public:
 	void Construct(const FArguments& InArgs)
 	{
 		FString OptionalBranchPrefix;
-		GConfig->GetString(TEXT("LevelEditor"), TEXT("ProjectNameWatermarkPrefix"), /*out*/ OptionalBranchPrefix, GEditorUserSettingsIni);
+		GConfig->GetString(TEXT("LevelEditor"), TEXT("ProjectNameWatermarkPrefix"), /*out*/ OptionalBranchPrefix, GEditorPerProjectIni);
 
 		FFormatNamedArguments Args;
 		Args.Add(TEXT("Branch"), FText::FromString(OptionalBranchPrefix));
@@ -616,6 +617,12 @@ void FLevelEditorModule::BindGlobalLevelEditorCommands()
 		FGlobalEditorCommonCommands::Get().ViewReferences, 
 		FExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::ViewReferences_Execute ),
 		FCanExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::CanViewReferences )
+		);
+
+	ActionList.MapAction( 
+		FGlobalEditorCommonCommands::Get().ViewSizeMap, 
+		FExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::ViewSizeMap_Execute ),
+		FCanExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::CanViewSizeMap )
 		);
 
 	const FVector* NullVector = nullptr;
@@ -1371,32 +1378,6 @@ void FLevelEditorModule::BindGlobalLevelEditorCommands()
 		FExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::SetLightingQuality, (ELightingBuildQuality)Quality_Preview ),
 		FCanExecuteAction(),
 		FIsActionChecked::CreateStatic( &FLevelEditorActionCallbacks::IsLightingQualityChecked, (ELightingBuildQuality)Quality_Preview) );
-
-	ActionList.MapAction( 
-		Commands.LightingTools_ShowBounds, 
-		FExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::SetLightingToolShowBounds ),
-		FCanExecuteAction(),
-		FIsActionChecked::CreateStatic( &FLevelEditorActionCallbacks::IsLightingToolShowBoundsChecked ) );
-	ActionList.MapAction( 
-		Commands.LightingTools_ShowTraces, 
-		FExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::SetLightingToolShowTraces ),
-		FCanExecuteAction(),
-		FIsActionChecked::CreateStatic( &FLevelEditorActionCallbacks::IsLightingToolShowTracesChecked ) );
-	ActionList.MapAction( 
-		Commands.LightingTools_ShowDirectOnly, 
-		FExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::SetLightingToolShowDirectOnly ),
-		FCanExecuteAction(),
-		FIsActionChecked::CreateStatic( &FLevelEditorActionCallbacks::IsLightingToolShowDirectOnlyChecked ) );
-	ActionList.MapAction( 
-		Commands.LightingTools_ShowIndirectOnly, 
-		FExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::SetLightingToolShowIndirectOnly ),
-		FCanExecuteAction(),
-		FIsActionChecked::CreateStatic( &FLevelEditorActionCallbacks::IsLightingToolShowIndirectOnlyChecked ) );
-	ActionList.MapAction( 
-		Commands.LightingTools_ShowIndirectSamples, 
-		FExecuteAction::CreateStatic( &FLevelEditorActionCallbacks::SetLightingToolShowIndirectSamples ),
-		FCanExecuteAction(),
-		FIsActionChecked::CreateStatic( &FLevelEditorActionCallbacks::IsLightingToolShowIndirectSamplesChecked ) );
 
 	ActionList.MapAction( 
 		Commands.LightingDensity_RenderGrayscale, 

@@ -125,6 +125,11 @@ void UMovementComponent::OnRegister()
 	{
 		SnapUpdatedComponentToPlane();
 	}
+
+#if WITH_EDITOR
+	// Reset so next PIE session warns.
+	bEditorWarnedStaticMobilityMove = false;
+#endif
 }
 
 void UMovementComponent::RegisterComponentTickFunctions(bool bRegister)
@@ -235,8 +240,28 @@ bool UMovementComponent::IsInWater() const
 
 bool UMovementComponent::ShouldSkipUpdate(float DeltaTime) const
 {
-	if (UpdatedComponent == NULL || UpdatedComponent->Mobility != EComponentMobility::Movable)
+	if (UpdatedComponent == nullptr)
 	{
+		return true;
+	}
+		
+	if (UpdatedComponent->Mobility != EComponentMobility::Movable)
+	{
+#if WITH_EDITOR
+		if (!bEditorWarnedStaticMobilityMove)
+		{
+			if (UWorld * World = GetWorld())
+			{
+				if (World->HasBegunPlay() && IsRegistered())
+				{
+					const_cast<UMovementComponent*>(this)->bEditorWarnedStaticMobilityMove = true;
+					FMessageLog("PIE").Warning(FText::Format(LOCTEXT("InvalidMove", "Mobility of {0} : {1} has to be 'Movable' if you'd like to move it with {2}. "),
+						FText::FromString(GetNameSafe(UpdatedComponent->GetOwner())), FText::FromString(UpdatedComponent->GetName()), FText::FromString(GetClass()->GetName())));
+				}
+			}
+		}
+#endif
+
 		return true;
 	}
 
@@ -428,7 +453,7 @@ void UMovementComponent::SnapUpdatedComponentToPlane()
 
 
 
-bool UMovementComponent::MoveUpdatedComponent( const FVector& Delta, const FRotator& NewRotation, bool bSweep, FHitResult* OutHit)
+bool UMovementComponent::MoveUpdatedComponentImpl( const FVector& Delta, const FQuat& NewRotation, bool bSweep, FHitResult* OutHit)
 {
 	if (UpdatedComponent)
 	{
@@ -442,11 +467,11 @@ bool UMovementComponent::MoveUpdatedComponent( const FVector& Delta, const FRota
 
 bool UMovementComponent::K2_MoveUpdatedComponent(FVector Delta, FRotator NewRotation, FHitResult& OutHit, bool bSweep)
 {
-	return SafeMoveUpdatedComponent(Delta, NewRotation, bSweep, OutHit);
+	return SafeMoveUpdatedComponent(Delta, NewRotation.Quaternion(), bSweep, OutHit);
 }
 
 
-bool UMovementComponent::SafeMoveUpdatedComponent(const FVector& Delta, const FRotator& NewRotation, bool bSweep, FHitResult& OutHit)
+bool UMovementComponent::SafeMoveUpdatedComponent(const FVector& Delta, const FQuat& NewRotation, bool bSweep, FHitResult& OutHit)
 {
 	if (UpdatedComponent == NULL)
 	{
@@ -498,7 +523,7 @@ FVector UMovementComponent::GetPenetrationAdjustment(const FHitResult& Hit) cons
 	return ConstrainDirectionToPlane(Result);
 }
 
-bool UMovementComponent::ResolvePenetration(const FVector& ProposedAdjustment, const FHitResult& Hit, const FRotator& NewRotation)
+bool UMovementComponent::ResolvePenetrationImpl(const FVector& ProposedAdjustment, const FHitResult& Hit, const FQuat& NewRotationQuat)
 {
 	// SceneComponent can't be in penetration, so this function really only applies to PrimitiveComponent.
 	const FVector Adjustment = ConstrainDirectionToPlane(ProposedAdjustment);
@@ -514,11 +539,11 @@ bool UMovementComponent::ResolvePenetration(const FVector& ProposedAdjustment, c
 		// We really want to make sure that precision differences or differences between the overlap test and sweep tests don't put us into another overlap,
 		// so make the overlap test a bit more restrictive.
 		const float OverlapInflation = CVarPenetrationOverlapCheckInflation.GetValueOnGameThread();
-		bool bEncroached = OverlapTest(Hit.TraceStart + Adjustment, NewRotation.Quaternion(), UpdatedPrimitive->GetCollisionObjectType(), UpdatedPrimitive->GetCollisionShape(OverlapInflation), ActorOwner);
+		bool bEncroached = OverlapTest(Hit.TraceStart + Adjustment, NewRotationQuat, UpdatedPrimitive->GetCollisionObjectType(), UpdatedPrimitive->GetCollisionShape(OverlapInflation), ActorOwner);
 		if (!bEncroached)
 		{
 			// Move without sweeping.
-			MoveUpdatedComponent(Adjustment, NewRotation, false);
+			MoveUpdatedComponent(Adjustment, NewRotationQuat, false);
 			UE_LOG(LogMovement, Verbose, TEXT("ResolvePenetration: teleport %s by %s"), *ActorOwner->GetName(), *Adjustment.ToString());
 			return true;
 		}
@@ -529,7 +554,7 @@ bool UMovementComponent::ResolvePenetration(const FVector& ProposedAdjustment, c
 
 			// Try sweeping as far as possible...
 			FHitResult SweepOutHit(1.f);
-			bool bMoved = MoveUpdatedComponent(Adjustment, NewRotation, true, &SweepOutHit);
+			bool bMoved = MoveUpdatedComponent(Adjustment, NewRotationQuat, true, &SweepOutHit);
 			UE_LOG(LogMovement, Verbose, TEXT("ResolvePenetration: sweep %s by %s (success = %d)"), *ActorOwner->GetName(), *Adjustment.ToString(), bMoved);
 			
 			// Still stuck?
@@ -540,7 +565,7 @@ bool UMovementComponent::ResolvePenetration(const FVector& ProposedAdjustment, c
 				const FVector CombinedMTD = Adjustment + SecondMTD;
 				if (SecondMTD != Adjustment && !CombinedMTD.IsZero())
 				{
-					bMoved = MoveUpdatedComponent(CombinedMTD, NewRotation, true);
+					bMoved = MoveUpdatedComponent(CombinedMTD, NewRotationQuat, true);
 					UE_LOG(LogMovement, Verbose, TEXT("ResolvePenetration: sweep %s by %s (MTD combo success = %d)"), *ActorOwner->GetName(), *CombinedMTD.ToString(), bMoved);
 				}
 			}
@@ -552,7 +577,7 @@ bool UMovementComponent::ResolvePenetration(const FVector& ProposedAdjustment, c
 				const FVector MoveDelta = ConstrainDirectionToPlane(Hit.TraceEnd - Hit.TraceStart);
 				if (!MoveDelta.IsZero())
 				{
-					bMoved = MoveUpdatedComponent(Adjustment + MoveDelta, NewRotation, true);
+					bMoved = MoveUpdatedComponent(Adjustment + MoveDelta, NewRotationQuat, true);
 					UE_LOG(LogMovement, Verbose, TEXT("ResolvePenetration: sweep %s by %s (adjusted attempt success = %d)"), *ActorOwner->GetName(), *(Adjustment + MoveDelta).ToString(), bMoved);
 				}
 			}	

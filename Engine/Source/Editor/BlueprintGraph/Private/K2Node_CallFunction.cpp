@@ -1055,7 +1055,7 @@ bool UK2Node_CallFunction::CanPasteHere(const UEdGraph* TargetGraph) const
 		{
 			TargetFunction = GetTargetFunctionFromSkeletonClass();
 		}
-		bCanPaste = K2Schema->CanFunctionBeUsedInGraph(FBlueprintEditorUtils::FindBlueprintForGraphChecked(TargetGraph)->GeneratedClass, TargetFunction, TargetGraph, AllowedFunctionTypes, false, FFunctionTargetInfo());
+		bCanPaste = K2Schema->CanFunctionBeUsedInGraph(FBlueprintEditorUtils::FindBlueprintForGraphChecked(TargetGraph)->GeneratedClass, TargetFunction, TargetGraph, AllowedFunctionTypes, false);
 	}
 	
 	return bCanPaste;
@@ -1337,7 +1337,7 @@ FString UK2Node_CallFunction::GetDefaultCategoryForFunction(const UFunction* Fun
 }
 
 
-FString UK2Node_CallFunction::GetKeywordsForFunction(const UFunction* Function)
+FText UK2Node_CallFunction::GetKeywordsForFunction(const UFunction* Function)
 {
 	// If the friendly name and real function name do not match add the real function name friendly name as a keyword.
 	FString Keywords;
@@ -1352,15 +1352,18 @@ FString UK2Node_CallFunction::GetKeywordsForFunction(const UFunction* Function)
 		Keywords += GetCompactNodeTitle(Function);
 	}
 
-	FString MetaKeywords = Function->GetMetaData(FBlueprintMetadata::MD_FunctionKeywords);
+	FText MetadataKeywords = Function->GetMetaDataText(FBlueprintMetadata::MD_FunctionKeywords, TEXT("UObjectKeywords"), Function->GetFullGroupName(false));
+	FText ResultKeywords;
 
-	if (!MetaKeywords.IsEmpty())
+	if (!MetadataKeywords.IsEmpty())
 	{
-		Keywords.AppendChar(TEXT(' '));
-		Keywords += MetaKeywords;
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Name"), FText::FromString(Keywords));
+		Args.Add(TEXT("MetadataKeywords"), MetadataKeywords);
+		ResultKeywords = FText::Format(FText::FromString("{Name} {MetadataKeywords}"), Args);
 	}
 
-	return Keywords;
+	return ResultKeywords;
 }
 
 void UK2Node_CallFunction::SetFromFunction(const UFunction* Function)
@@ -2165,16 +2168,19 @@ FText UK2Node_CallFunction::GetMenuCategory() const
 	return FText::GetEmpty();
 }
 
-bool UK2Node_CallFunction::HasExternalBlueprintDependencies(TArray<class UStruct*>* OptionalOutput) const
+bool UK2Node_CallFunction::HasExternalDependencies(TArray<class UStruct*>* OptionalOutput) const
 {
-	const UClass* SourceClass = FunctionReference.GetMemberParentClass(GetBlueprintClassFromNode());
+	UFunction* Function = GetTargetFunction();
+	const UClass* SourceClass = Function ? Function->GetOwnerClass() : nullptr;
 	const UBlueprint* SourceBlueprint = GetBlueprint();
-	const bool bResult = (SourceClass != NULL) && (SourceClass->ClassGeneratedBy != NULL) && (SourceClass->ClassGeneratedBy != SourceBlueprint);
+	const bool bResult = (SourceClass != NULL) && (SourceClass->ClassGeneratedBy != SourceBlueprint);
 	if (bResult && OptionalOutput)
 	{
-		OptionalOutput->Add(GetTargetFunction());
+		OptionalOutput->AddUnique(Function);
 	}
-	return bResult || Super::HasExternalBlueprintDependencies(OptionalOutput);
+
+	const bool bSuperResult = Super::HasExternalDependencies(OptionalOutput);
+	return bSuperResult || bResult;
 }
 
 UEdGraph* UK2Node_CallFunction::GetFunctionGraph(const UEdGraphNode*& OutGraphNode) const

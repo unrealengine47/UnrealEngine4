@@ -321,6 +321,21 @@ FVector UAbilitySystemBlueprintLibrary::GetTargetDataEndPoint(FGameplayAbilityTa
 	return FVector::ZeroVector;
 }
 
+FTransform UAbilitySystemBlueprintLibrary::GetTargetDataEndPointTransform(FGameplayAbilityTargetDataHandle TargetData, int32 Index)
+{
+	if (TargetData.Data.IsValidIndex(Index))
+	{
+		FGameplayAbilityTargetData* Data = TargetData.Data[Index].Get();
+		if (Data)
+		{
+			return Data->GetEndPointTransform();
+		}
+	}
+
+	return FTransform::Identity;
+}
+
+
 // -------------------------------------------------------------------------------------
 
 
@@ -357,6 +372,11 @@ AActor*	UAbilitySystemBlueprintLibrary::EffectContextGetOriginalInstigatorActor(
 AActor*	UAbilitySystemBlueprintLibrary::EffectContextGetEffectCauser(FGameplayEffectContextHandle EffectContext)
 {
 	return EffectContext.GetEffectCauser();
+}
+
+UObject* UAbilitySystemBlueprintLibrary::EffectContextGetSourceObject(FGameplayEffectContextHandle EffectContext)
+{
+	return const_cast<UObject*>( EffectContext.GetSourceObject() );
 }
 
 FVector UAbilitySystemBlueprintLibrary::EffectContextGetOrigin(FGameplayEffectContextHandle EffectContext)
@@ -491,6 +511,12 @@ bool UAbilitySystemBlueprintLibrary::GetGameplayCueDirection(AActor* TargetActor
 	return false;
 }
 
+bool UAbilitySystemBlueprintLibrary::DoesGameplayCueMeetTagRequirements(FGameplayCueParameters Parameters, FGameplayTagRequirements& SourceTagReqs, FGameplayTagRequirements& TargetTagReqs)
+{
+	return SourceTagReqs.RequirementsMet(Parameters.AggregatedSourceTags)
+		&& TargetTagReqs.RequirementsMet(Parameters.AggregatedSourceTags);
+}
+
 // ---------------------------------------------------------------------------------------
 
 FGameplayEffectSpecHandle UAbilitySystemBlueprintLibrary::AssignSetByCallerMagnitude(FGameplayEffectSpecHandle SpecHandle, FName DataName, float Magnitude)
@@ -548,6 +574,36 @@ FGameplayEffectSpecHandle UAbilitySystemBlueprintLibrary::AddGrantedTags(FGamepl
 	else
 	{
 		ABILITY_LOG(Warning, TEXT("UAbilitySystemBlueprintLibrary::AddGrantedTags called with invalid SpecHandle"));
+	}
+
+	return SpecHandle;
+}
+
+FGameplayEffectSpecHandle UAbilitySystemBlueprintLibrary::AddAssetTag(FGameplayEffectSpecHandle SpecHandle, FGameplayTag NewGameplayTag)
+{
+	FGameplayEffectSpec* Spec = SpecHandle.Data.Get();
+	if (Spec)
+	{
+		Spec->DynamicAssetTags.AddTag(NewGameplayTag);
+	}
+	else
+	{
+		ABILITY_LOG(Warning, TEXT("UAbilitySystemBlueprintLibrary::AddEffectTag called with invalid SpecHandle"));
+	}
+
+	return SpecHandle;
+}
+
+FGameplayEffectSpecHandle UAbilitySystemBlueprintLibrary::AddAssetTags(FGameplayEffectSpecHandle SpecHandle, FGameplayTagContainer NewGameplayTags)
+{
+	FGameplayEffectSpec* Spec = SpecHandle.Data.Get();
+	if (Spec)
+	{
+		Spec->DynamicAssetTags.AppendTags(NewGameplayTags);
+	}
+	else
+	{
+		ABILITY_LOG(Warning, TEXT("UAbilitySystemBlueprintLibrary::AddEffectTags called with invalid SpecHandle"));
 	}
 
 	return SpecHandle;

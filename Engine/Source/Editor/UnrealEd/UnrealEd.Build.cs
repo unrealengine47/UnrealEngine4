@@ -53,6 +53,8 @@ public class UnrealEd : ModuleRules
                 "SuperSearch",
 				"OutputLog",
 				"Landscape",
+                "Niagara",
+				"SizeMap",
 			}
 		);
 
@@ -77,6 +79,8 @@ public class UnrealEd : ModuleRules
 				"BlueprintGraph",
                 "Http",
 				"UnrealAudio",
+                "Niagara",
+                "VectorVM",
 			}
 		);
 
@@ -123,6 +127,8 @@ public class UnrealEd : ModuleRules
 				"HeadMountedDisplay",
 				"MeshPaint",
                 "Foliage",
+                "VectorVM",
+				"TreeMap",
 			}
 		);
 
@@ -160,7 +166,6 @@ public class UnrealEd : ModuleRules
 				"DeviceManager",
 				"SettingsEditor",
 				"SessionFrontend",
-				"TaskBrowser",
 				"Sequencer",
 				"SoundClassEditor",
 				"GeometryMode",
@@ -195,6 +200,7 @@ public class UnrealEd : ModuleRules
 				"HotReload",
                 "IOSPlatformEditor",
 				"HTML5PlatformEditor",
+				"SizeMap",
 			}
 		);
 
@@ -221,6 +227,8 @@ public class UnrealEd : ModuleRules
              	"CollectionManager",
 				"BlueprintGraph",
 				"NiagaraEditor",
+                "Niagara",
+                "VectorVM",
 			}
 			);
 
@@ -228,7 +236,7 @@ public class UnrealEd : ModuleRules
 			(Target.Platform == UnrealTargetPlatform.Win32))
 		{
 			PublicDependencyModuleNames.Add("XAudio2");
-			PublicDependencyModuleNames.Add("UnrealAudioWasapi");
+			PublicDependencyModuleNames.Add("UnrealAudioXAudio2");
 
 			AddThirdPartyPrivateStaticDependencies(Target, 
 				"UEOgg",
@@ -238,6 +246,11 @@ public class UnrealEd : ModuleRules
 				);
 
 			
+		}
+
+		if (Target.Platform == UnrealTargetPlatform.Mac)
+		{
+			PublicDependencyModuleNames.Add("UnrealAudioCoreAudio");
 		}
 
         if (Target.Platform == UnrealTargetPlatform.HTML5)

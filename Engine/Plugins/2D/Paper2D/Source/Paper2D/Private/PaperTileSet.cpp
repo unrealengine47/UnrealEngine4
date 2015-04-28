@@ -1,6 +1,7 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "Paper2DPrivatePCH.h"
+#include "PaperTileSet.h"
 
 //////////////////////////////////////////////////////////////////////////
 // UPaperTileSet
@@ -21,8 +22,9 @@ int32 UPaperTileSet::GetTileCount() const
 	if (TileSheet != nullptr)
 	{
 		checkSlow((TileWidth > 0) && (TileHeight > 0));
-		const int32 TextureWidth = TileSheet->GetSizeX();
-		const int32 TextureHeight = TileSheet->GetSizeY();
+		const FIntPoint TextureSize = TileSheet->GetImportedSize();
+		const int32 TextureWidth = TextureSize.X;
+		const int32 TextureHeight = TextureSize.Y;
 
 		const int32 CellsX = (TextureWidth - (Margin * 2) + Spacing) / (TileWidth + Spacing);
 		const int32 CellsY = (TextureHeight - (Margin * 2) + Spacing) / (TileHeight + Spacing);
@@ -40,7 +42,7 @@ int32 UPaperTileSet::GetTileCountX() const
 	if (TileSheet != nullptr)
 	{
 		checkSlow(TileWidth > 0);
-		const int32 TextureWidth = TileSheet->GetSizeX();
+		const int32 TextureWidth = TileSheet->GetImportedSize().X;
 		const int32 CellsX = (TextureWidth - (Margin * 2) + Spacing) / (TileWidth + Spacing);
 		return CellsX;
 	}
@@ -55,7 +57,7 @@ int32 UPaperTileSet::GetTileCountY() const
 	if (TileSheet != nullptr)
 	{
 		checkSlow(TileHeight > 0);
-		const int32 TextureHeight = TileSheet->GetSizeY();
+		const int32 TextureHeight = TileSheet->GetImportedSize().Y;
 		const int32 CellsY = (TextureHeight - (Margin * 2) + Spacing) / (TileHeight + Spacing);
 		return CellsY;
 	}
@@ -124,6 +126,24 @@ FIntPoint UPaperTileSet::GetTileXYFromTextureUV(const FVector2D& TextureUV, bool
 	return FIntPoint(X, Y);
 }
 
+bool UPaperTileSet::AddTerrainDescription(FPaperTileSetTerrain NewTerrain)
+{
+	if (Terrains.Num() < 254)
+	{
+		Terrains.Add(NewTerrain);
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+int32 UPaperTileSet::GetTerrainMembership(const FPaperTileInfo& TileInfo) const
+{
+	return INDEX_NONE; //@TODO: TileMapTerrain: Implement this
+}
+
 #if WITH_EDITOR
 
 #include "PaperTileMapComponent.h"
@@ -170,8 +190,6 @@ void UPaperTileSet::PostEditChangeProperty(FPropertyChangedEvent& PropertyChange
 
 void UPaperTileSet::DestructiveAllocateTileData(int32 NewWidth, int32 NewHeight)
 {
-	check((NewWidth > 0) && (NewHeight > 0));
-
 	const int32 NumCells = NewWidth * NewHeight;
 	ExperimentalPerTileData.Empty(NumCells);
 	for (int32 Index = 0; Index < NumCells; ++Index)

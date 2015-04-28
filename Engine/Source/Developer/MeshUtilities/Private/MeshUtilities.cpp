@@ -3,14 +3,12 @@
 #include "MeshUtilitiesPrivate.h"
 #include "StaticMeshResources.h"
 #include "SkeletalMeshTypes.h"
-#include "LandscapeRender.h"
 #include "MeshBuild.h"
 #include "TessellationRendering.h"
 #include "NvTriStrip.h"
 #include "forsythtriangleorderoptimizer.h"
 #include "ThirdParty/nvtesslib/inc/nvtess.h"
 #include "SkeletalMeshTools.h"
-#include "LandscapeDataAccess.h"
 #include "ImageUtils.h"
 #include "MaterialExportUtils.h"
 #include "Textures/TextureAtlas.h"
@@ -131,10 +129,12 @@ private:
 	virtual void MergeActors(
 		const TArray<AActor*>& SourceActors,
 		const FMeshMergingSettings& InSettings,
-		const FString& PackageName,
-		TArray<UObject*>& 
-		OutAssetsToSync, 
-		FVector& OutMergedActorLocation) const override;
+		UPackage* InOuter,
+		const FString& BasePackageName,
+		int32 UseLOD, // does not build all LODs but only use this LOD to create base mesh
+		TArray<UObject*>& OutAssetsToSync, 
+		FVector& OutMergedActorLocation, 
+		bool bSilent=false) const override;
 	
 	virtual void CreateProxyMesh( 
 		const TArray<AActor*>& Actors, 
@@ -2007,7 +2007,7 @@ public:
 		const TArray<FMeshWedge>	&Wedges,
 		const TArray<FMeshFace>		&Faces,
 		const TArray<FVector>		&Points,
-		bool						&bComputeNormals,
+		bool						&bInComputeNormals,
 		TArray<FVector>				&VertexTangentsX,
 		TArray<FVector>				&VertexTangentsY,
 		TArray<FVector>				&VertexTangentsZ
@@ -2016,7 +2016,7 @@ public:
 		wedges			(Wedges),
 		faces			(Faces),
 		points			(Points),
-		bComputeNormals	(bComputeNormals),
+		bComputeNormals	(bInComputeNormals),
 		TangentsX		(VertexTangentsX),
 		TangentsY		(VertexTangentsY),
 		TangentsZ		(VertexTangentsZ)
@@ -3963,7 +3963,19 @@ bool FMeshUtilities::ConstructRawMesh(
 	FTransform CtoM = InMeshComponent->ComponentToWorld;
 	for (FVector& Vertex : OutRawMesh.VertexPositions)
 	{
-		Vertex = CtoM.TransformFVector4(Vertex);
+		Vertex = CtoM.TransformPosition(Vertex);
+	}
+	for (FVector& TangentX : OutRawMesh.WedgeTangentX)
+	{
+		TangentX = CtoM.TransformVectorNoScale(TangentX);
+	}
+	for (FVector& TangentY : OutRawMesh.WedgeTangentY)
+	{
+		TangentY = CtoM.TransformVectorNoScale(TangentY);
+	}
+	for (FVector& TangentZ : OutRawMesh.WedgeTangentZ)
+	{
+		TangentZ = CtoM.TransformVectorNoScale(TangentZ);
 	}
 
 	const bool bIsMirrored = CtoM.GetDeterminant() < 0.f;
@@ -4115,12 +4127,214 @@ bool PropagatePaintedColorsToRawMesh(UStaticMeshComponent* StaticMeshComponent, 
 	return false;
 }
 
+static void CopyTextureRect(const FColor* Src, const FIntPoint& SrcSize, FColor* Dst, const FIntPoint& DstSize, const FIntPoint& DstPos)
+{
+	int32 RowLength = SrcSize.X*sizeof(FColor);
+	FColor* RowDst = Dst + DstSize.X*DstPos.Y;
+	const FColor* RowSrc = Src;
+	
+	for (int32 RowIdx = 0; RowIdx < SrcSize.Y; ++RowIdx)
+	{
+		FMemory::Memcpy(RowDst + DstPos.X, RowSrc, RowLength);
+		
+		RowDst+= DstSize.X;
+		RowSrc+= SrcSize.X;
+	}
+}
+
+struct FRawMeshExt
+{
+	FRawMeshExt() 
+	{}
+		
+	FRawMesh	MeshLOD[MAX_STATIC_MESH_LODS];
+	FString		AssetPackageName;
+	FVector		Pivot;	
+};
+
+struct FRawMeshUVTransform
+{
+	FVector2D Offset;
+	FVector2D Scale;
+	
+	bool IsValid() const
+	{
+		return (Scale != FVector2D::ZeroVector);
+	}
+};
+
+static FVector2D GetValidUV(const FVector2D& UV)
+{
+	FVector2D NewUV = UV;
+	// first make sure they're positive
+	if (UV.X < 0.0f)
+	{
+		NewUV.X = UV.X + FMath::CeilToInt(FMath::Abs(UV.X));
+	}
+	
+	if (UV.Y < 0.0f)
+	{
+		NewUV.Y = UV.Y + FMath::CeilToInt(FMath::Abs(UV.Y));
+	}
+	
+	// now make sure they're within [0, 1]
+	if (UV.X > 1.0f)
+	{
+		NewUV.X = FMath::Fmod(NewUV.X, 1.0f);
+	}
+	
+	if (UV.Y > 1.0f)
+	{
+		NewUV.Y = FMath::Fmod(NewUV.Y, 1.0f);
+	}
+	
+	return NewUV;
+}
+
+static void MergeMaterials(UWorld* InWorld, const TArray<UMaterialInterface*>& InMaterialList, MaterialExportUtils::FFlattenMaterial& OutMergedMaterial, TArray<FRawMeshUVTransform>& OutUVTransforms)
+{
+	using namespace MaterialExportUtils;
+	
+	OutUVTransforms.Reserve(InMaterialList.Num());
+
+	// We support merging only for opaque materials
+	int32 NumOpaqueMaterials = 0;
+	// Fill output UV transforms with invalid values
+	for (auto Material : InMaterialList)
+	{
+		if (Material->GetBlendMode() == BLEND_Opaque)
+		{
+			NumOpaqueMaterials++;
+		}
+		
+		// Invalid UV transform
+		FRawMeshUVTransform UVTransform;
+		UVTransform.Offset = FVector2D::ZeroVector;
+		UVTransform.Scale = FVector2D::ZeroVector;
+		OutUVTransforms.Add(UVTransform);
+	}
+
+	if (NumOpaqueMaterials == 0)
+	{
+		// Nothing to merge
+		return;
+	}
+		
+	int32 AtlasGridSize = FMath::CeilToInt(FMath::Sqrt(NumOpaqueMaterials));
+	FIntPoint AtlasTextureSize = OutMergedMaterial.DiffuseSize;
+	FIntPoint ExportTextureSize	= AtlasTextureSize/AtlasGridSize;
+	int32 AtlasNumSamples = AtlasTextureSize.X*AtlasTextureSize.Y;
+	
+	bool bExportNormal		= (OutMergedMaterial.NormalSize != FIntPoint::ZeroValue);
+	bool bExportMetallic	= (OutMergedMaterial.MetallicSize != FIntPoint::ZeroValue);
+	bool bExportRoughness	= (OutMergedMaterial.RoughnessSize != FIntPoint::ZeroValue);
+	bool bExportSpecular	= (OutMergedMaterial.SpecularSize != FIntPoint::ZeroValue);
+
+	// Pre-allocate buffers for texture atlas
+	OutMergedMaterial.DiffuseSamples.Reserve(AtlasNumSamples);
+	OutMergedMaterial.DiffuseSamples.SetNumZeroed(AtlasNumSamples);
+	if (bExportNormal)
+	{
+		check(OutMergedMaterial.NormalSize == OutMergedMaterial.DiffuseSize);
+		OutMergedMaterial.NormalSamples.Reserve(AtlasNumSamples);
+		OutMergedMaterial.NormalSamples.SetNumZeroed(AtlasNumSamples);
+	}
+	if (bExportMetallic)
+	{
+		check(OutMergedMaterial.MetallicSize == OutMergedMaterial.DiffuseSize);
+		OutMergedMaterial.MetallicSamples.Reserve(AtlasNumSamples);
+		OutMergedMaterial.MetallicSamples.SetNumZeroed(AtlasNumSamples);
+	}
+	if (bExportRoughness)
+	{
+		check(OutMergedMaterial.RoughnessSize == OutMergedMaterial.DiffuseSize);
+		OutMergedMaterial.RoughnessSamples.Reserve(AtlasNumSamples);
+		OutMergedMaterial.RoughnessSamples.SetNumZeroed(AtlasNumSamples);
+	}
+	if (bExportSpecular)
+	{
+		check(OutMergedMaterial.SpecularSize == OutMergedMaterial.DiffuseSize);
+		OutMergedMaterial.SpecularSamples.Reserve(AtlasNumSamples);
+		OutMergedMaterial.SpecularSamples.SetNumZeroed(AtlasNumSamples);
+	}
+
+	int32 AtlasRowIdx = 0;
+	int32 AtlasColIdx = 0;
+	FIntPoint AtlasTargetPos = FIntPoint(0,0);
+					
+	// Flatten all materials and merge them into one material using texture atlases
+	for (int32 MatIdx = 0; MatIdx < InMaterialList.Num(); ++MatIdx)
+	{
+		UMaterialInterface* Material = InMaterialList[MatIdx];
+		if (Material->GetBlendMode() != BLEND_Opaque)
+		{
+			continue;
+		}
+		
+		FFlattenMaterial FlatMaterial;
+		FlatMaterial.DiffuseSize	= ExportTextureSize;
+		FlatMaterial.NormalSize		= bExportNormal ? ExportTextureSize : FIntPoint::ZeroValue;
+		FlatMaterial.MetallicSize	= bExportMetallic ? ExportTextureSize : FIntPoint::ZeroValue;
+		FlatMaterial.RoughnessSize	= bExportRoughness ? ExportTextureSize : FIntPoint::ZeroValue;
+		FlatMaterial.SpecularSize	= bExportSpecular ? ExportTextureSize : FIntPoint::ZeroValue;
+
+		ExportMaterial(InWorld, Material, FlatMaterial);
+
+		if (FlatMaterial.DiffuseSamples.Num() > 0)
+		{
+			CopyTextureRect(FlatMaterial.DiffuseSamples.GetData(), ExportTextureSize, OutMergedMaterial.DiffuseSamples.GetData(), AtlasTextureSize, AtlasTargetPos);
+		}
+
+		if (FlatMaterial.NormalSamples.Num() > 0)
+		{
+			CopyTextureRect(FlatMaterial.NormalSamples.GetData(), ExportTextureSize, OutMergedMaterial.NormalSamples.GetData(), AtlasTextureSize, AtlasTargetPos);
+		}
+
+		if (FlatMaterial.MetallicSamples.Num() > 0)
+		{
+			CopyTextureRect(FlatMaterial.MetallicSamples.GetData(), ExportTextureSize, OutMergedMaterial.MetallicSamples.GetData(), AtlasTextureSize, AtlasTargetPos);
+		}
+
+		if (FlatMaterial.RoughnessSamples.Num() > 0)
+		{
+			CopyTextureRect(FlatMaterial.RoughnessSamples.GetData(), ExportTextureSize, OutMergedMaterial.RoughnessSamples.GetData(), AtlasTextureSize, AtlasTargetPos);
+		}
+
+		if (FlatMaterial.SpecularSamples.Num() > 0)
+		{
+			CopyTextureRect(FlatMaterial.SpecularSamples.GetData(), ExportTextureSize, OutMergedMaterial.SpecularSamples.GetData(), AtlasTextureSize, AtlasTargetPos);
+		}
+		
+		check(OutUVTransforms.IsValidIndex(MatIdx));
+
+		OutUVTransforms[MatIdx].Offset = FVector2D(
+			(float)AtlasTargetPos.X/AtlasTextureSize.X, 
+			(float)AtlasTargetPos.Y/AtlasTextureSize.Y);
+		
+		OutUVTransforms[MatIdx].Scale = FVector2D(
+			(float)ExportTextureSize.X/AtlasTextureSize.X, 
+			(float)ExportTextureSize.Y/AtlasTextureSize.Y);
+		
+		AtlasColIdx++;
+		if (AtlasColIdx >= AtlasGridSize)
+		{
+			AtlasColIdx = 0;
+			AtlasRowIdx++;
+		}
+
+		AtlasTargetPos = FIntPoint(AtlasColIdx*ExportTextureSize.X, AtlasRowIdx*ExportTextureSize.Y);
+	}
+}
+
 void FMeshUtilities::MergeActors(
 	const TArray<AActor*>& SourceActors, 
 	const FMeshMergingSettings& InSettings, 
-	const FString& InPackageName, 
+	UPackage* InOuter,
+	const FString& InBasePackageName,
+	int32 UseLOD, // does not build all LODs but only use this LOD to create base mesh
 	TArray<UObject*>& OutAssetsToSync, 
-	FVector& OutMergedActorLocation) const
+	FVector& OutMergedActorLocation, 
+	bool bSilent) const
 {
 	TArray<UStaticMeshComponent*> ComponentsToMerge;
 	ComponentsToMerge.Reserve(SourceActors.Num());
@@ -4140,16 +4354,6 @@ void FMeshUtilities::MergeActors(
 			}
 		}
 	}
-
-	struct FRawMeshExt
-	{
-		FRawMeshExt() 
-		{}
-		
-		FRawMesh	MeshLOD[MAX_STATIC_MESH_LODS];
-		FString		AssetPackageName;
-		FVector		Pivot;	
-	};
 	
 	typedef FIntPoint FMeshIdAndLOD;
 	
@@ -4158,13 +4362,12 @@ void FMeshUtilities::MergeActors(
 	TArray<FRawMeshExt>								SourceMeshes;
 	bool											bWithVertexColors[MAX_STATIC_MESH_LODS] = {};
 	bool											bOcuppiedUVChannels[MAX_STATIC_MESH_LODS][MAX_MESH_TEXTURE_COORDS] = {};
-	
-	
-	// Convert collected static mesh components into raw meshes
+		
 	SourceMeshes.Reserve(ComponentsToMerge.Num());
 	SourceMeshes.SetNum(ComponentsToMerge.Num());
 
 	int32 NumMaxLOD = 0;
+	// Convert collected static mesh components into raw meshes
 	for (int32 MeshId = 0; MeshId < ComponentsToMerge.Num(); ++MeshId)
 	{
 		UStaticMeshComponent* MeshComponent = ComponentsToMerge[MeshId];
@@ -4175,38 +4378,47 @@ void FMeshUtilities::MergeActors(
 		// Source mesh asset package name
 		SourceMeshes[MeshId].AssetPackageName = MeshComponent->StaticMesh->GetOutermost()->GetName();
 	}
-	
+
 	NumMaxLOD = FMath::Min(NumMaxLOD, MAX_STATIC_MESH_LODS);
 		
-	for (int32 LODIndex = 0; LODIndex < NumMaxLOD; ++LODIndex)
+	int32 StartLODIndex = 0;
+	if (UseLOD >= 0)
 	{
-		for (int32 MeshId = 0; MeshId < ComponentsToMerge.Num(); ++MeshId)
+		// Will export only one specified LOD as base mesh
+		StartLODIndex = FMath::Min(UseLOD, NumMaxLOD - 1);
+		NumMaxLOD = StartLODIndex + 1;
+	}
+		
+	int32 RawMeshLODIdx = 0;
+	for(int32 LODIndex = StartLODIndex; LODIndex < NumMaxLOD; ++LODIndex, ++RawMeshLODIdx)
+	{
+		for(int32 MeshId = 0; MeshId < ComponentsToMerge.Num(); ++MeshId)
 		{
 			UStaticMeshComponent* MeshComponent = ComponentsToMerge[MeshId];
-			
+
 			TArray<int32> MeshMaterialMap;
-			FRawMesh& RawMeshLOD = SourceMeshes[MeshId].MeshLOD[LODIndex];
+			FRawMesh& RawMeshLOD = SourceMeshes[MeshId].MeshLOD[RawMeshLODIdx];
 
 			// We duplicate lower LOD in case this mesh has no LOD we want
 			int32 ExportLODIndex = FMath::Min(LODIndex, MeshComponent->StaticMesh->SourceModels.Num()-1);
 
-			if (ConstructRawMesh(MeshComponent, ExportLODIndex, RawMeshLOD, UniqueMaterials, MeshMaterialMap))
+			if(ConstructRawMesh(MeshComponent, ExportLODIndex, RawMeshLOD, UniqueMaterials, MeshMaterialMap))
 			{
-				MaterialMap.Add(FMeshIdAndLOD(MeshId, LODIndex), MeshMaterialMap);
-				
+				MaterialMap.Add(FMeshIdAndLOD(MeshId, RawMeshLODIdx), MeshMaterialMap);
+
 				// Should we use vertex colors?
-				if (InSettings.bImportVertexColors)
+				if(InSettings.bImportVertexColors)
 				{
 					// Propagate painted vertex colors into our raw mesh
-					PropagatePaintedColorsToRawMesh(MeshComponent, LODIndex, RawMeshLOD);
+					PropagatePaintedColorsToRawMesh(MeshComponent, ExportLODIndex, RawMeshLOD);
 					// Whether at least one of the meshes has vertex colors
-					bWithVertexColors[LODIndex]|= (RawMeshLOD.WedgeColors.Num() != 0);
+					bWithVertexColors[RawMeshLODIdx]|= (RawMeshLOD.WedgeColors.Num() != 0);
 				}
-			
+
 				// Which UV channels has data at least in one mesh
-				for (int32 ChannelIdx = 0; ChannelIdx < MAX_MESH_TEXTURE_COORDS; ++ChannelIdx)
+				for(int32 ChannelIdx = 0; ChannelIdx < MAX_MESH_TEXTURE_COORDS; ++ChannelIdx)
 				{
-					bOcuppiedUVChannels[LODIndex][ChannelIdx]|= (RawMeshLOD.WedgeTexCoords[ChannelIdx].Num() != 0);
+					bOcuppiedUVChannels[RawMeshLODIdx][ChannelIdx]|= (RawMeshLOD.WedgeTexCoords[ChannelIdx].Num() != 0);
 				}
 			}
 		}
@@ -4236,11 +4448,107 @@ void FMeshUtilities::MergeActors(
 	}
 
 	FRawMeshExt MergedMesh;
-
 	// Use first mesh for naming and pivot
 	MergedMesh.AssetPackageName = SourceMeshes[0].AssetPackageName;
 	MergedMesh.Pivot = InSettings.bPivotPointAtZero ? FVector::ZeroVector : SourceMeshes[0].Pivot;
-	
+			
+	if (InSettings.bMergeMaterials)
+	{
+		FIntPoint AtlasTextureSize			= FIntPoint(InSettings.MergedMaterialAtlasResolution, InSettings.MergedMaterialAtlasResolution);
+		MaterialExportUtils::FFlattenMaterial MergedFlatMaterial;
+		MergedFlatMaterial.DiffuseSize		= AtlasTextureSize;
+		MergedFlatMaterial.NormalSize		= InSettings.bExportNormalMap ? AtlasTextureSize : FIntPoint::ZeroValue;
+		MergedFlatMaterial.MetallicSize		= InSettings.bExportMetallicMap ? AtlasTextureSize : FIntPoint::ZeroValue;
+		MergedFlatMaterial.RoughnessSize	= InSettings.bExportRoughnessMap ? AtlasTextureSize : FIntPoint::ZeroValue;
+		MergedFlatMaterial.SpecularSize		= InSettings.bExportSpecularMap ? AtlasTextureSize : FIntPoint::ZeroValue;
+		TArray<FRawMeshUVTransform> UVTransforms;
+		UWorld* World = SourceActors[0]->GetWorld();
+
+		MergeMaterials(World, UniqueMaterials, MergedFlatMaterial, UVTransforms);
+
+		// Remove merged materials from materials list and remap mesh materials
+		TArray<int32> MaterialsRemapTable;
+		TArray<UMaterialInterface*>	RearangedMaterials;
+		check(UniqueMaterials.Num() == UVTransforms.Num());
+		for (int32 MatIdx = 0; MatIdx < UniqueMaterials.Num(); ++MatIdx)
+		{
+			int32 RearangedMatIdx = INDEX_NONE;
+			if (!UVTransforms[MatIdx].IsValid())
+			{
+				RearangedMatIdx = RearangedMaterials.Add(UniqueMaterials[MatIdx]);
+			}
+			MaterialsRemapTable.Add(RearangedMatIdx);
+		}
+		UniqueMaterials = RearangedMaterials;
+		int32 MergedMaterialIdx = UniqueMaterials.Num();
+
+		// Adjust UVs and remap material indices
+		for (int32 MeshIndex = 0; MeshIndex < SourceMeshes.Num(); ++MeshIndex)
+		{
+			for (int32 LODIndex = 0; LODIndex < MAX_STATIC_MESH_LODS; ++LODIndex)
+			{
+				FRawMesh& RawMesh = SourceMeshes[MeshIndex].MeshLOD[LODIndex];
+
+				for (int32 UVChannelIdx = 0; UVChannelIdx < MAX_MESH_TEXTURE_COORDS; ++UVChannelIdx)
+				{
+					TArray<FVector2D>& UVs = RawMesh.WedgeTexCoords[UVChannelIdx];
+					if (UVs.Num() > 0)
+					{
+						int32 UVIdx = 0; 
+						for (int32 FaceMaterialIndex : RawMesh.FaceMaterialIndices)
+						{
+							const FRawMeshUVTransform& UVTransform = UVTransforms[FaceMaterialIndex];
+							if (UVTransform.IsValid())
+							{
+								FVector2D UV0 = GetValidUV(UVs[UVIdx+0]);
+								FVector2D UV1 = GetValidUV(UVs[UVIdx+1]);
+								FVector2D UV2 = GetValidUV(UVs[UVIdx+2]);
+								UVs[UVIdx+0] = UV0 * UVTransform.Scale + UVTransform.Offset;
+								UVs[UVIdx+1] = UV1 * UVTransform.Scale + UVTransform.Offset;
+								UVs[UVIdx+2] = UV2 * UVTransform.Scale + UVTransform.Offset;
+							}
+						
+							UVIdx+=3;
+						}
+					}
+				}
+				
+				// Remap material indexes
+				for (int32& FaceMaterialIndex : RawMesh.FaceMaterialIndices)
+				{
+					int32 RemapedIdx = MaterialsRemapTable[FaceMaterialIndex];
+					FaceMaterialIndex = (RemapedIdx == INDEX_NONE ? MergedMaterialIdx : RemapedIdx);
+				}
+			}
+		}
+
+		// Create merged material asset
+		FString MaterialAssetName;
+		FString MaterialPackageName;
+		if (InBasePackageName.IsEmpty())
+		{
+			MaterialAssetName = TEXT("M_MERGED_") + FPackageName::GetShortName(MergedMesh.AssetPackageName);
+			MaterialPackageName = FPackageName::GetLongPackagePath(MergedMesh.AssetPackageName) + TEXT("/") + MaterialAssetName;
+		}
+		else
+		{
+			MaterialAssetName = TEXT("M_") + FPackageName::GetShortName(InBasePackageName);
+			MaterialPackageName = FPackageName::GetLongPackagePath(InBasePackageName) + TEXT("/") + MaterialAssetName;
+		}
+
+		UPackage* MaterialPackage = InOuter;
+		if(MaterialPackage == nullptr)
+		{
+			MaterialPackage = CreatePackage(nullptr, *MaterialPackageName);
+			check(MaterialPackage);
+			MaterialPackage->FullyLoad();
+			MaterialPackage->Modify();
+		}
+
+		UMaterial* MergedMaterial = CreateMaterial(MergedFlatMaterial, MaterialPackage, MaterialAssetName, RF_Public|RF_Standalone, OutAssetsToSync);
+		UniqueMaterials.Add(MergedMaterial);
+	}
+		
 	// Merge meshes into single mesh
 	for (int32 SourceMeshIdx = 0; SourceMeshIdx < SourceMeshes.Num(); ++SourceMeshIdx)
 	{
@@ -4326,21 +4634,25 @@ void FMeshUtilities::MergeActors(
 	{
 		FString AssetName;
 		FString PackageName;
-		if (InPackageName.IsEmpty())
+		if (InBasePackageName.IsEmpty())
 		{
 			AssetName = TEXT("SM_MERGED_") + FPackageName::GetShortName(MergedMesh.AssetPackageName);
 			PackageName = FPackageName::GetLongPackagePath(MergedMesh.AssetPackageName) + TEXT("/") + AssetName;
 		}
 		else
 		{
-			AssetName = FPackageName::GetShortName(InPackageName);
-			PackageName = InPackageName;
+			AssetName = FPackageName::GetShortName(InBasePackageName);
+			PackageName = InBasePackageName;
 		}
 
-		UPackage* Package = CreatePackage(NULL, *PackageName);
-		check(Package);
-		Package->FullyLoad();
-		Package->Modify();
+		UPackage* Package = InOuter;
+		if(Package == nullptr)
+		{
+			Package = CreatePackage(NULL, *PackageName);
+			check(Package);
+			Package->FullyLoad();
+			Package->Modify();
+		}
 
 		auto StaticMesh = NewObject<UStaticMesh>(Package, *AssetName, RF_Public | RF_Standalone);
 		StaticMesh->InitResources();
@@ -4369,7 +4681,7 @@ void FMeshUtilities::MergeActors(
 				SrcModel->RawMeshBulkData->SaveRawMesh(MergedMeshLOD);
 			}
 		}
-
+			
 		// Assign materials
 		for (UMaterialInterface* Material : UniqueMaterials)
 		{
@@ -4381,7 +4693,7 @@ void FMeshUtilities::MergeActors(
 			StaticMesh->Materials.Add(Material);
 		}
 		
-		StaticMesh->Build();
+		StaticMesh->Build(bSilent);
 		StaticMesh->PostEditChange();
 
 		OutAssetsToSync.Add(StaticMesh);

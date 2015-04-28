@@ -9,6 +9,7 @@ namespace FFlipbookUIConstants
 {
 	const float HandleWidth = 12.0f;
 	const float FrameHeight = 48;
+	const float HeightBeforeFrames = 16;
 	const FMargin FramePadding(0.0f, 7.0f, 0.0f, 7.0f);
 };
 
@@ -23,16 +24,16 @@ public:
 	float WidgetWidth;
 	FPaperFlipbookKeyFrame KeyFrameData;
 	int32 SourceFrameIndex;
+	FText BodyText;
 	TWeakObjectPtr<UPaperFlipbook> SourceFlipbook;
 	FScopedTransaction Transaction;
 
+	// FDragDropOperation interface
 	virtual TSharedPtr<SWidget> GetDefaultDecorator() const override;
-
 	virtual void OnDragged(const class FDragDropEvent& DragDropEvent) override;
-
 	virtual void Construct() override;
-
 	virtual void OnDrop(bool bDropWasHandled, const FPointerEvent& MouseEvent) override;
+	// End of FDragDropOperation interface
 
 	void AppendToFlipbook(UPaperFlipbook* DestinationFlipbook);
 
@@ -78,6 +79,7 @@ protected:
 	FReply KeyframeOnMouseButtonUp(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent);
 
 	FText GetKeyframeAssetName() const;
+	FText GetKeyframeText() const;
 	FText GetKeyframeTooltip() const;
 
 	TSharedRef<SWidget> GenerateContextMenu();
@@ -120,17 +122,6 @@ public:
 
 	void Construct(const FArguments& InArgs, TSharedPtr<FUICommandList> InCommandList);
 
-	virtual void Tick( const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime ) override
-	{
-		UPaperFlipbook* Flipbook = FlipbookBeingEdited.Get();
-		int32 NewNumKeyframes = (Flipbook != nullptr) ? Flipbook->GetNumKeyFrames() : 0;
-		if (NewNumKeyframes != NumKeyframesFromLastRebuild)
-		{
-			Rebuild();
-		}
-	}
-
-private:
 	void Rebuild();
 
 private:
@@ -139,7 +130,6 @@ private:
 
 	TSharedPtr<SHorizontalBox> MainBoxPtr;
 
-	int32 NumKeyframesFromLastRebuild;
 	float HandleWidth;
 
 	FOnFlipbookKeyframeSelectionChanged OnSelectionChanged;

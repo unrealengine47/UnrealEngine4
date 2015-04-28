@@ -268,18 +268,25 @@ private:
 };
 
 /** Saved editor viewport state information */
+USTRUCT()
 struct ENGINE_API FLevelViewportInfo
 {
+	GENERATED_BODY()
+
 	/** Where the camera is positioned within the viewport. */
+	UPROPERTY()
 	FVector CamPosition;
 
 	/** The camera's position within the viewport. */
+	UPROPERTY()
 	FRotator CamRotation;
 
 	/** The zoom value  for orthographic mode. */
+	UPROPERTY()
 	float CamOrthoZoom;
 
 	/** Whether camera settings have been systematically changed since the last level viewport update. */
+	UPROPERTY()
 	bool CamUpdated;
 
 	FLevelViewportInfo()
@@ -297,7 +304,8 @@ struct ENGINE_API FLevelViewportInfo
 		, CamUpdated(false)
 	{
 	}
-
+	
+	// Needed for backwards compatibility for VER_UE4_ADD_EDITOR_VIEWS, can be removed along with it
 	friend FArchive& operator<<( FArchive& Ar, FLevelViewportInfo& I )
 	{
 		Ar << I.CamPosition;
@@ -691,8 +699,11 @@ public:
 	/** The current renderer feature level of this world */
 	ERHIFeatureLevel::Type						FeatureLevel;
 	
-	/** Saved editor viewport states - one for each view type. Indexed using ELevelViewportType above.							*/
-	FLevelViewportInfo							EditorViews[4];
+#if WITH_EDITORONLY_DATA
+	/** Saved editor viewport states - one for each view type. Indexed using ELevelViewportType from UnrealEdTypes.h.	*/
+	UPROPERTY(NonTransactional)
+	TArray<FLevelViewportInfo>					EditorViews;
+#endif
 
 	/** 
 	 * Set the CurrentLevel for this world. 
@@ -1055,7 +1066,7 @@ public:
 	/**
 	 * UWorld default constructor
 	 */
-	UWorld( const FObjectInitializer& ObjectInitializer );
+	UWorld(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 	
 	// LINE TRACE
 
@@ -1676,54 +1687,60 @@ public:
 	// COMPONENT SWEEP
 
 	/**
-	 *  Sweep the geometry of the supplied component, and determine the set of components that it hits
+	 *  Sweep the geometry of the supplied component, and determine the set of components that it hits.
+	 *  @note The overload taking rotation as an FQuat is slightly faster than the version using FRotator (which will be converted to an FQuat)..
 	 *  @param  OutHits         Array of hits found between ray and the world
-	 *  @param  PrimComp        Component to use geometry from to test against the world. Transform of this component is ignored
+	 *  @param  PrimComp        Component's geometry to test against the world. Transform of this component is ignored
 	 *  @param  Start           Start location of the trace
 	 *  @param  End             End location of the trace
-	 *  @param  Rot             Rotation to place PrimComp geometry at to test against the world (rotation remains constant over trace)
+	 *  @param  Rot             Rotation of PrimComp geometry for test against the world (rotation remains constant over sweep)
 	 *  @param  Params          Additional parameters used for the trace
 	 *  @return TRUE if OutHits contains any blocking hit entries
 	 */
-	bool ComponentSweepMulti(TArray<struct FHitResult>& OutHits, class UPrimitiveComponent* PrimComp, const FVector& Start,const FVector& End, const FRotator& Rot, const FComponentQueryParams& Params)  const;
+	bool ComponentSweepMulti(TArray<struct FHitResult>& OutHits, class UPrimitiveComponent* PrimComp, const FVector& Start, const FVector& End, const FQuat& Rot,    const FComponentQueryParams& Params) const;
+	bool ComponentSweepMulti(TArray<struct FHitResult>& OutHits, class UPrimitiveComponent* PrimComp, const FVector& Start, const FVector& End, const FRotator& Rot, const FComponentQueryParams& Params) const;
 
 	// COMPONENT OVERLAP
 
 	/**
 	 *  Test the collision of the supplied component at the supplied location/rotation using object types, and determine the set of components that it overlaps
+	 *  @note The overload taking rotation as an FQuat is slightly faster than the version using FRotator (which will be converted to an FQuat)..
 	 *  @param  OutOverlaps     Array of overlaps found between component in specified pose and the world
-	 *  @param  PrimComp        Component to use geometry from to test against the world. Transform of this component is ignored
-	 *  @param  Pos             Location to place PrimComp geometry at to test against the world
-	 *  @param  Rot             Rotation to place PrimComp geometry at to test against the world
+	 *  @param  PrimComp        Component's geometry to test against the world. Transform of this component is ignored
+	 *  @param  Pos             Location of PrimComp geometry for test against the world
+	 *  @param  Rot             Rotation of PrimComp geometry for test against the world
 	 *	@param	ObjectQueryParams	List of object types it's looking for. When this enters, we do object query with component shape
 	 *  @return TRUE if any hit is found
 	 */
+	bool ComponentOverlapMulti(TArray<struct FOverlapResult>& OutOverlaps, const class UPrimitiveComponent* PrimComp, const FVector& Pos, const FQuat& Rot,    const FComponentQueryParams& Params = FComponentQueryParams::DefaultComponentQueryParams, const FCollisionObjectQueryParams& ObjectQueryParams=FCollisionObjectQueryParams::DefaultObjectQueryParam) const;
 	bool ComponentOverlapMulti(TArray<struct FOverlapResult>& OutOverlaps, const class UPrimitiveComponent* PrimComp, const FVector& Pos, const FRotator& Rot, const FComponentQueryParams& Params = FComponentQueryParams::DefaultComponentQueryParams, const FCollisionObjectQueryParams& ObjectQueryParams=FCollisionObjectQueryParams::DefaultObjectQueryParam) const;
 
 	/**
 	 *  Test the collision of the supplied component at the supplied location/rotation using a specific channel, and determine the set of components that it overlaps
 	 *  @param  OutOverlaps     Array of overlaps found between component in specified pose and the world
-	 *  @param  PrimComp        Component to use geometry from to test against the world. Transform of this component is ignored
-	 *  @param  Pos             Location to place PrimComp geometry at to test against the world
-	 *  @param  Rot             Rotation to place PrimComp geometry at to test against the world
+	 *  @param  PrimComp        Component's geometry to test against the world. Transform of this component is ignored
+	 *  @param  Pos             Location of PrimComp geometry for test against the world
+	 *  @param  Rot             Rotation of PrimComp geometry for test against the world
 	 *  @param  TraceChannel	The 'channel' that this query is in, used to determine which components to hit
 	 *  @return TRUE if OutOverlaps contains any blocking results
 	 */
 	DEPRECATED(4.8, "Use ComponentOverlapMultiByChannel instead.")
 	bool ComponentOverlapMulti(TArray<struct FOverlapResult>& OutOverlaps, const class UPrimitiveComponent* PrimComp, const FVector& Pos, const FRotator& Rot, ECollisionChannel TraceChannel, const FComponentQueryParams& Params, const FCollisionObjectQueryParams& ObjectQueryParams=FCollisionObjectQueryParams::DefaultObjectQueryParam) const
 	{
-		return ComponentOverlapMultiByChannel(OutOverlaps, PrimComp, Pos, Rot, TraceChannel, Params, ObjectQueryParams);
+		return ComponentOverlapMultiByChannel(OutOverlaps, PrimComp, Pos, Rot.Quaternion(), TraceChannel, Params, ObjectQueryParams);
 	}
 
 	/**
 	 *  Test the collision of the supplied component at the supplied location/rotation using a specific channel, and determine the set of components that it overlaps
+	 *  @note The overload taking rotation as an FQuat is slightly faster than the version using FRotator (which will be converted to an FQuat)..
 	 *  @param  OutOverlaps     Array of overlaps found between component in specified pose and the world
-	 *  @param  PrimComp        Component to use geometry from to test against the world. Transform of this component is ignored
-	 *  @param  Pos             Location to place PrimComp geometry at to test against the world
-	 *  @param  Rot             Rotation to place PrimComp geometry at to test against the world
+	 *  @param  PrimComp        Component's geometry to test against the world. Transform of this component is ignored
+	 *  @param  Pos             Location of PrimComp geometry for test against the world
+	 *  @param  Rot             Rotation of PrimComp geometry for test against the world
 	 *  @param  TraceChannel	The 'channel' that this query is in, used to determine which components to hit
 	 *  @return TRUE if OutOverlaps contains any blocking results
 	 */
+	bool ComponentOverlapMultiByChannel(TArray<struct FOverlapResult>& OutOverlaps, const class UPrimitiveComponent* PrimComp, const FVector& Pos, const FQuat& Rot,    ECollisionChannel TraceChannel, const FComponentQueryParams& Params = FComponentQueryParams::DefaultComponentQueryParams, const FCollisionObjectQueryParams& ObjectQueryParams=FCollisionObjectQueryParams::DefaultObjectQueryParam) const;
 	bool ComponentOverlapMultiByChannel(TArray<struct FOverlapResult>& OutOverlaps, const class UPrimitiveComponent* PrimComp, const FVector& Pos, const FRotator& Rot, ECollisionChannel TraceChannel, const FComponentQueryParams& Params = FComponentQueryParams::DefaultComponentQueryParams, const FCollisionObjectQueryParams& ObjectQueryParams=FCollisionObjectQueryParams::DefaultObjectQueryParam) const;
 
 	/**
@@ -2563,6 +2580,13 @@ public:
 	void MarkActorComponentForNeededEndOfFrameUpdate(class UActorComponent* Component, bool bForceGameThread);
 
 	/**
+	 * Updates an ActorComponent's cached state of whether it has been marked for end of frame update based on the current
+	 * state of the World's NeedsEndOfFrameUpdate arrays
+	 * @param Component - Component to update the cached state of
+	 */
+	void UpdateActorComponentEndOfFrameUpdateState(class UActorComponent* Component) const;
+
+	/**
 	 * Send all render updates to the rendering thread.
 	 * @param OutCompletion - all async updates are added to this array, they typically need to be completed before GC or anything else
 	 */
@@ -2937,7 +2961,7 @@ public:
 	void NotifyOfBlueprintDebuggingAssociation(class UBlueprint* Blueprint, UObject* DebugObject);
 
 	/** Broadcasts that the number of levels has changed. */
-	void BroadcastLevelsChanged() { LevelsChangedEvent.Broadcast(); }
+	void BroadcastLevelsChanged();
 
 	/** Returns the LevelsChangedEvent member. */
 	FOnLevelsChangedEvent& OnLevelsChanged() { return LevelsChangedEvent; }
@@ -3226,9 +3250,46 @@ public:
 	// removed from the world without a RemoveFromWorld call for each)
 	static FOnLevelChanged			LevelRemovedFromWorld;
 
+	// Called after offset was applied to a level
+	DECLARE_MULTICAST_DELEGATE_FourParams(FLevelOffsetEvent, ULevel*,  UWorld*, const FVector&, bool);
+	static FLevelOffsetEvent		PostApplyLevelOffset;
+
 	// called by UWorld::GetAssetRegistryTags()
 	static FWorldGetAssetTags GetAssetTags;
+
+#if WITH_EDITOR
+	// Delegate called when levelscript actions need refreshing
+	DECLARE_MULTICAST_DELEGATE_OneParam(FRefreshLevelScriptActionsEvent, UWorld*);
+
+	// Called when changes in the levels require blueprint actions to be refreshed.
+	static FRefreshLevelScriptActionsEvent RefreshLevelScriptActions;
+#endif
 
 private:
 	FWorldDelegates() {}
 };
+
+
+//////////////////////////////////////////////////////////////////////////
+// UWorld inlines:
+
+FORCEINLINE_DEBUGGABLE bool UWorld::ComponentOverlapMulti(TArray<struct FOverlapResult>& OutOverlaps, const class UPrimitiveComponent* PrimComp, const FVector& Pos, const FRotator& Rot, const struct FComponentQueryParams& Params, const struct FCollisionObjectQueryParams& ObjectQueryParams) const
+{
+	// Pass through to FQuat version.
+	return ComponentOverlapMulti(OutOverlaps, PrimComp, Pos, Rot.Quaternion(), Params, ObjectQueryParams);
+}
+
+FORCEINLINE_DEBUGGABLE bool UWorld::ComponentOverlapMultiByChannel(TArray<struct FOverlapResult>& OutOverlaps, const class UPrimitiveComponent* PrimComp, const FVector& Pos, const FRotator& Rot, ECollisionChannel TraceChannel, const FComponentQueryParams& Params /* = FComponentQueryParams::DefaultComponentQueryParams */, const FCollisionObjectQueryParams& ObjectQueryParams/* =FCollisionObjectQueryParams::DefaultObjectQueryParam */) const
+{
+	// Pass through to FQuat version.
+	return ComponentOverlapMultiByChannel(OutOverlaps, PrimComp, Pos, Rot.Quaternion(), TraceChannel, Params);
+}
+
+FORCEINLINE_DEBUGGABLE bool UWorld::ComponentSweepMulti(TArray<struct FHitResult>& OutHits, class UPrimitiveComponent* PrimComp, const FVector& Start, const FVector& End, const FRotator& Rot, const struct FComponentQueryParams& Params) const
+{
+	// Pass through to FQuat version.
+	return ComponentSweepMulti(OutHits, PrimComp, Start, End, Rot.Quaternion(), Params);
+}
+
+
+

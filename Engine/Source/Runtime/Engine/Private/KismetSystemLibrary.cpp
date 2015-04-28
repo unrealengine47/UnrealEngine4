@@ -38,6 +38,11 @@ bool UKismetSystemLibrary::IsValidClass(UClass* Class)
 	return ::IsValid(Class);
 }
 
+FString UKismetSystemLibrary::GetObjectName(const UObject* Object)
+{
+	return GetNameSafe(Object);
+}
+
 FString UKismetSystemLibrary::GetDisplayName(const UObject* Object)
 {
 #if WITH_EDITOR
@@ -929,7 +934,7 @@ bool UKismetSystemLibrary::ComponentOverlapComponents_DEPRECATED(UPrimitiveCompo
 
 	FCollisionObjectQueryParams::InitType InitType = FCollisionObjectQueryParams::GetCollisionChannelFromOverlapFilter(Filter);
 	check( Component->GetWorld());
-	Component->GetWorld()->ComponentOverlapMulti(Overlaps, Component, ComponentTransform.GetTranslation(), ComponentTransform.GetRotation().Rotator(), Params, FCollisionObjectQueryParams(InitType));
+	Component->GetWorld()->ComponentOverlapMulti(Overlaps, Component, ComponentTransform.GetTranslation(), ComponentTransform.GetRotation(), Params, FCollisionObjectQueryParams(InitType));
 
 	for (int32 OverlapIdx=0; OverlapIdx<Overlaps.Num(); ++OverlapIdx)
 	{
@@ -1142,7 +1147,7 @@ bool UKismetSystemLibrary::ComponentOverlapComponents_NEW(UPrimitiveComponent* C
 	}
 
 	check( Component->GetWorld());
-	Component->GetWorld()->ComponentOverlapMulti(Overlaps, Component, ComponentTransform.GetTranslation(), ComponentTransform.GetRotation().Rotator(), Params, ObjectParams);
+	Component->GetWorld()->ComponentOverlapMulti(Overlaps, Component, ComponentTransform.GetTranslation(), ComponentTransform.GetRotation(), Params, ObjectParams);
 
 	for (int32 OverlapIdx=0; OverlapIdx<Overlaps.Num(); ++OverlapIdx)
 	{
@@ -2912,6 +2917,16 @@ void UKismetSystemLibrary::SetStructurePropertyByName(UObject* Object, FName Pro
 void UKismetSystemLibrary::ControlScreensaver(bool bAllowScreenSaver)
 {
 	FPlatformMisc::ControlScreensaver(bAllowScreenSaver ? FPlatformMisc::EScreenSaverAction::Enable : FPlatformMisc::EScreenSaverAction::Disable);
+}
+
+void UKismetSystemLibrary::SetVolumeButtonsHandledBySystem(bool bEnabled)
+{
+	FPlatformMisc::SetVolumeButtonsHandledBySystem(bEnabled);
+}
+
+bool UKismetSystemLibrary::GetVolumeButtonsHandledBySystem()
+{
+	return FPlatformMisc::GetVolumeButtonsHandledBySystem();
 }
 
 void UKismetSystemLibrary::SetSupressViewportTransitionMessage(UObject* WorldContextObject, bool bState)

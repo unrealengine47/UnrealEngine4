@@ -14,8 +14,6 @@
 
 DECLARE_LOG_CATEGORY_CLASS(LogP4Env, Log, All);
 
-#define LOCTEXT_NAMESPACE "UnrealSync"
-
 /**
  * Parses param from command line.
  *
@@ -679,7 +677,7 @@ public:
 			FRegexMatcher Matcher(UserNamePattern, InfoOutput);
 			if (Matcher.FindNext())
 			{
-				Output = InfoOutput.Mid(Matcher.GetCaptureGroupBeginning(1), Matcher.GetCaptureGroupEnding(1) - Matcher.GetCaptureGroupBeginning(1));
+				Output = Matcher.GetCaptureGroup(1);
 				return true;
 			}
 		}
@@ -743,8 +741,8 @@ public:
 
 		while (Matcher->FindNext())
 		{
-			auto ClientName = P4ClientsOutput.Mid(Matcher->GetCaptureGroupBeginning(1), Matcher->GetCaptureGroupEnding(1) - Matcher->GetCaptureGroupBeginning(1));
-			auto Root = P4ClientsOutput.Mid(Matcher->GetCaptureGroupBeginning(2), Matcher->GetCaptureGroupEnding(2) - Matcher->GetCaptureGroupBeginning(2));
+			auto ClientName = Matcher->GetCaptureGroup(1);
+			auto Root = Matcher->GetCaptureGroup(2);
 
 			if (KnownPath.StartsWith(FPaths::ConvertRelativePathToFull(Root)))
 			{
@@ -759,10 +757,7 @@ public:
 
 				while (InfoMatcher.FindNext())
 				{
-					if (InfoOutput.Mid(
-						InfoMatcher.GetCaptureGroupBeginning(1),
-						InfoMatcher.GetCaptureGroupEnding(1) - InfoMatcher.GetCaptureGroupBeginning(1)
-						).Equals(HostName, ESearchCase::IgnoreCase))
+					if (InfoMatcher.GetCaptureGroup(1).Equals(HostName, ESearchCase::IgnoreCase))
 					{
 						Output = ClientName;
 						return true;
@@ -1065,13 +1060,8 @@ bool FP4Env::CheckIfFileNeedsUpdate(const FString& FilePath)
 		return false;
 	}
 
-	int32 HeadRev = FPlatformString::Atoi(*Output.Mid(
-		HeadRevMatcher.GetCaptureGroupBeginning(1),
-		HeadRevMatcher.GetCaptureGroupEnding(1) - HeadRevMatcher.GetCaptureGroupBeginning(1)));
-
-	int32 HaveRev = FPlatformString::Atoi(*Output.Mid(
-		HaveRevMatcher.GetCaptureGroupBeginning(1),
-		HaveRevMatcher.GetCaptureGroupEnding(1) - HaveRevMatcher.GetCaptureGroupBeginning(1)));
+	int32 HeadRev = FPlatformString::Atoi(*HeadRevMatcher.GetCaptureGroup(1));
+	int32 HaveRev = FPlatformString::Atoi(*HaveRevMatcher.GetCaptureGroup(1));
 
 	return HaveRev < HeadRev;
 }

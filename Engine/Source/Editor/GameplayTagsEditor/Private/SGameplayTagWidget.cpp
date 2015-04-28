@@ -28,9 +28,10 @@ void SGameplayTagWidget::Construct(const FArguments& InArgs, const TArray<FEdita
 	// Tag the assets as transactional so they can support undo/redo
 	for (int32 AssetIdx = 0; AssetIdx < TagContainers.Num(); ++AssetIdx)
 	{
-		if (TagContainers[AssetIdx].TagContainerOwner)
+		UObject* TagContainerOwner = TagContainers[AssetIdx].TagContainerOwner.Get();
+		if (TagContainerOwner)
 		{
-			TagContainers[AssetIdx].TagContainerOwner->SetFlags(RF_Transactional);
+			TagContainerOwner->SetFlags(RF_Transactional);
 		}
 	}
 
@@ -224,7 +225,7 @@ void SGameplayTagWidget::OnTagChecked(TSharedPtr<FGameplayTagNode> NodeChecked)
 	for (int32 ContainerIdx = 0; ContainerIdx < TagContainers.Num(); ++ContainerIdx)
 	{
 		TWeakPtr<FGameplayTagNode> CurNode(NodeChecked);
-		UObject* OwnerObj = TagContainers[ContainerIdx].TagContainerOwner;
+		UObject* OwnerObj = TagContainers[ContainerIdx].TagContainerOwner.Get();
 		FGameplayTagContainer* Container = TagContainers[ContainerIdx].TagContainer;
 
 		if (Container)
@@ -265,7 +266,7 @@ void SGameplayTagWidget::OnTagUnchecked(TSharedPtr<FGameplayTagNode> NodeUncheck
 
 		for (int32 ContainerIdx = 0; ContainerIdx < TagContainers.Num(); ++ContainerIdx)
 		{
-			UObject* OwnerObj = TagContainers[ContainerIdx].TagContainerOwner;
+			UObject* OwnerObj = TagContainers[ContainerIdx].TagContainerOwner.Get();
 			FGameplayTagContainer* Container = TagContainers[ContainerIdx].TagContainer;
 			FGameplayTag Tag = TagsManager.RequestGameplayTag(NodeUnchecked->GetCompleteTag());
 
@@ -376,7 +377,7 @@ FReply SGameplayTagWidget::OnClearAllClicked()
 
 	for (int32 ContainerIdx = 0; ContainerIdx < TagContainers.Num(); ++ContainerIdx)
 	{
-		UObject* OwnerObj = TagContainers[ContainerIdx].TagContainerOwner;
+		UObject* OwnerObj = TagContainers[ContainerIdx].TagContainerOwner.Get();
 		FGameplayTagContainer* Container = TagContainers[ContainerIdx].TagContainer;
 
 		if (Container)
@@ -449,7 +450,7 @@ void SGameplayTagWidget::VerifyAssetTagValidity()
 	// Find and remove any tags on the asset that are no longer in the library
 	for (int32 ContainerIdx = 0; ContainerIdx < TagContainers.Num(); ++ContainerIdx)
 	{
-		UObject* OwnerObj = TagContainers[ContainerIdx].TagContainerOwner;
+		UObject* OwnerObj = TagContainers[ContainerIdx].TagContainerOwner.Get();
 		FGameplayTagContainer* Container = TagContainers[ContainerIdx].TagContainer;
 
 		if (Container)
@@ -519,7 +520,7 @@ void SGameplayTagWidget::LoadTagNodeItemExpansion( TSharedPtr<FGameplayTagNode> 
 	{
 		bool bExpanded = false;
 
-		if( GConfig->GetBool(*SettingsIniSection, *(TagContainerName + Node->GetCompleteTag().ToString() + TEXT(".Expanded")), bExpanded, GEditorUserSettingsIni) )
+		if( GConfig->GetBool(*SettingsIniSection, *(TagContainerName + Node->GetCompleteTag().ToString() + TEXT(".Expanded")), bExpanded, GEditorPerProjectIni) )
 		{
 			TagTreeWidget->SetItemExpansion( Node, bExpanded );
 		}
@@ -539,7 +540,7 @@ void SGameplayTagWidget::LoadTagNodeItemExpansion( TSharedPtr<FGameplayTagNode> 
 void SGameplayTagWidget::OnExpansionChanged( TSharedPtr<FGameplayTagNode> InItem, bool bIsExpanded )
 {
 	// Save the new expansion setting to ini file
-	GConfig->SetBool(*SettingsIniSection, *(TagContainerName + InItem->GetCompleteTag().ToString() + TEXT(".Expanded")), bIsExpanded, GEditorUserSettingsIni);
+	GConfig->SetBool(*SettingsIniSection, *(TagContainerName + InItem->GetCompleteTag().ToString() + TEXT(".Expanded")), bIsExpanded, GEditorPerProjectIni);
 }
 
 void SGameplayTagWidget::SetContainer(FGameplayTagContainer* OriginalContainer, FGameplayTagContainer* EditedContainer, UObject* OwnerObj)

@@ -80,7 +80,7 @@ public:
 	// UK2Node interface
 	virtual void ReallocatePinsDuringReconstruction(TArray<UEdGraphPin*>& OldPins) override;
 	virtual bool IsNodePure() const override { return bIsPureFunc; }
-	virtual bool HasExternalBlueprintDependencies(TArray<class UStruct*>* OptionalOutput) const override;
+	virtual bool HasExternalDependencies(TArray<class UStruct*>* OptionalOutput) const override;
 	virtual void PostReconstructNode() override;
 	virtual bool ShouldDrawCompact() const override;
 	virtual bool ShouldDrawAsBead() const override;
@@ -146,7 +146,7 @@ public:
 	/** Get default category for this function in action menu */
 	static FString GetDefaultCategoryForFunction(const UFunction* Function, const FString& BaseCategory);
 	/** Get keywords for this function in the action menu */
-	static FString GetKeywordsForFunction(const UFunction* Function);
+	static FText GetKeywordsForFunction(const UFunction* Function);
 	/** Should be drawn compact for this function */
 	static bool ShouldDrawCompact(const UFunction* Function);
 	/** Get the compact name for this function */

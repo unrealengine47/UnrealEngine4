@@ -1936,7 +1936,7 @@ void SEditableText::SaveText()
 }
 
 
-void SEditableText::SummonContextMenu( const FVector2D& InLocation )
+void SEditableText::SummonContextMenu(const FVector2D& InLocation, TSharedPtr<SWindow> ParentWindow)
 {
 	// Set the menu to automatically close when the user commits to a choice
 	const bool bShouldCloseWindowAfterMenuSelection = true;
@@ -1984,7 +1984,12 @@ void SEditableText::SummonContextMenu( const FVector2D& InLocation )
 	ActiveContextMenu.PrepareToSummon();
 
 	const bool bFocusImmediately = true;
-	TSharedPtr< SWindow > ContextMenuWindow = FSlateApplication::Get().PushMenu( SharedThis( this ), MenuBuilder.MakeWidget(), InLocation, FPopupTransitionEffect( FPopupTransitionEffect::ContextMenu ), bFocusImmediately );
+	TSharedRef<SWidget> MenuParent = SharedThis(this);
+	if (ParentWindow.IsValid())
+	{
+		MenuParent = StaticCastSharedRef<SWidget>(ParentWindow.ToSharedRef());
+	}
+	TSharedPtr< SWindow > ContextMenuWindow = FSlateApplication::Get().PushMenu(MenuParent, MenuBuilder.MakeWidget(), InLocation, FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu), bFocusImmediately );
 	
 	// Make sure the window is valid.  It's possible for the parent to already be in the destroy queue, for example if the editable text was configured to dismiss it's window during OnTextCommitted.
 	if( ContextMenuWindow.IsValid() )
@@ -2145,4 +2150,34 @@ void SEditableText::SetIsPassword( TAttribute< bool > InIsPassword )
 void SEditableText::SetColorAndOpacity(TAttribute<FSlateColor> Color)
 {
 	ColorAndOpacity = Color;
+}
+
+void SEditableText::SetMinDesiredWidth(const TAttribute<float>& InMinDesiredWidth)
+{
+	MinDesiredWidth = InMinDesiredWidth;
+}
+
+void SEditableText::SetIsCaretMovedWhenGainFocus(const TAttribute<bool>& InIsCaretMovedWhenGainFocus)
+{
+	IsCaretMovedWhenGainFocus = InIsCaretMovedWhenGainFocus;
+}
+
+void SEditableText::SetSelectAllTextWhenFocused(const TAttribute<bool>& InSelectAllTextWhenFocused)
+{
+	bSelectAllTextWhenFocused = InSelectAllTextWhenFocused;
+}
+
+void SEditableText::SetRevertTextOnEscape(const TAttribute<bool>& InRevertTextOnEscape)
+{
+	RevertTextOnEscape = InRevertTextOnEscape;
+}
+
+void SEditableText::SetClearKeyboardFocusOnCommit(const TAttribute<bool>& InClearKeyboardFocusOnCommit)
+{
+	ClearKeyboardFocusOnCommit = InClearKeyboardFocusOnCommit;
+}
+
+void SEditableText::SetSelectAllTextOnCommit(const TAttribute<bool>& InSelectAllTextOnCommit)
+{
+	SelectAllTextOnCommit = InSelectAllTextOnCommit;
 }

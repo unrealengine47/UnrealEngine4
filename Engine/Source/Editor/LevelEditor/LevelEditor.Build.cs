@@ -13,6 +13,7 @@ public class LevelEditor : ModuleRules
 				"MainFrame",
                 "PlacementMode",
 				"ReferenceViewer",
+				"SizeMap",
                 "IntroTutorials",
                 "AppFramework"
 			}
@@ -72,9 +73,7 @@ public class LevelEditor : ModuleRules
 				"SessionFrontend",
 				"AutomationWindow",
 				"Layers",
-				"Levels",
                 "WorldBrowser",
-				"TaskBrowser",
 				"EditorWidgets",
 				"AssetTools",
 				"WorkspaceMenuStructure",
@@ -84,6 +83,7 @@ public class LevelEditor : ModuleRules
                 "PlacementMode",
 				"UserFeedback",
 				"ReferenceViewer",
+				"SizeMap",
                 "IntroTutorials"
 			}
 		);

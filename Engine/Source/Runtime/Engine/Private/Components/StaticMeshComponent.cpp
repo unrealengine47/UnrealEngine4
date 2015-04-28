@@ -23,6 +23,8 @@
 
 #define LOCTEXT_NAMESPACE "StaticMeshComponent"
 
+DECLARE_MEMORY_STAT( TEXT( "StaticMesh VxColor Inst Mem" ), STAT_InstVertexColorMemory, STATGROUP_MemoryStaticMesh );
+
 class FStaticMeshComponentInstanceData : public FSceneComponentInstanceData
 {
 public:
@@ -48,11 +50,17 @@ public:
 		{
 			for (FLightMapRef& LightMapRef : CachedStaticLighting.LODDataLightMap)
 			{
-				LightMapRef->AddReferencedObjects(Collector);
+				if (LightMapRef != nullptr)
+				{
+					LightMapRef->AddReferencedObjects(Collector);
+				}
 			}
 			for (FShadowMapRef& ShadowMapRef : CachedStaticLighting.LODDataShadowMap)
 			{
-				ShadowMapRef->AddReferencedObjects(Collector);
+				if (ShadowMapRef != nullptr)
+				{
+					ShadowMapRef->AddReferencedObjects(Collector);
+				}
 			}		
 		}
 	}
@@ -384,14 +392,16 @@ void UStaticMeshComponent::CheckForErrors()
 		// Overall scale factor for this mesh.
 		const FVector& TotalScale3D = ComponentToWorld.GetScale3D();
 		if ( !TotalScale3D.IsUniform() &&
-			 (StaticMesh->BodySetup->AggGeom.SphylElems.Num() > 0 ||
+			 (StaticMesh->BodySetup->AggGeom.BoxElems.Num() > 0   ||
+			  StaticMesh->BodySetup->AggGeom.SphylElems.Num() > 0 ||
 			  StaticMesh->BodySetup->AggGeom.SphereElems.Num() > 0) )
+
 		{
 			FFormatNamedArguments Arguments;
 			Arguments.Add(TEXT("MeshName"), FText::FromString(StaticMesh->GetName()));
 			FMessageLog("MapCheck").Warning()
 				->AddToken(FUObjectToken::Create(Owner))
-				->AddToken(FTextToken::Create(FText::Format(LOCTEXT( "MapCheck_Message_SimpleCollisionButNonUniformScale", "'{MeshName}' has sphere or capsule simple collision but is being scaled non-uniformly - collision creation will fail" ), Arguments)))
+				->AddToken(FTextToken::Create(FText::Format(LOCTEXT( "MapCheck_Message_SimpleCollisionButNonUniformScale", "'{MeshName}' has simple collision but is being scaled non-uniformly - collision creation will fail" ), Arguments)))
 				->AddToken(FMapErrorToken::Create(FMapErrors::SimpleCollisionButNonUniformScale));
 		}
 	}
@@ -400,7 +410,7 @@ void UStaticMeshComponent::CheckForErrors()
 	{
 		FMessageLog("MapCheck").Warning()
 			->AddToken(FUObjectToken::Create(this))
-			->AddToken(FTextToken::Create(FText::Format(LOCTEXT( "MapCheck_Message_SimulatePhyNoSimpleCollision", "{0} : Using bSimulatePhysics but StaticMesh has no simple collision."), FText::FromString(GetName()) ) ));
+			->AddToken(FTextToken::Create(FText::Format(LOCTEXT( "MapCheck_Message_SimulatePhyNoSimpleCollision", "{0} : Using bSimulatePhysics but StaticMesh has not simple collision."), FText::FromString(GetName()) ) ));
 	}
 
 	if( Mobility == EComponentMobility::Movable &&
@@ -461,22 +471,20 @@ void UStaticMeshComponent::OnRegister()
 				LODData[i].ShadowMap = NULL;
 			}
 		}
-	}
-
-	if (StaticMesh != NULL && StaticMesh->SpeedTreeWind.IsValid() && GetScene())
-	{
-		for (int32 LODIndex = 0; LODIndex < StaticMesh->RenderData->LODResources.Num(); ++LODIndex)
+		if (StaticMesh->SpeedTreeWind.IsValid() && GetScene())
 		{
-			GetScene()->AddSpeedTreeWind(&StaticMesh->RenderData->LODResources[LODIndex].VertexFactory, StaticMesh);
+			for (int32 LODIndex = 0; LODIndex < StaticMesh->RenderData->LODResources.Num(); ++LODIndex)
+			{
+				GetScene()->AddSpeedTreeWind(&StaticMesh->RenderData->LODResources[LODIndex].VertexFactory, StaticMesh);
+			}
 		}
 	}
-
 	Super::OnRegister();
 }
 
 void UStaticMeshComponent::OnUnregister()
 {
-	if (StaticMesh != NULL && StaticMesh->SpeedTreeWind.IsValid() && GetScene())
+	if (StaticMesh && StaticMesh->RenderData && StaticMesh->SpeedTreeWind.IsValid() && GetScene())
 	{
 		for (int32 LODIndex = 0; LODIndex < StaticMesh->RenderData->LODResources.Num(); ++LODIndex)
 		{
@@ -489,13 +497,11 @@ void UStaticMeshComponent::OnUnregister()
 
 void UStaticMeshComponent::GetStreamingTextureInfo(TArray<FStreamingTexturePrimitiveInfo>& OutStreamingTextures) const
 {
-	if ( StaticMesh && !bIgnoreInstanceForTextureStreaming )
+	if ( !bIgnoreInstanceForTextureStreaming && StaticMesh && StaticMesh->RenderData && StaticMesh->RenderData->LODResources.Num() > 0)
 	{
 		const auto FeatureLevel = GetWorld() ? GetWorld()->FeatureLevel : GMaxRHIFeatureLevel;
 
 		bool bHasValidLightmapCoordinates = ((StaticMesh->LightMapCoordinateIndex >= 0)
-			&& StaticMesh->RenderData
-			&& StaticMesh->RenderData->LODResources.Num() > 0
 			&& ((uint32)StaticMesh->LightMapCoordinateIndex < StaticMesh->RenderData->LODResources[0].VertexBuffer.GetNumTexCoords()));
 
 		// We need to come up with a compensation factor for spline deformed meshes

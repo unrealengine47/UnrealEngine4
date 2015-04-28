@@ -101,7 +101,8 @@ private:
 	// cached analytics provider for pushing events
 	TSharedPtr<IAnalyticsProvider> Provider;
 	// map of chat id to # of messages sent
-	TMap<FString, int32> ChatCounts;
+	TMap<FString, int32> PrivateChatCounts;
+	TMap<FString, int32> ChannelChatCounts;
 };
 
 /**
@@ -142,6 +143,28 @@ public:
 	virtual void JoinPublicChatRoom(const FString& RoomName) override;
 	virtual void OnChatPublicRoomJoined(const FString& ChatRoomID) override;
 
+	/**
+	* Get the friends filtered list of friends.
+	*
+	* @param OutFriendsList  Array of friends to fill in.
+	* @return the friend list count.
+	*/
+	virtual int32 GetFilteredFriendsList(TArray< TSharedPtr< IFriendItem > >& OutFriendsList) override;
+
+	/**
+	* Get the recent players list.
+	* @return the list.
+	*/
+	virtual TArray< TSharedPtr< IFriendItem > >& GetRecentPlayerList() override;
+
+	/**
+	* Get incoming game invite list.
+	*
+	* @param OutFriendsList  Array of friends to fill in.
+	* @return The friend list count.
+	*/
+	virtual int32 GetFilteredGameInviteList(TArray< TSharedPtr< IFriendItem > >& OutFriendsList) override;
+	
 	/**
 	 * Get the analytics for recording friends chat events
 	 */
@@ -230,20 +253,6 @@ public:
 	void RejectFriend( TSharedPtr< IFriendItem > FriendItem );
 
 	/**
-	 * Get the friends filtered list of friends.
-	 *
-	 * @param OutFriendsList  Array of friends to fill in.
-	 * @return the friend list count.
-	 */
-	int32 GetFilteredFriendsList( TArray< TSharedPtr< IFriendItem > >& OutFriendsList );
-
-	/**
-	 * Get the recent players list.
-	 * @return the list.
-	 */
-	TArray< TSharedPtr< IFriendItem > >& GetRecentPlayerList();
-
-	/**
 	 * Get outgoing request list.
 	 *
 	 * @param OutFriendsList  Array of friends to fill in.
@@ -265,14 +274,6 @@ public:
 	 * @param DeleteReason The reason the friend is being deleted.
 	 */
 	void DeleteFriend(TSharedPtr< IFriendItem > FriendItem, const FString& Action);
-
-	/**
-	 * Get incoming game invite list.
-	 *
-	 * @param OutFriendsList  Array of friends to fill in.
-	 * @return The friend list count.
-	 */
-	int32 GetFilteredGameInviteList(TArray< TSharedPtr< IFriendItem > >& OutFriendsList);
 
 	/**
 	 * Reject a game invite
@@ -399,13 +400,13 @@ public:
 
 	// Internal events
 
-	DECLARE_EVENT(FFriendsAndChatManager, FOnFriendsUpdated)
+	DECLARE_DERIVED_EVENT(IFriendsAndChatManager, IFriendsAndChatManager::FOnFriendsUpdated, FOnFriendsUpdated)
 	virtual FOnFriendsUpdated& OnFriendsListUpdated()
 	{
 		return OnFriendsListUpdatedDelegate;
 	}
 
-	DECLARE_EVENT(FFriendsAndChatManager, FOnGameInvitesUpdated)
+	DECLARE_DERIVED_EVENT(IFriendsAndChatManager, IFriendsAndChatManager::FOnGameInvitesUpdated, FOnGameInvitesUpdated)
 	virtual FOnGameInvitesUpdated& OnGameInvitesUpdated()
 	{
 		return OnGameInvitesUpdatedDelegate;

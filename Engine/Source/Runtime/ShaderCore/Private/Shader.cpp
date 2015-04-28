@@ -438,10 +438,12 @@ bool FShaderResource::ArePlatformsCompatible(EShaderPlatform CurrentPlatform, ES
 
 		bool bIsTargetD3D = TargetPlatform == SP_PCD3D_SM5 ||
 								TargetPlatform == SP_PCD3D_SM4 ||
+								TargetPlatform == SP_PCD3D_ES3_1 ||
 								TargetPlatform == SP_PCD3D_ES2;
 
 		bool bIsCurrentPlatformD3D = CurrentPlatform == SP_PCD3D_SM5 ||
 								CurrentPlatform == SP_PCD3D_SM4 ||
+								TargetPlatform == SP_PCD3D_ES3_1 ||
 								CurrentPlatform == SP_PCD3D_ES2;
 
 		bFeatureLevelCompatible = bFeatureLevelCompatible && (bIsCurrentPlatformD3D == bIsTargetD3D);
@@ -805,7 +807,7 @@ FShader::FShader(const CompiledShaderInitializerType& Initializer):
 
 FShader::~FShader()
 {
-	check(Canary == ShaderMagic_Uninitialized || Canary == ShaderMagic_Initialized);
+	check(Canary == ShaderMagic_Uninitialized || Canary == ShaderMagic_CleaningUp || Canary == ShaderMagic_Initialized);
 	check(NumRefs == 0);
 	Canary = 0;
 
@@ -854,6 +856,7 @@ bool FShader::SerializeBase(FArchive& Ar, bool bShadersInline)
 		}
 
 		// The shader has been serialized in, so this shader is now initialized.
+		check(Canary != ShaderMagic_CleaningUp);
 		Canary = ShaderMagic_Initialized;
 	}
 	else
@@ -921,6 +924,7 @@ bool FShader::SerializeBase(FArchive& Ar, bool bShadersInline)
 
 void FShader::AddRef()
 {
+	check(Canary != ShaderMagic_CleaningUp);
 	++NumRefs;
 	if (NumRefs == 1)
 	{
@@ -941,6 +945,7 @@ void FShader::Release()
 		// Deregister the shader now to eliminate references to it by the type's ShaderIdMap
 		Deregister();
 
+		Canary = ShaderMagic_CleaningUp;
 		BeginCleanup(this);
 	}
 }

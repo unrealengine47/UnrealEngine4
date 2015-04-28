@@ -98,6 +98,9 @@ class GAMEPLAYABILITIES_API UAbilitySystemBlueprintLibrary : public UBlueprintFu
 	UFUNCTION(BlueprintPure, Category = "Ability|TargetData")
 	static FVector GetTargetDataEndPoint(FGameplayAbilityTargetDataHandle TargetData, int32 Index);
 
+	UFUNCTION(BlueprintPure, Category = "Ability|TargetData")
+	static FTransform GetTargetDataEndPointTransform(FGameplayAbilityTargetDataHandle TargetData, int32 Index);
+
 	// -------------------------------------------------------------------------------
 	//		GameplayEffectContext
 	// -------------------------------------------------------------------------------
@@ -126,6 +129,10 @@ class GAMEPLAYABILITIES_API UAbilitySystemBlueprintLibrary : public UBlueprintFu
 	/** Gets the physical actor that caused the effect, possibly a projectile or weapon */
 	UFUNCTION(BlueprintPure, Category = "Ability|EffectContext", Meta = (DisplayName = "GetEffectCauser"))
 	static AActor* EffectContextGetEffectCauser(FGameplayEffectContextHandle EffectContext);
+
+	/** Gets the source object of the effect. */
+	UFUNCTION(BlueprintPure, Category = "Ability|EffectContext", Meta = (DisplayName = "GetSourceObject"))
+	static UObject* EffectContextGetSourceObject(FGameplayEffectContextHandle EffectContext);
 
 	// -------------------------------------------------------------------------------
 	//		GameplayCue
@@ -170,6 +177,9 @@ class GAMEPLAYABILITIES_API UAbilitySystemBlueprintLibrary : public UBlueprintFu
 	UFUNCTION(BlueprintPure, Category = "Ability|GameplayCue")
 	static bool GetGameplayCueDirection(AActor* TargetActor, FGameplayCueParameters Parameters, FVector& Direction);
 
+	/** Returns true if the aggregated source and target tags from the effect spec meets the tag requirements */
+	UFUNCTION(BlueprintPure, Category = "Ability|GameplayCue")
+	static bool DoesGameplayCueMeetTagRequirements(FGameplayCueParameters Parameters, UPARAM(ref) FGameplayTagRequirements& SourceTagReqs, UPARAM(ref) FGameplayTagRequirements& TargetTagReqs);
 
 	// -------------------------------------------------------------------------------
 	//		GameplayEffectSpec
@@ -181,11 +191,21 @@ class GAMEPLAYABILITIES_API UAbilitySystemBlueprintLibrary : public UBlueprintFu
 	UFUNCTION(BlueprintCallable, Category = "Ability|GameplayEffect")
 	static FGameplayEffectSpecHandle SetDuration(FGameplayEffectSpecHandle SpecHandle, float Duration);
 
+	// This instance of the effect will now grant NewGameplayTag to the object that this effect is applied to.
 	UFUNCTION(BlueprintCallable, Category = "Ability|GameplayEffect")
 	static FGameplayEffectSpecHandle AddGrantedTag(FGameplayEffectSpecHandle SpecHandle, FGameplayTag NewGameplayTag);
 
+	// This instance of the effect will now grant NewGameplayTags to the object that this effect is applied to.
 	UFUNCTION(BlueprintCallable, Category = "Ability|GameplayEffect")
 	static FGameplayEffectSpecHandle AddGrantedTags(FGameplayEffectSpecHandle SpecHandle, FGameplayTagContainer NewGameplayTags);
+
+	// Adds NewGameplayTag to this instance of the effect.
+	UFUNCTION(BlueprintCallable, Category = "Ability|GameplayEffect")
+	static FGameplayEffectSpecHandle AddAssetTag(FGameplayEffectSpecHandle SpecHandle, FGameplayTag NewGameplayTag);
+
+	// Adds NewGameplayTags to this instance of the effect.
+	UFUNCTION(BlueprintCallable, Category = "Ability|GameplayEffect")
+	static FGameplayEffectSpecHandle AddAssetTags(FGameplayEffectSpecHandle SpecHandle, FGameplayTagContainer NewGameplayTags);
 
 	UFUNCTION(BlueprintCallable, Category = "Ability|GameplayEffect")
 	static FGameplayEffectSpecHandle AddLinkedGameplayEffectSpec(FGameplayEffectSpecHandle SpecHandle, FGameplayEffectSpecHandle LinkedGameplayEffectSpec);

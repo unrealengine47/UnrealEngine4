@@ -124,7 +124,7 @@ class ENGINE_API UKismetArrayLibrary : public UBlueprintFunctionLibrary
 	 *Given an array and an index, assigns the item to that array element
 	 *
 	 *@param	TargetArray		The array to perform the operation on
-	 *@param	Index			The index to assing the item to
+	 *@param	Index			The index to assign the item to
 	 *@param	Item			The item to assign to the index of the array
 	 *@param	bSizeToFit		If true, the array will expand if Index is greater than the current size of the array
 	*/
@@ -214,7 +214,7 @@ public:
  
  		P_FINISH;
  
-		*(int32*)Result = GenericArray_Add(ArrayAddr, ArrayProperty, NewItemPtr);
+		*(int32*)RESULT_PARAM = GenericArray_Add(ArrayAddr, ArrayProperty, NewItemPtr);
  
 		InnerProp->DestroyValue(StorageSpace);
 	}
@@ -238,7 +238,7 @@ public:
 
 		P_FINISH;
 
-		*(int32*)Result = GenericArray_AddUnique(ArrayAddr, ArrayProperty, NewItemPtr);
+		*(int32*)RESULT_PARAM = GenericArray_AddUnique(ArrayAddr, ArrayProperty, NewItemPtr);
 
 		InnerProp->DestroyValue(StorageSpace);
 	}
@@ -333,7 +333,7 @@ public:
 		GenericArray_HandleBool(InnerProp, ItemPtr);
 		  
 		bool WasRemoved = GenericArray_RemoveItem(ArrayAddr, ArrayProperty, ItemPtr);
-		*(bool*)Result = WasRemoved; 
+		*(bool*)RESULT_PARAM = WasRemoved; 
 
 		InnerProp->DestroyValue(StorageSpace);
 	}
@@ -369,7 +369,7 @@ public:
 		P_GET_OBJECT(UArrayProperty, ArrayProperty);
 		P_FINISH;
 
-		*(int32*)Result = GenericArray_Length(ArrayAddr, ArrayProperty);
+		*(int32*)RESULT_PARAM = GenericArray_Length(ArrayAddr, ArrayProperty);
 	}
 
 	DECLARE_FUNCTION(execArray_LastIndex)
@@ -380,7 +380,7 @@ public:
 		P_GET_OBJECT(UArrayProperty, ArrayProperty);
 		P_FINISH;
 
-		*(int32*)Result = GenericArray_LastIndex(ArrayAddr, ArrayProperty);
+		*(int32*)RESULT_PARAM = GenericArray_LastIndex(ArrayAddr, ArrayProperty);
 	}
 
 	DECLARE_FUNCTION(execArray_Get)
@@ -459,7 +459,7 @@ public:
 
 		// Perform the search
 		int32 FoundIndex = GenericArray_Find(ArrayAddr, ArrayProperty, ItemToFindPtr);
-		*(int32*)Result = FoundIndex;
+		*(int32*)RESULT_PARAM = FoundIndex;
 
 		InnerProp->DestroyValue(StorageSpace);
 	}
@@ -488,7 +488,7 @@ public:
 
 		// Perform the search
 		int32 FoundIndex = GenericArray_Find(ArrayAddr, ArrayProperty, ItemToFindPtr);
-		*(bool*)Result = (FoundIndex >= 0);
+		*(bool*)RESULT_PARAM = (FoundIndex >= 0);
 
 		InnerProp->DestroyValue(StorageSpace);
 	}

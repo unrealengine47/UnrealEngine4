@@ -332,9 +332,9 @@ FVector UPrimitiveComponent::GetPhysicsAngularVelocity(FName BoneName)
 
 FVector UPrimitiveComponent::GetCenterOfMass(FName BoneName)
 {
-	if (FBodyInstance* BodyInstance = GetBodyInstance(BoneName))
+	if (FBodyInstance* ComponentBodyInstance = GetBodyInstance(BoneName))
 	{
-		return BodyInstance->GetCOMPosition();
+		return ComponentBodyInstance->GetCOMPosition();
 	}
 
 	return FVector::ZeroVector;
@@ -475,7 +475,7 @@ FVector UPrimitiveComponent::ScaleByMomentOfInertia(FVector InputVector, FName B
 	const FVector LocalInertiaTensor = GetInertiaTensor(BoneName);
 	const FVector InputVectorLocal = ComponentToWorld.InverseTransformVectorNoScale(InputVector);
 	const FVector LocalScaled = InputVectorLocal * LocalInertiaTensor;
-	const FVector WorldScaled = ComponentToWorld.TransformFVector4NoScale(LocalScaled);
+	const FVector WorldScaled = ComponentToWorld.TransformVectorNoScale(LocalScaled);
 	return WorldScaled;
 }
 
@@ -582,7 +582,7 @@ void UPrimitiveComponent::SyncComponentToRBPhysics()
 	if(!NewTransform.EqualsNoScale(ComponentToWorld))
 	{
 		const FVector MoveBy = NewTransform.GetLocation() - ComponentToWorld.GetLocation();
-		const FRotator NewRotation = NewTransform.Rotator();
+		const FQuat NewRotation = NewTransform.GetRotation();
 
 		//@warning: do not reference BodyInstance again after calling MoveComponent() - events from the move could have made it unusable (destroying the actor, SetPhysics(), etc)
 		MoveComponent(MoveBy, NewRotation, false, NULL, MOVECOMP_SkipPhysicsMove);
@@ -723,8 +723,6 @@ void UPrimitiveComponent::WeldTo(USceneComponent* InParent, FName InSocketName /
 
 void UPrimitiveComponent::UnWeldFromParent()
 {
-
-
 	FBodyInstance* NewRootBI = GetBodyInstance(NAME_None, false);
 	UWorld* CurrentWorld = GetWorld();
 	if (NewRootBI == NULL || NewRootBI->bWelded == false || CurrentWorld == nullptr || IsPendingKill())
@@ -745,11 +743,12 @@ void UPrimitiveComponent::UnWeldFromParent()
 				//create new root
 				RootBI->UnWeld(NewRootBI);	//don't bother fixing up shapes if RootComponent is about to be deleted
 			}
-			
-			NewRootBI->bWelded = false;
-			NewRootBI->WeldParent = NULL;
 
-			bool bHasBodySetup = GetBodySetup() != NULL;
+			NewRootBI->bWelded = false;
+			const FBodyInstance* PrevWeldParent = NewRootBI->WeldParent;
+			NewRootBI->WeldParent = nullptr;
+
+			bool bHasBodySetup = GetBodySetup() != nullptr;
 
 			//if BodyInstance hasn't already been created we need to initialize it
 			if (bHasBodySetup && NewRootBI->IsValidBodyInstance() == false)
@@ -758,6 +757,11 @@ void UPrimitiveComponent::UnWeldFromParent()
 				NewRootBI->bAutoWeld = false;
 				NewRootBI->InitBody(GetBodySetup(), GetComponentToWorld(), this, CurrentWorld->GetPhysicsScene());
 				NewRootBI->bAutoWeld = bPrevAutoWeld;
+			}
+
+			if(PrevWeldParent == nullptr)	//our parent is kinematic so no need to do any unwelding/rewelding of children
+			{
+				return;
 			}
 
 			//now weld its children to it
@@ -774,11 +778,9 @@ void UPrimitiveComponent::UnWeldFromParent()
 					{
 						RootBI->UnWeld(ChildBI);
 					}
-					
-					if (bHasBodySetup)
-					{
-						NewRootBI->Weld(ChildBI, ChildBI->OwnerComponent->GetSocketTransform(ChildrenLabels[ChildIdx]));
-					}
+
+					//At this point, NewRootBI must be kinematic because it's being unwelded. It's up to the code that simulates to call Weld on the children as needed
+					ChildBI->WeldParent = nullptr;	//null because we are currently kinematic
 				}
 			}
 		}

@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "Engine/DeveloperSettings.h"
 #include "PhysicsSettings.generated.h"
 
 
@@ -84,11 +85,10 @@ namespace ESettingsLockedAxis
 
 
 /**
- * Implements project settings for the physics sub-system.
+ * Default physics settings.
  */
-UCLASS(config=Engine, defaultconfig)
-class ENGINE_API UPhysicsSettings
-	: public UObject
+UCLASS(config=Engine, defaultconfig, meta=(DisplayName="Physics"))
+class ENGINE_API UPhysicsSettings : public UDeveloperSettings
 {
 	GENERATED_UCLASS_BODY()
 
@@ -115,6 +115,14 @@ class ENGINE_API UPhysicsSettings
 	/** Enables the use of an async scene */
 	UPROPERTY(config, EditAnywhere, AdvancedDisplay, Category=Simulation)
 	bool bEnableAsyncScene;
+
+	/** Enables shape sharing between sync and async scene for static rigid actors */
+	UPROPERTY(config, EditAnywhere, AdvancedDisplay, Category = Simulation, meta = (editcondition="bEnableAsyncScene"))
+	bool bEnableShapeSharing;
+
+	/** Enables persistent contact manifolds. This will generate fewer contact points, but with more accuracy. Reduces stability of stacking, but can help energy conservation.*/
+	UPROPERTY(config, EditAnywhere, AdvancedDisplay, Category = Simulation)
+	bool bEnablePCM;
 
 	/** Whether to warn when physics locks are used incorrectly. Turning this off is not recommended and should only be used by very advanced users. */
 	UPROPERTY(config, EditAnywhere, AdvancedDisplay, Category = Simulation)

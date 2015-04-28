@@ -1256,13 +1256,16 @@ static void StatCmd(FString InCmd)
 		FCommandStatsFile::Get().Stop();
 		FThreadStats::DisableRawStats();
 
-		if( FStatsMallocProfilerProxy::Get()->GetState() )
+		if( FStatsMallocProfilerProxy::HasMemoryProfilerToken() )
 		{
-			// Disable memory profiler and restore default stats groups.
-			FStatsMallocProfilerProxy::Get()->SetState( false );		
-			IStatGroupEnableManager::Get().StatGroupEnableManagerCommand( TEXT("default") );
+			if( FStatsMallocProfilerProxy::Get()->GetState() )
+			{
+				// Disable memory profiler and restore default stats groups.
+				FStatsMallocProfilerProxy::Get()->SetState( false );
+				IStatGroupEnableManager::Get().StatGroupEnableManagerCommand( TEXT( "default" ) );
+			}
 		}
-
+		
 		Stats.ResetStatsForRawStats();
 
 		// Disable displaying the raw stats memory overhead.
@@ -1456,8 +1459,9 @@ bool DirectStatsCommand(const TCHAR* Cmd, bool bBlockForCompletion /*= false*/, 
 		check(IsInGameThread());
 		if( !bIsEmpty )
 		{
-			ENamedThreads::Type ThreadType = ENamedThreads::GameThread;
+			const FString FullCmd = FString(Cmd) + AddArgs;
 #if STATS
+			ENamedThreads::Type ThreadType = ENamedThreads::GameThread;
 			if (FPlatformProcess::SupportsMultithreading())
 			{
 				ThreadType = ENamedThreads::StatsThread;
@@ -1466,13 +1470,13 @@ bool DirectStatsCommand(const TCHAR* Cmd, bool bBlockForCompletion /*= false*/, 
 			// make sure these are initialized on the game thread
 			FHUDGroupGameThreadRenderer::Get();
 			FStatGroupGameThreadNotifier::Get();
-#endif
+
 			DECLARE_CYCLE_STAT(TEXT("FSimpleDelegateGraphTask.StatCmd"),
 				STAT_FSimpleDelegateGraphTask_StatCmd,
 				STATGROUP_TaskGraphTasks);
 
 			FGraphEventRef CompleteHandle = FSimpleDelegateGraphTask::CreateAndDispatchWhenReady(
-				FSimpleDelegateGraphTask::FDelegate::CreateStatic(&StatCmd, FString(Cmd) + AddArgs),
+				FSimpleDelegateGraphTask::FDelegate::CreateStatic(&StatCmd, FullCmd),
 				GET_STATID(STAT_FSimpleDelegateGraphTask_StatCmd), NULL, ThreadType
 			);
 			if (bBlockForCompletion)
@@ -1480,6 +1484,10 @@ bool DirectStatsCommand(const TCHAR* Cmd, bool bBlockForCompletion /*= false*/, 
 				FTaskGraphInterface::Get().WaitUntilTaskCompletes(CompleteHandle);
 				GLog->FlushThreadedLogs();
 			}
+#else
+			// If stats aren't enabled, broadcast so engine stats can still be triggered
+			StatCmd(FullCmd);
+#endif
 		}
 	}
 	return bResult;

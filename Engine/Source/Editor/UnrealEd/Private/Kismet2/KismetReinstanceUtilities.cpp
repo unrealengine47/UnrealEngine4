@@ -9,6 +9,8 @@
 #include "ComponentInstanceDataCache.h"
 #include "Engine/DynamicBlueprintBinding.h"
 #include "BlueprintEditor.h"
+#include "Engine/BlueprintGeneratedClass.h"
+#include "Engine/Selection.h"
 
 DECLARE_CYCLE_STAT(TEXT("Replace Instances"), EKismetReinstancerStats_ReplaceInstancesOfClass, STATGROUP_KismetReinstancer );
 DECLARE_CYCLE_STAT(TEXT("Find Referencers"), EKismetReinstancerStats_FindReferencers, STATGROUP_KismetReinstancer );
@@ -125,6 +127,11 @@ struct FReplaceReferenceHelper
 // FBlueprintCompileReinstancer
 
 TSet<TWeakObjectPtr<UBlueprint>> FBlueprintCompileReinstancer::DependentBlueprintsToRefresh = TSet<TWeakObjectPtr<UBlueprint>>();
+TSet<TWeakObjectPtr<UBlueprint>> FBlueprintCompileReinstancer::DependentBlueprintsToRecompile = TSet<TWeakObjectPtr<UBlueprint>>();
+TSet<TWeakObjectPtr<UBlueprint>> FBlueprintCompileReinstancer::DependentBlueprintsToByteRecompile = TSet<TWeakObjectPtr<UBlueprint>>();
+
+UClass* FBlueprintCompileReinstancer::HotReloadedOldClass = nullptr;
+UClass* FBlueprintCompileReinstancer::HotReloadedNewClass = nullptr;
 
 FBlueprintCompileReinstancer::FBlueprintCompileReinstancer(UClass* InClassToReinstance, bool bIsBytecodeOnly, bool bSkipGC)
 	: ClassToReinstance(InClassToReinstance)
@@ -152,7 +159,13 @@ FBlueprintCompileReinstancer::FBlueprintCompileReinstancer(UClass* InClassToRein
 		ClassToReinstance->ClassFlags &= ~CLASS_NewerVersionExists;
 		GIsDuplicatingClassForReinstancing = false;
 
+		auto BPClassToReinstance = Cast<UBlueprintGeneratedClass>(ClassToReinstance);
 		auto BPGDuplicatedClass = Cast<UBlueprintGeneratedClass>(DuplicatedClass);
+		if (BPGDuplicatedClass && BPClassToReinstance && BPClassToReinstance->OverridenArchetypeForCDO)
+		{
+			BPGDuplicatedClass->OverridenArchetypeForCDO = BPClassToReinstance->OverridenArchetypeForCDO;
+		}
+
 		auto DuplicatedClassUberGraphFunction = BPGDuplicatedClass ? BPGDuplicatedClass->UberGraphFunction : nullptr;
 		if (DuplicatedClassUberGraphFunction)
 		{
@@ -235,7 +248,7 @@ FBlueprintCompileReinstancer::FBlueprintCompileReinstancer(UClass* InClassToRein
 		check(GeneratingBP || GIsAutomationTesting);
 		if(GeneratingBP)
 		{
-			ClassToReinstanceDefaultValuesCRC = GeneratingBP->CrcPreviousCompiledCDO;
+			ClassToReinstanceDefaultValuesCRC = GeneratingBP->CrcLastCompiledCDO;
 			FBlueprintEditorUtils::GetDependentBlueprints(GeneratingBP, Dependencies);
 		}
 	}
@@ -283,43 +296,68 @@ void FBlueprintCompileReinstancer::AddReferencedObjects(FReferenceCollector& Col
 	Collector.AddReferencedObject(DuplicatedClass);
 }
 
+void FBlueprintCompileReinstancer::OptionallyRefreshNodes(UBlueprint* CurrentBP)
+{
+	if (HotReloadedNewClass)
+	{
+		UPackage* const Package = Cast<UPackage>(CurrentBP->GetOutermost());
+		const bool bStartedWithUnsavedChanges = Package != nullptr ? Package->IsDirty() : true;
+
+		FBlueprintEditorUtils::RefreshExternalBlueprintDependencyNodes(CurrentBP, HotReloadedNewClass);
+
+		if (Package != nullptr && Package->IsDirty() && !bStartedWithUnsavedChanges)
+		{
+			Package->SetDirtyFlag(false);
+		}
+	}
+}
+
 FBlueprintCompileReinstancer::~FBlueprintCompileReinstancer()
 {
 }
 
-void FBlueprintCompileReinstancer::ReinstanceFast()
+class FReinstanceFinalizer : public TSharedFromThis<FReinstanceFinalizer>
 {
-	UE_LOG(LogBlueprint, Log, TEXT("BlueprintCompileReinstancer: Doing a fast path refresh on class '%s'."), *GetPathNameSafe(ClassToReinstance));
-
+public:
+	TSharedPtr<FBlueprintCompileReinstancer> Reinstancer;
 	TArray<UObject*> ObjectsToReplace;
-	GetObjectsOfClass(DuplicatedClass, ObjectsToReplace, /*bIncludeDerivedClasses=*/ false);
+	TArray<UObject*> ObjectsToFinalize;
+	TSet<UObject*> SelectedObjecs;
+	UClass* ClassToReinstance;
 
-	const bool bIsActor = ClassToReinstance->IsChildOf<AActor>();
-	const bool bIsAnimInstance = ClassToReinstance->IsChildOf<UAnimInstance>();
-	const bool bIsComponent = ClassToReinstance->IsChildOf<UActorComponent>();
-	for (auto Obj : ObjectsToReplace)
+	FReinstanceFinalizer(UClass* InClassToReinstance) : ClassToReinstance(InClassToReinstance)
 	{
-		UE_LOG(LogBlueprint, Log, TEXT("  Fast path is refreshing (not replacing) %s"), *Obj->GetFullName());
+		check(ClassToReinstance);
+	}
 
-		if ((!Obj->IsTemplate() || bIsComponent) && !Obj->IsPendingKill())
+	void Finalize()
+	{
+		if (!ensure(Reinstancer.IsValid()))
 		{
-			const bool bIsSelected = bIsActor ? Obj->IsSelected() : false;
+			return;
+		}
+		check(ClassToReinstance);
 
-			Obj->SetClass(ClassToReinstance);
-
-			if (bIsActor)
+		const bool bIsActor = ClassToReinstance->IsChildOf<AActor>();
+		if (bIsActor)
+		{
+			for (auto Obj : ObjectsToFinalize)
 			{
 				auto Actor = CastChecked<AActor>(Obj);
 				Actor->ReregisterAllComponents();
 				Actor->RerunConstructionScripts();
 
-				if (bIsSelected)
+				if (SelectedObjecs.Contains(Obj))
 				{
 					GEditor->SelectActor(Actor, /*bInSelected =*/true, /*bNotify =*/true, false, true);
 				}
 			}
+		}
 
-			if (bIsAnimInstance)
+		const bool bIsAnimInstance = ClassToReinstance->IsChildOf<UAnimInstance>();
+		if (bIsAnimInstance)
+		{
+			for (auto Obj : ObjectsToFinalize)
 			{
 				// Initialising the anim instance isn't enough to correctly set up the skeletal mesh again in a
 				// paused world, need to initialise the skeletal mesh component that contains the anim instance.
@@ -329,8 +367,45 @@ void FBlueprintCompileReinstancer::ReinstanceFast()
 				}
 			}
 		}
+
+		Reinstancer->FinalizeFastReinstancing(ObjectsToReplace);
+	}
+};
+
+TSharedPtr<FReinstanceFinalizer> FBlueprintCompileReinstancer::ReinstanceFast()
+{
+	UE_LOG(LogBlueprint, Log, TEXT("BlueprintCompileReinstancer: Doing a fast path refresh on class '%s'."), *GetPathNameSafe(ClassToReinstance));
+
+	TSharedPtr<FReinstanceFinalizer> Finalizer = MakeShareable(new FReinstanceFinalizer(ClassToReinstance));
+	Finalizer->Reinstancer = SharedThis(this);
+
+	GetObjectsOfClass(DuplicatedClass, Finalizer->ObjectsToReplace, /*bIncludeDerivedClasses=*/ false);
+
+	const bool bIsActor = ClassToReinstance->IsChildOf<AActor>();
+	const bool bIsAnimInstance = ClassToReinstance->IsChildOf<UAnimInstance>();
+	const bool bIsComponent = ClassToReinstance->IsChildOf<UActorComponent>();
+	for (auto Obj : Finalizer->ObjectsToReplace)
+	{
+		UE_LOG(LogBlueprint, Log, TEXT("  Fast path is refreshing (not replacing) %s"), *Obj->GetFullName());
+
+		if ((!Obj->IsTemplate() || bIsComponent) && !Obj->IsPendingKill())
+		{
+			if (bIsActor && Obj->IsSelected())
+			{
+				Finalizer->SelectedObjecs.Add(Obj);
+			}
+
+			Obj->SetClass(ClassToReinstance);
+
+			Finalizer->ObjectsToFinalize.Push(Obj);
+		}
 	}
 
+	return Finalizer;
+}
+
+void FBlueprintCompileReinstancer::FinalizeFastReinstancing(TArray<UObject*>& ObjectsToReplace)
+{
 	TArray<UObject*> SourceObjects;
 	TMap<UObject*, UObject*> OldToNewInstanceMap;
 	TMap<FStringAssetReference, UObject*> ReinstancedObjectsWeakReferenceMap;
@@ -342,6 +417,12 @@ void FBlueprintCompileReinstancer::ReinstanceFast()
 	}
 
 	FReplaceReferenceHelper::FindAndReplaceReferences(SourceObjects, &ObjectsThatShouldUseOldStuff, ObjectsToReplace, OldToNewInstanceMap, ReinstancedObjectsWeakReferenceMap);
+
+	if (ClassToReinstance->IsChildOf<UActorComponent>())
+	{
+		// ReplaceInstancesOfClass() handles this itself, if we had to re-instance
+		ReconstructOwnerInstances(ClassToReinstance);
+	}
 }
 
 void FBlueprintCompileReinstancer::CompileChildren()
@@ -361,8 +442,9 @@ void FBlueprintCompileReinstancer::CompileChildren()
 	}
 }
 
-void FBlueprintCompileReinstancer::ReinstanceInner(bool bForceAlwaysReinstance)
+TSharedPtr<FReinstanceFinalizer> FBlueprintCompileReinstancer::ReinstanceInner(bool bForceAlwaysReinstance)
 {
+	TSharedPtr<FReinstanceFinalizer> Finalizer;
 	if (ClassToReinstance && DuplicatedClass)
 	{
 		static const FBoolConfigValueHelper ReinstanceOnlyWhenNecessary(TEXT("Kismet"), TEXT("bReinstanceOnlyWhenNecessary"), GEngineIni);
@@ -376,12 +458,12 @@ void FBlueprintCompileReinstancer::ReinstanceInner(bool bForceAlwaysReinstance)
 			const UBlueprintGeneratedClass* BPClassB = Cast<const UBlueprintGeneratedClass>(ClassToReinstance);
 			const UBlueprint* BP = Cast<const UBlueprint>(ClassToReinstance->ClassGeneratedBy);
 
-			const bool bTheSameDefaultValues = (BP != nullptr) && (ClassToReinstanceDefaultValuesCRC != 0) && (BP->CrcPreviousCompiledCDO == ClassToReinstanceDefaultValuesCRC);
+			const bool bTheSameDefaultValues = (BP != nullptr) && (ClassToReinstanceDefaultValuesCRC != 0) && (BP->CrcLastCompiledCDO == ClassToReinstanceDefaultValuesCRC);
 			const bool bTheSameLayout = (BPClassA != nullptr) && (BPClassB != nullptr) && FStructUtils::TheSameLayout(BPClassA, BPClassB, true);
 			const bool bAllowedToDoFastPath = bTheSameDefaultValues && bTheSameLayout;
 			if (bAllowedToDoFastPath)
 			{
-				ReinstanceFast();
+				Finalizer = ReinstanceFast();
 				bShouldReinstance = false;
 			}
 		}
@@ -389,23 +471,45 @@ void FBlueprintCompileReinstancer::ReinstanceInner(bool bForceAlwaysReinstance)
 		if (bShouldReinstance)
 		{
 			UE_LOG(LogBlueprint, Log, TEXT("BlueprintCompileReinstancer: Doing a full reinstance on class '%s'"), *GetPathNameSafe(ClassToReinstance));
-			ReplaceInstancesOfClass(DuplicatedClass, ClassToReinstance, OriginalCDO, &ObjectsThatShouldUseOldStuff, IsClassObjectReplaced());
-		}
-		else if (ClassToReinstance->IsChildOf<UActorComponent>())
-		{
-			// ReplaceInstancesOfClass() handles this itself, if we had to re-instance
-			ReconstructOwnerInstances(ClassToReinstance);
+			ReplaceInstancesOfClass(DuplicatedClass, ClassToReinstance, OriginalCDO, &ObjectsThatShouldUseOldStuff, IsClassObjectReplaced(), ShouldPreserveRootComponentOfReinstancedActor());
 		}
 	}
+	return Finalizer;
 }
 
 void FBlueprintCompileReinstancer::ListDependentBlueprintsToRefresh(const TArray<UBlueprint*>& DependentBPs)
 {
-	static const FBoolConfigValueHelper FirstCompileChildrenThenReinstance(TEXT("Kismet"), TEXT("bFirstCompileChildrenThenReinstance"), GEngineIni);
-	check(FirstCompileChildrenThenReinstance);
 	for (auto& Element : DependentBPs)
 	{
 		DependentBlueprintsToRefresh.Add(Element);
+	}
+}
+
+void FBlueprintCompileReinstancer::EnlistDependentBlueprintToRecompile(UBlueprint* BP, bool bBytecodeOnly)
+{
+	if (IsValid(BP))
+	{
+		if (bBytecodeOnly)
+		{
+			DependentBlueprintsToByteRecompile.Add(BP);
+		}
+		else
+		{
+			DependentBlueprintsToRecompile.Add(BP);
+		}
+	}
+}
+
+void FBlueprintCompileReinstancer::BlueprintWasRecompiled(UBlueprint* BP, bool bBytecodeOnly)
+{
+	if (IsValid(BP))
+	{
+		DependentBlueprintsToRefresh.Remove(BP);
+		DependentBlueprintsToByteRecompile.Remove(BP);
+		if (!bBytecodeOnly)
+		{
+			DependentBlueprintsToRecompile.Remove(BP);
+		}
 	}
 }
 
@@ -413,68 +517,78 @@ void FBlueprintCompileReinstancer::ReinstanceObjects(bool bForceAlwaysReinstance
 {
 	BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_ReinstanceObjects);
 	
-	static const FBoolConfigValueHelper FirstCompileChildrenThenReinstance(TEXT("Kismet"), TEXT("bFirstCompileChildrenThenReinstance"), GEngineIni);
-
-	if (FirstCompileChildrenThenReinstance)
+	// Make sure we only reinstance classes once!
+	static TArray<TSharedRef<FBlueprintCompileReinstancer>> QueueToReinstance;
+	TSharedRef<FBlueprintCompileReinstancer> SharedThis = AsShared();
+	const bool bAlreadyQueued = QueueToReinstance.Contains(SharedThis);
+	if (!bAlreadyQueued && !bHasReinstanced)
 	{
-		// Make sure we only reinstance classes once!
-		static TArray<TSharedRef<FBlueprintCompileReinstancer>> QueueToReinstance;
-		TSharedRef<FBlueprintCompileReinstancer> SharedThis = AsShared();
-		const bool bAlreadyQueued = QueueToReinstance.Contains(SharedThis);
-		if (!bAlreadyQueued && !bHasReinstanced)
-		{
-			QueueToReinstance.Push(SharedThis);
-
-			if (ClassToReinstance && DuplicatedClass)
-			{
-				CompileChildren();
-			}
-
-			if (QueueToReinstance.Num() && (QueueToReinstance[0] == SharedThis))
-			{
-				{
-					BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_RefreshDependentBlueprintsInReinstancer);
-					for (auto Reinst : QueueToReinstance)
-					{
-						UBlueprint* BP = Reinst->ClassToReinstance ? Cast<UBlueprint>(Reinst->ClassToReinstance->ClassGeneratedBy) : nullptr;
-						if (BP)
-						{
-							DependentBlueprintsToRefresh.Remove(BP);
-						}
-					}
-					for (auto BPPtr : DependentBlueprintsToRefresh)
-					{
-						if (BPPtr.IsValid())
-						{
-							BPPtr->BroadcastChanged();
-						}
-					}
-					DependentBlueprintsToRefresh.Empty();
-				}
-
-				// All children were recompiled. It's safe to reinstance.
-				for (int32 Idx = 0; Idx < QueueToReinstance.Num(); ++Idx)
-				{
-					QueueToReinstance[Idx]->ReinstanceInner(bForceAlwaysReinstance);
-					QueueToReinstance[Idx]->bHasReinstanced = true;
-				}
-				QueueToReinstance.Empty();
-			}
-		}
-	}
-	else
-	{
-		//THE OLD WAY
-		if (bHasReinstanced)
-		{
-			return;
-		}
-		bHasReinstanced = true;
+		QueueToReinstance.Push(SharedThis);
 
 		if (ClassToReinstance && DuplicatedClass)
 		{
-			ReinstanceInner(bForceAlwaysReinstance);
 			CompileChildren();
+		}
+
+		if (QueueToReinstance.Num() && (QueueToReinstance[0] == SharedThis))
+		{
+			while (DependentBlueprintsToRecompile.Num())
+			{
+				auto Iter = DependentBlueprintsToRecompile.CreateIterator();
+				TWeakObjectPtr<UBlueprint> BPPtr = *Iter;
+				Iter.RemoveCurrent();
+				if (auto BP = BPPtr.Get())
+				{
+					FKismetEditorUtilities::CompileBlueprint(BP, false, bSkipGarbageCollection);
+				}
+			}
+
+			while (DependentBlueprintsToByteRecompile.Num())
+			{
+				auto Iter = DependentBlueprintsToByteRecompile.CreateIterator();
+				TWeakObjectPtr<UBlueprint> BPPtr = *Iter;
+				Iter.RemoveCurrent();
+				if (auto BP = BPPtr.Get())
+				{
+					FKismetEditorUtilities::RecompileBlueprintBytecode(BP);
+				}
+			}
+
+			ensure(0 == DependentBlueprintsToRecompile.Num());
+
+			TArray<TSharedPtr<FReinstanceFinalizer>> Finalizers;
+
+			// All children were recompiled. It's safe to reinstance.
+			for (int32 Idx = 0; Idx < QueueToReinstance.Num(); ++Idx)
+			{
+				auto Finalizer = QueueToReinstance[Idx]->ReinstanceInner(bForceAlwaysReinstance);
+				if (Finalizer.IsValid())
+				{
+					Finalizers.Push(Finalizer);
+				}
+				QueueToReinstance[Idx]->bHasReinstanced = true;
+			}
+			QueueToReinstance.Empty();
+
+			for (auto Finalizer : Finalizers)
+			{
+				if (Finalizer.IsValid())
+				{
+					Finalizer->Finalize();
+				}
+			}
+
+			{
+				BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_RefreshDependentBlueprintsInReinstancer);
+				for (auto BPPtr : DependentBlueprintsToRefresh)
+				{
+					if (BPPtr.IsValid())
+					{
+						BPPtr->BroadcastChanged();
+					}
+				}
+				DependentBlueprintsToRefresh.Empty();
+			}
 		}
 	}
 }
@@ -503,6 +617,7 @@ void FBlueprintCompileReinstancer::UpdateBytecodeReferences()
 				continue;
 			}
 
+			bool bBPWasChanged = false;
 			// For each function defined in this blueprint, run through the bytecode, and update any refs from the old properties to the new
 			for( TFieldIterator<UFunction> FuncIter(BPClass, EFieldIteratorFlags::ExcludeSuper); FuncIter; ++FuncIter )
 			{
@@ -510,13 +625,21 @@ void FBlueprintCompileReinstancer::UpdateBytecodeReferences()
 				if( CurrentFunction->Script.Num() > 0 )
 				{
 					FArchiveReplaceObjectRef<UObject> ReplaceAr(CurrentFunction, FieldMappings, /*bNullPrivateRefs=*/ false, /*bIgnoreOuterRef=*/ true, /*bIgnoreArchetypeRef=*/ true);
+					bBPWasChanged |= (0 != ReplaceAr.GetCount());
 				}
 			}
 
 			FArchiveReplaceObjectRef<UObject> ReplaceInBPAr(*DependentBP, FieldMappings, false, true, true);
 			if (ReplaceInBPAr.GetCount())
 			{
+				bBPWasChanged = true;
 				UE_LOG(LogBlueprint, Log, TEXT("UpdateBytecodeReferences: %d references from %s was replaced in BP %s"), ReplaceInBPAr.GetCount(), *GetPathNameSafe(ClassToReinstance), *GetPathNameSafe(*DependentBP));
+			}
+
+			auto CompiledBlueprint = UBlueprint::GetBlueprintFromClass(ClassToReinstance);
+			if (bBPWasChanged && CompiledBlueprint && !CompiledBlueprint->bIsRegeneratingOnLoad)
+			{
+				DependentBlueprintsToRefresh.Add(*DependentBP);
 			}
 		}
 	}
@@ -777,7 +900,7 @@ void FActorReplacementHelper::AttachChildActors(USceneComponent* RootComponent, 
 	}
 }
 
-void FBlueprintCompileReinstancer::ReplaceInstancesOfClass(UClass* OldClass, UClass* NewClass, UObject*	OriginalCDO, TSet<UObject*>* ObjectsThatShouldUseOldStuff, bool bClassObjectReplaced)
+void FBlueprintCompileReinstancer::ReplaceInstancesOfClass(UClass* OldClass, UClass* NewClass, UObject*	OriginalCDO, TSet<UObject*>* ObjectsThatShouldUseOldStuff, bool bClassObjectReplaced, bool bPreserveRootComponent)
 {
 	USelection* SelectedActors;
 	bool bSelectionChanged = false;
@@ -904,7 +1027,10 @@ void FBlueprintCompileReinstancer::ReplaceInstancesOfClass(UClass* OldClass, UCl
 				// Unregister any native components, might have cached state based on properties we are going to overwrite
 				NewActor->UnregisterAllComponents(); 
 
-				UEditorEngine::CopyPropertiesForUnrelatedObjects(OldActor, NewActor);
+				UEngine::FCopyPropertiesForUnrelatedObjectsParams Params;
+				Params.bPreserveRootComponent = bPreserveRootComponent;
+				UEngine::CopyPropertiesForUnrelatedObjects(OldActor, NewActor, Params);
+
 				// reset properties/streams
 				NewActor->ResetPropertiesForConstruction(); 
 				// register native components

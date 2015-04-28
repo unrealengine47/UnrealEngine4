@@ -330,6 +330,11 @@ bool FFileManagerGeneric::Move( const TCHAR* Dest, const TCHAR* Src, bool Replac
 	return true;
 }
 
+bool FFileManagerGeneric::FileExists( const TCHAR* Filename )
+{
+	return GetLowLevel().FileExists( Filename );
+}
+
 bool FFileManagerGeneric::DirectoryExists( const TCHAR* InDirectory )
 {
 	return GetLowLevel().DirectoryExists( InDirectory );
@@ -374,8 +379,8 @@ void FFileManagerGeneric::FindFiles( TArray<FString>& Result, const TCHAR* InFil
 		}
 		virtual bool Visit( const TCHAR* FilenameOrDirectory, bool bIsDirectory )
 		{
-			if( ( bIsDirectory && bDirectories ) ||
-				( !bIsDirectory && bFiles && FPaths::GetCleanFilename(FilenameOrDirectory).MatchesWildcard( WildCard ) ) )
+			if (((bIsDirectory && bDirectories) || (!bIsDirectory && bFiles))
+				&& FPaths::GetCleanFilename(FilenameOrDirectory).MatchesWildcard(WildCard))
 			{
 				new( Result ) FString( FPaths::GetCleanFilename(FilenameOrDirectory) );
 			}
@@ -388,6 +393,43 @@ void FFileManagerGeneric::FindFiles( TArray<FString>& Result, const TCHAR* InFil
 	const bool bFindAllFiles = CleanFilename == TEXT("*") || CleanFilename == TEXT("*.*");
 	FFileMatch FileMatch( Result, bFindAllFiles ? TEXT("*") : CleanFilename, Files, Directories );
 	GetLowLevel().IterateDirectory( *FPaths::GetPath(Filename), FileMatch );
+}
+
+void FFileManagerGeneric::FindFiles(TArray<FString>& FoundFiles, const TCHAR* Directory, const TCHAR* FileExtension)
+{
+	if (!Directory)
+	{
+		return;
+	}
+
+	FString RootDir(Directory);
+	FString ExtStr = (FileExtension != nullptr) ? FString(FileExtension) : "";
+
+	// No Directory?
+	if (RootDir.Len() < 1)
+	{
+		return;
+	}
+
+	FPaths::NormalizeDirectoryName(RootDir);
+
+	// Don't modify the ExtStr if the user supplied the form "*.EXT" or "*" or "*.*" or "Name.*"
+	if (!ExtStr.Contains(TEXT("*")))
+	{
+		if (ExtStr == "")
+		{
+			ExtStr = "*.*";
+		}
+		else
+		{
+			//Complete the supplied extension with * or *. to yield "*.EXT"
+			ExtStr = (ExtStr.Left(1) == ".") ? "*" + ExtStr : "*." + ExtStr;
+		}
+	}
+
+	// Create the full filter, which is "Directory/*.EXT".
+	FString FinalPath = RootDir + "/" + ExtStr;
+	FindFiles(FoundFiles, *FinalPath, true, false);
 }
 
 bool FFileManagerGeneric::IterateDirectory(const TCHAR* Directory, IPlatformFile::FDirectoryVisitor& Visitor)
@@ -414,12 +456,6 @@ double FFileManagerGeneric::GetFileAgeSeconds( const TCHAR* Filename )
 
 FDateTime FFileManagerGeneric::GetTimeStamp(const TCHAR* Filename)
 {
-	// if the file doesn't exist, use a dummy DateTime
-	if (!GetLowLevel().FileExists(Filename))
-	{
-		return FDateTime::MinValue();
-	}
-
 	// ask low level for timestamp
 	return GetLowLevel().GetTimeStamp(Filename);
 }
@@ -438,12 +474,6 @@ bool FFileManagerGeneric::SetTimeStamp(const TCHAR* Filename, FDateTime DateTime
 
 FDateTime FFileManagerGeneric::GetAccessTimeStamp( const TCHAR* Filename )
 {
-	// if the file doesn't exist, use a dummy DateTime
-	if (!GetLowLevel().FileExists(Filename))
-	{
-		return FDateTime::MinValue();
-	}
-
 	// ask low level for timestamp
 	return GetLowLevel().GetAccessTimeStamp(Filename);
 }

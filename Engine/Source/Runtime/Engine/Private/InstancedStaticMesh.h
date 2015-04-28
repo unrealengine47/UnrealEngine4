@@ -13,7 +13,6 @@
 #include "Misc/UObjectToken.h"
 #include "Components/SplineMeshComponent.h"
 #include "Components/ModelComponent.h"
-#include "Components/NiagaraComponent.h"
 #include "Components/ShapeComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -551,7 +550,7 @@ public:
 	virtual int32 GetNumMeshBatches() const override;
 
 	/** Sets up a shadow FMeshBatch for a specific LOD. */
-	virtual bool GetShadowMeshElement(int32 LODIndex, int32 BatchIndex, uint8 InDepthPriorityGroup, FMeshBatch& OutMeshBatch) const override;
+	virtual bool GetShadowMeshElement(int32 LODIndex, int32 BatchIndex, uint8 InDepthPriorityGroup, FMeshBatch& OutMeshBatch, bool bDitheredLODTransition) const override;
 
 	/** Sets up a FMeshBatch for a specific LOD and element. */
 	virtual bool GetMeshElement(int32 LODIndex, int32 BatchIndex, int32 ElementIndex, uint8 InDepthPriorityGroup, const bool bUseSelectedMaterial, const bool bUseHoveredMaterial, FMeshBatch& OutMeshBatch) const override;

@@ -635,19 +635,6 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 			);
 	}
 
-	// TaskGraph
-	{
-		Set( "TaskGraph.Background", new BOX_BRUSH( "Common/ProgressBar_Background", FMargin(5.f/12.f) ) );
-		Set( "TaskGraph.Normal", new BOX_BRUSH( "Common/TaskGraph_Normal", FMargin(5.f/12.f) ) );
-		Set( "TaskGraph.Selected", new BOX_BRUSH( "Common/TaskGraph_Selected", FMargin(5.f/12.f) ) );
-		Set( "TaskGraph.Mono", new BOX_BRUSH( "Common/TaskGraph_Mono", FMargin(5.f/12.f) ) );
-		Set( "TaskGraph.BorderPadding", FVector2D(1,0) );
-		Set( "TaskGraph.SortUp", new IMAGE_BRUSH( "Common/SortUpArrow", Icon8x4 ) );
-		Set( "TaskGraph.SortDown", new IMAGE_BRUSH( "Common/SortDownArrow", Icon8x4 ) );
-		Set( "TaskGraph.Home", new IMAGE_BRUSH( "Icons/Home16x16", Icon16x16 ) );
-		Set( "TaskGraph.ToParent", new IMAGE_BRUSH( "Icons/ToParent", Icon16x16 ) );
-	}
-
 	// Tool panels
 	{
 		Set( "ToolPanel.GroupBorder", new BOX_BRUSH( "Common/GroupBorder", FMargin(4.0f/16.0f) ) );
@@ -1238,19 +1225,6 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 		Set( "Level.ScriptHighlightIcon16x", new IMAGE_BRUSH( "Icons/icon_levels_Blueprint_hi_16px", Icon16x16 ) );
 		Set( "Level.EmptyIcon16x", new IMAGE_BRUSH( "Icons/Empty_16x", Icon16x16 ) );
 		Set( "Level.ColorIcon40x", new IMAGE_BRUSH( "Icons/icon_levels_back_16px", Icon16x16 ) );
-
-		Set( "Level.ArrowUp", new IMAGE_BRUSH( "Old/ArrowUp", Icon12x12 ) );
-		Set( "Level.ArrowDown", new IMAGE_BRUSH( "Old/ArrowDown", Icon12x12 ) );
-	}
-
-	// Level Browser
-	{
-		Set( "LevelBrowserButton.Normal", new FSlateNoResource() ); // Note: Intentionally transparent background
-		Set( "LevelBrowserButton.Pressed", new BOX_BRUSH( "Common/RoundedSelection_16x", 4.0f/16.0f, SelectionColor_Pressed ) );
-		Set( "LevelBrowserButton.Hovered", new BOX_BRUSH( "Common/RoundedSelection_16x", 4.0f/16.0f, SelectionColor ) );
-
-		Set( "LevelBrowser.LabelFont", TTF_CORE_FONT( "Fonts/Roboto-Regular", 9 ) );
-		Set( "LevelBrowser.LabelFontBold", TTF_CORE_FONT( "Fonts/Roboto-Bold", 10 ) );
 	}
 
 	// World Browser
@@ -1277,6 +1251,9 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 				.SetColorAndOpacity( FLinearColor(0.9, 0.9f, 0.9f, 0.5f) )
 				.SetShadowOffset( FVector2D::ZeroVector )
 			);
+
+		Set( "WorldBrowser.LabelFont", TTF_CORE_FONT( "Fonts/Roboto-Regular", 9 ) );
+		Set( "WorldBrowser.LabelFontBold", TTF_CORE_FONT( "Fonts/Roboto-Bold", 10 ) );
 	}
 
 
@@ -1592,6 +1569,7 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 		Set( "Sequencer.SectionGripRight", new BOX_BRUSH( "Sequencer/SectionGripRight", FMargin(5.f/16.f) ) );
 		Set( "Sequencer.SectionArea.Background", new FSlateColorBrush( FColor::White ) );
 		Set( "Sequencer.AnimationOutliner.SelectionBorder", new BOX_BRUSH( "Common/RoundedSelection_16x", 4.0f/16.0f, SelectionColor_Pressed ) );
+		Set( "Sequencer.AnimationOutliner.SelectionBorderInactive", new BOX_BRUSH("Common/RoundedSelection_16x", 4.0f / 16.0f, SelectionColor_Inactive));
 		Set( "Sequencer.AnimationOutliner.BoldFont", TTF_CORE_FONT( "Fonts/Roboto-Bold", 10 ) );
 		Set( "Sequencer.AnimationOutliner.RegularFont", TTF_CORE_FONT( "Fonts/Roboto-Regular", 8 ) );
 		Set( "Sequencer.ShotFilter", new IMAGE_BRUSH( "Sequencer/FilteredArea", FVector2D(74,74), FLinearColor::White, ESlateBrushTileType::Both ) );
@@ -1610,12 +1588,52 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 	}
 
 	// Foliage Edit Mode
-		{
-		Set( "FoliageEditMode.SetPaint", new IMAGE_BRUSH( "Icons/FoliageEditMode/icon_FoliageEdMode_Paint_40x", Icon40x40 ) );
-		Set( "FoliageEditMode.SetReapplySettings", new IMAGE_BRUSH( "Icons/FoliageEditMode/icon_FoliageEdMode_Reapply_40x", Icon40x40 ) );
-		Set( "FoliageEditMode.SetSelect", new IMAGE_BRUSH( "Icons/FoliageEditMode/icon_FoliageEdMode_Select_40x", Icon40x40 ) );
-		Set( "FoliageEditMode.SetLassoSelect", new IMAGE_BRUSH( "Icons/FoliageEditMode/icon_FoliageEdMode_Lasso_40x", Icon40x40 ) );
-		Set( "FoliageEditMode.SetPaintBucket", new IMAGE_BRUSH( "Icons/FoliageEditMode/icon_FoliageEdMode_PaintBucket_40x", Icon40x40 ) );
+	{	
+		FLinearColor DimBackground = FLinearColor(FColor(64, 64, 64));
+		FLinearColor DimBackgroundHover = FLinearColor(FColor(50, 50, 50));
+		FLinearColor DarkBackground = FLinearColor(FColor(42, 42, 42));
+
+		Set("FoliageEditToolBar.ToggleButton", FCheckBoxStyle()
+			.SetCheckBoxType(ESlateCheckBoxType::ToggleButton)
+			.SetUncheckedImage(BOX_BRUSH("Common/Selection", 8.0f / 32.0f, DimBackground))
+			.SetUncheckedPressedImage(BOX_BRUSH("PlacementMode/TabActive", 8.0f / 32.0f))
+			.SetUncheckedHoveredImage(BOX_BRUSH("Common/Selection", 8.0f / 32.0f, DimBackgroundHover))
+			.SetCheckedImage(BOX_BRUSH("PlacementMode/TabActive", 8.0f / 32.0f))
+			.SetCheckedHoveredImage(BOX_BRUSH("PlacementMode/TabActive", 8.0f / 32.0f))
+			.SetCheckedPressedImage(BOX_BRUSH("PlacementMode/TabActive", 8.0f / 32.0f))
+			.SetPadding(0));
+
+		Set("FoliageEditToolBar.Background", new BOX_BRUSH("Common/GroupBorder", FMargin(4.0f / 16.0f)));
+		Set("FoliageEditToolBar.Icon", new IMAGE_BRUSH("Icons/icon_tab_Toolbars_16x", Icon16x16));
+		Set("FoliageEditToolBar.Expand", new IMAGE_BRUSH("Icons/toolbar_expand_16x", Icon16x16));
+		Set("FoliageEditToolBar.SubMenuIndicator", new IMAGE_BRUSH("Common/SubmenuArrow", Icon8x8));
+		Set("FoliageEditToolBar.SToolBarComboButtonBlock.Padding", FMargin(4.0f));
+		Set("FoliageEditToolBar.SToolBarButtonBlock.Padding", FMargin(0.f));
+		Set("FoliageEditToolBar.SToolBarCheckComboButtonBlock.Padding", FMargin(4.0f));
+		Set("FoliageEditToolBar.SToolBarButtonBlock.CheckBox.Padding", FMargin(10.0f, 6.f));
+		Set("FoliageEditToolBar.SToolBarComboButtonBlock.ComboButton.Color", DefaultForeground);
+
+		Set("FoliageEditToolBar.Block.IndentedPadding", FMargin(18.0f, 2.0f, 4.0f, 4.0f));
+		Set("FoliageEditToolBar.Block.Padding", FMargin(2.0f, 2.0f, 4.0f, 4.0f));
+
+		Set("FoliageEditToolBar.Separator", new BOX_BRUSH("Old/Button", 4.0f / 32.0f));
+		Set("FoliageEditToolBar.Separator.Padding", FMargin(0.5f));
+
+		Set("FoliageEditToolBar.Label", FTextBlockStyle(NormalText).SetFont(TTF_CORE_FONT("Fonts/Roboto-Regular", 9)));
+		Set("FoliageEditToolBar.EditableText", FEditableTextBoxStyle(NormalEditableTextBoxStyle).SetFont(TTF_CORE_FONT("Fonts/Roboto-Regular", 9)));
+		Set("FoliageEditToolBar.Keybinding", FTextBlockStyle(NormalText).SetFont(TTF_CORE_FONT("Fonts/Roboto-Regular", 8)));
+
+		Set("FoliageEditToolBar.Heading", FTextBlockStyle(NormalText)
+			.SetFont(TTF_CORE_FONT("Fonts/Roboto-Regular", 8))
+			.SetColorAndOpacity(FLinearColor(0.4f, 0.4, 0.4f, 1.0f)));
+
+		// Set the large icons to be the same as the small ones
+		Set("FoliageEditMode.SetPaint", new IMAGE_BRUSH("Icons/FoliageEditMode/icon_FoliageEdMode_Paint_40x", Icon20x20));
+		Set("FoliageEditMode.SetReapplySettings", new IMAGE_BRUSH("Icons/FoliageEditMode/icon_FoliageEdMode_Reapply_40x", Icon20x20));
+		Set("FoliageEditMode.SetSelect", new IMAGE_BRUSH("Icons/FoliageEditMode/icon_FoliageEdMode_Select_40x", Icon20x20));
+		Set("FoliageEditMode.SetLassoSelect", new IMAGE_BRUSH("Icons/FoliageEditMode/icon_FoliageEdMode_Lasso_40x", Icon20x20));
+		Set("FoliageEditMode.SetPaintBucket", new IMAGE_BRUSH("Icons/FoliageEditMode/icon_FoliageEdMode_PaintBucket_40x", Icon20x20));
+
 		Set( "FoliageEditMode.SetPaint.Small", new IMAGE_BRUSH( "Icons/FoliageEditMode/icon_FoliageEdMode_Paint_40x", Icon20x20 ) );
 		Set( "FoliageEditMode.SetReapplySettings.Small", new IMAGE_BRUSH( "Icons/FoliageEditMode/icon_FoliageEdMode_Reapply_40x", Icon20x20 ) );
 		Set( "FoliageEditMode.SetSelect.Small", new IMAGE_BRUSH( "Icons/FoliageEditMode/icon_FoliageEdMode_Select_40x", Icon20x20 ) );
@@ -1635,6 +1653,28 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 		Set( "FoliageEditMode.SelectionBackground", new IMAGE_BRUSH( "Icons/FoliageEditMode/FoliageEditMode_SelectionBackground", Icon32x32 ) );
 		Set( "FoliageEditMode.ItemBackground", new IMAGE_BRUSH( "Icons/FoliageEditMode/FoliageEditMode_Background", Icon64x64 ) );
 		Set( "FoliageEditMode.BubbleBorder", new BOX_BRUSH( "Icons/FoliageEditMode/FoliageEditMode_BubbleBorder", FMargin(8/32.0f) ) );
+
+		Set( "FoliageEditMode.TreeView.ScrollBorder", FScrollBorderStyle()
+			.SetTopShadowBrush(FSlateNoResource())
+			.SetBottomShadowBrush(BOX_BRUSH("Common/ScrollBorderShadowBottom", FVector2D(16, 8), FMargin(0.5, 0, 0.5, 1)))
+			);
+
+		Set("FoliageEditMode.Splitter", FSplitterStyle()
+			.SetHandleNormalBrush(IMAGE_BRUSH("Common/SplitterHandleHighlight", Icon8x8, FLinearColor(.2f, .2f, .2f, 1.f)))
+			.SetHandleHighlightBrush(IMAGE_BRUSH("Common/SplitterHandleHighlight", Icon8x8, FLinearColor::White))
+			);
+
+		Set("FoliageEditMode.ActiveToolName.Text", FTextBlockStyle(NormalText)
+			.SetFont(TTF_CORE_FONT("Fonts/Roboto-Bold", 11))
+			.SetShadowOffset(FVector2D(1, 1))
+			);
+
+		Set("FoliageEditMode.AddFoliageType.Text", FTextBlockStyle(NormalText)
+			.SetFont(TTF_CORE_FONT("Fonts/Roboto-Bold", 10))
+			.SetColorAndOpacity(FLinearColor(1.0f, 1.0f, 1.0f))
+			.SetHighlightColor(FLinearColor(1.0f, 1.0f, 1.0f))
+			.SetShadowOffset(FVector2D(1, 1))
+			.SetShadowColorAndOpacity(FLinearColor(0, 0, 0, 0.9f)));
 	}
 #endif // WITH_EDITOR || IS_PROGRAM
 
@@ -1813,10 +1853,7 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 		);
 	}
 
-	// Stats visualizer
-	{
-		Set( "StatsHeader", new BOX_BRUSH( "Common/TableViewHeader", 4.f/32.f ) );
-	}
+
 
 	// Package Migration
 	{
@@ -5227,6 +5264,8 @@ void FSlateEditorStyle::FStyle::SetupClassIconsAndThumbnails()
 			TEXT("PostProcessVolume"),
 			TEXT("PrecomputedVisibilityOverrideVolume"),
 			TEXT("PrecomputedVisibilityVolume"),
+			TEXT("ProceduralFoliageVolume"),
+			TEXT("ProceduralFoliageBlockingVolume"),
 			TEXT("RadialForceActor"),
 			TEXT("RadialForceComponent"),
 			TEXT("ReflectionCapture"),
@@ -5640,6 +5679,37 @@ void FSlateEditorStyle::FStyle::SetupToolkitStyles()
 	// DataTable Editor
 	{
 		Set( "DataTableEditor.Tabs.Properties", new IMAGE_BRUSH( "/Icons/icon_tab_SelectionDetails_16x", Icon16x16 ) );
+
+		Set( "DataTableEditor.CellText", FTextBlockStyle(NormalText)
+			.SetFont( TTF_CORE_FONT("Fonts/Roboto-Regular", 9 ))
+			);
+
+		Set( "DataTableEditor.NameListViewRow", FTableRowStyle(NormalTableRowStyle)
+			.SetEvenRowBackgroundBrush( BOX_BRUSH( "Common/TableViewMajorColumn", 4.f/32.f ) )
+			.SetEvenRowBackgroundHoveredBrush( BOX_BRUSH( "Common/TableViewMajorColumn", 4.f/32.f ) )
+			.SetOddRowBackgroundBrush( BOX_BRUSH( "Common/TableViewMajorColumn", 4.f/32.f ) )
+			.SetOddRowBackgroundHoveredBrush( BOX_BRUSH( "Common/TableViewMajorColumn", 4.f/32.f ) )
+			.SetSelectorFocusedBrush( FSlateNoResource() )
+			.SetActiveBrush( BOX_BRUSH( "Common/TableViewMajorColumn", 4.f/32.f ) )
+			.SetActiveHoveredBrush( BOX_BRUSH( "Common/TableViewMajorColumn", 4.f/32.f ) )
+			.SetInactiveBrush( BOX_BRUSH( "Common/TableViewMajorColumn", 4.f/32.f ) )
+			.SetInactiveHoveredBrush( BOX_BRUSH( "Common/TableViewMajorColumn", 4.f/32.f ) )
+			.SetTextColor( DefaultForeground )
+			.SetSelectedTextColor( DefaultForeground )
+		);
+
+		Set( "DataTableEditor.CellListViewRow", FTableRowStyle(NormalTableRowStyle)
+			.SetEvenRowBackgroundBrush(IMAGE_BRUSH("PropertyView/DetailCategoryMiddle", FVector2D(16, 16), FLinearColor(0.5f, 0.5f, 0.5f)))
+			.SetEvenRowBackgroundHoveredBrush(IMAGE_BRUSH("PropertyView/DetailCategoryMiddle_Hovered", FVector2D(16, 16), FLinearColor(0.5f, 0.5f, 0.5f)))
+			.SetOddRowBackgroundBrush(IMAGE_BRUSH("PropertyView/DetailCategoryMiddle", FVector2D(16, 16), FLinearColor(0.2f, 0.2f, 0.2f)))
+			.SetOddRowBackgroundHoveredBrush(IMAGE_BRUSH("PropertyView/DetailCategoryMiddle_Hovered", FVector2D(16, 16), FLinearColor(0.2f, 0.2f, 0.2f)))
+			.SetActiveBrush( IMAGE_BRUSH( "Common/Selection", Icon8x8, FLinearColor(0.075f, 0.075f, 0.075f) ) )
+			.SetActiveHoveredBrush( IMAGE_BRUSH( "Common/Selection", Icon8x8, FLinearColor(0.075f, 0.075f, 0.075f) ) )
+			.SetInactiveBrush( IMAGE_BRUSH( "Common/Selection", Icon8x8, FLinearColor(0.075f, 0.075f, 0.075f) ) )
+			.SetInactiveHoveredBrush( IMAGE_BRUSH( "Common/Selection", Icon8x8, FLinearColor(0.075f, 0.075f, 0.075f) ) )
+			.SetTextColor( DefaultForeground )
+			.SetSelectedTextColor( DefaultForeground )
+		);
 	}
 
 	// DestructibleMesh Editor
@@ -6486,29 +6556,36 @@ void FSlateEditorStyle::FStyle::SetupTranslationEditorStyles()
 
 void FSlateEditorStyle::FStyle::SetupLocalizationDashboardStyles()
 {
-	Set("LocalizationDashboard.GatherAllTargets", new IMAGE_BRUSH("Icons/icon_Refresh_16x", Icon40x40));
-	Set("LocalizationDashboard.ImportForAllTargetsCultures", new IMAGE_BRUSH("Icons/icon_Samples_Download_40x", Icon40x40));
-	Set("LocalizationDashboard.ExportForAllTargetsCultures", new IMAGE_BRUSH("Icons/icon_Import_40x", Icon40x40));
-	Set("LocalizationDashboard.CompileAllTargets", new IMAGE_BRUSH("Icons/icon_package_16x", Icon40x40));
+	Set("LocalizationDashboard.GatherAllTargets", new IMAGE_BRUSH("Icons/Icon_Localisation_Gather_All_40x", Icon40x40));
+	Set("LocalizationDashboard.ImportForAllTargetsCultures", new IMAGE_BRUSH("Icons/Icon_Localisation_Import_All_40x", Icon40x40));
+	Set("LocalizationDashboard.ExportForAllTargetsCultures", new IMAGE_BRUSH("Icons/Icon_Localisation_Export_All_40x", Icon40x40));
+	Set("LocalizationDashboard.CompileAllTargets", new IMAGE_BRUSH("Icons/Icon_Localisation_Compile_Translations_40x", Icon40x40));
 
-	Set("LocalizationDashboard.GatherTarget", new IMAGE_BRUSH("Icons/icon_Refresh_16x", Icon16x16));
-	Set("LocalizationDashboard.RefreshWordCount", new IMAGE_BRUSH("Icons/icon_Refresh_16x", Icon16x16));
-	Set("LocalizationDashboard.ImportForAllCultures", new IMAGE_BRUSH("Icons/icon_Samples_Download_20x", Icon16x16));
-	Set("LocalizationDashboard.ExportForAllCultures", new IMAGE_BRUSH("Icons/icon_Import_16x", Icon16x16));
-	Set("LocalizationDashboard.CompileTarget", new IMAGE_BRUSH("Icons/icon_package_16x", Icon16x16));
+	Set("LocalizationDashboard.GatherTarget", new IMAGE_BRUSH("Icons/Icon_Localisation_Gather_All_16x", Icon16x16));
+	Set("LocalizationDashboard.RefreshWordCount", new IMAGE_BRUSH("Icons/Icon_Localisation_Refresh_Word_Counts_16x", Icon16x16));
+	Set("LocalizationDashboard.ImportForAllCultures", new IMAGE_BRUSH("Icons/Icon_Localisation_Import_All_16x", Icon16x16));
+	Set("LocalizationDashboard.ExportForAllCultures", new IMAGE_BRUSH("Icons/Icon_Localisation_Export_All_16x", Icon16x16));
+	Set("LocalizationDashboard.CompileTarget", new IMAGE_BRUSH("Icons/Icon_Localisation_Compile_Translations_16x", Icon16x16));
 	Set("LocalizationDashboard.DeleteTarget", new IMAGE_BRUSH("Icons/Cross_12x", Icon12x12 ) );
 
-	Set("LocalizationTargetEditor.Gather", new IMAGE_BRUSH("Icons/icon_Refresh_16x", Icon40x40));
-	Set("LocalizationTargetEditor.ImportForAllCultures", new IMAGE_BRUSH("Icons/icon_Samples_Download_40x", Icon40x40));
-	Set("LocalizationTargetEditor.ExportForAllCultures", new IMAGE_BRUSH("Icons/icon_Import_40x", Icon40x40));
-	Set("LocalizationTargetEditor.RefreshWordCounts", new IMAGE_BRUSH("Icons/icon_Refresh_16x", Icon40x40));
-	Set("LocalizationTargetEditor.Compile", new IMAGE_BRUSH( "Icons/icon_package_16x", Icon40x40));
+	Set("LocalizationTargetEditor.Gather", new IMAGE_BRUSH("Icons/Icon_Localisation_Gather_All_40x", Icon40x40));
+	Set("LocalizationTargetEditor.ImportForAllCultures", new IMAGE_BRUSH("Icons/Icon_Localisation_Import_All_40x", Icon40x40));
+	Set("LocalizationTargetEditor.ExportForAllCultures", new IMAGE_BRUSH("Icons/Icon_Localisation_Export_All_40x", Icon40x40));
+	Set("LocalizationTargetEditor.RefreshWordCounts", new IMAGE_BRUSH("Icons/Icon_Localisation_Refresh_Word_Counts_40x", Icon40x40));
+	Set("LocalizationTargetEditor.Compile", new IMAGE_BRUSH( "Icons/Icon_Localisation_Compile_Translations_40x", Icon40x40));
+
+	Set("LocalizationTargetEditor.DirectoryPicker", new IMAGE_BRUSH( "Icons/ellipsis_12x", Icon12x12 ));
+	Set("LocalizationTargetEditor.GatherSettingsIcon_Valid", new IMAGE_BRUSH("Settings/Settings_Good", Icon16x16));
+	Set("LocalizationTargetEditor.GatherSettingsIcon_Warning", new IMAGE_BRUSH("Settings/Settings_Warning", Icon16x16));
 
 	Set("LocalizationTargetEditor.NativeCulture", new IMAGE_BRUSH( "Icons/Star_16x", Icon16x16 ) );
+
 	Set("LocalizationTargetEditor.EditTranslations", new IMAGE_BRUSH("Icons/icon_file_open_16px", Icon16x16));
-	Set("LocalizationTargetEditor.ImportForCulture", new IMAGE_BRUSH("Icons/icon_Samples_Download_20x", Icon16x16));
-	Set("LocalizationTargetEditor.ExportForCulture", new IMAGE_BRUSH("Icons/icon_Import_16x", Icon16x16));
+	Set("LocalizationTargetEditor.ImportForCulture", new IMAGE_BRUSH("Icons/Icon_Localisation_Import_All_16x", Icon16x16));
+	Set("LocalizationTargetEditor.ExportForCulture", new IMAGE_BRUSH("Icons/Icon_Localisation_Export_All_16x", Icon16x16));
 	Set("LocalizationTargetEditor.DeleteCulture", new IMAGE_BRUSH("Icons/Cross_12x", Icon12x12 ) );
+
+	Set("LocalizationTargetEditor.GatherSettings.AddMetaDataTextKeyPatternArgument", new IMAGE_BRUSH("Icons/icon_Blueprint_AddVariable_40px", Icon16x16 ) );
 
 	Set( "LocalizationDashboard.CommandletLog.Text", FTextBlockStyle(NormalText)
 		.SetFont( TTF_CORE_FONT( "Fonts/Roboto-Regular", 8 ) )

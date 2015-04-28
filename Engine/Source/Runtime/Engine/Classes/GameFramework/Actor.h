@@ -231,11 +231,11 @@ public:
 	ENetRole GetRemoteRole() const;
 
 	/** Used for replication of our RootComponent's position and velocity */
-	UPROPERTY(ReplicatedUsing=OnRep_ReplicatedMovement)
+	UPROPERTY(Transient, ReplicatedUsing=OnRep_ReplicatedMovement)
 	struct FRepMovement ReplicatedMovement;
 
 	/** Used for replicating attachment of this actor's RootComponent to another actor. */
-	UPROPERTY(replicatedUsing=OnRep_AttachmentReplication)
+	UPROPERTY(Transient, replicatedUsing=OnRep_AttachmentReplication)
 	struct FRepAttachment AttachmentReplication;
 
 	/** Called on client when updated AttachmentReplication value is received for this actor. */
@@ -299,8 +299,8 @@ public:
 	/** Called on the actor when a new subobject is dynamically created via replication */
 	virtual void OnSubobjectCreatedFromReplication(UObject *NewSubobject);
 
-	/** Called on the actor when a new subobject is dynamically created via replication */
-	virtual void OnSubobjectDestroyFromReplication(UObject *NewSubobject);
+	/** Called on the actor when a subobject is dynamically destroyed via replication */
+	virtual void OnSubobjectDestroyFromReplication(UObject *Subobject);
 
 	/** Called on the actor right before replication occurs */
 	virtual void PreReplication( IRepChangedPropertyTracker & ChangedPropertyTracker );
@@ -336,18 +336,18 @@ public:
 	UPROPERTY()
 	uint32 bRelevantForNetworkReplays:1;
 
+	/** The time this actor was created, relative to World->GetTimeSeconds().
+	* @see UWorld::GetTimeSeconds()
+	*/
+	float CreationTime;
+
 	/** Pawn responsible for damage caused by this actor. */
 	UPROPERTY(BlueprintReadWrite, replicatedUsing=OnRep_Instigator, meta=(ExposeOnSpawn=true), Category=Actor)
 	class APawn* Instigator;
 
-	/** Called on clients when Instigator is replicated. */
+	/** Called on clients when Instigatolr is replicated. */
 	UFUNCTION()
 	virtual void OnRep_Instigator();
-
-	/** The time this actor was created, relative to World->GetTimeSeconds().
-	 * @see UWorld::GetTimeSeconds()
-	 */
-	float CreationTime;
 
 	/** Array of Actors whose Owner is this actor */
 	UPROPERTY(transient)
@@ -398,7 +398,7 @@ protected:
 private:
 	/**
 	 * The friendly name for this actor, displayed in the editor.  You should always use AActor::GetActorLabel() to access the actual label to display,
-	 * and call AActor::SetActorLabel() or AActor::SetActorLabelUnique() to change the label.  Never set the label directly.
+	 * and call AActor::SetActorLabel() or FActorLabelUtilities::SetActorLabelUnique() to change the label.  Never set the label directly.
 	 */
 	UPROPERTY()
 	FString ActorLabel;
@@ -676,6 +676,7 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category="Utilities|Transformation")
 	bool SetActorRotation(FRotator NewRotation);
+	bool SetActorRotation(const FQuat& NewRotation);
 
 	/** 
 	 * Move the actor instantly to the specified location and rotation.
@@ -699,6 +700,7 @@ public:
 	 * @return	Whether the rotation was successfully set.
 	 */
 	bool SetActorLocationAndRotation(FVector NewLocation, FRotator NewRotation, bool bSweep=false, FHitResult* OutSweepHitResult=nullptr);
+	bool SetActorLocationAndRotation(FVector NewLocation, const FQuat& NewRotation, bool bSweep=false, FHitResult* OutSweepHitResult=nullptr);
 
 	/** Set the Actor's world-space scale. */
 	UFUNCTION(BlueprintCallable, Category="Utilities|Transformation")
@@ -758,6 +760,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Utilities|Transformation", meta=(DisplayName="AddActorWorldRotation", AdvancedDisplay="bSweep,SweepHitResult"))
 	void K2_AddActorWorldRotation(FRotator DeltaRotation, bool bSweep, FHitResult& SweepHitResult);
 	void AddActorWorldRotation(FRotator DeltaRotation, bool bSweep=false, FHitResult* OutSweepHitResult=nullptr);
+	void AddActorWorldRotation(const FQuat& DeltaRotation, bool bSweep=false, FHitResult* OutSweepHitResult=nullptr);
 
 
 	/** Adds a delta to the transform of this actor in world space. Scale is unchanged. */
@@ -785,6 +788,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Utilities|Transformation", meta=(DisplayName="AddActorLocalRotation", AdvancedDisplay="bSweep,SweepHitResult"))
 	void K2_AddActorLocalRotation(FRotator DeltaRotation, bool bSweep, FHitResult& SweepHitResult);
 	void AddActorLocalRotation(FRotator DeltaRotation, bool bSweep=false, FHitResult* OutSweepHitResult=nullptr);
+	void AddActorLocalRotation(const FQuat& DeltaRotation, bool bSweep=false, FHitResult* OutSweepHitResult=nullptr);
 
 
 	/** Adds a delta to the transform of this component in its local reference frame */
@@ -810,6 +814,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Utilities|Transformation", meta=(DisplayName="SetActorRelativeRotation", AdvancedDisplay="bSweep,SweepHitResult"))
 	void K2_SetActorRelativeRotation(FRotator NewRelativeRotation, bool bSweep, FHitResult& SweepHitResult);
 	void SetActorRelativeRotation(FRotator NewRelativeRotation, bool bSweep=false, FHitResult* OutSweepHitResult=nullptr);
+	void SetActorRelativeRotation(const FQuat& NewRelativeRotation, bool bSweep=false, FHitResult* OutSweepHitResult=nullptr);
 
 	/**
 	 * Set the actor's RootComponent to the specified relative transform
@@ -857,9 +862,19 @@ public:
 	bool HasAuthority() const;
 
 	/** 
-	 * Create a new component given a template name. Template is found in the owning Blueprint.
-	 * Automatic attachment causes the first component created to become the root component, and all subsequent components
-	 * will be attached to the root component.  In manual mode, it is up to the user to attach or set as root.
+	 * Creates a new component and assigns ownership to the Actor this is 
+	 * called for. Automatic attachment causes the first component created to 
+	 * become the root, and all subsequent components to be attached under that 
+	 * root. When bManualAttachment is set, automatic attachment is 
+	 * skipped and it is up to the user to attach the resulting component (or 
+	 * set it up as the root) themselves.
+	 *
+	 * @see UK2Node_AddComponent	DO NOT CALL MANUALLY - BLUEPRINT INTERNAL USE ONLY (for Add Component nodes)
+	 *
+	 * @param TemplateName					The name of the Component Template to use.
+	 * @param bManualAttachment				Whether manual or automatic attachment is to be used
+	 * @param RelativeTransform				The relative transform between the new component and its attach parent (automatic only)
+	 * @param ComponentTemplateContext		Optional UBlueprintGeneratedClass reference to use to find the template in. If null (or not a BPGC), component is sought in this Actor's class
 	 */
 	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly = "true", DefaultToSelf="ComponentTemplateContext", HidePin="ComponentTemplateContext"))
 	class UActorComponent* AddComponent(FName TemplateName, bool bManualAttachment, const FTransform& RelativeTransform, const UObject* ComponentTemplateContext);
@@ -2126,6 +2141,10 @@ public:
 	/** Reset actor to initial state - used when restarting level without reloading. */
 	virtual void Reset();
 
+	/** Event called when this Actor is reset to its initial state - used when restarting level without reloading. */
+	UFUNCTION(BlueprintImplementableEvent, Category=Actor, meta=(DisplayName="OnReset"))
+	void K2_OnReset();
+
 	/** Returns the most recent time any of this actor's components were rendered */
 	virtual float GetLastRenderTime() const;
 
@@ -2473,7 +2492,9 @@ FORCEINLINE FVector AActor::GetSimpleCollisionCylinderExtent() const
 	FVector GetActorScale() const { return Super::GetActorScale(); } \
 	bool SetActorLocation(const FVector& NewLocation, bool bSweep=false, FHitResult* OutSweepHitResult=nullptr) { return Super::SetActorLocation(NewLocation, bSweep, OutSweepHitResult); } \
 	bool SetActorRotation(FRotator NewRotation) { return Super::SetActorRotation(NewRotation); } \
+	bool SetActorRotation(const FQuat& NewRotation) { return Super::SetActorRotation(NewRotation); } \
 	bool SetActorLocationAndRotation(FVector NewLocation, FRotator NewRotation, bool bSweep=false, FHitResult* OutSweepHitResult=nullptr) { return Super::SetActorLocationAndRotation(NewLocation, NewRotation, bSweep, OutSweepHitResult); } \
+	bool SetActorLocationAndRotation(FVector NewLocation, const FQuat& NewRotation, bool bSweep=false, FHitResult* OutSweepHitResult=nullptr) { return Super::SetActorLocationAndRotation(NewLocation, NewRotation, bSweep, OutSweepHitResult); } \
 	virtual bool TeleportTo( const FVector& DestLocation, const FRotator& DestRotation, bool bIsATest, bool bNoCheck ) override { return Super::TeleportTo(DestLocation, DestRotation, bIsATest, bNoCheck); } \
 	virtual FVector GetVelocity() const override { return Super::GetVelocity(); } \
 	float GetHorizontalDistanceTo(AActor* OtherActor)  { return Super::GetHorizontalDistanceTo(OtherActor); } \

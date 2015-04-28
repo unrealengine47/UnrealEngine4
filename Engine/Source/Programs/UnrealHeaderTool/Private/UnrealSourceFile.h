@@ -5,6 +5,7 @@
 #include "Scope.h"
 #include "HeaderProvider.h"
 #include "UnrealTypeDefinitionInfo.h"
+#include "GeneratedCodeVersion.h"
 
 class FClassMetaData;
 
@@ -15,9 +16,14 @@ class FUnrealSourceFile
 {
 public:
 	// Constructor.
-	FUnrealSourceFile(UPackage* Package, FString Filename, FString Content)
-		: Scope(MakeShareable(new FFileScope(*(FString(TEXT("__")) + FPaths::GetBaseFilename(Filename) + FString(TEXT("__File"))), this))),
-		Filename(MoveTemp(Filename)), Package(Package), bHasChanged(false), Content(MoveTemp(Content)), bParsed(false), bDependenciesResolved(false)
+	FUnrealSourceFile(UPackage* InPackage, FString InFilename, FString InContent)
+		: Scope                (MakeShareable(new FFileScope(*(FString(TEXT("__")) + FPaths::GetBaseFilename(InFilename) + FString(TEXT("__File"))), this)))
+		, Filename             (MoveTemp(InFilename))
+		, Package              (InPackage)
+		, bHasChanged          (false)
+		, Content              (MoveTemp(InContent))
+		, bParsed              (false)
+		, bDependenciesResolved(false)
 	{
 		if (GetStrippedFilename() != "Object")
 		{
@@ -185,6 +191,27 @@ public:
 	}
 
 	/**
+	 * Gets generated code version for given UStruct.
+	 */
+	EGeneratedCodeVersion GetGeneratedCodeVersionForStruct(UStruct* Struct);
+
+	/**
+	 * Gets generated code versions.
+	 */
+	TMap<UStruct*, EGeneratedCodeVersion>& GetGeneratedCodeVersions()
+	{
+		return GeneratedCodeVersions;
+	}
+
+	/**
+	 * Gets generated code versions. Const version.
+	 */
+	const TMap<UStruct*, EGeneratedCodeVersion>& GetGeneratedCodeVersions() const
+	{
+		return GeneratedCodeVersions;
+	}
+
+	/**
 	 * Sets generated filename.
 	 */
 	void SetGeneratedFilename(FString GeneratedFilename);
@@ -265,4 +292,7 @@ private:
 
 	// List of classes defined in this source file.
 	TArray<UClass*> DefinedClasses;
+
+	// Mapping of UStructs to versions, according to which their code should be generated.
+	TMap<UStruct*, EGeneratedCodeVersion> GeneratedCodeVersions;
 };

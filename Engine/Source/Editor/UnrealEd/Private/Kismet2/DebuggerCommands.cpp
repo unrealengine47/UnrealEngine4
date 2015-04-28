@@ -31,6 +31,8 @@
 #include "GameFramework/PlayerStart.h"
 #include "Components/CapsuleComponent.h"
 
+#include "IProjectManager.h"
+
 
 #define LOCTEXT_NAMESPACE "DebuggerCommands"
 
@@ -162,8 +164,11 @@ static void LeaveDebuggingMode()
 		GUnrealEd->PlayWorld->bDebugPauseExecution = false;
 	}
 
-	// Focus the game view port 
-	FModuleManager::GetModuleChecked<FLevelEditorModule>("LevelEditor").FocusPIEViewport();
+	if( FSlateApplication::Get().InKismetDebuggingMode() )
+	{
+		// Focus the game view port when resuming from debugging
+		FModuleManager::GetModuleChecked<FLevelEditorModule>("LevelEditor").FocusPIEViewport();
+	}
 
 	// Tell the application to stop ticking in this stack frame
 	FSlateApplication::Get().LeaveDebuggingMode( FKismetDebugUtilities::IsSingleStepping() );

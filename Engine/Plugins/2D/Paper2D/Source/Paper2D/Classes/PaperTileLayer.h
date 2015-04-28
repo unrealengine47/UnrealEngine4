@@ -130,6 +130,10 @@ class PAPER2D_API UPaperTileLayer : public UObject
 	bool bHiddenInGame;
 
 protected:
+	// The color of this layer (multiplied with the tile map color and passed to the material as a vertex color)
+	UPROPERTY(EditAnywhere, Category=Sprite)
+	FLinearColor LayerColor;
+
 	// The allocated width of the tile data (used to handle resizing without data loss)
 	UPROPERTY()
 	int32 AllocatedWidth;
@@ -158,19 +162,37 @@ public:
 #endif
 	// End of UObject interface
 
+	// Returns the parent tile map
 	class UPaperTileMap* GetTileMap() const;
 
+	// Returns the index of this layer in the parent tile map
+	int32 GetLayerIndex() const;
+
+	// Returns the tile information about the specified cell
 	FPaperTileInfo GetCell(int32 X, int32 Y) const;
+
+	// Sets the tile information about the specified cell
 	void SetCell(int32 X, int32 Y, const FPaperTileInfo& NewValue);
 
-	// This is a destructive operation!
+	// Reallocates the map.  This is a destructive operation that does not copy data across!
 	void DestructiveAllocateMap(int32 NewWidth, int32 NewHeight);
 	
-	// This tries to preserve contents
+	// Reallocates the map.  This tries to preserve contents.
 	void ResizeMap(int32 NewWidth, int32 NewHeight);
 
 	// Adds collision to the specified body setup
 	void AugmentBodySetup(UBodySetup* ShapeBodySetup);
+
+	// Gets the layer-specific color multiplier
+	FLinearColor GetLayerColor() const;
+
+	// Sets the layer-specific color multiplier (Note: does not invalidate any components using this layer!)
+	void SetLayerColor(FLinearColor NewColor);
+
+	// Checks to see if this layer uses the specified tile set
+	// Note: This is a slow operation, it scans each tile!
+	bool UsesTileSet(UPaperTileSet* TileSet) const;
+
 protected:
 	void ReallocateAndCopyMap();
 };

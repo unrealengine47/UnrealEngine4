@@ -10,7 +10,7 @@
 #include "VoiceChannel.generated.h"
 
 UCLASS(transient, customConstructor)
-class UVoiceChannel : public UChannel
+class ENGINE_API UVoiceChannel : public UChannel
 {
 	GENERATED_UCLASS_BODY()
 
@@ -22,7 +22,7 @@ class UVoiceChannel : public UChannel
 	/**
 	 * Default constructor
 	 */
-	UVoiceChannel(const FObjectInitializer& ObjectInitializer)
+	UVoiceChannel(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get())
 		: UChannel(ObjectInitializer)
 	{
 		// Register with the network channel system
@@ -63,5 +63,5 @@ public:
 	 *
 	 * @param VoicePacket the voice packet to send
 	 */
-	void AddVoicePacket(TSharedPtr<class FVoicePacket> VoicePacket);
+	virtual void AddVoicePacket(TSharedPtr<class FVoicePacket> VoicePacket);
 };

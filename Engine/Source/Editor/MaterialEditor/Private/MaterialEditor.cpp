@@ -29,6 +29,7 @@
 #include "Materials/MaterialExpressionTransformPosition.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
 #include "Materials/MaterialFunction.h"
+#include "Materials/MaterialParameterCollection.h"
 
 #include "MaterialEditorActions.h"
 #include "MaterialExpressionClasses.h"
@@ -68,6 +69,9 @@
 #include "Developer/MessageLog/Public/MessageLogModule.h"
 #include "Particles/ParticleSystemComponent.h"
 #include "GenericCommands.h"
+#include "CanvasTypes.h"
+#include "Engine/Selection.h"
+#include "Engine/TextureCube.h"
 
 #define LOCTEXT_NAMESPACE "MaterialEditor"
 
@@ -922,7 +926,7 @@ void FMaterialEditor::DrawMaterialInfoStrings(
 			Canvas->DrawShadowedString(
 				5,
 				DrawPositionY,
-				*FString::Printf(TEXT("%s samplers: %u/%u"), FeatureLevel == ERHIFeatureLevel::ES2 ? TEXT("Mobile texture") : TEXT("Texture"), SamplersUsed, MaxSamplers),
+				*FString::Printf(TEXT("%s samplers: %u/%u"), FeatureLevel <= ERHIFeatureLevel::ES3_1 ? TEXT("Mobile texture") : TEXT("Texture"), SamplersUsed, MaxSamplers),
 				FontToUse,
 				SamplersUsed > MaxSamplers ? FLinearColor(1,0,0) : FLinearColor(1,1,0)
 				);
@@ -1086,7 +1090,7 @@ void FMaterialEditor::LoadEditorSettings()
 
 	// Primitive type
 	int32 PrimType;
-	if(GConfig->GetInt(TEXT("MaterialEditor"), TEXT("PrimType"), PrimType, GEditorUserSettingsIni))
+	if(GConfig->GetInt(TEXT("MaterialEditor"), TEXT("PrimType"), PrimType, GEditorPerProjectIni))
 	{
 		Viewport->OnSetPreviewPrimitive((EThumbnailPrimType)PrimType);
 	}
@@ -1111,7 +1115,7 @@ void FMaterialEditor::SaveEditorSettings()
 		EditorOptions->SaveConfig();
 	}
 
-	GConfig->SetInt(TEXT("MaterialEditor"), TEXT("PrimType"), Viewport->PreviewPrimType, GEditorUserSettingsIni);
+	GConfig->SetInt(TEXT("MaterialEditor"), TEXT("PrimType"), Viewport->PreviewPrimType, GEditorPerProjectIni);
 }
 
 FText FMaterialEditor::GetCodeViewText() const
@@ -1593,7 +1597,7 @@ void FMaterialEditor::UpdateMaterialInfoList(bool bForceDisplay)
 				if (SamplersUsed >= 0)
 				{
 					int32 MaxSamplers = GetFeatureLevelMaxTextureSamplers(MaterialResource->GetFeatureLevel());
-					FString SamplersString = FString::Printf(TEXT("%s samplers: %u/%u"), FeatureLevel == ERHIFeatureLevel::ES2 ? TEXT("Mobile texture") : TEXT("Texture"), SamplersUsed, MaxSamplers);
+					FString SamplersString = FString::Printf(TEXT("%s samplers: %u/%u"), FeatureLevel <= ERHIFeatureLevel::ES3_1 ? TEXT("Mobile texture") : TEXT("Texture"), SamplersUsed, MaxSamplers);
 					TempMaterialInfoList.Add(MakeShareable(new FMaterialInfo(SamplersString, FLinearColor::Yellow)));
 					TSharedRef<FTokenizedMessage> Line = FTokenizedMessage::Create( EMessageSeverity::Info );
 					Line->AddToken( FTextToken::Create( FText::FromString( SamplersString ) ) );
@@ -3563,6 +3567,8 @@ void FMaterialEditor::NotifyPostChange( const FPropertyChangedEvent& PropertyCha
 
 	Material->MarkPackageDirty();
 	SetMaterialDirty();
+
+	GetDefault<UMaterialGraphSchema>()->ForceVisualizationCacheClear();
 }
 
 void FMaterialEditor::ToggleCollapsed(UMaterialExpression* MaterialExpression)

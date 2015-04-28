@@ -115,6 +115,8 @@ void FDefaultGameMoviePlayer::Initialize()
 		MovieViewport->SetViewportInterface( MovieStreamer->GetViewportInterface().ToSharedRef() );
 	}
 	
+	MovieViewport->SetActive(true);
+
 	// Register the movie viewport so that it can receive user input.
 	if (!FPlatformProperties::SupportsWindowedMode())
 	{
@@ -177,12 +179,12 @@ bool FDefaultGameMoviePlayer::PlayMovie()
 		
 		LastPlayTime = FPlatformTime::Seconds();
 
-        bool bInitialized = true;
+        bool bIsInitialized = true;
 		if (MovieStreamingIsPrepared())
 		{
-			bInitialized = MovieStreamer->Init(LoadingScreenAttributes.MoviePaths);
+			bIsInitialized = MovieStreamer->Init(LoadingScreenAttributes.MoviePaths);
 		}
-        if (bInitialized)
+        if (bIsInitialized)
         {
 			MovieStreamingIsDone.Set(MovieStreamingIsPrepared() ? 0 : 1);
 			LoadingIsDone.Set(0);

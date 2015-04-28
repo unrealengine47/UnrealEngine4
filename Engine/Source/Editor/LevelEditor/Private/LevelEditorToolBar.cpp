@@ -35,7 +35,7 @@
 #include "GameFramework/WorldSettings.h"
 #include "EngineUtils.h"
 #include "GameMapsSettings.h"
-
+#include "ScopedTransaction.h"
 
 namespace LevelEditorActionHelpers
 {
@@ -814,7 +814,11 @@ void LevelEditorActionHelpers::OnSelectGameModeClassPicked(UClass* InChosenClass
 	}
 	else
 	{
-		InLevelEditor.Pin()->GetWorld()->GetWorldSettings()->DefaultGameMode = InChosenClass;
+		const FScopedTransaction Transaction( NSLOCTEXT("LevelEditorCommands", "SelectGameModeClassAction", "Set Override Game Mode Class") );
+
+		AWorldSettings* WorldSettings = InLevelEditor.Pin()->GetWorld()->GetWorldSettings();
+		WorldSettings->Modify();
+		WorldSettings->DefaultGameMode = InChosenClass;
 	}
 	FSlateApplication::Get().DismissAllMenus();
 }
@@ -875,7 +879,9 @@ void LevelEditorActionHelpers::OnSelectGameStateClassPicked(UClass* InChosenClas
 {
 	if(UClass* GameModeClass = GetGameModeClass(InLevelEditor, bInIsProjectSettings))
 	{
+		const FScopedTransaction Transaction( NSLOCTEXT("LevelEditorCommands", "SelectGameStateClassAction", "Set Game State Class") );
 		AGameMode* ActiveGameMode = Cast<AGameMode>(GameModeClass->GetDefaultObject());
+		ActiveGameMode->Modify();
 		ActiveGameMode->GameStateClass = InChosenClass;
 	}
 
@@ -939,7 +945,10 @@ void LevelEditorActionHelpers::OnSelectPawnClassPicked(UClass* InChosenClass, TW
 {
 	if(UClass* GameModeClass = GetGameModeClass(InLevelEditor, bInIsProjectSettings))
 	{
+		const FScopedTransaction Transaction( NSLOCTEXT("LevelEditorCommands", "SelectPawnClassAction", "Set Pawn Class") );
+
 		AGameMode* ActiveGameMode = Cast<AGameMode>(GameModeClass->GetDefaultObject());
+		ActiveGameMode->Modify();
 		ActiveGameMode->DefaultPawnClass = InChosenClass;
 	}
 
@@ -1002,7 +1011,10 @@ void LevelEditorActionHelpers::OnSelectHUDClassPicked(UClass* InChosenClass, TWe
 {
 	if(UClass* GameModeClass = GetGameModeClass(InLevelEditor, bInIsProjectSettings))
 	{
+		const FScopedTransaction Transaction( NSLOCTEXT("LevelEditorCommands", "SelectHUDClassAction", "Set HUD Class") );
+
 		AGameMode* ActiveGameMode = Cast<AGameMode>(GameModeClass->GetDefaultObject());
+		ActiveGameMode->Modify();
 		ActiveGameMode->HUDClass = InChosenClass;
 	}
 
@@ -1065,7 +1077,10 @@ void LevelEditorActionHelpers::OnSelectPlayerControllerClassPicked(UClass* InCho
 {
 	if(UClass* GameModeClass = GetGameModeClass(InLevelEditor, bInIsProjectSettings))
 	{
+		const FScopedTransaction Transaction( NSLOCTEXT("LevelEditorCommands", "SelectPlayerControllerClassAction", "Set Player Controller Class") );
+
 		AGameMode* ActiveGameMode = Cast<AGameMode>(GameModeClass->GetDefaultObject());
+		ActiveGameMode->Modify();
 		ActiveGameMode->PlayerControllerClass = InChosenClass;
 	}
 	FSlateApplication::Get().DismissAllMenus();
@@ -1313,20 +1328,6 @@ TSharedRef< SWidget > FLevelEditorToolBar::GenerateBuildMenuContent( TSharedRef<
 			InMenuBuilder.EndSection();
 		}
 
-		/** Generates a lighting tools sub-menu */
-		static void MakeLightingToolsMenu( FMenuBuilder& InMenuBuilder )
-		{
-			InMenuBuilder.BeginSection("LevelEditorBuildLightingTools", LOCTEXT( "LightingToolsHeading", "Light Environments" ) );
-			{
-				InMenuBuilder.AddMenuEntry( FLevelEditorCommands::Get().LightingTools_ShowBounds );
-				InMenuBuilder.AddMenuEntry( FLevelEditorCommands::Get().LightingTools_ShowTraces );
-				InMenuBuilder.AddMenuEntry( FLevelEditorCommands::Get().LightingTools_ShowDirectOnly );
-				InMenuBuilder.AddMenuEntry( FLevelEditorCommands::Get().LightingTools_ShowIndirectOnly );
-				InMenuBuilder.AddMenuEntry( FLevelEditorCommands::Get().LightingTools_ShowIndirectSamples );
-			}
-			InMenuBuilder.EndSection();
-		}
-
 		/** Generates a lighting density sub-menu */
 		static void MakeLightingDensityMenu( FMenuBuilder& InMenuBuilder )
 		{
@@ -1500,11 +1501,6 @@ TSharedRef< SWidget > FLevelEditorToolBar::GenerateBuildMenuContent( TSharedRef<
 			InMenuBuilder.BeginSection("LevelEditorBuildLightingInfo", LOCTEXT( "LightingInfoHeading", "Lighting Info Dialogs" ) );
 			{
 				InMenuBuilder.AddSubMenu(
-					LOCTEXT( "LightingToolsSubMenu", "Lighting Tools" ),
-					LOCTEXT( "LightingToolsSubMenu_ToolTip", "Shows the Lighting Tools options." ),
-					FNewMenuDelegate::CreateStatic( &FLightingMenus::MakeLightingToolsMenu ) );
-					
-				InMenuBuilder.AddSubMenu(
 					LOCTEXT( "LightingDensityRenderingSubMenu", "LightMap Density Rendering Options" ),
 					LOCTEXT( "LightingDensityRenderingSubMenu_ToolTip", "Shows the LightMap Density Rendering viewmode options." ),
 					FNewMenuDelegate::CreateStatic( &FLightingMenus::MakeLightingDensityMenu ) );
@@ -1610,7 +1606,7 @@ static void MakeShaderModelPreviewMenu(FMenuBuilder& MenuBuilder)
 	{
 		for (int32 i = GMaxRHIFeatureLevel; i >= 0; --i)
 		{
-			if (i != ERHIFeatureLevel::ES3_1)
+			if (i != ERHIFeatureLevel::ES3_1 || GetDefault<UEditorExperimentalSettings>()->bFeatureLevelES31Preview)
 			{
 				MenuBuilder.AddMenuEntry(FLevelEditorCommands::Get().FeatureLevelPreview[i]);
 			}
@@ -1987,7 +1983,8 @@ TSharedRef< SWidget > FLevelEditorToolBar::GenerateMatineeMenuContent( TSharedRe
 		// We hide the header row to keep the UI compact.
 		// @todo: Might be useful to have this sometimes, actually.  Ideally the user could summon it.
 		InitOptions.bShowHeaderRow = false;
-
+		InitOptions.bShowSearchBox = false;
+		InitOptions.bShowCreateNewFolder = false;
 		struct Local
 		{
 			static bool IsMatineeActor( const AActor* const Actor )
@@ -2060,7 +2057,7 @@ TSharedRef< SWidget > FLevelEditorToolBar::GenerateMatineeMenuContent( TSharedRe
 	{
 		if( bHasAnyMatineeActors )
 		{
-			MenuBuilder.AddWidget(MiniSceneOutliner, FText::GetEmpty(), false);
+			MenuBuilder.AddWidget(MiniSceneOutliner, FText::GetEmpty(), true);
 		}
 	}
 	MenuBuilder.EndSection();

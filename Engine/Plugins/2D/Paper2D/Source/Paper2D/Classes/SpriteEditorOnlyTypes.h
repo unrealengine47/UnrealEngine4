@@ -214,7 +214,8 @@ public:
 	void Reset();
 
 	// Conditions this geometry collection (turning Polygons back to Boxes if they meet the definition of a box, etc...)
-	void ConditionGeometry();
+	// Returns true if something was modified
+	bool ConditionGeometry();
 
 	// Takes all polygon shapes and generates a list of triangles from them.
 	// Output will contain a multiple of 3 points, each set is one triangle.
@@ -256,6 +257,9 @@ struct FSpriteAssetInitParameters
 		, Offset(FVector2D::ZeroVector)
 		, Dimension(FVector2D::ZeroVector)
 		, bNewlyCreated(false)
+		, OpaqueMaterialOverride(nullptr)
+		, TranslucentMaterialOverride(nullptr)
+		, MaskedMaterialOverride(nullptr)
 	{
 	}
 
@@ -265,7 +269,7 @@ struct FSpriteAssetInitParameters
 		Texture = InTexture;
 		if (Texture != nullptr)
 		{
-			Dimension = FVector2D(Texture->GetSizeX(), Texture->GetSizeY());
+			Dimension = FVector2D(Texture->GetImportedSize());
 			Offset = FVector2D::ZeroVector;
 		}
 		else
@@ -279,6 +283,9 @@ public:
 	// The texture to use
 	UTexture2D* Texture;
 
+	// Additional textures to use
+	TArray<UTexture*> AdditionalTextures;
+
 	// The offset within the texture (in pixels)
 	FVector2D Offset;
 
@@ -287,6 +294,15 @@ public:
 
 	// Is this sprite newly created (should we pull the default pixels/uu and materials from the project settings)?
 	bool bNewlyCreated;
+
+	// The material to use for opaque sprites if set
+	UMaterialInterface* OpaqueMaterialOverride;
+
+	// The material to use for translucent sprites if set
+	UMaterialInterface* TranslucentMaterialOverride;
+
+	// The material to use for masked sprites if set
+	UMaterialInterface* MaskedMaterialOverride;
 };
 
 UENUM()

@@ -9,11 +9,13 @@ namespace ListConstants
 	static const float OvershootBounceRate = 250.0f;
 }
 
-void STableViewBase::ConstructChildren( const TAttribute<float>& InItemWidth, const TAttribute<float>& InItemHeight, const TAttribute<EListItemAlignment>& InItemAlignment, const TSharedPtr<SHeaderRow>& InHeaderRow, const TSharedPtr<SScrollBar>& InScrollBar )
+void STableViewBase::ConstructChildren( const TAttribute<float>& InItemWidth, const TAttribute<float>& InItemHeight, const TAttribute<EListItemAlignment>& InItemAlignment, const TSharedPtr<SHeaderRow>& InHeaderRow, const TSharedPtr<SScrollBar>& InScrollBar, const FOnTableViewScrolled& InOnTableViewScrolled )
 {
 	bItemsNeedRefresh = true;
 	
 	HeaderRow = InHeaderRow;
+
+	OnTableViewScrolled = InOnTableViewScrolled;
 
 	// If the user provided a scrollbar, we do not need to make one of our own.
 	if (InScrollBar.IsValid())
@@ -21,7 +23,6 @@ void STableViewBase::ConstructChildren( const TAttribute<float>& InItemWidth, co
 		ScrollBar = InScrollBar;
 		ScrollBar->SetOnUserScrolled( FOnUserScrolled::CreateSP(this, &STableViewBase::ScrollBar_OnUserScrolled) );
 	}
-	
 	
 	TSharedRef<SWidget> ListAndScrollbar = (!ScrollBar.IsValid())
 		// We need to make our own scrollbar
@@ -60,7 +61,12 @@ void STableViewBase::ConstructChildren( const TAttribute<float>& InItemWidth, co
 
 	if (InHeaderRow.IsValid())
 	{
-		InHeaderRow->SetAssociatedVerticalScrollBar( ScrollBar.ToSharedRef(), 16 );
+		// Only associate the scrollbar if we created it.
+		// If the scrollbar was passed in from outside then it won't appear under our header row so doesn't need compensating for.
+		if (!InScrollBar.IsValid())
+		{
+			InHeaderRow->SetAssociatedVerticalScrollBar( ScrollBar.ToSharedRef(), 16 );
+		}
 
 		this->ChildSlot
 		[
@@ -225,7 +231,7 @@ void STableViewBase::Tick( const FGeometry& AllottedGeometry, const double InCur
 			PanelGeometryLastTick = PanelGeometry;
 
 			// We never create the ItemsPanel if the user did not specify all the parameters required to successfully make a list.
-			ScrollIntoView( PanelGeometry );
+			const EScrollIntoViewResult ScrollIntoViewResult = ScrollIntoView( PanelGeometry );
 
 			const FReGenerateResults ReGenerateResults = ReGenerateItems( PanelGeometry );
 			LastGenerateResults = ReGenerateResults;
@@ -247,7 +253,7 @@ void STableViewBase::Tick( const FGeometry& AllottedGeometry, const double InCur
 			}
 			
 			
-			ScrollOffset = FMath::Max(0.0, ScrollOffset);
+			SetScrollOffset( FMath::Max(0.0, ScrollOffset) );
 			ItemsPanel->SmoothScrollOffset( FMath::Fractional(ScrollOffset / GetNumItemsWide()) );
 
 			if (AllowOverscroll == EAllowOverscroll::Yes)
@@ -285,12 +291,20 @@ void STableViewBase::Tick( const FGeometry& AllottedGeometry, const double InCur
 				ScrollBar->SetState( OffsetFraction, ThumbSizeFraction );
 			}
 
-			NotifyItemScrolledIntoView();
-
-			bWasAtEndOfList = ScrollBar->DistanceFromBottom() < KINDA_SMALL_NUMBER ? true : false;
+			bWasAtEndOfList = (ScrollBar->DistanceFromBottom() < KINDA_SMALL_NUMBER);
 
 			bItemsNeedRefresh = false;
 			ItemsPanel->SetRefreshPending(false);
+
+			if (ScrollIntoViewResult == EScrollIntoViewResult::Deferred)
+			{
+				// We call this rather than just leave bItemsNeedRefresh as true to ensure that EnsureTickToRefresh is registered
+				RequestListRefresh();
+			}
+			else
+			{
+				NotifyItemScrolledIntoView();
+			}
 		}
 	}
 }
@@ -645,16 +659,24 @@ float STableViewBase::ScrollTo( float InScrollOffset )
 {
 	const float NewScrollOffset = FMath::Clamp( InScrollOffset, -10.0f, GetNumItemsBeingObserved()+10.0f );
 	float AmountScrolled = FMath::Abs( ScrollOffset - NewScrollOffset );
-	ScrollOffset = NewScrollOffset;
-
-	RequestListRefresh();	
-
+	SetScrollOffset( NewScrollOffset );
+	
 	if ( bWasAtEndOfList && NewScrollOffset >= ScrollOffset )
 	{
 		AmountScrolled = 0;
 	}
 
 	return AmountScrolled;
+}
+
+void STableViewBase::SetScrollOffset( const float InScrollOffset )
+{
+	if ( ScrollOffset != InScrollOffset )
+	{
+		ScrollOffset = InScrollOffset;
+		OnTableViewScrolled.ExecuteIfBound( ScrollOffset );
+		RequestListRefresh();
+	}
 }
 
 void STableViewBase::InsertWidget( const TSharedRef<ITableRow> & WidgetToInset )
@@ -755,13 +777,13 @@ float STableViewBase::GetScrollRateInItems() const
 
 void STableViewBase::ScrollToTop()
 {
-	ScrollOffset = 0;
+	SetScrollOffset( 0 );
 	RequestListRefresh();
 }
 
 void STableViewBase::ScrollToBottom()
 {
-	ScrollOffset = GetNumItemsBeingObserved();
+	SetScrollOffset( GetNumItemsBeingObserved() );
 	RequestListRefresh();
 }
 

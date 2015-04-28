@@ -76,7 +76,7 @@ const FSlateBrush* UImage::ConvertImage(TAttribute<FSlateBrush> InImageAsset) co
 	return &Brush;
 }
 
-void UImage::SetBrush(FSlateBrush& InBrush)
+void UImage::SetBrush(const FSlateBrush& InBrush)
 {
 	Brush = InBrush;
 
@@ -96,9 +96,15 @@ void UImage::SetBrushFromAsset(USlateBrushAsset* Asset)
 	}
 }
 
-void UImage::SetBrushFromTexture(UTexture2D* Texture)
+void UImage::SetBrushFromTexture(UTexture2D* Texture, bool bMatchSize)
 {
 	Brush.SetResourceObject(Texture);
+
+	if (bMatchSize)
+	{
+		Brush.ImageSize.X = Texture->GetSizeX();
+		Brush.ImageSize.Y = Texture->GetSizeY();
+	}
 
 	if ( MyImage.IsValid() )
 	{

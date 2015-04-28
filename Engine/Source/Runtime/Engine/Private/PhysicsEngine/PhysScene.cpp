@@ -130,6 +130,7 @@ FPhysScene::FPhysScene()
 	check(SyncPhysXScene);
 	check(GApexModuleDestructible);
 	GApexModuleDestructible->setWorldSupportPhysXScene(*ApexScene, SyncPhysXScene);
+	GApexModuleDestructible->setDamageApplicationRaycastFlags(NxDestructibleActorRaycastFlags::AllChunks, *ApexScene);
 #endif
 }
 
@@ -1220,6 +1221,12 @@ void FPhysScene::InitPhysScene(uint32 SceneType)
 
 	PSceneDesc.filterShader = PhysXSimFilterShader;
 	PSceneDesc.simulationEventCallback = SimEventCallback;
+
+	if(UPhysicsSettings::Get()->bEnablePCM)
+	{
+		PSceneDesc.flags |= PxSceneFlag::eENABLE_PCM;
+	}
+	
 
 	//LOC_MOD enable kinematic vs kinematic for APEX destructibles. This is for the kinematic cube moving horizontally in QA-Destructible map to collide with the destructible.
 	// Was this flag turned off in UE4? Do we want to turn it on for both sync and async scenes?

@@ -109,7 +109,7 @@ public:
 /**
  * Implements the Editor's play settings.
  */
-UCLASS(config=EditorUserSettings)
+UCLASS(config=EditorPerProjectUserSettings)
 class UNREALED_API ULevelEditorPlaySettings
 	: public UObject
 {
@@ -189,6 +189,12 @@ public:
 	/** Extra parameters to be include as part of the command line for the standalone game. */
 	UPROPERTY(config , EditAnywhere, Category=PlayInStandaloneGame, AdvancedDisplay)
 	FString AdditionalLaunchParameters;
+
+public:
+
+	/** The width of the new view port window in pixels (0 = use the desktop's screen resolution). */
+	UPROPERTY(config, EditAnywhere, Category = PlayOnDevice)
+	bool BuildGameBeforeLaunch;
 
 private:
 

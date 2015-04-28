@@ -79,38 +79,41 @@ void SFlipbookKeyframeWidget::Construct(const FArguments& InArgs, int32 InFrameI
 	};
 
 	ChildSlot
+	[
+		SNew(SOverlay)
+		+SOverlay::Slot()
 		[
-			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot()
-			.AutoWidth()
+			SNew(SBox)
+			.Padding(FFlipbookUIConstants::FramePadding)
+			.WidthOverride(this, &SFlipbookKeyframeWidget::GetFrameWidth)
 			[
-				SNew(SBox)
-				.Padding(FFlipbookUIConstants::FramePadding)
-				.WidthOverride(this, &SFlipbookKeyframeWidget::GetFrameWidth)
+				SNew(SBorder)
+				.BorderImage(FPaperStyle::Get()->GetBrush("FlipbookEditor.RegionBody"))
+				.BorderBackgroundColor_Static(BorderColorDelegate, FlipbookBeingEdited, FrameIndex)
+				.OnMouseButtonUp(this, &SFlipbookKeyframeWidget::KeyframeOnMouseButtonUp)
+				.ToolTipText(this, &SFlipbookKeyframeWidget::GetKeyframeTooltip)
+				.HAlign(HAlign_Center)
+				.VAlign(VAlign_Center)
 				[
-					SNew(SBorder)
-					.BorderImage(FPaperStyle::Get()->GetBrush("FlipbookEditor.RegionBody"))
-					.BorderBackgroundColor_Static(BorderColorDelegate, FlipbookBeingEdited, FrameIndex)
-					.OnMouseButtonUp(this, &SFlipbookKeyframeWidget::KeyframeOnMouseButtonUp)
-					.ToolTipText(this, &SFlipbookKeyframeWidget::GetKeyframeTooltip)
-					[
-						SNullWidget::NullWidget
-					]
+					SNew(STextBlock)
+					.ColorAndOpacity(FLinearColor::Black)
+					.Text(this, &SFlipbookKeyframeWidget::GetKeyframeText)
 				]
 			]
-			+ SHorizontalBox::Slot()
-				.AutoWidth()
-				[
-					SNew(SBox)
-					.WidthOverride(FFlipbookUIConstants::HandleWidth)
-					[
-						SNew(SFlipbookTrackHandle)
-						.SlateUnitsPerFrame(SlateUnitsPerFrame)
-						.FlipbookBeingEdited(FlipbookBeingEdited)
-						.KeyFrameIdx(FrameIndex)
-					]
-				]
-		];
+		]
+		+SOverlay::Slot()
+		.HAlign(HAlign_Right)
+		[
+			SNew(SBox)
+			.WidthOverride(FFlipbookUIConstants::HandleWidth)
+			[
+				SNew(SFlipbookTrackHandle)
+				.SlateUnitsPerFrame(SlateUnitsPerFrame)
+				.FlipbookBeingEdited(FlipbookBeingEdited)
+				.KeyFrameIdx(FrameIndex)
+			]
+		]
+	];
 }
 
 FReply SFlipbookKeyframeWidget::OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
@@ -209,16 +212,32 @@ FText SFlipbookKeyframeWidget::GetKeyframeAssetName() const
 	}
 }
 
+FText SFlipbookKeyframeWidget::GetKeyframeText() const
+{
+	if (const FPaperFlipbookKeyFrame* KeyFrame = GetKeyFrameData())
+	{
+		if (KeyFrame->Sprite != nullptr)
+		{
+			return FText::AsCultureInvariant(KeyFrame->Sprite->GetName());
+		}
+	}
+
+	return FText::GetEmpty();
+}
+
 FText SFlipbookKeyframeWidget::GetKeyframeTooltip() const
 {
 	if (const FPaperFlipbookKeyFrame* KeyFrame = GetKeyFrameData())
 	{
 		const FText SpriteLine = (KeyFrame->Sprite != nullptr) ? FText::FromString(KeyFrame->Sprite->GetName()) : LOCTEXT("NoSprite", "(none)");
 
-		return FText::Format(LOCTEXT("KeyFrameTooltip", "Sprite: {0}\nIndex: {1}\nDuration: {2} frame(s)"),
+		const FText FramesText = (KeyFrame->FrameRun == 1) ? LOCTEXT("SingularFrames", "frame") : LOCTEXT("PluralFrames", "frames");
+		
+		return FText::Format(LOCTEXT("KeyFrameTooltip", "Sprite: {0}\nIndex: {1}\nDuration: {2} {3}"),
 			SpriteLine,
 			FText::AsNumber(FrameIndex),
-			FText::AsNumber(KeyFrame->FrameRun));
+			FText::AsNumber(KeyFrame->FrameRun),
+			FramesText);
 	}
 	else
 	{
@@ -230,7 +249,7 @@ FOptionalSize SFlipbookKeyframeWidget::GetFrameWidth() const
 {
 	if (const FPaperFlipbookKeyFrame* KeyFrame = GetKeyFrameData())
 	{
-		return FMath::Max<float>(0, KeyFrame->FrameRun * SlateUnitsPerFrame.Get() - FFlipbookUIConstants::HandleWidth);
+		return FMath::Max<float>(0, KeyFrame->FrameRun * SlateUnitsPerFrame.Get());
 	}
 	else
 	{
@@ -320,8 +339,12 @@ TSharedPtr<SWidget> FFlipbookKeyFrameDragDropOp::GetDefaultDecorator() const
 			SNew(SBorder)
 			.BorderImage(FPaperStyle::Get()->GetBrush("FlipbookEditor.RegionBody"))
 			.BorderBackgroundColor(BorderColor)
+			.HAlign(HAlign_Center)
+			.VAlign(VAlign_Center)
 			[
-				SNullWidget::NullWidget
+				SNew(STextBlock)
+				.ColorAndOpacity(FLinearColor::Black)
+				.Text(BodyText)
 			]
 		];
 }
@@ -337,6 +360,15 @@ void FFlipbookKeyFrameDragDropOp::OnDragged(const class FDragDropEvent& DragDrop
 void FFlipbookKeyFrameDragDropOp::Construct()
 {
 	MouseCursor = EMouseCursor::GrabHandClosed;
+
+	if (UPaperFlipbook* Flipbook = SourceFlipbook.Get())
+	{
+		if (UPaperSprite* Sprite = Flipbook->GetSpriteAtFrame(SourceFrameIndex))
+		{
+			BodyText = FText::AsCultureInvariant(Sprite->GetName());
+		}
+	}
+
 	FDragDropOperation::Construct();
 }
 
@@ -384,7 +416,8 @@ TSharedRef<FFlipbookKeyFrameDragDropOp> FFlipbookKeyFrameDragDropOp::New(int32 I
 	return Operation;
 }
 
-FFlipbookKeyFrameDragDropOp::FFlipbookKeyFrameDragDropOp() : Transaction(LOCTEXT("MovedFramesInTimeline", "Reorder key frames"))
+FFlipbookKeyFrameDragDropOp::FFlipbookKeyFrameDragDropOp()
+	: Transaction(LOCTEXT("MovedFramesInTimeline", "Reorder key frames"))
 {
 
 }
@@ -399,12 +432,10 @@ void SFlipbookTimelineTrack::Construct(const FArguments& InArgs, TSharedPtr<FUIC
 	FlipbookBeingEdited = InArgs._FlipbookBeingEdited;
 	OnSelectionChanged = InArgs._OnSelectionChanged;
 
-	NumKeyframesFromLastRebuild = 0;
-
 	ChildSlot
-		[
-			SAssignNew(MainBoxPtr, SHorizontalBox)
-		];
+	[
+		SAssignNew(MainBoxPtr, SHorizontalBox)
+	];
 
 	Rebuild();
 }
@@ -418,22 +449,15 @@ void SFlipbookTimelineTrack::Rebuild()
 	{
 		for (int32 KeyFrameIdx = 0; KeyFrameIdx < Flipbook->GetNumKeyFrames(); ++KeyFrameIdx)
 		{
-			//@TODO: Draggy bits go here
 			MainBoxPtr->AddSlot()
-				.AutoWidth()
-				[
-					SNew(SFlipbookKeyframeWidget, KeyFrameIdx, CommandList)
-					.SlateUnitsPerFrame(this->SlateUnitsPerFrame)
-					.FlipbookBeingEdited(this->FlipbookBeingEdited)
-					.OnSelectionChanged(this->OnSelectionChanged)
-				];
+			.AutoWidth()
+			[
+				SNew(SFlipbookKeyframeWidget, KeyFrameIdx, CommandList)
+				.SlateUnitsPerFrame(this->SlateUnitsPerFrame)
+				.FlipbookBeingEdited(this->FlipbookBeingEdited)
+				.OnSelectionChanged(this->OnSelectionChanged)
+			];
 		}
-
-		NumKeyframesFromLastRebuild = Flipbook->GetNumKeyFrames();
-	}
-	else
-	{
-		NumKeyframesFromLastRebuild = 0;
 	}
 }
 

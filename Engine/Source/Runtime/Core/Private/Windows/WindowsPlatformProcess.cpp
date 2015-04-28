@@ -37,10 +37,17 @@ void FWindowsPlatformProcess::AddDllDirectory(const TCHAR* Directory)
 	FPaths::NormalizeDirectoryName(NormalizedDirectory);
 	FPaths::MakePlatformFilename(NormalizedDirectory);
 
-	// Get the current value of the PATH variable
+	// Get the size of the PATH variable
 	TArray<TCHAR> PathVariable;
-	PathVariable.AddUninitialized(GetEnvironmentVariable(TEXT("PATH"), NULL, 0));
-	verify(::GetEnvironmentVariable(TEXT("PATH"), PathVariable.GetData(), PathVariable.Num()) == PathVariable.Num() - 1);
+	PathVariable.AddUninitialized(::GetEnvironmentVariable(TEXT("PATH"), NULL, 0));
+
+	// Get the actual value of variable.
+	if (::GetEnvironmentVariable(TEXT("PATH"), PathVariable.GetData(), PathVariable.Num()) == 0)
+	{
+		// Log a warning if reading value fails, but continue anyway.
+		UE_LOG(LogWindows, Warning, TEXT("Failed to load PATH environment variable. It either doesn't exist, or is too long."));
+		PathVariable.Add(TEXT(';'));
+	}
 
 	// Set the new path variable with the input directory at the start. Skip over any existing instances of the input directory.
 	FString NewPathVariable = NormalizedDirectory;
@@ -283,34 +290,29 @@ FProcHandle FWindowsPlatformProcess::CreateProc( const TCHAR* URL, const TCHAR* 
 
 	// initialize process attributes
 	SECURITY_ATTRIBUTES Attr;
-	{
 	Attr.nLength = sizeof(SECURITY_ATTRIBUTES);
 	Attr.lpSecurityDescriptor = NULL;
 	Attr.bInheritHandle = true;
-	}
 
 	// initialize process creation flags
 	uint32 CreateFlags = NORMAL_PRIORITY_CLASS;
-	{
 	if (PriorityModifier < 0)
 	{
-			CreateFlags = (PriorityModifier == -1) ? BELOW_NORMAL_PRIORITY_CLASS : IDLE_PRIORITY_CLASS;
+		CreateFlags = (PriorityModifier == -1) ? BELOW_NORMAL_PRIORITY_CLASS : IDLE_PRIORITY_CLASS;
 	}
 	else if (PriorityModifier > 0)
 	{
-			CreateFlags = (PriorityModifier == 1) ? ABOVE_NORMAL_PRIORITY_CLASS : HIGH_PRIORITY_CLASS;
+		CreateFlags = (PriorityModifier == 1) ? ABOVE_NORMAL_PRIORITY_CLASS : HIGH_PRIORITY_CLASS;
 	}
 
 	if (bLaunchDetached)
 	{
 		CreateFlags |= DETACHED_PROCESS;
 	}
-	}
 
 	// initialize window flags
 	uint32 dwFlags = 0;
 	uint16 ShowWindowFlags = SW_HIDE;
-	{
 	if (bLaunchReallyHidden)
 	{
 		dwFlags = STARTF_USESHOWWINDOW;
@@ -321,10 +323,9 @@ FProcHandle FWindowsPlatformProcess::CreateProc( const TCHAR* URL, const TCHAR* 
 		ShowWindowFlags = SW_SHOWMINNOACTIVE;
 	}
 
-		if (PipeWrite != nullptr)
+	if (PipeWrite != nullptr)
 	{
 		dwFlags |= STARTF_USESTDHANDLES;
-	}
 	}
 
 	// initialize startup info

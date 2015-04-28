@@ -13,13 +13,17 @@
 /**
  * Implements Editor settings for experimental features.
  */
-UCLASS(config=EditorUserSettings)
+UCLASS(config=EditorPerProjectUserSettings)
 class UNREALED_API UEditorExperimentalSettings
 	: public UObject
 {
 	GENERATED_UCLASS_BODY()
 
 public:
+
+	/** Allows usage of the procedural foliage system */
+	UPROPERTY(EditAnywhere, config, Category = Foliage, meta = (DisplayName = "Procedural Foliage"))
+	bool bProceduralFoliage;
 
 	/** Allows usage of the Localization Dashboard */
 	UPROPERTY(EditAnywhere, config, Category = Tools, meta = (DisplayName = "Localization Dashboard"))
@@ -88,7 +92,11 @@ public:
 	/** Enables Environment Queries editor */
 	UPROPERTY(EditAnywhere, config, Category = AI, meta = (DisplayName = "Environment Querying System"))
 	bool bEQSEditor;
-	
+
+	/** Enables Environment Queries editor */
+	UPROPERTY(EditAnywhere, config, Category = Rendering, meta = (DisplayName = "Enable Metal/High-end mobile rendering preview"))
+	bool bFeatureLevelES31Preview;
+
 	/**
 	 * Returns an event delegate that is executed when a setting has changed.
 	 *

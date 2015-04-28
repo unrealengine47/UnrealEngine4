@@ -1851,12 +1851,12 @@ void UObject::UpdateSingleSectionOfConfigFile(const FString& ConfigIniName)
 
 	// reload the file, so that it refresh the cache internally.
 	FString FinalIniFileName;
-	GConfig->LoadGlobalIniFile(FinalIniFileName, *GetClass()->ClassConfigName.ToString(), NULL, NULL, true);
+	GConfig->LoadGlobalIniFile(FinalIniFileName, *GetClass()->ClassConfigName.ToString(), NULL, true);
 }
 
-void UObject::UpdateDefaultConfigFile()
+void UObject::UpdateDefaultConfigFile(const FString& SpecificFileLocation)
 {
-	UpdateSingleSectionOfConfigFile(GetDefaultConfigFilename());
+	UpdateSingleSectionOfConfigFile(SpecificFileLocation.IsEmpty() ? GetDefaultConfigFilename() : SpecificFileLocation);
 }
 
 void UObject::UpdateGlobalUserConfigFile()
@@ -3527,6 +3527,9 @@ void PreInitUObject()
 
 void InitUObject()
 {
+	// Initialize redirects map
+	FLinkerLoad::CreateActiveRedirectsMap(GEngineIni);
+
 	FCoreDelegates::OnShutdownAfterError.AddStatic(StaticShutdownAfterError);
 	FCoreDelegates::OnExit.AddStatic(StaticExit);
 	FModuleManager::Get().OnProcessLoadedObjectsCallback().AddStatic(ProcessNewlyLoadedUObjects);

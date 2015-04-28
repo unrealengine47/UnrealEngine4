@@ -276,7 +276,7 @@ UPackage* UUnrealEdEngine::GeneratePackageThumbnailsIfRequired( const TCHAR* Str
 				}
 
 				bool bPrintThumbnailDiagnostics = false;
-				GConfig->GetBool(TEXT("Thumbnails"), TEXT("Debug"), bPrintThumbnailDiagnostics, GEditorUserSettingsIni);
+				GConfig->GetBool(TEXT("Thumbnails"), TEXT("Debug"), bPrintThumbnailDiagnostics, GEditorPerProjectIni);
 
 				const FObjectThumbnail* ExistingThumbnail = ThumbnailTools::FindCachedThumbnail( CurObject->GetFullName() );
 				if (bPrintThumbnailDiagnostics)
@@ -800,7 +800,7 @@ bool UUnrealEdEngine::Exec( UWorld* InWorld, const TCHAR* Stream, FOutputDevice&
 			FJsonInternationalizationArchiveSerializer ArchiveSerializer;
 			FJsonInternationalizationManifestSerializer ManifestSerializer;
 
-			FTextLocalizationManager::Get().RegenerateResources(ConfigFilePath, ArchiveSerializer, ManifestSerializer);
+			FTextLocalizationManager::Get().LoadFromManifestAndArchives(ConfigFilePath, ArchiveSerializer, ManifestSerializer);
 		}
 	}
 #endif
@@ -2328,6 +2328,7 @@ bool UUnrealEdEngine::Exec_Actor( UWorld* InWorld, const TCHAR* Str, FOutputDevi
 	}
 	else if( FParse::Command(&Str,TEXT("DELTAMOVE")) )
 	{
+		const FScopedTransaction Transaction(NSLOCTEXT("UnrealEd", "DeltaMoveActors", "Move Actors by Delta"));
 		FVector DeltaMove = FVector::ZeroVector;
 		GetFVECTOR( Str, DeltaMove );
 
@@ -3026,7 +3027,7 @@ bool UUnrealEdEngine::Exec_Mode( const TCHAR* Str, FOutputDevice& Ar )
 		FJsonInternationalizationArchiveSerializer ArchiveSerializer;
 		FJsonInternationalizationManifestSerializer ManifestSerializer;
 
-		FTextLocalizationManager::Get().RegenerateResources(ConfigFilePath, ArchiveSerializer, ManifestSerializer);
+		FTextLocalizationManager::Get().LoadFromManifestAndArchives(ConfigFilePath, ArchiveSerializer, ManifestSerializer);
 	}
 #endif
 

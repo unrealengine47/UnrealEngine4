@@ -9,6 +9,7 @@ ActorFactory.cpp:
 #include "ProceduralFoliageSpawner.h"
 #include "ProceduralFoliageVolume.h"
 #include "ProceduralFoliageComponent.h"
+#include "AssetData.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogActorFactory, Log, All);
 
@@ -20,16 +21,21 @@ UActorFactoryProceduralFoliage
 UActorFactoryProceduralFoliage::UActorFactoryProceduralFoliage(const FObjectInitializer& ObjectInitializer)
 : Super(ObjectInitializer)
 {
-	DisplayName = LOCTEXT("ProceduralFoliageDisplayName", "ProceduralFoliage");
+	DisplayName = LOCTEXT("ProceduralFoliageDisplayName", "Procedural Foliage Volume");
 	NewActorClass = AProceduralFoliageVolume::StaticClass();
 	bUseSurfaceOrientation = true;
+}
+
+bool UActorFactoryProceduralFoliage::PreSpawnActor(UObject* Asset, FTransform& InOutLocation)
+{
+	return GetDefault<UEditorExperimentalSettings>()->bProceduralFoliage;
 }
 
 bool UActorFactoryProceduralFoliage::CanCreateActorFrom(const FAssetData& AssetData, FText& OutErrorMsg)
 {
 	if (!AssetData.IsValid() || !AssetData.GetClass()->IsChildOf(UProceduralFoliageSpawner::StaticClass()))
 	{
-		OutErrorMsg = NSLOCTEXT("CanCreateActor", "NoProceduralFoliage", "A valid ProceduralFoliage must be specified.");
+		OutErrorMsg = NSLOCTEXT("CanCreateActor", "NoProceduralFoliageSpawner", "A valid ProceduralFoliageSpawner must be specified.");
 		return false;
 	}
 

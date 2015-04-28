@@ -712,11 +712,14 @@ void UBlueprint::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const
 	}
 	OutTags.Add( FAssetRegistryTag("ClassFlags", FString::FromInt(ClassFlagsTagged), FAssetRegistryTag::TT_Hidden) );
 
-	OutTags.Add( FAssetRegistryTag( "IsDataOnly",
-		FBlueprintEditorUtils::IsDataOnlyBlueprint(this) ? TEXT("True") : TEXT("False"),
-		FAssetRegistryTag::TT_Alphabetical ) );
+	if ( ParentClass )
+	{
+		OutTags.Add( FAssetRegistryTag( "IsDataOnly",
+			FBlueprintEditorUtils::IsDataOnlyBlueprint(this) ? TEXT("True") : TEXT("False"),
+			FAssetRegistryTag::TT_Alphabetical ) );
 
-	OutTags.Add( FAssetRegistryTag("FiB", FFindInBlueprintSearchManager::Get().QuerySingleBlueprint((UBlueprint*)this, false), FAssetRegistryTag::TT_Hidden) );
+		OutTags.Add( FAssetRegistryTag("FiB", FFindInBlueprintSearchManager::Get().QuerySingleBlueprint((UBlueprint*)this, false), FAssetRegistryTag::TT_Hidden) );
+	}
 }
 
 FString UBlueprint::GetFriendlyName() const
@@ -802,16 +805,6 @@ UTimelineTemplate* UBlueprint::FindTimelineTemplateByVariableName(const FName& T
 	return Timeline;
 }
 
-UBlueprint* UBlueprint::GetBlueprintFromClass(const UClass* InClass)
-{
-	UBlueprint* BP = NULL;
-	if(InClass != NULL)
-	{
-		BP = Cast<UBlueprint>(InClass->ClassGeneratedBy);
-	}
-	return BP;
-}
-
 bool UBlueprint::ValidateGeneratedClass(const UClass* InClass)
 {
 	const UBlueprintGeneratedClass* GeneratedClass = Cast<const UBlueprintGeneratedClass>(InClass);
@@ -893,23 +886,37 @@ bool UBlueprint::ValidateGeneratedClass(const UClass* InClass)
 	return true;
 }
 
+#endif // WITH_EDITOR
+
+UBlueprint* UBlueprint::GetBlueprintFromClass(const UClass* InClass)
+{
+	UBlueprint* BP = NULL;
+	if (InClass != NULL)
+	{
+		BP = Cast<UBlueprint>(InClass->ClassGeneratedBy);
+	}
+	return BP;
+}
+
 bool UBlueprint::GetBlueprintHierarchyFromClass(const UClass* InClass, TArray<UBlueprint*>& OutBlueprintParents)
 {
 	OutBlueprintParents.Empty();
 
 	bool bNoErrors = true;
 	const UClass* CurrentClass = InClass;
-	while( UBlueprint* BP = UBlueprint::GetBlueprintFromClass(CurrentClass) )
+	while (UBlueprint* BP = UBlueprint::GetBlueprintFromClass(CurrentClass))
 	{
 		OutBlueprintParents.Add(BP);
+
+#if WITH_EDITORONLY_DATA
 		bNoErrors &= (BP->Status != BS_Error);
+#endif // #if WITH_EDITORONLY_DATA
+
 		CurrentClass = CurrentClass->GetSuperClass();
 	}
 
 	return bNoErrors;
 }
-
-#endif // WITH_EDITOR
 
 ETimelineSigType UBlueprint::GetTimelineSignatureForFunctionByName(const FName& FunctionName, const FName& ObjectPropertyName)
 {
@@ -1031,6 +1038,13 @@ void UBlueprint::GetAllGraphs(TArray<UEdGraph*>& Graphs) const
 	for (int32 i = 0; i < UbergraphPages.Num(); ++i)
 	{
 		UEdGraph* Graph = UbergraphPages[i];
+		Graphs.Add(Graph);
+		Graph->GetAllChildrenGraphs(Graphs);
+	}
+
+	for (int32 i = 0; i < DelegateSignatureGraphs.Num(); ++i)
+	{
+		UEdGraph* Graph = DelegateSignatureGraphs[i];
 		Graphs.Add(Graph);
 		Graph->GetAllChildrenGraphs(Graphs);
 	}

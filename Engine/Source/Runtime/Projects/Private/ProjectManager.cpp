@@ -8,7 +8,6 @@ DEFINE_LOG_CATEGORY_STATIC( LogProjectManager, Log, All );
 
 FProjectManager::FProjectManager()
 {
-	bRestartRequired = false;
 }
 
 const FProjectDescriptor* FProjectManager::GetCurrentProject() const
@@ -267,7 +266,7 @@ bool FProjectManager::IsNonDefaultPluginEnabled() const
 
 	for(const FPluginStatus& Plugin: IPluginManager::Get().QueryStatusForAllPlugins())
 	{
-		if((!Plugin.bIsBuiltIn || !Plugin.bIsEnabledByDefault) && EnabledPlugins.Contains(Plugin.Name))
+		if((Plugin.LoadedFrom == EPluginLoadedFrom::GameProject || !Plugin.Descriptor.bEnabledByDefault) && EnabledPlugins.Contains(Plugin.Name))
 		{
 			return true;
 		}
@@ -323,14 +322,7 @@ bool FProjectManager::SetPluginEnabled(const FString& PluginName, bool bEnabled,
 		return false;
 	}
 
-	// Flag that a restart is required and return
-	bRestartRequired = true;
 	return true;
-}
-
-bool FProjectManager::IsRestartRequired() const
-{
-	return bRestartRequired;
 }
 
 void FProjectManager::GetDefaultEnabledPlugins(TArray<FString>& OutPluginNames)
@@ -339,7 +331,7 @@ void FProjectManager::GetDefaultEnabledPlugins(TArray<FString>& OutPluginNames)
 	TArray<FPluginStatus> PluginStatuses = IPluginManager::Get().QueryStatusForAllPlugins();
 	for(const FPluginStatus& PluginStatus: PluginStatuses)
 	{
-		if(PluginStatus.bIsEnabledByDefault || !PluginStatus.bIsBuiltIn)
+		if(PluginStatus.Descriptor.bEnabledByDefault || PluginStatus.LoadedFrom == EPluginLoadedFrom::GameProject)
 		{
 			OutPluginNames.AddUnique(PluginStatus.Name);
 		}

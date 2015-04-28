@@ -2,7 +2,18 @@
 
 #pragma once
 
+#include "PaperSprite.h"
+#include "SpriteDrawCall.h"
+
 #define TEST_BATCHING 0
+
+#if WITH_EDITOR
+typedef TMap<const UTexture*, const UTexture*> FPaperRenderSceneProxyTextureOverrideMap;
+
+#define UE_EXPAND_IF_WITH_EDITOR(...) __VA_ARGS__
+#else
+#define UE_EXPAND_IF_WITH_EDITOR(...)
+#endif
 
 //////////////////////////////////////////////////////////////////////////
 // FPaperSpriteVertex
@@ -38,7 +49,7 @@ struct PAPER2D_API FPaperSpriteVertex
 struct PAPER2D_API FSpriteRenderSection
 {
 	UMaterialInterface* Material;
-	UTexture2D* BaseTexture;
+	UTexture* BaseTexture;
 	FAdditionalSpriteTextureArray AdditionalTextures;
 
 	int32 VertexOffset;
@@ -111,6 +122,10 @@ public:
 	void SetDrawCall_RenderThread(const FSpriteDrawCallRecord& NewDynamicData);
 	void SetBodySetup_RenderThread(UBodySetup* NewSetup);
 
+#if WITH_EDITOR
+	void SetTransientTextureOverride_RenderThread(const UTexture* InTextureToModifyOverrideFor, UTexture* InOverrideTexture);
+#endif
+
 	class UMaterialInterface* GetMaterial() const
 	{
 		return Material;
@@ -145,4 +160,7 @@ protected:
 
 	// The Collision Response of the component being proxied
 	FCollisionResponseContainer CollisionResponse;
+
+	// The texture override list
+	UE_EXPAND_IF_WITH_EDITOR(FPaperRenderSceneProxyTextureOverrideMap TextureOverrideList);
 };

@@ -8,6 +8,8 @@
 
 #include "PaperTileSet.generated.h"
 
+struct FPaperTileInfo;
+
 // Information about a single tile in a tile set
 USTRUCT()
 struct PAPER2D_API FPaperTileMetadata
@@ -18,10 +20,19 @@ public:
 	UPROPERTY(EditAnywhere, Category=Sprite)
 	FSpriteGeometryCollection CollisionData;
 
+	// Indexes into the Terrains array of the owning tile set, in counterclockwise order starting from top-left
+	// 0xFF indicates no membership.
+	UPROPERTY()
+	uint8 TerrainMembership[4];
+
 public:
 	FPaperTileMetadata()
 	{
 		CollisionData.GeometryType = ESpritePolygonMode::FullyCustom;
+		TerrainMembership[0] = 0xFF;
+		TerrainMembership[1] = 0xFF;
+		TerrainMembership[2] = 0xFF;
+		TerrainMembership[3] = 0xFF;
 	}
 
 	// Does this tile have collision information?
@@ -29,8 +40,27 @@ public:
 	{
 		return CollisionData.Shapes.Num() > 0;
 	}
+
+	// Does this tile have user-specified metadata?
+	bool HasMetaData() const
+	{
+		return false;
+	}
 };
 
+// Information about a terrain type
+USTRUCT()
+struct PAPER2D_API FPaperTileSetTerrain
+{
+public:
+	GENERATED_USTRUCT_BODY()
+
+	UPROPERTY(EditAnywhere, Category=Sprite)
+	FString TerrainName;
+
+	UPROPERTY()
+	int32 CenterTileIndex;
+};
 
 /**
  * A tile set is a collection of tiles pulled from a texture that can be used to fill out a tile map.
@@ -63,7 +93,7 @@ class PAPER2D_API UPaperTileSet : public UObject
 	int32 Spacing;
 
 	// The drawing offset for tiles from this set (in pixels)
-	UPROPERTY(Category=TileSet, EditAnywhere, meta=(UIMin=0, ClampMin=0))
+	UPROPERTY(Category=TileSet, EditAnywhere)
 	FIntPoint DrawingOffset;
 
 #if WITH_EDITORONLY_DATA
@@ -93,6 +123,10 @@ protected:
 	// Per-tile information (Experimental)
 	UPROPERTY(EditAnywhere, EditFixedSize, Category=Sprite)
 	TArray<FPaperTileMetadata> ExperimentalPerTileData;
+
+	// Terrain information
+	UPROPERTY()//@TODO: TileMapTerrains: (EditAnywhere, Category=Sprite)
+	TArray<FPaperTileSetTerrain> Terrains;
 
 protected:
 
@@ -136,4 +170,18 @@ public:
 
 	// Converts the texture-space coordinates into tile coordinates
 	FIntPoint GetTileXYFromTextureUV(const FVector2D& TextureUV, bool bRoundUp) const;
+
+	// Adds a new terrain to this tile set (returns false if the maximum number of terrains has already been reached)
+	bool AddTerrainDescription(FPaperTileSetTerrain NewTerrain);
+
+	// Returns the number of terrains this tile set has
+	int32 GetNumTerrains() const
+	{
+		return Terrains.Num();
+	}
+
+	FPaperTileSetTerrain GetTerrain(int32 Index) const { return Terrains.IsValidIndex(Index) ? Terrains[Index] : FPaperTileSetTerrain(); }
+
+	// Returns the terrain type this tile is a member of, or INDEX_NONE if it is not part of a terrain
+	int32 GetTerrainMembership(const FPaperTileInfo& TileInfo) const;
 };

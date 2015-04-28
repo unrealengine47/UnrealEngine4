@@ -132,9 +132,6 @@ FOpenGLContextState& FOpenGLDynamicRHI::GetContextStateForCurrentContext()
 	}
 }
 
-// Ignore functions from RHIMethods.h when parsing documentation; Doxygen's preprocessor can't parse the declaration, so spews warnings for the definitions.
-#if !UE_BUILD_DOCS
-
 void FOpenGLDynamicRHI::RHIBeginFrame()
 {
 	RHIPrivateBeginFrame();
@@ -145,8 +142,7 @@ void FOpenGLDynamicRHI::RHIBeginFrame()
 #if PLATFORM_ANDROID //adding #if since not sure if this is required for any other platform.
 	//we need to differential between 0 (backbuffer) and lastcolorRT.
 	FOpenGLContextState& ContextState = GetContextStateForCurrentContext();
-	ContextState.LastES2ColorRT = 0xFFFFFFFF;
-	ContextState.LastES2DepthRT = 0xFFFFFFFF;
+	ContextState.LastES2ColorRTResource = 0xFFFFFFFF;
 	PendingState.DepthStencil = 0 ;
 #endif
 }
@@ -178,7 +174,7 @@ void FOpenGLDynamicRHI::RHIEndScene()
 	ResourceTableFrameCounter = INDEX_NONE;
 }
 
-#endif
+
 
 bool GDisableOpenGLDebugOutput = false;
 
@@ -700,7 +696,7 @@ static void InitRHICapabilitiesForGL()
 	GHardwareHiddenSurfaceRemoval = FOpenGL::HasHardwareHiddenSurfaceRemoval();
 
 	GShaderPlatformForFeatureLevel[ERHIFeatureLevel::ES2] = (GMaxRHIFeatureLevel == ERHIFeatureLevel::ES2) ? GMaxRHIShaderPlatform : SP_OPENGL_PCES2;
-	GShaderPlatformForFeatureLevel[ERHIFeatureLevel::ES3_1] = SP_NumPlatforms;
+	GShaderPlatformForFeatureLevel[ERHIFeatureLevel::ES3_1] = (GMaxRHIFeatureLevel == ERHIFeatureLevel::ES3_1) ? GMaxRHIShaderPlatform : SP_OPENGL_PCES3_1;
 	GShaderPlatformForFeatureLevel[ERHIFeatureLevel::SM4] = PLATFORM_MAC ? SP_OPENGL_SM4_MAC : SP_OPENGL_SM4;
 	GShaderPlatformForFeatureLevel[ERHIFeatureLevel::SM5] = OPENGL_ES31 ? SP_OPENGL_ES31_EXT : SP_OPENGL_SM5;
 
@@ -1357,9 +1353,6 @@ void FOpenGLDynamicRHI::UnregisterQuery( FOpenGLRenderQuery* Query )
 	Queries.RemoveSingleSwap(Query);
 }
 
-// Ignore functions from RHIMethods.h when parsing documentation; Doxygen's preprocessor can't parse the declaration, so spews warnings for the definitions.
-#if !UE_BUILD_DOCS
-
 void FOpenGLDynamicRHI::RHIAutomaticCacheFlushAfterComputeShader(bool bEnable)
 {
 	// Nothing to do here...
@@ -1370,7 +1363,7 @@ void FOpenGLDynamicRHI::RHIFlushComputeShaderCache()
 	// Nothing to do here...
 }
 
-#endif
+
 
 void* FOpenGLDynamicRHI::RHIGetNativeDevice()
 {

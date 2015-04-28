@@ -3,6 +3,7 @@
 #include "UnrealEd.h"
 #include "AssetEditorModeManager.h"
 #include "PreviewScene.h"
+#include "Engine/Selection.h"
 
 //////////////////////////////////////////////////////////////////////////
 // FAssetEditorModeManager
@@ -17,6 +18,10 @@ FAssetEditorModeManager::FAssetEditorModeManager()
 	ObjectSet = NewObject<USelection>();
 	ObjectSet->SetFlags(RF_Transactional);
 	ObjectSet->AddToRoot();
+
+	ComponentSet = NewObject<USelection>();
+	ComponentSet->SetFlags(RF_Transactional);
+	ComponentSet->AddToRoot();
 }
 
 FAssetEditorModeManager::~FAssetEditorModeManager()
@@ -25,6 +30,8 @@ FAssetEditorModeManager::~FAssetEditorModeManager()
 	ActorSet = nullptr;
 	ObjectSet->RemoveFromRoot();
 	ObjectSet = nullptr;
+	ComponentSet->RemoveFromRoot();
+	ComponentSet = nullptr;
 }
 
 USelection* FAssetEditorModeManager::GetSelectedActors() const
@@ -35,6 +42,11 @@ USelection* FAssetEditorModeManager::GetSelectedActors() const
 USelection* FAssetEditorModeManager::GetSelectedObjects() const
 {
 	return ObjectSet;
+}
+
+USelection* FAssetEditorModeManager::GetSelectedComponents() const
+{
+	return ComponentSet;
 }
 
 UWorld* FAssetEditorModeManager::GetWorld() const

@@ -183,6 +183,8 @@ void SDesignerView::Construct(const FArguments& InArgs, TSharedPtr<FWidgetBluepr
 
 	HoveredWidgetOutlineFade = FCurveSequence(0.0f, 0.15f);
 
+	SelectedWidgetContextMenuLocation = FVector2D(0, 0);
+
 	bMovingExistingWidget = false;
 
 	// TODO UMG - Register these with the module through some public interface to allow for new extensions to be registered.
@@ -613,21 +615,21 @@ void SDesignerView::SetStartupResolution()
 {
 	// Use previously set resolution (or create new entries using default values)
 	// Width
-	if (!GConfig->GetInt(*ConfigSectionName, TEXT("PreviewWidth"), PreviewWidth, GEditorUserSettingsIni))
+	if (!GConfig->GetInt(*ConfigSectionName, TEXT("PreviewWidth"), PreviewWidth, GEditorPerProjectIni))
 	{
-		GConfig->SetInt(*ConfigSectionName, TEXT("PreviewWidth"), DefaultResolutionWidth, GEditorUserSettingsIni);
+		GConfig->SetInt(*ConfigSectionName, TEXT("PreviewWidth"), DefaultResolutionWidth, GEditorPerProjectIni);
 		PreviewWidth = DefaultResolutionWidth;
 	}
 	// Height
-	if (!GConfig->GetInt(*ConfigSectionName, TEXT("PreviewHeight"), PreviewHeight, GEditorUserSettingsIni))
+	if (!GConfig->GetInt(*ConfigSectionName, TEXT("PreviewHeight"), PreviewHeight, GEditorPerProjectIni))
 	{
-		GConfig->SetInt(*ConfigSectionName, TEXT("PreviewHeight"), DefaultResolutionHeight, GEditorUserSettingsIni);
+		GConfig->SetInt(*ConfigSectionName, TEXT("PreviewHeight"), DefaultResolutionHeight, GEditorPerProjectIni);
 		PreviewHeight = DefaultResolutionHeight;
 	}
 	// Aspect Ratio
-	if (!GConfig->GetString(*ConfigSectionName, TEXT("PreviewAspectRatio"), PreviewAspectRatio, GEditorUserSettingsIni))
+	if (!GConfig->GetString(*ConfigSectionName, TEXT("PreviewAspectRatio"), PreviewAspectRatio, GEditorPerProjectIni))
 	{
-		GConfig->SetString(*ConfigSectionName, TEXT("PreviewAspectRatio"), *DefaultAspectRatio, GEditorUserSettingsIni);
+		GConfig->SetString(*ConfigSectionName, TEXT("PreviewAspectRatio"), *DefaultAspectRatio, GEditorPerProjectIni);
 		PreviewAspectRatio = DefaultAspectRatio;
 	}
 }
@@ -1208,7 +1210,7 @@ FReply SDesignerView::OnMouseMove(const FGeometry& MyGeometry, const FPointerEve
 		return SurfaceHandled;
 	}
 
-	if ( MouseEvent.IsMouseButtonDown(EKeys::LeftMouseButton) )
+	if ( MouseEvent.IsMouseButtonDown(EKeys::LeftMouseButton) && HasMouseCapture() )
 	{
 		FWidgetReference SelectedWidget = GetSelectedWidget();
 
@@ -1283,7 +1285,7 @@ void SDesignerView::OnMouseLeave(const FPointerEvent& MouseEvent)
 
 FReply SDesignerView::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)
 {
-	BlueprintEditor.Pin()->PasteDropLocation = FVector2D(0, 0);
+	BlueprintEditor.Pin()->PasteDropLocation = SelectedWidgetContextMenuLocation;
 
 	if ( BlueprintEditor.Pin()->DesignerCommandList->ProcessCommandBindings(InKeyEvent) )
 	{
@@ -2061,9 +2063,9 @@ void SDesignerView::HandleOnCommonResolutionSelected(int32 Width, int32 Height, 
 	PreviewHeight = Height;
 	PreviewAspectRatio = AspectRatio;
 
-	GConfig->SetInt(*ConfigSectionName, TEXT("PreviewWidth"), Width, GEditorUserSettingsIni);
-	GConfig->SetInt(*ConfigSectionName, TEXT("PreviewHeight"), Height, GEditorUserSettingsIni);
-	GConfig->SetString(*ConfigSectionName, TEXT("PreviewAspectRatio"), *AspectRatio, GEditorUserSettingsIni);
+	GConfig->SetInt(*ConfigSectionName, TEXT("PreviewWidth"), Width, GEditorPerProjectIni);
+	GConfig->SetInt(*ConfigSectionName, TEXT("PreviewHeight"), Height, GEditorPerProjectIni);
+	GConfig->SetString(*ConfigSectionName, TEXT("PreviewAspectRatio"), *AspectRatio, GEditorPerProjectIni);
 
 	if ( UUserWidget* DefaultWidget = GetDefaultWidget() )
 	{

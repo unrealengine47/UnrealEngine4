@@ -134,7 +134,11 @@ public:
 
 	/** Resets pool for GetReusableMID() */
 	virtual void OnStartPostProcessing(FSceneView& CurrentView) = 0;
-	/** Allows MIDs being created and released during view rendering without the overhead of creating and relasing objects */
+	/**
+	 * Allows MIDs being created and released during view rendering without the overhead of creating and releasing objects
+	 * As MID are not allowed to be parent of MID this gets fixed up by parenting it to the next Material or MIC
+	 * @param ParentMaterial can be Material, MIC or MID, must not be 0
+	 */
 	virtual UMaterialInstanceDynamic* GetReusableMID(class UMaterialInterface* ParentMaterial) = 0;
 	/** Returns the temporal LOD struct from the viewstate */
 	virtual FTemporalLODState& GetTemporalLODState() = 0;
@@ -1447,9 +1451,6 @@ struct FMotionBlurInfo
 	/**  */
 	void UpdateMotionBlurInfo();
 
-	/** Call if you want to keep the existing motionblur */
-	void RestoreForPausedMotionBlur();
-
 	void SetKeepAndUpdateThisFrame(bool bValue = true)
 	{
 		if(bValue)
@@ -1484,7 +1485,12 @@ struct FMotionBlurInfo
 	void ApplyOffset(FVector InOffset)
 	{
 		PreviousLocalToWorld.SetOrigin(PreviousLocalToWorld.GetOrigin() + InOffset);
-		PausedLocalToWorld.SetOrigin(PausedLocalToWorld.GetOrigin() + InOffset);
+		CurrentLocalToWorld.SetOrigin(CurrentLocalToWorld.GetOrigin() + InOffset);
+	}
+
+	void OnStartFrame()
+	{
+		PreviousLocalToWorld = CurrentLocalToWorld;
 	}
 
 private:
@@ -1494,8 +1500,8 @@ private:
 	FPrimitiveSceneInfo* MBPrimitiveSceneInfo;
 	/** The previous LocalToWorld of the component.	*/
 	FMatrix	PreviousLocalToWorld;
-	/** Used in case when Pause is activate. */
-	FMatrix	PausedLocalToWorld;
+	/** todo */
+	FMatrix	CurrentLocalToWorld;
 	/** if true then the PreviousLocalToWorld has already been updated for the current frame */
 	bool bKeepAndUpdateThisFrame;
 };
@@ -1528,10 +1534,7 @@ public:
 	 */
 	void UpdateMotionBlurCache(class FScene* InScene);
 
-	/**
-	 * Call if you want to keep the existing motionblur
-	 */
-	void RestoreForPausedMotionBlur();
+	void StartFrame(bool bWorldIsPaused);
 
 	/** 
 	 *	Get the primitives motion blur info
@@ -1551,11 +1554,18 @@ public:
 	 */
 	void ApplyOffset(FVector InOffset);
 
+	/**
+	 * Get some debug string for VisualizeMotionBlur
+	 */
+	FString GetDebugString() const;
+
 private:
 	/** The motion blur info entries for the frame. Accessed on Renderthread only! */
 	TMap<FPrimitiveComponentId, FMotionBlurInfo> MotionBlurInfos;
 	/** */
 	bool bShouldClearMotionBlurInfo;
+	/** set in StartFrame() */
+	bool bWorldIsPaused;
 
 	/**
 	 * O(n) with the amount of motion blurred objects but that number should be low
@@ -1998,8 +2008,20 @@ float ENGINE_API ComputeBoundsScreenSize(const FVector4& Origin, const float Sph
  * @param Origin - Origin of the bounds of the mesh in world space
  * @param SphereRadius - Radius of the sphere to use to calculate screen coverage
  * @param View - The view to calculate the LOD level for
+ * @param FactorScale - multiplied by the computed screen size before computing LOD
  */
 int8 ENGINE_API ComputeStaticMeshLOD(const FStaticMeshRenderData* RenderData, const FVector4& Origin, const float SphereRadius, const FSceneView& View, int32 MinLOD, float FactorScale = 1.0f);
+
+/**
+ * Computes the LOD level for the given static meshes render data in the given view, for one of the two temporal LOD samples
+ * @param RenderData - Render data for the mesh
+ * @param Origin - Origin of the bounds of the mesh in world space
+ * @param SphereRadius - Radius of the sphere to use to calculate screen coverage
+ * @param View - The view to calculate the LOD level for
+ * @param FactorScale - multiplied by the computed screen size before computing LOD
+ * @param SampleIndex - index (0 or 1) of the temporal sample to use
+ */
+int8 ENGINE_API ComputeTemporalStaticMeshLOD( const FStaticMeshRenderData* RenderData, const FVector4& Origin, const float SphereRadius, const FSceneView& View, int32 MinLOD, float FactorScale, int32 SampleIndex );
 
 /**
  * Computes the LOD to render for the list of static meshes in the given view.
@@ -2008,7 +2030,36 @@ int8 ENGINE_API ComputeStaticMeshLOD(const FStaticMeshRenderData* RenderData, co
  * @param Origin - Origin of the bounds of the mesh in world space
  * @param SphereRadius - Radius of the sphere to use to calculate screen coverage
  */
-int8 ENGINE_API ComputeLODForMeshes(const TIndirectArray<class FStaticMesh>& StaticMeshes, const FSceneView& View, const FVector4& Origin, float SphereRadius, int32 ForcedLODLevel, float ScreenSizeScale = 1.0f);
+struct FLODMask
+{
+	int8 DitheredLODIndices[2];
+
+	FLODMask()
+	{
+		DitheredLODIndices[0] = MAX_int8;
+		DitheredLODIndices[1] = MAX_int8;
+	}
+
+	void SetLOD(int32 LODIndex)
+	{
+		DitheredLODIndices[0] = LODIndex;
+		DitheredLODIndices[1] = LODIndex;
+	}
+	void SetLODSample(int32 LODIndex, int32 SampleIndex)
+	{
+		DitheredLODIndices[SampleIndex] = (int8)LODIndex;
+	}
+	bool ContainsLOD(int32 LODIndex) const
+	{
+		return DitheredLODIndices[0] == LODIndex || DitheredLODIndices[1] == LODIndex;
+	}
+
+	bool IsDithered() const
+	{
+		return DitheredLODIndices[0] != DitheredLODIndices[1];
+	}
+};
+FLODMask ENGINE_API ComputeLODForMeshes(const TIndirectArray<class FStaticMesh>& StaticMeshes, const FSceneView& View, const FVector4& Origin, float SphereRadius, int32 ForcedLODLevel, float ScreenSizeScale = 1.0f);
 
 class FSharedSamplerState : public FRenderResource
 {

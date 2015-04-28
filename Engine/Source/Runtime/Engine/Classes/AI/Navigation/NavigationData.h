@@ -212,7 +212,7 @@ struct ENGINE_API FNavigationPath : public TSharedFromThis<FNavigationPath, ESPM
 	}
 
 	/** calculates total length of segments from NextPathPoint to the end of path, plus distance from CurrentPosition to NextPathPoint */
-	float GetLengthFromPosition(FVector SegmentStart, uint32 NextPathPointIndex) const;
+	virtual float GetLengthFromPosition(FVector SegmentStart, uint32 NextPathPointIndex) const;
 
 	FORCEINLINE float GetLength() const
 	{
@@ -261,13 +261,13 @@ public:
 	template<typename PathClass>
 	FORCEINLINE const PathClass* CastPath() const
 	{
-		return PathType == PathClass::Type ? static_cast<PathClass*>(this) : NULL;
+		return PathType.IsA(PathClass::Type) ? static_cast<PathClass*>(this) : NULL;
 	}
 
 	template<typename PathClass>
 	FORCEINLINE PathClass* CastPath()
 	{
-		return PathType == PathClass::Type ? static_cast<PathClass*>(this) : NULL;
+		return PathType.IsA(PathClass::Type) ? static_cast<PathClass*>(this) : NULL;
 	}
 
 	/** enables path observing specified AActor's location and update itself if actor changes location */
@@ -692,8 +692,12 @@ public:
 
 	virtual FNavLocation GetRandomPoint(TSharedPtr<const FNavigationQueryFilter> Filter = NULL, const UObject* Querier = NULL) const PURE_VIRTUAL(ANavigationData::GetRandomPoint, return FNavLocation(););
 
-	virtual bool GetRandomPointInRadius(const FVector& Origin, float Radius, FNavLocation& OutResult, TSharedPtr<const FNavigationQueryFilter> Filter = NULL, const UObject* Querier = NULL) const PURE_VIRTUAL(ANavigationData::GetRandomPointInRadius, return false;);
+	/** finds a random location in Radius, reachable from Origin */
+	virtual bool GetRandomReachablePointInRadius(const FVector& Origin, float Radius, FNavLocation& OutResult, TSharedPtr<const FNavigationQueryFilter> Filter = NULL, const UObject* Querier = NULL) const PURE_VIRTUAL(ANavigationData::GetRandomReachablePointInRadius, return false;);
 
+	/** finds a random location in navigable space, in given Radius */
+	virtual bool GetRandomPointInNavigableRadius(const FVector& Origin, float Radius, FNavLocation& OutResult, TSharedPtr<const FNavigationQueryFilter> Filter = NULL, const UObject* Querier = NULL) const PURE_VIRTUAL(ANavigationData::GetRandomPointInNavigableRadius, return false;);
+	
 	/**	Tries to project given Point to this navigation type, within given Extent.
 	 *	@param OutLocation if successful this variable will be filed with result
 	 *	@return true if successful, false otherwise
@@ -853,6 +857,10 @@ private:
 	uint16 NavDataUniqueID;
 
 	static uint16 GetNextUniqueID();
+
+public:
+	DEPRECATED(4.8, "GetRandomPointInRadius is deprecated, please use GetRandomReachablePointInRadius")
+	virtual bool GetRandomPointInRadius(const FVector& Origin, float Radius, FNavLocation& OutResult, TSharedPtr<const FNavigationQueryFilter> Filter = NULL, const UObject* Querier = NULL) const PURE_VIRTUAL(ANavigationData::GetRandomPointInRadius, return false;);
 };
 
 struct FAsyncPathFindingQuery : public FPathFindingQuery

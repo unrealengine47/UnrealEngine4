@@ -162,12 +162,20 @@ void USoundWave::Serialize( FArchive& Ar )
 		Ar << CompressionName;
 	}
 
+	bool bSupportsStreaming = false;
+	if (Ar.IsLoading() && FPlatformProperties::SupportsAudioStreaming())
+	{
+		bSupportsStreaming = true;
+	}
+	else if (Ar.IsCooking() && Ar.CookingTarget()->SupportsFeature(ETargetPlatformFeatures::AudioStreaming))
+	{
+		bSupportsStreaming = true;
+	}
+
 	if (bCooked)
 	{
 		// Only want to cook/load full data if we don't support streaming
-		if (!IsStreaming() ||
-			(Ar.IsLoading() && !FPlatformProperties::SupportsAudioStreaming()) ||
-			(Ar.IsCooking() && !Ar.CookingTarget()->SupportsFeature(ETargetPlatformFeatures::AudioStreaming)))
+		if (!IsStreaming() || !bSupportsStreaming)
 		{
 			if (Ar.IsCooking())
 			{
@@ -203,8 +211,7 @@ void USoundWave::Serialize( FArchive& Ar )
 		if (bCooked)
 		{
 			// only cook/load streaming data if it's supported
-			if ((Ar.IsLoading() && FPlatformProperties::SupportsAudioStreaming()) ||
-				(Ar.IsCooking() && Ar.CookingTarget()->SupportsFeature(ETargetPlatformFeatures::AudioStreaming)))
+			if (bSupportsStreaming)
 			{
 				SerializeCookedPlatformData(Ar);
 			}
@@ -639,7 +646,7 @@ void USoundWave::Parse( FAudioDevice* AudioDevice, const UPTRINT NodeWaveInstanc
 		ActiveSound.bFinished = false;
 
 		// Sanity check
-		if( NumChannels >= 2 && WaveInstance->bUseSpatialization && !WaveInstance->bReportedSpatializationWarning)
+		if( NumChannels > 2 && WaveInstance->bUseSpatialization && !WaveInstance->bReportedSpatializationWarning)
 		{
 			FString SoundWarningInfo = FString::Printf(TEXT("Spatialisation on stereo and multichannel sounds is not supported. SoundWave: %s"), *GetName());
 			if (ActiveSound.Sound != this)

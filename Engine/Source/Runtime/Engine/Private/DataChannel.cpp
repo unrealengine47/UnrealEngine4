@@ -1436,6 +1436,28 @@ void UActorChannel::CleanupReplicators( const bool bKeepReplicators )
 	ActorReplicator = NULL;
 }
 
+void UActorChannel::DestroyActorAndComponents()
+{
+	// Destroy any sub-objects we created
+	for ( int32 i = 0; i < CreateSubObjects.Num(); i++ )
+	{
+		if ( CreateSubObjects[i].IsValid() )
+		{
+			UObject *SubObject = CreateSubObjects[i].Get();
+			Actor->OnSubobjectDestroyFromReplication(SubObject);
+			SubObject->MarkPendingKill();
+		}
+	}
+
+	CreateSubObjects.Empty();
+
+	// Destroy the actor
+	if ( Actor != NULL )
+	{
+		Actor->Destroy( true );
+	}
+}
+
 bool UActorChannel::CleanUp( const bool bForDestroy )
 {
 	const bool bIsServer = Connection->Driver->IsServer();
@@ -1467,21 +1489,7 @@ bool UActorChannel::CleanUp( const bool bForDestroy )
 			{
 				UE_LOG(LogNetDormancy, Verbose, TEXT("Channel[%d] '%s' Destroying Actor."), ChIndex, *Describe() );
 
-				// Destroy any sub-objects we created
-				for ( int32 i = 0; i < CreateSubObjects.Num(); i++ )
-				{
-					if ( CreateSubObjects[i].IsValid() )
-					{
-						UObject *SubObject = CreateSubObjects[i].Get();
-						Actor->OnSubobjectDestroyFromReplication(SubObject);
-						SubObject->MarkPendingKill();
-					}
-				}
-
-				CreateSubObjects.Empty();
-
-				// Destroy the actor
-				Actor->Destroy( true );
+				DestroyActorAndComponents();
 			}
 		}
 	}
@@ -1847,6 +1855,11 @@ void UActorChannel::ReceivedBunch( FInBunch & Bunch )
 
 void UActorChannel::ProcessBunch( FInBunch & Bunch )
 {
+	if ( Broken )
+	{
+		return;
+	}
+
 	const bool bIsServer = Connection->Driver->IsServer();
 
 	FReplicationFlags RepFlags;
@@ -1873,7 +1886,10 @@ void UActorChannel::ProcessBunch( FInBunch & Bunch )
 			check( !bSpawnedNewActor );
 			UE_LOG(LogNet, Warning, TEXT("UActorChannel::ProcessBunch: SerializeNewActor failed to find/spawn actor. Actor: %s, Channel: %i"), NewChannelActor ? *NewChannelActor->GetFullName() : TEXT( "NULL" ), ChIndex);
 			Broken = 1;
-			FNetControlMessage<NMT_ActorChannelFailure>::Send(Connection, ChIndex);
+			if ( !Connection->InternalAck )
+			{
+				FNetControlMessage<NMT_ActorChannelFailure>::Send(Connection, ChIndex);
+			}
 			return;
 		}
 
@@ -1935,9 +1951,15 @@ void UActorChannel::ProcessBunch( FInBunch & Bunch )
 
 		bool bHasUnmapped = false;
 
-		if ( !Replicator.Get().ReceivedBunch( Bunch, RepFlags, bHasUnmapped ) )
+		if ( !Replicator->ReceivedBunch( Bunch, RepFlags, bHasUnmapped ) )
 		{
 			UE_LOG( LogNet, Error, TEXT( "UActorChannel::ProcessBunch: Replicator.ReceivedBunch failed.  Closing connection. RepObj: %s, Channel: %i"), RepObj ? *RepObj->GetFullName() : TEXT( "NULL" ), ChIndex  );
+	
+			if ( Connection->InternalAck )
+			{
+				break;
+			}
+
 			Connection->Close();
 			return;
 		}
@@ -2345,7 +2367,7 @@ void UActorChannel::BeginContentBlockForSubObjectDelete( FOutBunch & Bunch, FNet
 	NETWORK_PROFILER(GNetworkProfiler.TrackBeginContentBlock(nullptr, Bunch.GetNumBits() - NumStartingBits));
 }
 
-void UActorChannel::EndContentBlock( UObject *Obj, FOutBunch &Bunch, FClassNetCache* ClassCache )
+void UActorChannel::EndContentBlock( UObject *Obj, FOutBunch &Bunch, const FClassNetCache* ClassCache )
 {
 	check(Obj);
 
@@ -2356,8 +2378,17 @@ void UActorChannel::EndContentBlock( UObject *Obj, FOutBunch &Bunch, FClassNetCa
 		ClassCache = Connection->Driver->NetCache->GetClassNetCache( Obj->GetClass() );
 	}
 
-	// Write max int to signify done
-	Bunch.WriteIntWrapped(ClassCache->GetMaxIndex(), ClassCache->GetMaxIndex()+1);
+	if ( Connection->InternalAck )
+	{
+		// Write out 0 checksum to signify done
+		uint32 Checksum = 0;
+		Bunch << Checksum;
+	}
+	else
+	{
+		// Write max int to signify done
+		Bunch.WriteIntWrapped(ClassCache->GetMaxIndex(), ClassCache->GetMaxIndex()+1);
+	}
 
 	NETWORK_PROFILER(GNetworkProfiler.TrackEndContentBlock(Obj, Bunch.GetNumBits() - NumStartingBits));
 }
@@ -2442,8 +2473,13 @@ UObject* UActorChannel::ReadContentBlockHeader(FInBunch & Bunch, bool& bObjectDe
 		// If this is a stably named sub-object, we shouldn't need to create it
 		if ( SubObj == NULL )
 		{
-			UE_LOG( LogNetTraffic, Error, TEXT( "ReadContentBlockHeader: Stably named sub-object not found. Actor: %s" ), *Actor->GetName() );
-			Bunch.SetError();
+			// (ignore though if this is for replays)
+			if ( !Connection->InternalAck )
+			{
+				UE_LOG( LogNetTraffic, Error, TEXT( "ReadContentBlockHeader: Stably named sub-object not found. Actor: %s" ), *Actor->GetName() );
+				Bunch.SetError();
+			}
+
 			return NULL;
 		}
 
@@ -2481,8 +2517,13 @@ UObject* UActorChannel::ReadContentBlockHeader(FInBunch & Bunch, bool& bObjectDe
 		// Valid NetGUID but no class was resolved - this is an error
 		if ( SubObj == NULL )
 		{
-			UE_LOG( LogNetTraffic, Error, TEXT( "UActorChannel::ReadContentBlockHeader: Unable to read sub-object class (SubObj == NULL). Actor: %s" ), *Actor->GetName() );
-			Bunch.SetError();
+			// (unless we're using replays, which could be backwards compatibility kicking in)
+			if ( !Connection->InternalAck )
+			{
+				UE_LOG( LogNetTraffic, Error, TEXT( "UActorChannel::ReadContentBlockHeader: Unable to read sub-object class (SubObj == NULL). Actor: %s" ), *Actor->GetName() );
+				Bunch.SetError();
+			}
+
 			return NULL;
 		}
 	}

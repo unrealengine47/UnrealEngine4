@@ -247,7 +247,7 @@ public partial class Project : CommandUtils
             SC.StageFiles(StagedFileType.NonUFS, CombinePaths(SC.ProjectRoot, "Plugins", DLCName, "Binaries"), "UE4Server-*.dll", true, null, null, true);
             
             // Put all of the cooked dir into the staged dir
-            if (SC.DedicatedServer)
+            if (SC.DedicatedServer || Params.DLCIncludeEngineContent)
             {
                 // Dedicated server cook doesn't save shaders so no Engine dir is created
                 SC.StageFiles(StagedFileType.UFS, CombinePaths(SC.ProjectRoot, "Plugins", DLCName, "Saved", "Cooked", SC.CookPlatform), "*", true, new[] { "AssetRegistry.bin" }, "", true, !Params.UsePak(SC.StageTargetPlatform));
@@ -747,7 +747,7 @@ public partial class Project : CommandUtils
 				string VersionString = Params.ChunkInstallVersionString;
 				string ChunkInstallBasePath = CombinePaths(Params.ChunkInstallDirectory, SC.FinalCookPlatform);
 				string RawDataPath = CombinePaths(ChunkInstallBasePath, VersionString, PakName);
-				string RawDataPakPath = CombinePaths(RawDataPath, PakName + "-" + SC.FinalCookPlatform + ".pak");
+				string RawDataPakPath = CombinePaths(RawDataPath, PakName + "-" + SC.FinalCookPlatform + PostFix + ".pak");
 				//copy the pak chunk to the raw data folder
 				if (InternalUtils.SafeFileExists(RawDataPakPath, true))
 				{
@@ -758,6 +758,17 @@ public partial class Project : CommandUtils
 				if (ChunkID != 0)
 				{
 					InternalUtils.SafeDeleteFile(OutputLocation, true);
+				}
+				if (Params.IsGeneratingPatch)
+				{
+					if (String.IsNullOrEmpty(PatchSourceContentPath))
+					{
+						throw new AutomationException(String.Format("Failed Creating Chunk Install Data. No source pak for patch pak {0} given", OutputLocation));
+					}
+					// If we are generating a patch, then we need to copy the original pak across
+					// for distribution.
+					string SourceRawDataPakPath = CombinePaths(RawDataPath, PakName + "-" + SC.FinalCookPlatform + ".pak");
+					InternalUtils.SafeCopyFile(PatchSourceContentPath, SourceRawDataPakPath);
 				}
 
 				string BuildRoot = MakePathSafeToUseWithCommandLine(RawDataPath);
@@ -1369,17 +1380,37 @@ public partial class Project : CommandUtils
 				{
 					string ReceiptBaseDir = Params.IsCodeBasedProject? Path.GetDirectoryName(Params.RawProjectPath) : EngineDir;
 
-					// Read the receipt
-					string ReceiptFileName = BuildReceipt.GetDefaultPath(ReceiptBaseDir, Target, StagePlatform, Config, "");
-					if(!File.Exists(ReceiptFileName))
-					{
-						throw new AutomationException("Missing receipt '{0}'. Check that this target has been built.", Path.GetFileName(ReceiptFileName));
-					}
+					Platform PlatformInstance = Platform.Platforms[StagePlatform];
+					UnrealTargetPlatform[] SubPlatformsToStage = PlatformInstance.GetStagePlatforms();
 
-					// Convert the paths to absolute
-					BuildReceipt Receipt = BuildReceipt.Read(ReceiptFileName);
-					Receipt.ExpandPathVariables(EngineDir, Path.GetDirectoryName(Params.RawProjectPath));
-					TargetsToStage.Add(Receipt);
+					// if we are attempting to gathering multiple platforms, the files aren't required
+					bool bRequireStagedFilesToExist = SubPlatformsToStage.Length == 1;
+
+					foreach (UnrealTargetPlatform ReceiptPlatform in SubPlatformsToStage)
+					{
+						// Read the receipt
+						string ReceiptFileName = BuildReceipt.GetDefaultPath(ReceiptBaseDir, Target, ReceiptPlatform, Config, "");
+						if(!File.Exists(ReceiptFileName))
+						{
+							if (bRequireStagedFilesToExist)
+							{
+								// if we aren't collecting multiple platforms, then it is expected to exist
+								throw new AutomationException("Missing receipt '{0}'. Check that this target has been built.", Path.GetFileName(ReceiptFileName));
+							}
+							else
+							{
+								// if it's multiple platforms, then allow missing receipts
+								continue;
+							}
+
+						}
+
+						// Convert the paths to absolute
+						BuildReceipt Receipt = BuildReceipt.Read(ReceiptFileName);
+						Receipt.ExpandPathVariables(EngineDir, Path.GetDirectoryName(Params.RawProjectPath));
+						Receipt.SetDependenciesToBeRequired(bRequireStagedFilesToExist);
+						TargetsToStage.Add(Receipt);
+					}
 				}
 			}
 

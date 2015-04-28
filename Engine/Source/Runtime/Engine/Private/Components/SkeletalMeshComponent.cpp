@@ -92,7 +92,8 @@ public:
 		SCOPE_CYCLE_COUNTER(STAT_AnimGameThreadTime);
 		if (USkeletalMeshComponent* Comp = SkeletalMeshComponent.Get())
 		{
-			Comp->CompleteParallelAnimationEvaluation();
+			const bool bPerformPostAnimEvaluation = true;
+			Comp->CompleteParallelAnimationEvaluation(bPerformPostAnimEvaluation);
 		}
 	}
 };
@@ -149,26 +150,42 @@ void USkeletalMeshComponent::RegisterComponentTickFunctions(bool bRegister)
 {
 	Super::RegisterComponentTickFunctions(bRegister);
 
-	if (bRegister)
+	UpdatePreClothTickRegisteredState();
+}
+
+void USkeletalMeshComponent::RegisterPreClothTick(bool bRegister)
+{
+	if (bRegister != PreClothTickFunction.IsTickFunctionRegistered())
 	{
-		if (SetupActorComponentTickFunction(&PreClothTickFunction))
+		if (bRegister)
 		{
-			PreClothTickFunction.Target = this;
-			// Set a prereq for the pre cloth tick to happen after physics is finished
-			if (World != NULL)
+			if (SetupActorComponentTickFunction(&PreClothTickFunction))
 			{
-				PreClothTickFunction.AddPrerequisite(World, World->EndPhysicsTickFunction);
+				PreClothTickFunction.Target = this;
+				// Set a prereq for the pre cloth tick to happen after physics is finished
+				if (World != NULL)
+				{
+					PreClothTickFunction.AddPrerequisite(World, World->EndPhysicsTickFunction);
+				}
 			}
 		}
-	}
-	else
-	{
-		if (PreClothTickFunction.IsTickFunctionRegistered())
+		else
 		{
 			PreClothTickFunction.UnRegisterTickFunction();
 		}
 	}
+}
 
+bool USkeletalMeshComponent::ShouldRunPreClothTick() const
+{
+	return	(bEnablePhysicsOnDedicatedServer || !IsRunningDedicatedServer()) && // Early out with we are on a dedicated server and not running physics
+			(IsSimulatingPhysics() || ShouldBlendPhysicsBones() || (SkeletalMesh && SkeletalMesh->ClothingAssets.Num() > 0));
+}
+
+void USkeletalMeshComponent::UpdatePreClothTickRegisteredState()
+{
+	bool bShouldRunClothTick = ShouldRunPreClothTick();
+	RegisterPreClothTick(bShouldRunClothTick && PrimaryComponentTick.IsTickFunctionRegistered());
 }
 
 bool USkeletalMeshComponent::NeedToSpawnAnimScriptInstance(bool bForceInit) const
@@ -223,6 +240,13 @@ void USkeletalMeshComponent::InitAnim(bool bForceReinit)
 	// I'm moving the check here
 	if ( SkeletalMesh != NULL && IsRegistered() )
 	{
+		// We may be doing parallel evaluation on the current anim instance
+		// Calling this here with true will block this init till that thread completes
+		// and it is safe to continue
+		const bool bBlockOnTask = true; // wait on evaluation task so it is safe to continue with Init
+		const bool bPerformPostAnimEvaluation = false; // Skip post evaluation, it would be wasted work
+		IsRunningParallelEvaluation(bBlockOnTask, bPerformPostAnimEvaluation);
+
 		bool bBlueprintMismatch = (AnimBlueprintGeneratedClass != NULL) && 
 			(AnimScriptInstance != NULL) && (AnimScriptInstance->GetClass() != AnimBlueprintGeneratedClass);
 
@@ -586,6 +610,8 @@ void USkeletalMeshComponent::TickPose(float DeltaTime, bool bNeedsValidRootMotio
 
 void USkeletalMeshComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction)
 {
+	UpdatePreClothTickRegisteredState();
+
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 	// Update bOldForceRefPose
@@ -990,11 +1016,6 @@ void USkeletalMeshComponent::PerformAnimationEvaluation(const USkeletalMesh* InS
 	FillSpaceBases(InSkeletalMesh, OutLocalAtoms, OutSpaceBases);
 }
 
-const TCHAR* B(bool b)
-{
-	return b ? TEXT("true") : TEXT("false");
-}
-
 void USkeletalMeshComponent::RefreshBoneTransforms(FActorComponentTickFunction* TickFunction)
 {
 	SCOPE_CYCLE_COUNTER(STAT_RefreshBoneTransforms);
@@ -1013,6 +1034,10 @@ void USkeletalMeshComponent::RefreshBoneTransforms(FActorComponentTickFunction* 
 		RecalcRequiredBones(PredictedLODLevel);
 	}
 
+	if (AnimScriptInstance)
+	{
+		AnimScriptInstance->UpdateMontageEvaluationData();
+	}
 	const bool bDoEvaluationRateOptimization = bEnableUpdateRateOptimizations && AnimUpdateRateParams->DoEvaluationRateOptimizations();
 
 	//Handle update rate optimization setup
@@ -1028,16 +1053,12 @@ void USkeletalMeshComponent::RefreshBoneTransforms(FActorComponentTickFunction* 
 
 	const bool bDoParallelEvaluation = AnimEvaluationContext.bDoEvaluation && TickFunction && bDoPAE;
 
-	if (IsValidRef(ParallelAnimationEvaluationTask))
+	const bool bBlockOnTask = !bDoParallelEvaluation;  // If we aren't trying to do parallel evaluation then we
+															// will need to wait on an existing task.
+
+	const bool bPerformPostAnimEvaluation = true;
+	if (IsRunningParallelEvaluation(bBlockOnTask, bPerformPostAnimEvaluation))
 	{
-		//Are already processing eval on another thread, we wait for eval thread to finish
-		if (!bDoParallelEvaluation) //we are already running parallel evaluation, so if we are going to try it again just return
-		{
-			//If we are not going to attempt parallel evaluation then wait here for the existing task to finish and then
-			//perform complete directly so that when we return all the calculations are complete
-			FTaskGraphInterface::Get().WaitUntilTaskCompletes(ParallelAnimationEvaluationTask, ENamedThreads::GameThread);
-			CompleteParallelAnimationEvaluation(); //Perform completion now
-		}
 		return;
 	}
 
@@ -1799,9 +1820,19 @@ FTransform USkeletalMeshComponent::ConvertLocalRootMotionToWorld(const FTransfor
 		UpdateComponentToWorld();
 	}
 
+	/*check(ComponentToWorld.IsRotationNormalized());
+	check(InTransform.IsRotationNormalized());
 	const FTransform NewWorldTransform = InTransform * ComponentToWorld;
+	check(NewWorldTransform.IsRotationNormalized());
 	const FVector DeltaWorldTranslation = NewWorldTransform.GetTranslation() - ComponentToWorld.GetTranslation();
 	const FQuat DeltaWorldRotation = ComponentToWorld.GetRotation().Inverse() * NewWorldTransform.GetRotation();
+	check(DeltaWorldRotation.IsNormalized());*/
+
+	const FTransform NewWorldTransform = InTransform * ComponentToWorld;
+	const FQuat NewWorldRotation = ComponentToWorld.GetRotation() * InTransform.GetRotation();
+	const FVector DeltaWorldTranslation = NewWorldTransform.GetTranslation() - ComponentToWorld.GetTranslation();
+	const FQuat DeltaWorldRotation = NewWorldRotation * ComponentToWorld.GetRotation().Inverse();
+
 
 	const FTransform DeltaWorldTransform(DeltaWorldRotation, DeltaWorldTranslation);
 
@@ -2124,4 +2155,19 @@ void USkeletalMeshComponent::RefreshActiveVertexAnims()
 	{
 		ActiveVertexAnims.Empty();
 	}
+}
+
+bool USkeletalMeshComponent::IsRunningParallelEvaluation(bool bBlockOnTask, bool bPerformPostAnimEvaluation)
+{
+	if (IsValidRef(ParallelAnimationEvaluationTask)) // We are already processing eval on another thread
+	{
+		if (bBlockOnTask)
+		{
+			check(IsInGameThread()); // Only attempt this from game thread!
+			FTaskGraphInterface::Get().WaitUntilTaskCompletes(ParallelAnimationEvaluationTask, ENamedThreads::GameThread);
+			CompleteParallelAnimationEvaluation(bPerformPostAnimEvaluation); //Perform completion now
+		}
+		return true;
+	}
+	return false;
 }

@@ -153,7 +153,10 @@ public:
 		Component(InComponent),
 		CollisionResponse(InComponent->GetCollisionResponseToChannels())
 #if WITH_EDITOR
-		, CollisionMaterialInstance(GEngine->ShadedLevelColorationUnlitMaterial->GetRenderProxy(false, false),FColor(157,149,223,255)	)
+		, CollisionMaterialInstance(GEngine->ShadedLevelColorationUnlitMaterial
+			? GEngine->ShadedLevelColorationUnlitMaterial->GetRenderProxy(false, false)
+			: nullptr,
+			FColor(157,149,223,255))
 #endif
 	{
 		OverrideOwnerName(NAME_BSP);
@@ -484,7 +487,7 @@ public:
 						{
 							bLightMapped = false;
 						}
-						if(InteractionType != LIT_Dynamic && InteractionType != LIT_CachedSignedDistanceFieldShadowMap2D)
+						if(InteractionType != LIT_Dynamic)
 						{
 							bDynamic = false;
 						}

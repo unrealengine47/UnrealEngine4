@@ -74,7 +74,7 @@ FViewportRHIRef FOpenGLDynamicRHI::RHICreateViewport(void* WindowHandle,uint32 S
 
 void FOpenGLDynamicRHI::RHIResizeViewport(FViewportRHIParamRef ViewportRHI,uint32 SizeX,uint32 SizeY,bool bIsFullscreen)
 {
-	DYNAMIC_CAST_OPENGLRESOURCE(Viewport,Viewport);
+	FOpenGLViewport* Viewport = ResourceCast(ViewportRHI);
 	check( IsInGameThread() );
 
 //#if !PLATFORM_MAC
@@ -92,14 +92,11 @@ void FOpenGLDynamicRHI::RHITick( float DeltaTime )
  *	Viewport functions.
  *=============================================================================*/
 
-// Ignore functions from RHIMethods.h when parsing documentation; Doxygen's preprocessor can't parse the declaration, so spews warnings for the definitions.
-#if !UE_BUILD_DOCS
-
 void FOpenGLDynamicRHI::RHIBeginDrawingViewport(FViewportRHIParamRef ViewportRHI, FTextureRHIParamRef RenderTarget)
 {
 	VERIFY_GL_SCOPE();
 
-	DYNAMIC_CAST_OPENGLRESOURCE(Viewport,Viewport);
+	FOpenGLViewport* Viewport = ResourceCast(ViewportRHI);
 
 	SCOPE_CYCLE_COUNTER(STAT_OpenGLPresentTime);
 
@@ -138,7 +135,7 @@ void FOpenGLDynamicRHI::RHIEndDrawingViewport(FViewportRHIParamRef ViewportRHI,b
 {
 	VERIFY_GL_SCOPE();
 
-	DYNAMIC_CAST_OPENGLRESOURCE(Viewport,Viewport);
+	FOpenGLViewport* Viewport = ResourceCast(ViewportRHI);
 
 	SCOPE_CYCLE_COUNTER(STAT_OpenGLPresentTime);
 
@@ -208,11 +205,11 @@ bool FOpenGLDynamicRHI::RHIIsDrawingViewport()
 	return DrawingViewport != NULL;
 }
 
-#endif
+
 
 FTexture2DRHIRef FOpenGLDynamicRHI::RHIGetViewportBackBuffer(FViewportRHIParamRef ViewportRHI)
 {
-	DYNAMIC_CAST_OPENGLRESOURCE(Viewport,Viewport);
+	FOpenGLViewport* Viewport = ResourceCast(ViewportRHI);
 	return Viewport->GetBackBuffer();
 }
 

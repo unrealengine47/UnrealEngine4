@@ -35,17 +35,18 @@ void FGitSourceControlProvider::CheckGitAvailability()
 			// Find the path to the root Git directory (if any)
 			const FString PathToGameDir = FPaths::ConvertRelativePathToFull(FPaths::GameDir());
 			const bool bRepositoryFound = GitSourceControlUtils::FindRootDirectory(PathToGameDir, PathToRepositoryRoot);
-			if(bRepositoryFound)
+			// Get user name & email (of the repository, else from the global Git config)
+			GitSourceControlUtils::GetUserConfig(PathToGitBinary, PathToRepositoryRoot, UserName, UserEmail);
+			if (bRepositoryFound)
 			{
-				// Get user name & email
-				GitSourceControlUtils::GetUserConfig(PathToGitBinary, PathToRepositoryRoot, UserName, UserEmail);
 				// Get branch name
 				GitSourceControlUtils::GetBranchName(PathToGitBinary, PathToRepositoryRoot, BranchName);
+				bGitRepositoryFound = true;
 			}
 			else
 			{
 				UE_LOG(LogSourceControl, Error, TEXT("'%s' is not part of a Git repository"), *FPaths::GameDir());
-				bGitAvailable = false;
+				bGitRepositoryFound = false;
 			}
 		}
 	}
@@ -89,14 +90,16 @@ FText FGitSourceControlProvider::GetStatusText() const
 	return FText::Format( NSLOCTEXT("Status", "Provider: Git\nEnabledLabel", "Repository: {RepositoryName}\nBranch: {BranchName}\nUser: {UserName}\nE-mail: {UserEmail}"), Args );
 }
 
+/** Quick check if source control is enabled */
 bool FGitSourceControlProvider::IsEnabled() const
 {
-	return bGitAvailable;
+	return bGitRepositoryFound;
 }
 
+/** Quick check if source control is available for use (useful for server-based providers) */
 bool FGitSourceControlProvider::IsAvailable() const
 {
-	return bGitAvailable;
+	return bGitRepositoryFound;
 }
 
 const FName& FGitSourceControlProvider::GetName(void) const
@@ -162,7 +165,7 @@ void FGitSourceControlProvider::UnregisterSourceControlStateChanged_Handle( FDel
 
 ECommandResult::Type FGitSourceControlProvider::Execute( const TSharedRef<ISourceControlOperation, ESPMode::ThreadSafe>& InOperation, const TArray<FString>& InFiles, EConcurrency::Type InConcurrency, const FSourceControlOperationComplete& InOperationCompleteDelegate )
 {
-	if(!IsEnabled())
+	if(!IsEnabled() && !(InOperation->GetName() == "Connect")) // Only Connect operation allowed while not Enabled (Connected)
 	{
 		return ECommandResult::Failed;
 	}

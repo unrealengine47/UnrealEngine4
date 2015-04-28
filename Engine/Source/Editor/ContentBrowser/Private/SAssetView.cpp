@@ -942,6 +942,23 @@ void SAssetView::Tick( const FGeometry& AllottedGeometry, const double InCurrent
 	{
 		ResetQuickJump();
 	}
+
+	TSharedPtr<FAssetViewItem> AssetAwaitingRename = AwaitingRename.Pin();
+	if (AssetAwaitingRename.IsValid())
+	{
+		TSharedPtr<SWindow> OwnerWindow = FSlateApplication::Get().FindWidgetWindow(AsShared());
+		if (!OwnerWindow.IsValid())
+		{
+			AssetAwaitingRename->bRenameWhenScrolledIntoview = false;
+			AwaitingRename = nullptr;
+		}
+		else if (FSlateApplication::Get().HasFocusedDescendants(OwnerWindow.ToSharedRef()))
+		{
+			AssetAwaitingRename->RenamedRequestEvent.ExecuteIfBound();
+			AssetAwaitingRename->bRenameWhenScrolledIntoview = false;
+			AwaitingRename = nullptr;
+		}
+	}
 }
 
 void SAssetView::CalculateFillScale( const FGeometry& AllottedGeometry )
@@ -2310,21 +2327,18 @@ TSharedRef<SWidget> SAssetView::GetViewButtonContent()
 			EUserInterfaceActionType::ToggleButton
 			);
 
-		if(IPluginManager::Get().GetPluginContentFolders().Num() > 0)
-		{
-			MenuBuilder.AddMenuEntry(
-				LOCTEXT("ShowPluginFolderOption", "Show Plugin Content"),
-				LOCTEXT("ShowPluginFolderOptionToolTip", "Shows plugin content in the view."),
-				FSlateIcon(),
-				FUIAction(
-					FExecuteAction::CreateSP( this, &SAssetView::ToggleShowPluginFolders ),
-					FCanExecuteAction(),
-					FIsActionChecked::CreateSP( this, &SAssetView::IsShowingPluginFolders )
-				),
-				NAME_None,
-				EUserInterfaceActionType::ToggleButton
-				);
-		}
+		MenuBuilder.AddMenuEntry(
+			LOCTEXT("ShowPluginFolderOption", "Show Plugin Content"),
+			LOCTEXT("ShowPluginFolderOptionToolTip", "Shows plugin content in the view."),
+			FSlateIcon(),
+			FUIAction(
+				FExecuteAction::CreateSP( this, &SAssetView::ToggleShowPluginFolders ),
+				FCanExecuteAction(),
+				FIsActionChecked::CreateSP( this, &SAssetView::IsShowingPluginFolders )
+			),
+			NAME_None,
+			EUserInterfaceActionType::ToggleButton
+			);
 
 		MenuBuilder.AddMenuEntry(
 			LOCTEXT("ShowEngineFolderOption", "Show Engine Content"),
@@ -3081,12 +3095,7 @@ void SAssetView::ItemScrolledIntoView(TSharedPtr<struct FAssetViewItem> AssetIte
 			OwnerWindow->BringToFront();
 		}
 
-		if ( Widget.IsValid() && Widget->GetContent().IsValid() )
-		{
-			AssetItem->RenamedRequestEvent.ExecuteIfBound();
-		}
-
-		AssetItem->bRenameWhenScrolledIntoview = false;
+		AwaitingRename = AssetItem;
 	}
 }
 

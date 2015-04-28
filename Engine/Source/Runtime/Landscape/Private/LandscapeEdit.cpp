@@ -344,9 +344,9 @@ bool ULandscapeComponent::ComponentIsTouchingSelectionFrustum(const FConvexVolum
 
 void ULandscapeComponent::PostEditUndo()
 {
-	Super::PostEditUndo();
-
 	UpdateMaterialInstances();
+
+	Super::PostEditUndo();
 
 	if (EditToolRenderData)
 	{
@@ -803,18 +803,18 @@ void ULandscapeComponent::UpdateCollisionLayerData(TArray<FColor*>& WeightmapTex
 		{
 			FWeightmapLayerAllocationInfo& AllocInfo = WeightmapLayerAllocations[AllocIdx];
 			ULandscapeLayerInfoObject* LayerInfo = AllocInfo.LayerInfo;
-			if (AllocInfo.LayerInfo == ALandscapeProxy::VisibilityLayer || (LayerInfo && LayerInfo->PhysMaterial))
+			if (LayerInfo == ALandscapeProxy::VisibilityLayer || LayerInfo != nullptr)
 			{
-				int32 Idx = CandidateLayers.Add(AllocInfo.LayerInfo);
+				int32 Idx = CandidateLayers.Add(LayerInfo);
 				CandidateDataPtrs.Add(((uint8*)WeightmapTextureMipData[AllocInfo.WeightmapTextureIndex]) + ChannelOffsets[AllocInfo.WeightmapTextureChannel]);
 
 				// Check if we still match the collision component.
-				if (!CollisionComponent->ComponentLayerInfos.IsValidIndex(Idx) || CollisionComponent->ComponentLayerInfos[Idx] != AllocInfo.LayerInfo)
+				if (!CollisionComponent->ComponentLayerInfos.IsValidIndex(Idx) || CollisionComponent->ComponentLayerInfos[Idx] != LayerInfo)
 				{
 					bExistingLayerMismatch = true;
 				}
 
-				if (AllocInfo.LayerInfo == ALandscapeProxy::VisibilityLayer)
+				if (LayerInfo == ALandscapeProxy::VisibilityLayer)
 				{
 					DataLayerIdx = Idx;
 					bExistingLayerMismatch = true; // always rebuild whole component for hole
@@ -3076,6 +3076,22 @@ void ULandscapeInfo::RemoveXYOffsets()
 	}
 }
 
+void ULandscapeInfo::PostponeTextureBaking()
+{
+	const int32 PostponeValue = 60; //frames
+	
+	ALandscape* Landscape = LandscapeActor.Get();
+	if (Landscape)
+	{
+		Landscape->UpdateBakedTexturesCountdown = PostponeValue;
+	}
+
+	for (ALandscapeProxy* Proxy : Proxies)
+	{
+		Proxy->UpdateBakedTexturesCountdown = PostponeValue;
+	}
+}
+
 namespace
 {
 	inline float AdjustStaticLightingResolution(float StaticLightingResolution, int32 NumSubsections, int32 SubsectionSizeQuads, int32 ComponentSizeQuads)
@@ -3523,6 +3539,7 @@ void ULandscapeComponent::PreEditChange(UProperty* PropertyThatWillChange)
 void ULandscapeComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
+
 	const FName PropertyName = PropertyChangedEvent.Property ? PropertyChangedEvent.Property->GetFName() : NAME_None;
 	if (PropertyName == FName(TEXT("OverrideMaterial")))
 	{

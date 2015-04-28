@@ -1131,7 +1131,7 @@ void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, FViewInfo& V
 			{
 				// Motion blur
 
-				if( CVarMotionBlurNew.GetValueOnRenderThread() )
+				if( CVarMotionBlurNew.GetValueOnRenderThread() && FeatureLevel >= ERHIFeatureLevel::SM5 )
 				{
 					FRenderingCompositeOutputRef MaxTileVelocity;
 					FRenderingCompositeOutputRef SceneDepth( Context.SceneDepth );
@@ -1220,13 +1220,13 @@ void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, FViewInfo& V
 
 					MotionBlurPass->SetInput(ePId_Input0, MotionBlurColorDepth);
 
-				if(VelocityInput.IsValid())
-				{
-					// blurred screen space velocity for soft masked motion blur
-					MotionBlurPass->SetInput(ePId_Input1, SoftEdgeVelocity);
-					// screen space velocity input from per object velocity rendering
-					MotionBlurPass->SetInput(ePId_Input2, MotionBlurHalfVelocity);
-				}
+					if(VelocityInput.IsValid())
+					{
+						// blurred screen space velocity for soft masked motion blur
+						MotionBlurPass->SetInput(ePId_Input1, SoftEdgeVelocity);
+						// screen space velocity input from per object velocity rendering
+						MotionBlurPass->SetInput(ePId_Input2, MotionBlurHalfVelocity);
+					}
 
 					FRenderingCompositePass* MotionBlurRecombinePass = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessMotionBlurRecombine());
 					MotionBlurRecombinePass->SetInput(ePId_Input0, Context.FinalOutput);
@@ -1518,14 +1518,17 @@ void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, FViewInfo& V
 			{
 				Node = Context.Graph.RegisterPass(new FRCPassPostProcessHMD());
 			}
-#if HAS_MORPHEUS
 			else if(DeviceType == EHMDDeviceType::DT_Morpheus)
 			{
+				
+#if MORPHEUS_ENGINE_DISTORTION
 				FRCPassPostProcessMorpheus* MorpheusPass = new FRCPassPostProcessMorpheus();
 				MorpheusPass->SetInput(ePId_Input0, FRenderingCompositeOutputRef(Context.FinalOutput));
 				Node = Context.Graph.RegisterPass(MorpheusPass);
-			}
 #endif
+			}
+
+			bHMDWantsUpscale = GEngine->HMDDevice->NeedsUpscalePostProcessPass();
 			
 			if(Node)
 			{

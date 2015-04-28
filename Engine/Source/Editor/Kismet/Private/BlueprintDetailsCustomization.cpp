@@ -41,6 +41,7 @@
 #include "Engine/SCS_Node.h"
 #include "Components/TimelineComponent.h"
 #include "Engine/BlueprintGeneratedClass.h"
+#include "Components/ChildActorComponent.h"
 
 #define LOCTEXT_NAMESPACE "BlueprintDetailsCustomization"
 
@@ -370,9 +371,19 @@ void FBlueprintVarActionDetails::CustomizeDetails( IDetailLayoutBuilder& DetailL
 		.ToolTip(ExposeToMatineeTooltip)
 	];
 
-	TSharedPtr<SToolTip> ExposeToConfigTooltip = IDocumentation::Get()->CreateToolTip(LOCTEXT("VariableExposeToConfig_Tooltip", "Allow this variable be set from the config?"), NULL, DocLink, TEXT("ExposeToConfig"));
+	// Build the property specific config variable tool tip
+	FFormatNamedArguments ConfigTooltipArgs;
+	if (UClass* OwnerClass = VariableProperty->GetOwnerClass())
+	{
+		OwnerClass = OwnerClass->GetAuthoritativeClass();
+		ConfigTooltipArgs.Add(TEXT("ConfigPath"), FText::FromString(OwnerClass->GetDefaultConfigFilename()));
+		ConfigTooltipArgs.Add(TEXT("ConfigSection"), FText::FromString(OwnerClass->GetPathName()));
+	}
+	const FText LocalisedTooltip = FText::Format(LOCTEXT("VariableExposeToConfig_Tooltip", "Should this variable read it's default value from a config file if it is present?\r\n\r\nThis is used for customising variable default values and behavior between different projects and configurations.\r\n\r\nConfig file [{ConfigPath}]\r\nConfig section [{ConfigSection}]"), ConfigTooltipArgs); 
 
-	Category.AddCustomRow( LOCTEXT("VariableExposeToConfig", "Config Variable") )
+	TSharedPtr<SToolTip> ExposeToConfigTooltip = IDocumentation::Get()->CreateToolTip(LocalisedTooltip, NULL, DocLink, TEXT("ExposeToConfig"));
+
+	Category.AddCustomRow( LOCTEXT("VariableExposeToConfig", "Config Variable"), true )
 	.Visibility(TAttribute<EVisibility>(this, &FBlueprintVarActionDetails::ExposeConfigVisibility))
 	.NameContent()
 	[
@@ -1064,6 +1075,12 @@ void FBlueprintVarActionDetails::PopulateCategories(SMyBlueprint* MyBlueprint, T
 	bool bShowUserVarsOnly = MyBlueprint->ShowUserVarsOnly();
 	UBlueprint* Blueprint = MyBlueprint->GetBlueprintObj();
 	check(Blueprint != NULL);
+	if (Blueprint->SkeletonGeneratedClass == NULL)
+	{
+		UE_LOG(LogBlueprint, Error, TEXT("Blueprint %s has NULL SkeletonGeneratedClass in FBlueprintVarActionDetails::PopulateCategories().  Cannot Populate Categories."), *GetNameSafe(Blueprint));
+		return;
+	}
+
 	check(Blueprint->SkeletonGeneratedClass != NULL);
 	EFieldIteratorFlags::SuperClassFlags SuperClassFlag = EFieldIteratorFlags::ExcludeSuper;
 	if(!bShowUserVarsOnly)
@@ -2441,6 +2458,23 @@ void FBlueprintGraphActionDetails::CustomizeDetails( IDetailLayoutBuilder& Detai
 						.OnCheckStateChanged( this, &FBlueprintGraphActionDetails::OnIsPureFunctionModified )
 				];
 			}
+			if (IsConstFunctionVisible())
+			{
+				Category.AddCustomRow( LOCTEXT( "FunctionConst_Tooltip", "Const" ), true )
+				.NameContent()
+				[
+					SNew(STextBlock)
+					.Text( LOCTEXT( "FunctionConst_Tooltip", "Const" ) )
+					.ToolTipText( LOCTEXT("FunctionIsConst_Tooltip", "Force this to be a const function?") )
+					.Font( IDetailLayoutBuilder::GetDetailFont() )
+				]
+				.ValueContent()
+				[
+					SNew( SCheckBox )
+					.IsChecked( this, &FBlueprintGraphActionDetails::GetIsConstFunction )
+					.OnCheckStateChanged( this, &FBlueprintGraphActionDetails::OnIsConstFunctionModified )
+				];
+			}
 		}
 
 		if (IsCustomEvent())
@@ -2692,9 +2726,6 @@ void FBlueprintGraphActionDetails::SetNetFlags( TWeakObjectPtr<UK2Node_EditableP
 				CustomEventNode->FunctionFlags |= FlagsToSet;
 				bBlueprintModified = true;
 			}
-
-			// The node title needs to refresh
-			FunctionEntryNode->RefreshNodeTitle();
 
 			if( bBlueprintModified )
 			{
@@ -3208,7 +3239,7 @@ bool FBaseBlueprintGraphActionDetails::OnPinRenamed(UK2Node_EditablePinBase* Tar
 
 		if (FunctionResultNodePtr.IsValid())
 		{
-			PinRenamedHelper.NodesToRename.Add(FunctionEntryNodePtr.Get());
+			PinRenamedHelper.NodesToRename.Add(FunctionResultNodePtr.Get());
 		}
 
 		PinRenamedHelper.ModifiedBlueprints.Add(GetBlueprintObj());
@@ -3234,7 +3265,7 @@ bool FBaseBlueprintGraphActionDetails::OnPinRenamed(UK2Node_EditablePinBase* Tar
 
 		for (auto BlueprintIt = PinRenamedHelper.ModifiedBlueprints.CreateIterator(); BlueprintIt; ++BlueprintIt)
 		{
-			FBlueprintEditorUtils::MarkBlueprintAsModified(*BlueprintIt);
+			FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(*BlueprintIt);
 		}
 	}
 	return true;
@@ -3722,6 +3753,50 @@ ECheckBoxState FBlueprintGraphActionDetails::GetIsPureFunction() const
 		return ECheckBoxState::Undetermined;
 	}
 	return (EntryNode->ExtraFlags & FUNC_BlueprintPure) ? ECheckBoxState::Checked :  ECheckBoxState::Unchecked;
+}
+
+bool FBlueprintGraphActionDetails::IsConstFunctionVisible() const
+{
+	bool bSupportedType = false;
+	bool bIsEditable = false;
+	UK2Node_EditablePinBase * FunctionEntryNode = FunctionEntryNodePtr.Get();
+	if(FunctionEntryNode)
+	{
+		UBlueprint* Blueprint = FunctionEntryNode->GetBlueprint();
+
+		bSupportedType = FunctionEntryNode->IsA<UK2Node_FunctionEntry>();
+		bIsEditable = FunctionEntryNode->IsEditable();
+	}
+	return bSupportedType && bIsEditable;
+}
+
+void FBlueprintGraphActionDetails::OnIsConstFunctionModified( const ECheckBoxState NewCheckedState )
+{
+	UK2Node_EditablePinBase * FunctionEntryNode = FunctionEntryNodePtr.Get();
+	auto Function = FindFunction();
+	auto EntryNode = Cast<UK2Node_FunctionEntry>(FunctionEntryNode);
+	if(EntryNode && Function)
+	{
+		const FScopedTransaction Transaction( LOCTEXT( "ChangeConst", "Change Const" ) );
+		EntryNode->Modify();
+		Function->Modify();
+
+		//set flags on function entry node also
+		EntryNode->ExtraFlags	^= FUNC_Const;
+		Function->FunctionFlags ^= FUNC_Const;
+		OnParamsChanged(FunctionEntryNode);
+	}
+}
+
+ECheckBoxState FBlueprintGraphActionDetails::GetIsConstFunction() const
+{
+	UK2Node_EditablePinBase * FunctionEntryNode = FunctionEntryNodePtr.Get();
+	auto EntryNode = Cast<UK2Node_FunctionEntry>(FunctionEntryNode);
+	if(!EntryNode)
+	{
+		return ECheckBoxState::Undetermined;
+	}
+	return (EntryNode->ExtraFlags & FUNC_Const) ? ECheckBoxState::Checked :  ECheckBoxState::Unchecked;
 }
 
 FReply FBaseBlueprintGraphActionDetails::OnAddNewInputClicked()

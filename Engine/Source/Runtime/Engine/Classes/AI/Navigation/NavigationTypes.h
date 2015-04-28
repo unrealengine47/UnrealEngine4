@@ -231,6 +231,9 @@ struct FNavLocation
 	FNavLocation() : Location(FVector::ZeroVector), NodeRef(INVALID_NAVNODEREF) {}
 	explicit FNavLocation(const FVector& InLocation, NavNodeRef InNodeRef = INVALID_NAVNODEREF) 
 		: Location(InLocation), NodeRef(InNodeRef) {}
+
+	/** checks if location has associated navigation node ref */
+	FORCEINLINE bool HasNodeRef() const { return NodeRef != INVALID_NAVNODEREF; }
 };
 
 /** Describes node in navigation path */
@@ -256,6 +259,11 @@ struct ENGINE_API FNavPathType
 	bool operator==(const FNavPathType& Other) const
 	{
 		return Id == Other.Id || (ParentType != nullptr && *ParentType == Other);
+	}
+
+	bool IsA(const FNavPathType& Other) const
+	{
+		return (Id == Other.Id) || (ParentType && ParentType->IsA(Other));
 	}
 
 private:
@@ -355,19 +363,19 @@ struct ENGINE_API FNavAgentProperties : public FMovementProperties
 	GENERATED_USTRUCT_BODY()
 
 	/** Radius of the capsule used for navigation/pathfinding. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = MovementProperties)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=MovementProperties, meta=(DisplayName="Nav Agent Radius"))
 	float AgentRadius;
 
 	/** Total height of the capsule used for navigation/pathfinding. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = MovementProperties)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=MovementProperties, meta=(DisplayName="Nav Agent Height"))
 	float AgentHeight;
 
 	/** Step height to use, or -1 for default value from navdata's config. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = MovementProperties)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=MovementProperties, meta=(DisplayName="Nav Agent Step Height"))
 	float AgentStepHeight;
 
 	/** Scale factor to apply to height of bounds when searching for navmesh to project to when nav walking */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = MovementProperties)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=MovementProperties)
 	float NavWalkingSearchHeightScale;
 
 	FNavAgentProperties(float Radius = -1.f, float Height = -1.f)
@@ -433,9 +441,14 @@ struct FNavigationProjectionWork
 	const FVector Point;
 	FNavLocation OutLocation;
 	bool bResult;
+	bool bIsValid;
 
 	explicit FNavigationProjectionWork(const FVector& StartPoint)
-		: Point(StartPoint), bResult(false)
+		: Point(StartPoint), bResult(false), bIsValid(true)
+	{}
+
+	FNavigationProjectionWork()
+		: Point(FNavigationSystem::InvalidLocation), bResult(false), bIsValid(false)
 	{}
 };
 
@@ -529,7 +542,7 @@ class UNavigationTypes : public UObject
 {
 	GENERATED_UCLASS_BODY()
 
-	UNavigationTypes(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer) { }
+	UNavigationTypes(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get()) : Super(ObjectInitializer) { }
 };
 
 //////////////////////////////////////////////////////////////////////////

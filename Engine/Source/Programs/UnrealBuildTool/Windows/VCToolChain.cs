@@ -1044,7 +1044,7 @@ namespace UnrealBuildTool
 				if (CompileEnvironment.Config.PrecompiledHeaderAction == PrecompiledHeaderAction.Create)
 				{
 					// Generate a CPP File that just includes the precompiled header.
-					string PCHCPPFilename = "PCH." + ModuleName + "." + Path.GetFileName(CompileEnvironment.Config.PrecompiledHeaderIncludeFilename) + ".cpp";
+					string PCHCPPFilename = "PCH." + Path.GetFileName(CompileEnvironment.Config.PrecompiledHeaderIncludeFilename) + ".cpp";
 					string PCHCPPPath = Path.Combine(CompileEnvironment.Config.OutputDirectory, PCHCPPFilename);
 					FileItem PCHCPPFile = FileItem.CreateIntermediateTextFile(
 						PCHCPPPath,
@@ -1188,12 +1188,12 @@ namespace UnrealBuildTool
 					// All files using the same PCH are required to share the same PDB that was used when compiling the PCH
 					if (CompileEnvironment.Config.PrecompiledHeaderAction == PrecompiledHeaderAction.Include)
 					{
-						PDBFileName = "PCH." + ModuleName + "." + Path.GetFileName(CompileEnvironment.Config.PrecompiledHeaderIncludeFilename);
+						PDBFileName = "PCH." + Path.GetFileName(CompileEnvironment.Config.PrecompiledHeaderIncludeFilename);
 					}
 					// Files creating a PCH use a PDB per file.
 					else if (CompileEnvironment.Config.PrecompiledHeaderAction == PrecompiledHeaderAction.Create)
 					{
-						PDBFileName = "PCH." + ModuleName + "." + Path.GetFileName(CompileEnvironment.Config.PrecompiledHeaderIncludeFilename);
+						PDBFileName = "PCH." + Path.GetFileName(CompileEnvironment.Config.PrecompiledHeaderIncludeFilename);
 						bActionProducesPDB = true;
 					}
 					// Ungrouped C++ files use a PDB per file.
@@ -1248,11 +1248,6 @@ namespace UnrealBuildTool
 				else
 				{
 					CompileAction.CommandPath = EnvVars.CompilerPath;
-				}
-
-				if( !WindowsPlatform.bCompileWithClang && !BuildConfiguration.bRunUnrealCodeAnalyzer )
-				{
-					CompileAction.bIsVCCompiler = true;
 				}
 
 				string UnrealCodeAnalyzerArguments = "";
@@ -1704,6 +1699,16 @@ namespace UnrealBuildTool
 
 			// @todo clang: Convert relative includes to absolute files so they'll be clickable
 			Log.TraceInformation(Output);
+		}
+
+		public override void StripSymbols(string SourceFileName, string TargetFileName)
+		{
+			ProcessStartInfo StartInfo = new ProcessStartInfo();
+			StartInfo.FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "MSBuild", "Microsoft", "VisualStudio", "v12.0", "AppxPackage", "PDBCopy.exe");
+			StartInfo.Arguments = String.Format("\"{0}\" \"{1}\" -p", SourceFileName, TargetFileName);
+			StartInfo.UseShellExecute = false;
+			StartInfo.CreateNoWindow = true;
+			Utils.RunLocalProcessAndLogOutput(StartInfo);
 		}
 	};
 }

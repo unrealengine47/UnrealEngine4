@@ -56,9 +56,25 @@ void FPaperStyle::Initialize()
 	{
 		StyleSet->Set("TileMapEditor.EnterTileMapEditMode", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/icon_TileMapEdModeIcon_40x"), Icon40x40));
 
+		StyleSet->Set("TileMapEditor.RotateSelectionCW", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_RotateCW_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.RotateSelectionCW.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_RotateCW_40x"), Icon20x20));
+		StyleSet->Set("TileMapEditor.RotateSelectionCCW", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_RotateCCW_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.RotateSelectionCCW.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_RotateCCW_40x"), Icon20x20));
+		StyleSet->Set("TileMapEditor.FlipSelectionHorizontally", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_MirrorHorizontal_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.FlipSelectionHorizontally.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_MirrorHorizontal_40x"), Icon20x20));
+		StyleSet->Set("TileMapEditor.FlipSelectionVertically", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_MirrorVertical_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.FlipSelectionVertically.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_MirrorVertical_40x"), Icon20x20));
+
 		StyleSet->Set("TileMapEditor.SelectPaintTool", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_PaintBrush_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.SelectPaintTool.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_PaintBrush_40x"), Icon20x20));
 		StyleSet->Set("TileMapEditor.SelectEraserTool", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_Eraser_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.SelectEraserTool.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_Eraser_40x"), Icon20x20));
 		StyleSet->Set("TileMapEditor.SelectFillTool", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_PaintBucket_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.SelectFillTool.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_PaintBucket_40x"), Icon20x20));
+		StyleSet->Set("TileMapEditor.SelectEyeDropperTool", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_EyeDropper_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.SelectEyeDropperTool.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_EyeDropper_40x"), Icon20x20));
+		StyleSet->Set("TileMapEditor.SelectTerrainTool", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_TerrainPaint_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.SelectTerrainTool.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_TerrainPaint_40x"), Icon20x20));
 
 		StyleSet->Set("TileMapEditor.AddNewLayerAbove", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_TileMapEditor_AddNewLayerAbove_40x"), Icon40x40));
 		StyleSet->Set("TileMapEditor.AddNewLayerAbove.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_TileMapEditor_AddNewLayerAbove_40x"), Icon20x20));
@@ -105,6 +121,38 @@ void FPaperStyle::Initialize()
 			.SetShadowOffset(FVector2D(1.0f, 1.0f))
 			.SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.9f))
 			);
+
+		StyleSet->Set("TileMapEditor.SetShowPivot", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_ShowPivot_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.SetShowPivot.Small", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_ShowPivot_40x"), Icon20x20));
+		StyleSet->Set("TileMapEditor.SetShowGrid", new IMAGE_BRUSH(TEXT("Icons/icon_MatEd_Grid_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.SetShowGrid.Small", new IMAGE_BRUSH(TEXT("Icons/icon_MatEd_Grid_40x"), Icon20x20));
+		StyleSet->Set("TileMapEditor.SetShowTileGrid", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_ShowTileGrid_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.SetShowTileGrid.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_ShowTileGrid_40x"), Icon20x20));
+		StyleSet->Set("TileMapEditor.SetShowLayerGrid", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_ShowLayerGrid_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.SetShowLayerGrid.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_ShowLayerGrid_40x"), Icon20x20));
+		StyleSet->Set("TileMapEditor.SetShowTileMapStats", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_ShowStats_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.SetShowTileMapStats.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileMapEditor/icon_ShowStats_40x"), Icon20x20));
+		StyleSet->Set("TileMapEditor.SetShowBounds", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_Bounds_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.SetShowBounds.Small", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_Bounds_40x"), Icon20x20));
+		StyleSet->Set("TileMapEditor.SetShowCollision", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_Collision_40x"), Icon40x40));
+		StyleSet->Set("TileMapEditor.SetShowCollision.Small", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_Collision_40x"), Icon20x20));
+	}
+
+	// Tile set editor
+	{
+		StyleSet->Set("TileSetEditor.SetShowGrid", new IMAGE_BRUSH(TEXT("Icons/icon_MatEd_Grid_40x"), Icon40x40));
+		StyleSet->Set("TileSetEditor.SetShowGrid.Small", new IMAGE_BRUSH(TEXT("Icons/icon_MatEd_Grid_40x"), Icon20x20));
+
+		StyleSet->Set("TileSetEditor.SetShowTileStats", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileSetEditor/icon_ShowStats_40x"), Icon40x40));
+		StyleSet->Set("TileSetEditor.SetShowTileStats.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileSetEditor/icon_ShowStats_40x"), Icon20x20));
+
+		StyleSet->Set("TileSetEditor.SetShowTilesWithCollision", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileSetEditor/icon_ShowTilesWithCollision_40x"), Icon40x40));
+		StyleSet->Set("TileSetEditor.SetShowTilesWithCollision.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileSetEditor/icon_ShowTilesWithCollision_40x"), Icon20x20));
+		StyleSet->Set("TileSetEditor.SetShowTilesWithMetaData", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileSetEditor/icon_ShowTilesWithMetadata_40x"), Icon40x40));
+		StyleSet->Set("TileSetEditor.SetShowTilesWithMetaData.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileSetEditor/icon_ShowTilesWithMetadata_40x"), Icon20x20));
+
+		StyleSet->Set("TileSetEditor.ApplyCollisionEdits", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileSetEditor/icon_TileSet_Refresh_40x"), Icon40x40));
+		StyleSet->Set("TileSetEditor.ApplyCollisionEdits.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileSetEditor/icon_TileSet_Refresh_40x"), Icon20x20));
 	}
 
 	// Sprite editor
@@ -160,6 +208,11 @@ void FPaperStyle::Initialize()
 		StyleSet->Set("FlipbookEditor.SetShowCollision.Small", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_Collision_40x"), Icon20x20));
 		StyleSet->Set("FlipbookEditor.SetShowPivot", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_ShowPivot_40x"), Icon40x40));
 		StyleSet->Set("FlipbookEditor.SetShowPivot.Small", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_ShowPivot_40x"), Icon20x20));
+		StyleSet->Set("FlipbookEditor.SetShowSockets", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_ShowSockets_40x"), Icon40x40));
+		StyleSet->Set("FlipbookEditor.SetShowSockets.Small", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_ShowSockets_40x"), Icon20x20));
+
+		StyleSet->Set("FlipbookEditor.AddKeyFrame", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/FlipbookEditor/icon_Flipbook_AddKey_40x"), Icon40x40));
+		StyleSet->Set("FlipbookEditor.AddKeyFrame.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/FlipbookEditor/icon_Flipbook_AddKey_40x"), Icon20x20));
 
 		StyleSet->Set("FlipbookEditor.RegionGrabHandle", new BOX_BRUSH("Sequencer/ScrubHandleWhole", FMargin(6.f / 13.f, 10 / 24.f, 6 / 13.f, 10 / 24.f)));
 		StyleSet->Set("FlipbookEditor.RegionBody", new BOX_BRUSH("Common/Scrollbar_Thumb", FMargin(4.f / 16.f)));

@@ -31,6 +31,7 @@ DEFINE_LOG_CATEGORY_STATIC(LogCookCommandlet, Log, All);
 UCookerSettings::UCookerSettings(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
+	SectionName = TEXT("Cooker");
 	DefaultPVRTCQuality = 1;
 	DefaultASTCQualityBySize = 3;
 	DefaultASTCQualityBySpeed = 3;
@@ -350,8 +351,8 @@ bool UCookCommandlet::SaveCookedPackage( UPackage* Package, uint32 SaveFlags, bo
 		Filename = SandboxFile->ConvertToAbsolutePathForExternalAppForWrite(*Filename);
 
 		uint32 OriginalPackageFlags = Package->PackageFlags;
- 		UWorld* World = NULL;
- 		EObjectFlags Flags = RF_NoFlags;
+		UWorld* World = NULL;
+		EObjectFlags Flags = RF_NoFlags;
 		bool bPackageFullyLoaded = false;
 
 		if (bCompressed)
@@ -522,7 +523,8 @@ int32 UCookCommandlet::Main(const FString& CmdLineParams)
 	bCompressed = Switches.Contains(TEXT("COMPRESSED"));
 	bIterativeCooking = Switches.Contains(TEXT("ITERATE"));
 	bSkipEditorContent = Switches.Contains(TEXT("SKIPEDITORCONTENT")); // This won't save out any packages in Engine/COntent/Editor*
-
+	bErrorOnEngineContentUse = Switches.Contains(TEXT("ERRORONENGINECONTENTUSE"));
+	bUseSerializationForGeneratingPackageDependencies = Switches.Contains(TEXT("UseSerializationForGeneratingPackageDependencies"));
 	if (bLeakTest)
 	{
 		for (FObjectIterator It; It; ++It)
@@ -1029,8 +1031,8 @@ bool UCookCommandlet::NewCook( const TArray<ITargetPlatform*>& Platforms, TArray
 	ECookInitializationFlags CookFlags = ECookInitializationFlags::IncludeServerMaps;
 	CookFlags |= bCompressed ? ECookInitializationFlags::Compressed : ECookInitializationFlags::None;
 	CookFlags |= bIterativeCooking ? ECookInitializationFlags::Iterative : ECookInitializationFlags::None;
-	CookFlags |= bSkipEditorContent ? ECookInitializationFlags::SkipEditorContent : ECookInitializationFlags::None;
-	CookFlags |= bGenerateStreamingInstallManifests ? ECookInitializationFlags::GenerateStreamingInstallManifest : ECookInitializationFlags::None;
+	CookFlags |= bSkipEditorContent ? ECookInitializationFlags::SkipEditorContent : ECookInitializationFlags::None;	
+	CookFlags |= bUseSerializationForGeneratingPackageDependencies ? ECookInitializationFlags::UseSerializationForPackageDependencies : ECookInitializationFlags::None;
 
 	TArray<UClass*> FullGCAssetClasses;
 	if ( FullGCAssetClassNames.Num() )
@@ -1182,7 +1184,10 @@ bool UCookCommandlet::NewCook( const TArray<ITargetPlatform*>& Platforms, TArray
 	Swap( StartupOptions.BasedOnReleaseVersion, BasedOnReleaseVersion );
 	Swap( StartupOptions.CreateReleaseVersion, CreateReleaseVersion );
 	StartupOptions.CookOptions = CookOptions;
-	StartupOptions.bGenerateDependeciesForMaps = Switches.Contains(TEXT("GenerateDependenciesForMaps"));
+	StartupOptions.bErrorOnEngineContentUse = bErrorOnEngineContentUse;
+	StartupOptions.bGenerateDependenciesForMaps = Switches.Contains(TEXT("GenerateDependenciesForMaps"));
+	StartupOptions.bGenerateStreamingInstallManifests = bGenerateStreamingInstallManifests;
+
 
 	CookOnTheFlyServer->StartCookByTheBook( StartupOptions );
 

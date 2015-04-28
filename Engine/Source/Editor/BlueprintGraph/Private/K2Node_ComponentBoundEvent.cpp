@@ -39,7 +39,9 @@ void UK2Node_ComponentBoundEvent::InitializeComponentBoundEventParams(UObjectPro
 		ComponentPropertyName = InComponentProperty->GetFName();
 		DelegatePropertyName = InDelegateProperty->GetFName();
 		DelegateOwnerClass = CastChecked<UClass>(InDelegateProperty->GetOuter())->GetAuthoritativeClass();
-		EventReference.SetExternalDelegateMember(InDelegateProperty->SignatureFunction->GetFName());
+
+		EventReference.SetFromField<UFunction>(InDelegateProperty->SignatureFunction, /*bIsConsideredSelfContext =*/false);
+
 		CustomFunctionName = FName( *FString::Printf(TEXT("BndEvt__%s_%s_%s"), *InComponentProperty->GetName(), *GetName(), *EventReference.GetMemberName().ToString()) );
 		bOverrideFunction = false;
 		bInternalEvent = true;
@@ -112,13 +114,31 @@ void UK2Node_ComponentBoundEvent::Serialize(FArchive& Ar)
 	// Fix up legacy nodes that may not yet have a delegate pin
 	if(Ar.IsLoading())
 	{
+		bool bNeedsFixup = false;
 		if(Ar.UE4Ver() < VER_UE4_K2NODE_EVENT_MEMBER_REFERENCE)
 		{
 			DelegateOwnerClass = EventSignatureClass_DEPRECATED;
+			bNeedsFixup = true;
+		}
+
+		if (bNeedsFixup || !DelegateOwnerClass)
+		{
+			// We need to fixup our event reference as it may have been saved incorrectly
 			UMulticastDelegateProperty* TargetDelegateProp = GetTargetDelegateProperty();
-			if (TargetDelegateProp)
+			if (TargetDelegateProp && TargetDelegateProp->SignatureFunction)
 			{
-				EventReference.SetExternalDelegateMember(TargetDelegateProp->SignatureFunction->GetFName());
+				FName ReferenceName = TargetDelegateProp->SignatureFunction->GetFName();
+				UClass* ReferenceClass = TargetDelegateProp->SignatureFunction->GetOwnerClass();
+
+				if (EventReference.GetMemberName() != ReferenceName || EventReference.GetMemberParentClass() != ReferenceClass)
+				{
+					// Set the reference if it wasn't already set properly, owner class may end up being NULL for native delegates
+					EventReference.SetExternalMember(ReferenceName, ReferenceClass);
+				}
+			}
+			else
+			{
+				UE_LOG(LogBlueprint, Warning, TEXT("Loaded invalid component bound event in node %s."), *GetPathName());
 			}
 		}
 	}

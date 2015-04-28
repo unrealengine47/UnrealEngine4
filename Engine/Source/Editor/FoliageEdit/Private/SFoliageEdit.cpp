@@ -2,23 +2,22 @@
 
 #include "UnrealEd.h"
 
-#include "SScaleBox.h"
-
-#include "FoliageType.h"
+#include "FoliageType_InstancedStaticMesh.h"
 #include "FoliageEdMode.h"
 #include "SFoliageEdit.h"
 #include "FoliageEditActions.h"
-#include "Editor/UnrealEd/Public/AssetThumbnail.h"
-#include "Editor/UnrealEd/Public/DragAndDrop/AssetDragDropOp.h"
-#include "Editor/UnrealEd/Public/ScopedTransaction.h"
-#include "Editor/ContentBrowser/Public/ContentBrowserModule.h"
-#include "Editor/UnrealEd/Public/AssetSelection.h"
 #include "Editor/IntroTutorials/Public/IIntroTutorials.h"
-#include "Editor/PropertyEditor/Public/IDetailsView.h"
-#include "Editor/PropertyEditor/Public/PropertyEditorModule.h"
-#include "Engine/StaticMesh.h"
-#include "SFoliageEditMeshRow.h"
-#include "FoliageTypePaintingCustomization.h"
+#include "SNumericEntryBox.h"
+#include "SFoliagePalette.h"
+#include "SScaleBox.h"
+
+
+// Possibly not needed (move over to SFoliagePalette)
+#include "Editor/UnrealEd/Public/AssetSelection.h"
+#include "Editor/UnrealEd/Public/ScopedTransaction.h"
+
+// Seemingly totally unneeded
+//#include "DetailLayoutBuilder.h"
 
 
 #define LOCTEXT_NAMESPACE "FoliageEd_Mode"
@@ -91,286 +90,333 @@ void SFoliageEdit::Construct(const FArguments& InArgs)
 	FoliageEditMode = (FEdModeFoliage*)GLevelEditorModeTools().GetActiveMode(FBuiltinEditorModes::EM_Foliage);
 
 	FFoliageEditCommands::Register();
-
 	UICommandList = MakeShareable(new FUICommandList);
-
 	BindCommands();
 
-	FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
-	FDetailsViewArgs Args(false, false, false, FDetailsViewArgs::HideNameArea, true);
-	Args.bShowActorLabel = false;
-	MeshDetailsWidget = PropertyModule.CreateDetailView(Args);
-	MeshDetailsWidget->RegisterInstancedCustomPropertyLayout(UFoliageType::StaticClass(), 
-		FOnGetDetailCustomizationInstance::CreateStatic(&FFoliageTypePaintingCustomization::MakeInstance, FoliageEditMode)
-		);
+	IIntroTutorials& IntroTutorials = FModuleManager::LoadModuleChecked<IIntroTutorials>(TEXT("IntroTutorials"));
 
 	// Everything (or almost) uses this padding, change it to expand the padding.
-	FMargin StandardPadding(0.0f, 4.0f, 0.0f, 4.0f);
+	FMargin StandardPadding(6.f, 3.f);
+	FMargin StandardLeftPadding(6.f, 3.f, 3.f, 3.f);
+	FMargin StandardRightPadding(3.f, 3.f, 6.f, 3.f);
+
+	FSlateFontInfo StandardFont = FEditorStyle::GetFontStyle(TEXT("PropertyWindow.NormalFont"));
+
+	const FText BlankText = LOCTEXT("Blank", "");
 
 	this->ChildSlot
 	[
-		SNew(SOverlay)
+		SNew(SVerticalBox)
 
-		+ SOverlay::Slot()
+		+ SVerticalBox::Slot()
+		.AutoHeight()
 		[
-			SNew(SVerticalBox)
-
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(StandardPadding)
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.Padding(1.f, 5.f, 0.f, 5.f)
 			[
 				BuildToolBar()
 			]
 
-			+ SVerticalBox::Slot()
-			.AutoHeight()
+			+ SHorizontalBox::Slot()
+			.Padding(0.f, 2.f, 2.f, 0.f)
 			[
-				SNew(SHorizontalBox)
-				.ToolTipText(LOCTEXT("BrushSize_Tooltip", "The size of the foliage brush"))
-
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.0f)
+				SNew(SBorder)
+				.BorderImage(FEditorStyle::GetBrush("ToolPanel.DarkGroupBorder"))
 				.Padding(StandardPadding)
 				[
-					SNew(STextBlock)
-					.Visibility(this, &SFoliageEdit::GetVisibility_Radius)
-					.Text(LOCTEXT("BrushSize", "Brush Size"))
-				]
-				+ SHorizontalBox::Slot()
-				.FillWidth(2.0f)
-				.Padding(StandardPadding)
-				[
-					SNew(SSpinBox<float>)
-					.Visibility(this, &SFoliageEdit::GetVisibility_Radius)
-					.MinValue(0.0f)
-					.MaxValue(65536.0f)
-					.MaxSliderValue(8192.0f)
-					.SliderExponent(3.0f)
-					.Value(this, &SFoliageEdit::GetRadius)
-					.OnValueChanged(this, &SFoliageEdit::SetRadius)
-				]
-			]
+					SNew(SVerticalBox)
 
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			[
-				SNew(SHorizontalBox)
-				.ToolTipText(LOCTEXT("PaintDensity_Tooltip", "The density of foliage to paint. This is a multiplier for the individual foliage type's density specifier."))
-
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.0f)
-				.Padding(StandardPadding)
-				[
-					SNew(STextBlock)
-					.Visibility(this, &SFoliageEdit::GetVisibility_PaintDensity)
-					.Text(LOCTEXT("PaintDensity", "Paint Density"))
-				]
-				+ SHorizontalBox::Slot()
-				.FillWidth(2.0f)
-				.Padding(StandardPadding)
-				[
-					SNew(SSpinBox<float>)
-					.Visibility(this, &SFoliageEdit::GetVisibility_PaintDensity)
-					.MinValue(0.0f)
-					.MaxValue(2.0f)
-					.MaxSliderValue(1.0f)
-					.Value(this, &SFoliageEdit::GetPaintDensity)
-					.OnValueChanged(this, &SFoliageEdit::SetPaintDensity)
-				]
-			]
-
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			[
-				SNew(SHorizontalBox)
-				.ToolTipText(LOCTEXT("EraseDensity_Tooltip", "The density of foliage to leave behind when erasing with the Shift key held. 0 will remove all foliage."))
-
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.0f)
-				.Padding(StandardPadding)
-				[
-					SNew(STextBlock)
-					.Visibility(this, &SFoliageEdit::GetVisibility_EraseDensity)
-					.Text(LOCTEXT("EraseDensity", "Erase Density"))
-				]
-				+ SHorizontalBox::Slot()
-				.FillWidth(2.0f)
-				.Padding(StandardPadding)
-				[
-					SNew(SSpinBox<float>)
-					.Visibility(this, &SFoliageEdit::GetVisibility_EraseDensity)
-					.MinValue(0.0f)
-					.MaxValue(2.0f)
-					.MaxSliderValue(1.0f)
-					.Value(this, &SFoliageEdit::GetEraseDensity)
-					.OnValueChanged(this, &SFoliageEdit::SetEraseDensity)
-				]
-			]
-
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(StandardPadding)
-			[
-				SNew(STextBlock)
-				.Visibility(this, &SFoliageEdit::GetVisibility_Filters)
-				.Text(LOCTEXT("Filter", "Filter"))
-			]
-
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(StandardPadding)
-			[
-				SNew(SWrapBox)
-				.UseAllottedWidth(true)
-
-				+ SWrapBox::Slot()
-				.Padding(0, 0, 16, 0)
-				[
-					SNew(SCheckBox)
-					.Visibility(this, &SFoliageEdit::GetVisibility_Filters)
-					.OnCheckStateChanged(this, &SFoliageEdit::OnCheckStateChanged_Landscape)
-					.IsChecked(this, &SFoliageEdit::GetCheckState_Landscape)
-					.ToolTipText(LOCTEXT("FilterLandscape_Tooltip", "Place foliage on Landscape"))
+					// Active Tool Title
+					+ SVerticalBox::Slot()
+					.AutoHeight()
 					[
-						SNew(STextBlock)
-						.Text(LOCTEXT("Landscape", "Landscape"))
+						SNew(SHorizontalBox)
+
+						+ SHorizontalBox::Slot()
+						.Padding(StandardLeftPadding)
+						.HAlign(HAlign_Left)
+						[
+							SNew(STextBlock)
+							.Text(this, &SFoliageEdit::GetActiveToolName)
+							.TextStyle(FEditorStyle::Get(), "FoliageEditMode.ActiveToolName.Text")
+						]
+
+						+ SHorizontalBox::Slot()
+						.Padding(StandardRightPadding)
+						.HAlign(HAlign_Right)
+						.VAlign(VAlign_Center)
+						.AutoWidth()
+						[
+							// Tutorial link
+							IntroTutorials.CreateTutorialsWidget(TEXT("FoliageMode"))
+						]
+					]
+
+					// Brush Size
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					[
+						SNew(SHorizontalBox)
+						.ToolTipText(LOCTEXT("BrushSize_Tooltip", "The size of the foliage brush"))
+						.Visibility(this, &SFoliageEdit::GetVisibility_Radius)
+
+						+ SHorizontalBox::Slot()
+						.Padding(StandardLeftPadding)
+						.FillWidth(1.0f)
+						.VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("BrushSize", "Brush Size"))
+							.Font(StandardFont)
+						]
+						+ SHorizontalBox::Slot()
+						.Padding(StandardRightPadding)
+						.FillWidth(2.0f)
+						.MaxWidth(100.f)
+						.VAlign(VAlign_Center)
+						[
+							SNew(SNumericEntryBox<float>)
+							.Font(StandardFont)
+							.AllowSpin(true)
+							.MinValue(0.0f)
+							.MaxValue(65536.0f)
+							.MaxSliderValue(8192.0f)
+							.SliderExponent(3.0f)
+							.Value(this, &SFoliageEdit::GetRadius)
+							.OnValueChanged(this, &SFoliageEdit::SetRadius)
+						]
+					]
+
+					// Paint Density
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					[
+						SNew(SHorizontalBox)
+						.ToolTipText(LOCTEXT("PaintDensity_Tooltip", "The density of foliage to paint. This is a multiplier for the individual foliage type's density specifier."))
+						.Visibility(this, &SFoliageEdit::GetVisibility_PaintDensity)
+
+						+ SHorizontalBox::Slot()
+						.Padding(StandardLeftPadding)
+						.FillWidth(1.0f)
+						.VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("PaintDensity", "Paint Density"))
+							.Font(StandardFont)
+						]
+						+ SHorizontalBox::Slot()
+						.Padding(StandardRightPadding)
+						.FillWidth(2.0f)
+						.MaxWidth(100.f)
+						.VAlign(VAlign_Center)
+						[
+							SNew(SNumericEntryBox<float>)
+							.Font(StandardFont)
+							.AllowSpin(true)
+							.MinValue(0.0f)
+							.MaxValue(2.0f)
+							.MaxSliderValue(1.0f)
+							.Value(this, &SFoliageEdit::GetPaintDensity)
+							.OnValueChanged(this, &SFoliageEdit::SetPaintDensity)
+						]
+					]
+
+					// Erase Density
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					[
+						SNew(SHorizontalBox)
+						.ToolTipText(LOCTEXT("EraseDensity_Tooltip", "The density of foliage to leave behind when erasing with the Shift key held. 0 will remove all foliage."))
+						.Visibility(this, &SFoliageEdit::GetVisibility_EraseDensity)
+
+						+ SHorizontalBox::Slot()
+						.Padding(StandardLeftPadding)
+						.FillWidth(1.0f)
+						.VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("EraseDensity", "Erase Density"))
+							.Font(StandardFont)
+						]
+						+ SHorizontalBox::Slot()
+						.Padding(StandardRightPadding)
+						.FillWidth(2.0f)
+						.MaxWidth(100.f)
+						.VAlign(VAlign_Center)
+						[
+							SNew(SNumericEntryBox<float>)
+							.Font(StandardFont)
+							.AllowSpin(true)
+							.MinValue(0.0f)
+							.MaxValue(2.0f)
+							.MaxSliderValue(1.0f)
+							.Value(this, &SFoliageEdit::GetEraseDensity)
+							.OnValueChanged(this, &SFoliageEdit::SetEraseDensity)
+						]
+					]
+
+					// Filters
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					[
+						SNew(SHorizontalBox)
+						.Visibility(this, &SFoliageEdit::GetVisibility_Filters)
+
+						+ SHorizontalBox::Slot()
+						.VAlign(VAlign_Center)
+						.Padding(StandardPadding)
+						[
+							SNew(SWrapBox)
+							.UseAllottedWidth(true)
+
+							+ SWrapBox::Slot()
+							.Padding(FMargin(0.f, 0.f, 6.f, 0.f))
+							[
+								SNew(SVerticalBox)
+
+								+ SVerticalBox::Slot()
+								.Padding(FMargin(0.f, 5.f, 0.f, 0.f))
+								[
+									SNew(SCheckBox)
+									.Visibility(this, &SFoliageEdit::GetVisibility_Filters)
+									.OnCheckStateChanged(this, &SFoliageEdit::OnCheckStateChanged_Landscape)
+									.IsChecked(this, &SFoliageEdit::GetCheckState_Landscape)
+									.ToolTipText(this, &SFoliageEdit::GetTooltipText_Landscape)
+									[
+										SNew(STextBlock)
+										.Text(LOCTEXT("Landscape", "Landscape"))
+										.Font(StandardFont)
+									]
+								]
+
+								+ SVerticalBox::Slot()
+								.Padding(FMargin(0.f, 5.f, 0.f, 0.f))
+								[
+									SNew(SCheckBox)
+									.Visibility(this, &SFoliageEdit::GetVisibility_Filters)
+									.OnCheckStateChanged(this, &SFoliageEdit::OnCheckStateChanged_BSP)
+									.IsChecked(this, &SFoliageEdit::GetCheckState_BSP)
+									.ToolTipText(this, &SFoliageEdit::GetTooltipText_BSP)
+									[
+										SNew(STextBlock)
+										.Text(LOCTEXT("BSP", "BSP"))
+										.Font(StandardFont)
+									]
+								]
+							]
+
+							+ SWrapBox::Slot()
+							.Padding(FMargin(0.f, 0.f, 6.f, 0.f))
+							[
+								SNew(SVerticalBox)
+
+								+ SVerticalBox::Slot()
+								.Padding(FMargin(0.f, 5.f, 0.f, 0.f))
+								[
+									SNew(SCheckBox)
+									.Visibility(this, &SFoliageEdit::GetVisibility_Filters)
+									.OnCheckStateChanged(this, &SFoliageEdit::OnCheckStateChanged_StaticMesh)
+									.IsChecked(this, &SFoliageEdit::GetCheckState_StaticMesh)
+									.ToolTipText(this, &SFoliageEdit::GetTooltipText_StaticMesh)
+									[
+										SNew(STextBlock)
+										.Text(LOCTEXT("StaticMeshes", "Static Meshes"))
+										.Font(StandardFont)
+									]
+								]
+
+								+ SVerticalBox::Slot()
+								.Padding(FMargin(0.f, 5.f, 0.f, 0.f))
+								[
+									SNew(SCheckBox)
+									.Visibility(this, &SFoliageEdit::GetVisibility_Filters)
+									.OnCheckStateChanged(this, &SFoliageEdit::OnCheckStateChanged_Translucent)
+									.IsChecked(this, &SFoliageEdit::GetCheckState_Translucent)
+									.ToolTipText(this, &SFoliageEdit::GetTooltipText_Translucent)
+									[
+										SNew(STextBlock)
+										.Text(LOCTEXT("Translucent", "Translucent"))
+										.Font(StandardFont)
+									]
+								]
+							]
+						]
+					]
+
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.HAlign(HAlign_Fill)
+					.Padding(StandardPadding)
+					[
+						SNew(SWrapBox)
+						.UseAllottedWidth(true)
+						.Visibility(this, &SFoliageEdit::GetVisibility_SelectionOptions)
+
+						// Select all instances
+						+ SWrapBox::Slot()
+						.Padding(FMargin(0.f, 0.f, 5.f, 0.f))
+						[
+							SNew(SButton)
+							.OnClicked(this, &SFoliageEdit::OnSelectAllInstances)
+							.Text(LOCTEXT("SelectAllInstances", "Select All"))
+							.ToolTipText(LOCTEXT("SelectAllInstances_Tooltip", "Selects all foliage instances"))
+						]
+
+						// Select all invalid instances
+						+ SWrapBox::Slot()
+						.Padding(FMargin(0.f, 0.f, 5.f, 0.f))
+						[
+							SNew(SButton)
+							.OnClicked(this, &SFoliageEdit::OnSelectInvalidInstances)
+							.Text(LOCTEXT("SelectInvalidInstances", "Select Invalid"))
+							.ToolTipText(LOCTEXT("SelectInvalidInstances_Tooltip", "Selects all foliage instances that are not placed in a valid location"))
+						]
+
+						// Deselect all
+						+ SWrapBox::Slot()
+						.Padding(FMargin(0.f, 0.f, 5.f, 0.f))
+						[
+							SNew(SButton)
+							.OnClicked(this, &SFoliageEdit::OnDeselectAllInstances)
+							.Text(LOCTEXT("DeselectAllInstances", "Deselect All"))
+							.ToolTipText(LOCTEXT("DeselectAllInstances_Tooltip", "Deselects all foliage instances"))
+						]
 					]
 				]
-
-				+ SWrapBox::Slot()
-				.Padding(0, 0, 16, 0)
-				[
-					SNew(SCheckBox)
-					.Visibility(this, &SFoliageEdit::GetVisibility_Filters)
-					.OnCheckStateChanged(this, &SFoliageEdit::OnCheckStateChanged_StaticMesh)
-					.IsChecked(this, &SFoliageEdit::GetCheckState_StaticMesh)
-					.ToolTipText(LOCTEXT("FilterStaticMesh_Tooltip", "Place foliage on StaticMeshes"))
-					[
-						SNew(STextBlock)
-						.Text(LOCTEXT("StaticMeshes", "Static Meshes"))
-					]
-				]
-
-				+ SWrapBox::Slot()
-				.Padding(0, 0, 16, 0)
-				[
-					SNew(SCheckBox)
-					.Visibility(this, &SFoliageEdit::GetVisibility_Filters)
-					.OnCheckStateChanged(this, &SFoliageEdit::OnCheckStateChanged_BSP)
-					.IsChecked(this, &SFoliageEdit::GetCheckState_BSP)
-					.ToolTipText(LOCTEXT("FilterBSP_Tooltip", "Place foliage on BSP"))
-					[
-						SNew(STextBlock)
-						.Text(LOCTEXT("BSP", "BSP"))
-					]
-				]
-
-				+ SWrapBox::Slot()
-				.Padding(0, 0, 16, 0)
-				[
-					SNew(SCheckBox)
-					.Visibility(this, &SFoliageEdit::GetVisibility_Filters)
-					.OnCheckStateChanged(this, &SFoliageEdit::OnCheckStateChanged_Translucent)
-					.IsChecked(this, &SFoliageEdit::GetCheckState_Translucent)
-					.ToolTipText(LOCTEXT("FilterTranslucent_Tooltip", "Place foliage on translucent surfaces"))
-					[
-						SNew(STextBlock)
-						.Text(LOCTEXT("Translucent", "Translucent"))
-					]
-				]
 			]
+		]
 
-			+ SVerticalBox::Slot()
-			.AutoHeight()
+		+ SVerticalBox::Slot()
+		.FillHeight(1.f)
+		.VAlign(VAlign_Fill)
+		.Padding(0.f, 5.f, 0.f, 0.f)
+		[
+			SNew(SOverlay)
+
+			+ SOverlay::Slot()
 			[
-				SNew(SHeaderRow)
-				+ SHeaderRow::Column(TEXT("ToggleMeshes"))
-				[
-					SNew(SCheckBox)
-					.IsChecked(this, &SFoliageEdit::GetState_AllMeshes)
-					.OnCheckStateChanged(this, &SFoliageEdit::OnCheckStateChanged_AllMeshes)
-				]
-				.HeaderContentPadding(FMargin(0,1,0,1))
-				.FixedWidth(24)
-								
-				+ SHeaderRow::Column(TEXT("Meshes"))
-				.HeaderContentPadding(FMargin(10,1,0,1))
-				.DefaultLabel(this, &SFoliageEdit::GetMeshesHeaderText)
-				.SortMode(this, &SFoliageEdit::GetMeshColumnSortMode)
-				.OnSort(this, &SFoliageEdit::OnMeshesColumnSortModeChanged)
+				SAssignNew(FoliagePalette, SFoliagePalette)
+				.FoliageEdMode(FoliageEditMode)
 			]
-
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(StandardPadding)
+			
+			// Foliage Mesh Drop Zone
+			+ SOverlay::Slot()
+			.HAlign(HAlign_Fill)
+			.VAlign(VAlign_Fill)
 			[
-				SNew(SBox)
-				.Visibility(this, &SFoliageEdit::GetVisibility_EmptyList)
-				.Padding(FMargin(15, 0))
-				.MinDesiredHeight(30)
+				SNew(SFoliageDragDropHandler)
+				.Visibility(this, &SFoliageEdit::GetVisibility_FoliageDropTarget)
+				.FoliageEditPtr(SharedThis(this))
 				[
 					SNew(SScaleBox)
 					.Stretch(EStretch::ScaleToFit)
 					[
 						SNew(STextBlock)
-						.Text(LOCTEXT("Foliage_DropStatic", "+ Drop Foliage Here"))
-						.ToolTipText(LOCTEXT("Foliage_DropStatic_ToolTip", "Drag static meshes/foliage settings from the content browser into this area."))
+						.Text(LOCTEXT("Foliage_AddFoliageMesh", "+ Foliage Mesh"))
+						.ShadowOffset(FVector2D(1.f, 1.f))
 					]
-				]
-			]
-
-			+ SVerticalBox::Slot()
-			.FillHeight(1.0f)
-			[
-				SNew(SSplitter)
-				.Orientation(Orient_Vertical)
-
-				+SSplitter::Slot()
-				.Value(0.3f)
-				[
-					SAssignNew(MeshTreeWidget, SFoliageMeshTree)
-					.TreeItemsSource(&FoliageEditMode->GetFoliageMeshList())
-					.SelectionMode(ESelectionMode::Multi)
-					.OnGenerateRow(this, &SFoliageEdit::MeshTreeGenerateRow)
-					.OnGetChildren( this, &SFoliageEdit::MeshTreeGetChildren)
-					.OnContextMenuOpening(this, &SFoliageEdit::ConstructFoliageMeshContextMenu)
-					.OnSelectionChanged(this, &SFoliageEdit::MeshTreeOnSelectionChanged)
-					.HeaderRow
-						(
-							SNew( SHeaderRow ).Visibility(EVisibility::Collapsed)
-							// toggle mesh for painting checkbox
-							+SHeaderRow::Column(FoliageMeshColumns::ColumnID_ToggleMesh).FixedWidth(24.0f)
-							// mesh text label
-							+SHeaderRow::Column(FoliageMeshColumns::ColumnID_MeshLabel).FillWidth(1.0f)
-							// instance count
-							+SHeaderRow::Column(FoliageMeshColumns::ColumnID_InstanceCount).FillWidth(0.3f)
-							// save Foliage asset
-							+SHeaderRow::Column(FoliageMeshColumns::ColumnID_Save).FixedWidth(24.0f)
-						)
-				]
-					
-				+SSplitter::Slot()
-				[
-					MeshDetailsWidget.ToSharedRef()
-				]
-			]
-		]
-
-		// Foliage Mesh Drop Zone
-		+ SOverlay::Slot()
-		.HAlign(HAlign_Fill)
-		.VAlign(VAlign_Fill)
-		[
-			SNew(SFoliageDragDropHandler)
-			.Visibility(this, &SFoliageEdit::GetVisibility_FoliageDropTarget)
-			.FoliageEditPtr(SharedThis(this))
-			[
-				SNew(SScaleBox)
-				.Stretch(EStretch::ScaleToFit)
-				[
-					SNew(STextBlock)
-					.Text(LOCTEXT("Foliage_AddFoliageMesh", "+ Foliage Mesh"))
-					.ShadowOffset(FVector2D(1.f, 1.f))
 				]
 			]
 		]
@@ -380,13 +426,9 @@ void SFoliageEdit::Construct(const FArguments& InArgs)
 }
 END_SLATE_FUNCTION_BUILD_OPTIMIZATION
 
-SFoliageEdit::~SFoliageEdit()
-{
-}
-
 void SFoliageEdit::RefreshFullList()
 {
-	MeshTreeWidget->RequestTreeRefresh();
+	FoliagePalette->Refresh();
 }
 
 void SFoliageEdit::ClearAllToolSelection()
@@ -431,36 +473,13 @@ void SFoliageEdit::BindCommands()
 		FExecuteAction::CreateSP(this, &SFoliageEdit::OnSetPaintFill),
 		FCanExecuteAction(),
 		FIsActionChecked::CreateSP(this, &SFoliageEdit::IsPaintFillTool));
-
-		//
-	UICommandList->MapAction(
-		Commands.RemoveFoliageType,
-		FExecuteAction::CreateSP(this, &SFoliageEdit::OnRemoveFoliageType),
-		FCanExecuteAction(),
-		FIsActionChecked());
-
-	UICommandList->MapAction(
-		Commands.ShowFoliageTypeInCB,
-		FExecuteAction::CreateSP(this, &SFoliageEdit::OnShowFoliageTypeInCB),
-		FCanExecuteAction(),
-		FIsActionChecked());
-
-	UICommandList->MapAction(
-		Commands.SelectAllInstances,
-		FExecuteAction::CreateSP(this, &SFoliageEdit::OnSelectAllInstances),
-		FCanExecuteAction(),
-		FIsActionChecked());
-
-	UICommandList->MapAction(
-		Commands.DeselectAllInstances,
-		FExecuteAction::CreateSP(this, &SFoliageEdit::OnDeselectAllInstances),
-		FCanExecuteAction(),
-		FIsActionChecked());
 }
 
 TSharedRef<SWidget> SFoliageEdit::BuildToolBar()
 {
-	FToolBarBuilder Toolbar(UICommandList, FMultiBoxCustomization::None);
+	FToolBarBuilder Toolbar(UICommandList, FMultiBoxCustomization::None, nullptr, Orient_Vertical);
+	Toolbar.SetLabelVisibility(EVisibility::Collapsed);
+	Toolbar.SetStyle(&FEditorStyle::Get(), "FoliageEditToolbar");
 	{
 		Toolbar.AddToolBarButton(FFoliageEditCommands::Get().SetPaint);
 		Toolbar.AddToolBarButton(FFoliageEditCommands::Get().SetReapplySettings);
@@ -469,13 +488,10 @@ TSharedRef<SWidget> SFoliageEdit::BuildToolBar()
 		Toolbar.AddToolBarButton(FFoliageEditCommands::Get().SetPaintBucket);
 	}
 
-	IIntroTutorials& IntroTutorials = FModuleManager::LoadModuleChecked<IIntroTutorials>(TEXT("IntroTutorials"));
-
 	return
 		SNew(SHorizontalBox)
 
 		+ SHorizontalBox::Slot()
-		.Padding(4, 0)
 		[
 			SNew(SOverlay)
 			+ SOverlay::Slot()
@@ -489,16 +505,20 @@ TSharedRef<SWidget> SFoliageEdit::BuildToolBar()
 					Toolbar.MakeWidget()
 				]
 			]
-
-			// Tutorial link
-			+ SOverlay::Slot()
-			.HAlign(HAlign_Right)
-			.VAlign(VAlign_Bottom)
-			.Padding(4)
-			[
-				IntroTutorials.CreateTutorialsWidget(TEXT("FoliageMode"))
-			]
 		];
+}
+
+void SFoliageEdit::AddFoliageType(const FAssetData& AssetData)
+{
+	GWarn->BeginSlowTask(LOCTEXT("AddFoliageType_LoadPackage", "Fully Loading Package for Add"), true, false);
+	UObject* Asset = AssetData.GetAsset();
+	GWarn->EndSlowTask();
+
+	UFoliageType* FoliageType = FoliageEditMode->AddFoliageAsset(Asset);
+	if (FoliageType)
+	{
+		FoliagePalette->Refresh();
+	}
 }
 
 void SFoliageEdit::OnSetPaint()
@@ -571,12 +591,39 @@ bool SFoliageEdit::IsPaintFillTool() const
 	return FoliageEditMode->UISettings.GetPaintBucketToolSelected();
 }
 
+FText SFoliageEdit::GetActiveToolName() const
+{
+	FText OutText;
+	if (IsPaintTool())
+	{
+		OutText = LOCTEXT("FoliageToolName_Paint", "Paint");
+	}
+	else if (IsReapplySettingsTool())
+	{
+		OutText = LOCTEXT("FoliageToolName_Reapply", "Reapply");
+	}
+	else if (IsSelectTool())
+	{
+		OutText = LOCTEXT("FoliageToolName_Select", "Select");
+	}
+	else if (IsLassoSelectTool())
+	{
+		OutText = LOCTEXT("FoliageToolName_LassoSelect", "Lasso Select");
+	}
+	else if (IsPaintFillTool())
+	{
+		OutText = LOCTEXT("FoliageToolName_Fill", "Fill");
+	}
+
+	return OutText;
+}
+
 void SFoliageEdit::SetRadius(float InRadius)
 {
 	FoliageEditMode->UISettings.SetRadius(InRadius);
 }
 
-float SFoliageEdit::GetRadius() const
+TOptional<float> SFoliageEdit::GetRadius() const
 {
 	return FoliageEditMode->UISettings.GetRadius();
 }
@@ -586,7 +633,7 @@ void SFoliageEdit::SetPaintDensity(float InDensity)
 	FoliageEditMode->UISettings.SetPaintDensity(InDensity);
 }
 
-float SFoliageEdit::GetPaintDensity() const
+TOptional<float> SFoliageEdit::GetPaintDensity() const
 {
 	return FoliageEditMode->UISettings.GetPaintDensity();
 }
@@ -597,19 +644,14 @@ void SFoliageEdit::SetEraseDensity(float InDensity)
 	FoliageEditMode->UISettings.SetUnpaintDensity(InDensity);
 }
 
-float SFoliageEdit::GetEraseDensity() const
+TOptional<float> SFoliageEdit::GetEraseDensity() const
 {
 	return FoliageEditMode->UISettings.GetUnpaintDensity();
 }
 
-EVisibility SFoliageEdit::GetVisibility_EmptyList() const
+EVisibility SFoliageEdit::GetVisibility_SelectionOptions() const
 {
-	if (FoliageEditMode->GetFoliageMeshList().Num() > 0)
-	{
-		return EVisibility::Collapsed;
-	}
-
-	return EVisibility::HitTestInvisible;
+	return IsSelectTool() || IsLassoSelectTool() ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed;
 }
 
 EVisibility SFoliageEdit::GetVisibility_FoliageDropTarget() const
@@ -629,57 +671,82 @@ EVisibility SFoliageEdit::GetVisibility_FoliageDropTarget() const
 	return EVisibility::Hidden;
 }
 
-EVisibility SFoliageEdit::GetVisibility_NonEmptyList() const
+FReply SFoliageEdit::OnSelectAllInstances()
 {
-	if (FoliageEditMode->GetFoliageMeshList().Num() == 0)
+	for (FFoliageMeshUIInfoPtr& TypeInfo : FoliageEditMode->GetFoliageMeshList())
 	{
-		return EVisibility::Collapsed;
+		if (TypeInfo->InstanceCountCurrentLevel > 0)
+		{
+			UFoliageType* FoliageType = TypeInfo->Settings;
+			FoliageEditMode->SelectInstances(FoliageType, true);
+		}
 	}
 
-	return EVisibility::HitTestInvisible;
+	return FReply::Handled();
+}
+
+FReply SFoliageEdit::OnSelectInvalidInstances()
+{
+	for (FFoliageMeshUIInfoPtr& TypeInfo : FoliageEditMode->GetFoliageMeshList())
+	{
+		if (TypeInfo->InstanceCountCurrentLevel > 0)
+		{
+			const UFoliageType* FoliageType = TypeInfo->Settings;
+			FoliageEditMode->SelectInstances(FoliageType, false);
+			FoliageEditMode->SelectInvalidInstances(FoliageType);
+		}
+	}
+
+	return FReply::Handled();
+}
+
+FReply SFoliageEdit::OnDeselectAllInstances()
+{
+	for (FFoliageMeshUIInfoPtr& TypeInfo : FoliageEditMode->GetFoliageMeshList())
+	{
+		if (TypeInfo->InstanceCountCurrentLevel > 0)
+		{
+			UFoliageType* FoliageType = TypeInfo->Settings;
+			FoliageEditMode->SelectInstances(FoliageType, false);
+		}
+	}
+
+	return FReply::Handled();
 }
 
 FReply SFoliageEdit::OnDrop_ListView(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
 {
 	TArray<FAssetData> DroppedAssetData = AssetUtil::ExtractAssetDataFromDrag(DragDropEvent);
 	{
-		const FScopedTransaction Transaction(NSLOCTEXT("UnrealEd", "FoliageMode_AddMeshTransaction", "Foliage Editing: Add Mesh"));
+		// Treat the entire drop as a transaction (in case multiples types are being added)
+		const FScopedTransaction Transaction(NSLOCTEXT("UnrealEd", "FoliageMode_DragDropTypesTransaction", "Drag-drop Foliage Type(s)"));
 
 		for (int32 AssetIdx = 0; AssetIdx < DroppedAssetData.Num(); ++AssetIdx)
-		{
-			GWarn->BeginSlowTask(LOCTEXT("OnDrop_LoadPackage", "Fully Loading Package For Drop"), true, false);
-			UObject* Asset = DroppedAssetData[AssetIdx].GetAsset();
-			GWarn->EndSlowTask();
-
-			FoliageEditMode->AddFoliageAsset(Asset);
+		{	
+			AddFoliageType(DroppedAssetData[AssetIdx]);
 		}
 	}
 
-	MeshTreeWidget->RequestTreeRefresh();
-
 	return FReply::Handled();
 }
-TSharedPtr<SWidget> SFoliageEdit::ConstructFoliageMeshContextMenu() const
+
+FText SFoliageEdit::GetFilterText() const
 {
-	const FFoliageEditCommands& Commands = FFoliageEditCommands::Get();
-	
-	FMenuBuilder MenuBuilder(true, UICommandList);
-	MenuBuilder.AddMenuEntry(Commands.RemoveFoliageType);
-
-	MenuBuilder.AddSubMenu(
-		LOCTEXT( "ReplaceFoliageType", "Replace Foliage Type" ),
-		LOCTEXT ("ReplaceFoliageType_ToolTip", "Replaces selected foliage type with another foliage type asset"),
-		FNewMenuDelegate::CreateSP(this, &SFoliageEdit::FillReplaceFoliageTypeSubmenu));
-
-	MenuBuilder.AddMenuEntry(Commands.ShowFoliageTypeInCB);
-
-	if (IsSelectTool() || IsLassoSelectTool())
+	FText TooltipText;
+	if (IsPaintTool() || IsPaintFillTool())
 	{
-		MenuBuilder.AddMenuEntry(Commands.SelectAllInstances);
-		MenuBuilder.AddMenuEntry(Commands.DeselectAllInstances);
+		TooltipText = LOCTEXT("PlacementFilter", "Placement Filter");
+	}
+	else if (IsReapplySettingsTool())
+	{
+		TooltipText = LOCTEXT("ReapplyFilter", "Reapply Filter");
+	}
+	else if (IsLassoSelectTool())
+	{
+		TooltipText = LOCTEXT("SelectionFilter", "Selection Filter");
 	}
 
-	return MenuBuilder.MakeWidget();
+	return TooltipText;
 }
 
 void SFoliageEdit::OnCheckStateChanged_Landscape(ECheckBoxState InState)
@@ -692,6 +759,25 @@ ECheckBoxState SFoliageEdit::GetCheckState_Landscape() const
 	return FoliageEditMode->UISettings.GetFilterLandscape() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 }
 
+FText SFoliageEdit::GetTooltipText_Landscape() const
+{
+	FText TooltipText;
+	if (IsPaintTool() || IsPaintFillTool())
+	{
+		TooltipText = LOCTEXT("FilterLandscapeTooltip_Placement", "Place foliage on landscapes");
+	}
+	else if (IsReapplySettingsTool())
+	{
+		TooltipText = LOCTEXT("FilterLandscapeTooltip_Reapply", "Reapply to instances on landscapes");
+	}
+	else if (IsLassoSelectTool())
+	{
+		TooltipText = LOCTEXT("FilterLandscapeTooltip_Select", "Select instances on landscapes");
+	}
+
+	return TooltipText;
+}
+
 void SFoliageEdit::OnCheckStateChanged_StaticMesh(ECheckBoxState InState)
 {
 	FoliageEditMode->UISettings.SetFilterStaticMesh(InState == ECheckBoxState::Checked ? true : false);
@@ -700,6 +786,25 @@ void SFoliageEdit::OnCheckStateChanged_StaticMesh(ECheckBoxState InState)
 ECheckBoxState SFoliageEdit::GetCheckState_StaticMesh() const
 {
 	return FoliageEditMode->UISettings.GetFilterStaticMesh() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+}
+
+FText SFoliageEdit::GetTooltipText_StaticMesh() const
+{
+	FText TooltipText;
+	if (IsPaintTool() || IsPaintFillTool())
+	{
+		TooltipText = LOCTEXT("FilterStaticMeshTooltip_Placement", "Place foliage on static meshes");
+	}
+	else if (IsReapplySettingsTool())
+	{
+		TooltipText = LOCTEXT("FilterStaticMeshTooltip_Reapply", "Reapply to instances on static meshes");
+	}
+	else if (IsLassoSelectTool())
+	{
+		TooltipText = LOCTEXT("FilterStaticMeshTooltip_Select", "Select instances on static meshes");
+	}
+
+	return TooltipText;
 }
 
 void SFoliageEdit::OnCheckStateChanged_BSP(ECheckBoxState InState)
@@ -712,6 +817,25 @@ ECheckBoxState SFoliageEdit::GetCheckState_BSP() const
 	return FoliageEditMode->UISettings.GetFilterBSP() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 }
 
+FText SFoliageEdit::GetTooltipText_BSP() const
+{
+	FText TooltipText;
+	if (IsPaintTool() || IsPaintFillTool())
+	{
+		TooltipText = LOCTEXT("FilterBSPTooltip_Placement", "Place foliage on BSP");
+	}
+	else if (IsReapplySettingsTool())
+	{
+		TooltipText = LOCTEXT("FilterBSPTooltip_Reapply", "Reapply to instances on BSP");
+	}
+	else if (IsLassoSelectTool())
+	{
+		TooltipText = LOCTEXT("FilterBSPTooltip_Select", "Select instances on BSP");
+	}
+
+	return TooltipText;
+}
+
 void SFoliageEdit::OnCheckStateChanged_Translucent(ECheckBoxState InState)
 {
 	FoliageEditMode->UISettings.SetFilterTranslucent(InState == ECheckBoxState::Checked ? true : false);
@@ -720,6 +844,25 @@ void SFoliageEdit::OnCheckStateChanged_Translucent(ECheckBoxState InState)
 ECheckBoxState SFoliageEdit::GetCheckState_Translucent() const
 {
 	return FoliageEditMode->UISettings.GetFilterTranslucent() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+}
+
+FText SFoliageEdit::GetTooltipText_Translucent() const
+{
+	FText TooltipText;
+	if (IsPaintTool() || IsPaintFillTool())
+	{
+		TooltipText = LOCTEXT("FilterTranslucentTooltip_Placement", "Place foliage on translucent geometry");
+	}
+	else if (IsReapplySettingsTool())
+	{
+		TooltipText = LOCTEXT("FilterTranslucentTooltip_Reapply", "Reapply to instances on translucent geometry");
+	}
+	else if (IsLassoSelectTool())
+	{
+		TooltipText = LOCTEXT("FilterTranslucentTooltip_Select", "Select instances on translucent geometry");
+	}
+
+	return TooltipText;
 }
 
 EVisibility SFoliageEdit::GetVisibility_Radius() const
@@ -734,7 +877,7 @@ EVisibility SFoliageEdit::GetVisibility_Radius() const
 
 EVisibility SFoliageEdit::GetVisibility_PaintDensity() const
 {
-	if (FoliageEditMode->UISettings.GetSelectToolSelected() || FoliageEditMode->UISettings.GetReapplyPaintBucketToolSelected() || FoliageEditMode->UISettings.GetLassoSelectToolSelected())
+	if (!FoliageEditMode->UISettings.GetPaintToolSelected())
 	{
 		return EVisibility::Collapsed;
 	}
@@ -744,7 +887,7 @@ EVisibility SFoliageEdit::GetVisibility_PaintDensity() const
 
 EVisibility SFoliageEdit::GetVisibility_EraseDensity() const
 {
-	if (FoliageEditMode->UISettings.GetSelectToolSelected() || FoliageEditMode->UISettings.GetReapplyPaintBucketToolSelected() || FoliageEditMode->UISettings.GetLassoSelectToolSelected() || FoliageEditMode->UISettings.GetPaintBucketToolSelected())
+	if (!FoliageEditMode->UISettings.GetPaintToolSelected())
 	{
 		return EVisibility::Collapsed;
 	}
@@ -760,193 +903,6 @@ EVisibility SFoliageEdit::GetVisibility_Filters() const
 	}
 
 	return EVisibility::Visible;
-}
-
-TSharedRef<ITableRow> SFoliageEdit::MeshTreeGenerateRow(FFoliageMeshUIInfoPtr Item, const TSharedRef<STableViewBase>& OwnerTable)
-{
-	return SNew(SFoliageEditMeshRow, OwnerTable)
-		.MeshInfo(Item)
-		.FoliageEditMode(FoliageEditMode);
-}
-
-void SFoliageEdit::MeshTreeGetChildren(FFoliageMeshUIInfoPtr Item, TArray<FFoliageMeshUIInfoPtr>& OutChildren)
-{
-	//OutChildren = Item->GetChildren();
-}
-
-void SFoliageEdit::MeshTreeOnSelectionChanged(FFoliageMeshUIInfoPtr Item, ESelectInfo::Type SelectInfo)
-{
-	TArray<UObject*> FoliageMeshes;
-	auto InfoList = MeshTreeWidget->GetSelectedItems();
-
-	for (const auto& Info : InfoList)
-	{
-		FoliageMeshes.Add(Info->Settings);
-	}
-
-	MeshDetailsWidget->SetObjects(FoliageMeshes, true);
-}
-
-void SFoliageEdit::OnRemoveFoliageType()
-{
-	int32 NumInstances = 0;
-	TArray<UFoliageType*> FoliageTypeList;
-	
-	auto MeshUIList = MeshTreeWidget->GetSelectedItems();
-	for (FFoliageMeshUIInfoPtr& MeshUIInfo : MeshUIList)
-	{
-		NumInstances+= MeshUIInfo->InstanceCountTotal;
-		FoliageTypeList.Add(MeshUIInfo->Settings);
-	}
-	
-	bool bProceed = true;
-	if (NumInstances > 0)
-	{
-		FText Message = FText::Format(NSLOCTEXT("UnrealEd", "FoliageMode_DeleteMesh", "Are you sure you want to remove {0} instances?"), FText::AsNumber(NumInstances));
-		bProceed = (FMessageDialog::Open(EAppMsgType::YesNo, Message) == EAppReturnType::Yes);
-	}
-
-	if (bProceed)
-	{
-		FoliageEditMode->RemoveFoliageType(FoliageTypeList.GetData(), FoliageTypeList.Num());
-	}
-}
-
-void SFoliageEdit::FillReplaceFoliageTypeSubmenu(FMenuBuilder& MenuBuilder)
-{
-	FContentBrowserModule& ContentBrowserModule = FModuleManager::Get().LoadModuleChecked<FContentBrowserModule>(TEXT("ContentBrowser"));
-
-	FAssetPickerConfig AssetPickerConfig;
-	AssetPickerConfig.Filter.ClassNames.Add(UFoliageType::StaticClass()->GetFName());
-	AssetPickerConfig.Filter.bRecursiveClasses = true;
-	AssetPickerConfig.OnAssetSelected = FOnAssetSelected::CreateSP(this, &SFoliageEdit::OnReplaceFoliageTypeSelected);
-	AssetPickerConfig.InitialAssetViewType = EAssetViewType::List;
-	AssetPickerConfig.bAllowNullSelection = false;
-	
-	TSharedRef<SWidget> MenuContent = SNew(SBox)
-	.WidthOverride(384)
-	.HeightOverride(500)
-	[
-		ContentBrowserModule.Get().CreateAssetPicker(AssetPickerConfig)
-	];
-	
-	MenuBuilder.AddWidget( MenuContent, FText::GetEmpty(), true);
-}
-
-void SFoliageEdit::OnReplaceFoliageTypeSelected(const FAssetData& AssetData)
-{
-	FSlateApplication::Get().DismissAllMenus();
-	
-	auto MeshUIList = MeshTreeWidget->GetSelectedItems();
-	UFoliageType* NewSettings = Cast<UFoliageType>(AssetData.GetAsset());
-	
-	if (MeshUIList.Num() && NewSettings)
-	{
-		for (auto& MeshUI : MeshUIList)
-		{
-			UFoliageType* OldSettings = MeshUI->Settings;
-			if (OldSettings != NewSettings)
-			{
-				FoliageEditMode->ReplaceSettingsObject(OldSettings, NewSettings);
-			}
-		}
-	}
-}
-
-void SFoliageEdit::OnShowFoliageTypeInCB()
-{
-	TArray<UObject*> SelectedAssets;
-	auto MeshUIList = MeshTreeWidget->GetSelectedItems();
-	for (FFoliageMeshUIInfoPtr  MeshUIPtr : MeshUIList)
-	{
-		UFoliageType* FoliageType = MeshUIPtr->Settings;
-		if (FoliageType->IsAsset())		
-		{
-			SelectedAssets.Add(FoliageType);
-		}
-		else
-		{
-			SelectedAssets.Add(FoliageType->GetStaticMesh());
-		}
-	}
-
-	if (SelectedAssets.Num())
-	{
-		GEditor->SyncBrowserToObjects(SelectedAssets);
-	}
-}
-
-void SFoliageEdit::OnSelectAllInstances()
-{
-	TArray<UObject*> SelectedAssets;
-	auto MeshUIList = MeshTreeWidget->GetSelectedItems();
-	for (FFoliageMeshUIInfoPtr MeshUIPtr : MeshUIList)
-	{
-		UFoliageType* FoliageType = MeshUIPtr->Settings;
-		FoliageEditMode->SelectInstances(FoliageType, true);
-	}
-}
-
-void SFoliageEdit::OnDeselectAllInstances()
-{
-	TArray<UObject*> SelectedAssets;
-	auto MeshUIList = MeshTreeWidget->GetSelectedItems();
-	for (FFoliageMeshUIInfoPtr MeshUIPtr : MeshUIList)
-	{
-		UFoliageType* FoliageType = MeshUIPtr->Settings;
-		FoliageEditMode->SelectInstances(FoliageType, false);
-	}
-}
-
-ECheckBoxState SFoliageEdit::GetState_AllMeshes() const
-{
-	bool bHasChecked = false;
-	bool bHasUnchecked = false;
-
-	const auto& MeshUIList = FoliageEditMode->GetFoliageMeshList();
-	for (const auto& MeshUIPtr : MeshUIList)
-	{
-		if (MeshUIPtr->Settings->IsSelected)
-		{
-			bHasChecked = true;
-		}
-		else
-		{
-			bHasUnchecked = true;
-		}
-
-		if (bHasChecked && bHasUnchecked)
-		{
-			return ECheckBoxState::Undetermined; 
-		}
-	}
-
-	return bHasChecked ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
-}
-
-void SFoliageEdit::OnCheckStateChanged_AllMeshes(ECheckBoxState InState)
-{
-	auto& MeshUIList = FoliageEditMode->GetFoliageMeshList();
-	for (auto& MeshUIPtr : MeshUIList)
-	{
-		MeshUIPtr->Settings->IsSelected = (InState == ECheckBoxState::Checked);
-	}
-}
-
-FText SFoliageEdit::GetMeshesHeaderText() const
-{
-	int32 NumMeshes = FoliageEditMode->GetFoliageMeshList().Num();
-	return FText::Format(LOCTEXT("FoliageMeshCount", "Meshes - {0}"), FText::AsNumber(NumMeshes));
-}
-
-EColumnSortMode::Type SFoliageEdit::GetMeshColumnSortMode() const
-{
-	return FoliageEditMode->GetFoliageMeshListSortMode();
-}
-
-void SFoliageEdit::OnMeshesColumnSortModeChanged(EColumnSortPriority::Type InPriority, const FName& InColumnName, EColumnSortMode::Type InSortMode)
-{
-	FoliageEditMode->OnFoliageMeshListSortModeChanged(InSortMode);
 }
 
 #undef LOCTEXT_NAMESPACE

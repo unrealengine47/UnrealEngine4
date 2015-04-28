@@ -58,6 +58,9 @@ extern CORE_API void(*GFlushStreamingFunc)(void);
 
 #if WITH_ENGINE
 extern CORE_API bool PRIVATE_GIsRunningCommandlet;
+
+/** If true, initialize RHI and set up scene for rendering even when running a commandlet. */
+extern CORE_API bool PRIVATE_GAllowCommandletRendering;
 #endif
 
 #if WITH_EDITORONLY_DATA
@@ -95,6 +98,18 @@ FORCEINLINE bool IsRunningCommandlet()
 {
 #if WITH_ENGINE
 	return PRIVATE_GIsRunningCommandlet;
+#else
+	return false;
+#endif
+}
+
+/**
+ * Check to see if we should initialise RHI and set up scene for rendering even when running a commandlet.
+ */
+FORCEINLINE bool IsAllowCommandletRendering()
+{
+#if WITH_ENGINE
+	return PRIVATE_GAllowCommandletRendering;
 #else
 	return false;
 #endif
@@ -144,12 +159,18 @@ extern CORE_API bool GIsHighResScreenshot;
 extern CORE_API uint32 GScreenshotResolutionX;
 extern CORE_API uint32 GScreenshotResolutionY;
 extern CORE_API uint64 GMakeCacheIDIndex;
-extern CORE_API FString GEditorKeyBindingsIni;
+
 extern CORE_API FString GEngineIni;
-extern CORE_API FString GEditorIni;
+
+/** Editor ini file locations - stored per engine version (shared across all projects). Migrated between versions on first run. */
 extern CORE_API FString GEditorLayoutIni;
-extern CORE_API FString GEditorUserSettingsIni;
-extern CORE_API FString GEditorGameAgnosticIni;
+extern CORE_API FString GEditorKeyBindingsIni;
+extern CORE_API FString GEditorSettingsIni;
+
+/** Editor per-project ini files - stored per project. */
+extern CORE_API FString GEditorIni;
+extern CORE_API FString GEditorPerProjectIni;
+
 extern CORE_API FString GCompatIni;
 extern CORE_API FString GLightmassIni;
 extern CORE_API FString GScalabilityIni;

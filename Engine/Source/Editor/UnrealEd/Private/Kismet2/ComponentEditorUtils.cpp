@@ -14,6 +14,7 @@
 #include "SourceCodeNavigation.h"
 #include "ClassIconFinder.h"
 #include "AssetEditorManager.h"
+#include "Components/DecalComponent.h"
 
 #define LOCTEXT_NAMESPACE "ComponentEditorUtils"
 
@@ -765,6 +766,28 @@ FName FComponentEditorUtils::FindVariableNameGivenComponentInstance(UActorCompon
 					if (ObjectPointedToByProperty == Archetype)
 					{
 						// This property points to the component archetype, so it's an anchor even if it was named wrong
+						return TestProperty->GetFName();
+					}
+				}
+			}
+
+			for (TFieldIterator<UArrayProperty> PropIt(OwnerClass, EFieldIteratorFlags::IncludeSuper); PropIt; ++PropIt)
+			{
+				UArrayProperty* TestProperty = *PropIt;
+				void* ArrayPropInstAddress = TestProperty->ContainerPtrToValuePtr<void>(OwnerCDO);
+
+				UObjectProperty* ArrayEntryProp = Cast<UObjectProperty>(TestProperty->Inner);
+				if ((ArrayEntryProp == nullptr) || !ArrayEntryProp->PropertyClass->IsChildOf<UActorComponent>())
+				{
+					continue;
+				}
+
+				FScriptArrayHelper ArrayHelper(TestProperty, ArrayPropInstAddress);
+				for (int32 ComponentIndex = 0; ComponentIndex < ArrayHelper.Num(); ++ComponentIndex)
+				{
+					UObject* ArrayElement = ArrayEntryProp->GetObjectPropertyValue(ArrayHelper.GetRawPtr(ComponentIndex));
+					if (ArrayElement == Archetype)
+					{
 						return TestProperty->GetFName();
 					}
 				}

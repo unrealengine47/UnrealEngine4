@@ -269,6 +269,9 @@ void SMultiLineEditableText::Construct( const FArguments& InArgs )
 	OnTextChanged = InArgs._OnTextChanged;
 	OnTextCommitted = InArgs._OnTextCommitted;
 	OnCursorMoved = InArgs._OnCursorMoved;
+	bSelectAllTextWhenFocused = InArgs._SelectAllTextWhenFocused;
+	bClearKeyboardFocusOnCommit = InArgs._ClearKeyboardFocusOnCommit;
+	bRevertTextOnEscape = InArgs._RevertTextOnEscape;
 	OnHScrollBarUserScrolled = InArgs._OnHScrollBarUserScrolled;
 	OnVScrollBarUserScrolled = InArgs._OnVScrollBarUserScrolled;
 
@@ -535,6 +538,14 @@ FReply SMultiLineEditableText::OnFocusReceived( const FGeometry& MyGeometry, con
 				TextInputMethodSystem->ActivateContext(TextInputMethodContext.ToSharedRef());
 			}
 		}
+		// Store undo state to use for escape key reverts
+		MakeUndoState(OriginalText);
+
+		// Select All Text
+		if(SelectAllTextWhenFocused())
+		{
+			SelectAllText();
+		}
 
 		UpdateCursorHighlight();
 
@@ -596,6 +607,12 @@ void SMultiLineEditableText::OnFocusLost( const FFocusEvent& InFocusEvent )
 		const FText EditedText = GetEditableText();
 
 		OnTextCommitted.ExecuteIfBound(EditedText, TextAction);
+
+		if(bClearKeyboardFocusOnCommit.Get())
+		{
+			ClearSelection();
+		}
+
 		UpdateCursorHighlight();
 
 		// UpdateCursorHighlight always tries to scroll to the cursor, but we don't want that to happen when we 
@@ -1758,6 +1775,28 @@ void SMultiLineEditableText::Refresh()
 	}
 }
 
+void SMultiLineEditableText::RestoreOriginalText()
+{
+	if(HasTextChangedFromOriginal())
+	{
+		SaveText(OriginalText.Text);
+
+		// Let outsiders know that the text content has been changed
+		OnTextChanged.ExecuteIfBound(OriginalText.Text);
+	}
+}
+
+bool SMultiLineEditableText::HasTextChangedFromOriginal() const
+{
+	bool bHasChanged = false;
+	if(!IsReadOnly.Get())
+	{
+		const FText EditedText = GetEditableText();
+		bHasChanged = !EditedText.EqualTo(OriginalText.Text);
+	}
+	return bHasChanged;
+}
+
 bool SMultiLineEditableText::CanExecuteSelectAll() const
 {
 	bool bCanExecute = true;
@@ -1908,7 +1947,31 @@ void SMultiLineEditableText::SetHasDragSelectedSinceFocused( bool Value )
 
 FReply SMultiLineEditableText::OnEscape()
 {
-	return FReply::Unhandled();
+	FReply MyReply = FReply::Unhandled();
+
+	if(AnyTextSelected())
+	{
+		// Clear selection
+		ClearSelection();
+		UpdateCursorHighlight();
+		MyReply = FReply::Handled();
+	}
+
+	if(!GetIsReadOnly())
+	{
+		// Restore the text if the revert flag is set
+		if(bRevertTextOnEscape.Get() && HasTextChangedFromOriginal())
+		{
+			RestoreOriginalText();
+			// Release input focus
+			if(bClearKeyboardFocusOnCommit.Get())
+			{
+				FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::Cleared);
+			}
+			MyReply = FReply::Handled();
+		}
+	}
+	return MyReply;
 }
 
 void SMultiLineEditableText::OnEnter()
@@ -1930,6 +1993,12 @@ void SMultiLineEditableText::OnEnter()
 		// Reload underlying value now it is committed  (commit may alter the value) 
 		// so it can be re-displayed in the edit box if it retains focus
 		LoadText();
+		// Release input focus
+		if(bClearKeyboardFocusOnCommit.Get())
+		{
+			ClearSelection();
+			FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::Cleared);
+		}
 	}
 }
 
@@ -2236,7 +2305,7 @@ TSharedRef< SWidget > SMultiLineEditableText::GetWidget()
 	return SharedThis( this );
 }
 
-void SMultiLineEditableText::SummonContextMenu(const FVector2D& InLocation)
+void SMultiLineEditableText::SummonContextMenu(const FVector2D& InLocation, TSharedPtr<SWindow> ParentWindow)
 {
 	// Set the menu to automatically close when the user commits to a choice
 	const bool bShouldCloseWindowAfterMenuSelection = true;
@@ -2284,7 +2353,12 @@ void SMultiLineEditableText::SummonContextMenu(const FVector2D& InLocation)
 	ActiveContextMenu.PrepareToSummon();
 
 	const bool bFocusImmediately = true;
-	TSharedPtr< SWindow > ContextMenuWindow = FSlateApplication::Get().PushMenu(SharedThis(this), MenuBuilder.MakeWidget(), InLocation, FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu), bFocusImmediately);
+	TSharedRef<SWidget> MenuParent = SharedThis(this);
+	if (ParentWindow.IsValid())
+	{
+		MenuParent = StaticCastSharedRef<SWidget>(ParentWindow.ToSharedRef());
+	}
+	TSharedPtr< SWindow > ContextMenuWindow = FSlateApplication::Get().PushMenu(MenuParent, MenuBuilder.MakeWidget(), InLocation, FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu), bFocusImmediately);
 
 	// Make sure the window is valid.  It's possible for the parent to already be in the destroy queue, for example if the editable text was configured to dismiss it's window during OnTextCommitted.
 	if (ContextMenuWindow.IsValid())

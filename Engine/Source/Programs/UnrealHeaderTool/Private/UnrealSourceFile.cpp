@@ -3,6 +3,8 @@
 #include "UnrealHeaderTool.h"
 #include "UnrealSourceFile.h"
 #include "ParserHelper.h"
+#include "HeaderParser.h"
+#include "GeneratedCodeVersion.h"
 
 void FUnrealSourceFile::AddDefinedClass(UClass* Class)
 {
@@ -73,29 +75,40 @@ FString FUnrealSourceFile::GetGeneratedBodyMacroName(int32 LineNumber, bool bLeg
 	return GetGeneratedMacroName(LineNumber, *FString::Printf(TEXT("%s%s"), TEXT("_GENERATED_BODY"), bLegacy ? TEXT("_LEGACY") : TEXT("")));
 }
 
-void FUnrealSourceFile::SetGeneratedFilename(FString GeneratedFilename)
+void FUnrealSourceFile::SetGeneratedFilename(FString InGeneratedFilename)
 {
-	this->GeneratedFilename = MoveTemp(GeneratedFilename);
+	GeneratedFilename = MoveTemp(InGeneratedFilename);
 }
 
-void FUnrealSourceFile::SetHasChanged(bool bHasChanged)
+void FUnrealSourceFile::SetHasChanged(bool bInHasChanged)
 {
-	this->bHasChanged = bHasChanged;
+	bHasChanged = bInHasChanged;
 }
 
-void FUnrealSourceFile::SetModuleRelativePath(FString ModuleRelativePath)
+void FUnrealSourceFile::SetModuleRelativePath(FString InModuleRelativePath)
 {
-	this->ModuleRelativePath = MoveTemp(ModuleRelativePath);
+	ModuleRelativePath = MoveTemp(InModuleRelativePath);
 }
 
-void FUnrealSourceFile::SetIncludePath(FString IncludePath)
+void FUnrealSourceFile::SetIncludePath(FString InIncludePath)
 {
-	this->IncludePath = MoveTemp(IncludePath);
+	IncludePath = MoveTemp(InIncludePath);
 }
 
 const FString& FUnrealSourceFile::GetContent() const
 {
 	return Content;
+}
+
+EGeneratedCodeVersion FUnrealSourceFile::GetGeneratedCodeVersionForStruct(UStruct* Struct)
+{
+	auto Version = GeneratedCodeVersions.Find(Struct);
+	if (Version)
+	{
+		return *Version;
+	}
+
+	return FHeaderParser::DefaultGeneratedCodeVersion;
 }
 
 void FUnrealSourceFile::MarkDependenciesResolved()

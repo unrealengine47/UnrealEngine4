@@ -35,6 +35,9 @@ DEFINE_LOG_CATEGORY(LogStaticLightingSystem);
 #include "SNotificationList.h"
 #include "NotificationManager.h"
 #include "Engine/GeneratedMeshAreaLight.h"
+#include "Engine/LevelStreaming.h"
+#include "Engine/Selection.h"
+#include "Components/SkyLightComponent.h"
 
 #define LOCTEXT_NAMESPACE "StaticLightingSystem"
 
@@ -425,7 +428,7 @@ bool FStaticLightingSystem::BeginLightmassProcess()
 			GWarn->BeginSlowTask( LOCTEXT("BeginBuildingStaticLightingTaskStatus", "Building lighting"), false );
 		}
 		
-		FConfigCacheIni::LoadGlobalIniFile(GLightmassIni, TEXT("Lightmass"), NULL, NULL, true);
+		FConfigCacheIni::LoadGlobalIniFile(GLightmassIni, TEXT("Lightmass"), NULL, true);
 		verify(GConfig->GetBool(TEXT("DevOptions.StaticLighting"), TEXT("bUseBilinearFilterLightmaps"), GUseBilinearLightmaps, GLightmassIni));
 		verify(GConfig->GetBool(TEXT("DevOptions.StaticLighting"), TEXT("bAllowCropping"), GAllowLightmapCropping, GLightmassIni));
 		verify(GConfig->GetBool(TEXT("DevOptions.StaticLighting"), TEXT("bRebuildDirtyGeometryForLighting"), bRebuildDirtyGeometryForLighting, GLightmassIni));
@@ -1950,7 +1953,7 @@ bool FStaticLightingSystem::FinishLightmassProcess()
 			}
 		
 			bool bShowLightingBuildInfo = false;
-			GConfig->GetBool( TEXT("LightingBuildOptions"), TEXT("ShowLightingBuildInfo"), bShowLightingBuildInfo, GEditorUserSettingsIni );
+			GConfig->GetBool( TEXT("LightingBuildOptions"), TEXT("ShowLightingBuildInfo"), bShowLightingBuildInfo, GEditorPerProjectIni );
 			if( bShowLightingBuildInfo )
 			{
 				StatsViewerModule.GetPage(EStatsPage::LightingBuildInfo)->Show();

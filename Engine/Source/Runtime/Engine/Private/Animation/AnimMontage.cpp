@@ -350,8 +350,6 @@ void UAnimMontage::PostLoad()
 		}
 	}
 
-	int32 Ver = GetLinker()->UE4Ver();
-
 	for(auto& Composite : CompositeSections)
 	{
 		if(Composite.StartTime_DEPRECATED != 0.0f)
@@ -974,6 +972,10 @@ void FAnimMontageInstance::Terminate()
 		// terminating, trigger end
 		Inst->QueueMontageEndedEvent(FQueuedMontageEndedEvent(OldMontage, bInterrupted, OnMontageEnded));
 	}
+
+	// Clear any active synchronization
+	MontageSync_StopFollowing();
+	MontageSync_StopLeading();
 }
 
 bool FAnimMontageInstance::JumpToSectionName(FName const & SectionName, bool bEndOfSection)
@@ -1089,6 +1091,103 @@ FName FAnimMontageInstance::GetSectionNameFromID(int32 const & SectionID) const
 	}
 
 	return NAME_None;
+}
+
+void FAnimMontageInstance::MontageSync_Follow(struct FAnimMontageInstance* NewLeaderMontageInstance)
+{
+	// Stop following previous leader if any.
+	MontageSync_StopFollowing();
+
+	// Follow new leader
+	// Note: we don't really care about detecting loops there, there's no real harm in doing so.
+	if (NewLeaderMontageInstance && (NewLeaderMontageInstance != this))
+	{
+		NewLeaderMontageInstance->MontageSyncFollowers.AddUnique(this);
+		MontageSyncLeader = NewLeaderMontageInstance;
+	}
+}
+
+void FAnimMontageInstance::MontageSync_StopLeading()
+{
+	for (auto MontageSyncFollower : MontageSyncFollowers)
+	{
+		if (MontageSyncFollower)
+		{
+			ensure(MontageSyncFollower->MontageSyncLeader == this);
+			MontageSyncFollower->MontageSyncLeader = NULL;
+		}
+	}
+	MontageSyncFollowers.Empty();
+}
+
+void FAnimMontageInstance::MontageSync_StopFollowing()
+{
+	if (MontageSyncLeader)
+	{
+		MontageSyncLeader->MontageSyncFollowers.RemoveSingleSwap(this);
+		MontageSyncLeader = NULL;
+	}
+}
+
+uint32 FAnimMontageInstance::MontageSync_GetFrameCounter() const
+{
+	return (GFrameCounter % MAX_uint32);
+}
+
+bool FAnimMontageInstance::MontageSync_HasBeenUpdatedThisFrame() const
+{
+	return (MontageSyncUpdateFrameCounter == MontageSync_GetFrameCounter());
+}
+
+void FAnimMontageInstance::MontageSync_PreUpdate()
+{
+	// If we are being synchronized to a leader
+	// And our leader HASN'T been updated yet, then we need to synchronize ourselves now.
+	// We're basically synchronizing to last frame's values.
+	// If we want to avoid that frame of lag, a tick prerequisite should be put between the follower and the leader.
+	if (MontageSyncLeader && !MontageSyncLeader->MontageSync_HasBeenUpdatedThisFrame())
+	{
+		MontageSync_PerformSyncToLeader();
+	}
+}
+
+void FAnimMontageInstance::MontageSync_PostUpdate()
+{
+	// Tag ourselves as updated this frame.
+	MontageSyncUpdateFrameCounter = MontageSync_GetFrameCounter();
+
+	// If we are being synchronized to a leader
+	// And our leader HAS already been updated, then we can synchronize ourselves now.
+	// To make sure we are in sync before rendering.
+	if (MontageSyncLeader && MontageSyncLeader->MontageSync_HasBeenUpdatedThisFrame())
+	{
+		MontageSync_PerformSyncToLeader();
+	}
+}
+
+void FAnimMontageInstance::MontageSync_PerformSyncToLeader()
+{
+	if (MontageSyncLeader)
+	{
+		// Sync follower position only if significant error.
+		// We don't want continually 'teleport' it, which could have side-effects and skip AnimNotifies.
+		const float LeaderPosition = MontageSyncLeader->GetPosition();
+		const float FollowerPosition = GetPosition();
+		if (FMath::Abs(FollowerPosition - LeaderPosition) > KINDA_SMALL_NUMBER)
+		{
+			SetPosition(LeaderPosition);
+		}
+
+		SetPlayRate(MontageSyncLeader->GetPlayRate());
+
+		// If source and target share same section names, keep them in sync as well. So we properly handle jumps and loops.
+		const FName LeaderCurrentSectionName = MontageSyncLeader->GetCurrentSection();
+		if ((LeaderCurrentSectionName != NAME_None) && (GetCurrentSection() == LeaderCurrentSectionName))
+		{
+			const FName LeaderNextSectionName = MontageSyncLeader->GetNextSection();
+			SetNextSectionName(LeaderCurrentSectionName, LeaderNextSectionName);
+		}
+	}
 }
 
 void FAnimMontageInstance::UpdateWeight(float DeltaTime)
@@ -1208,6 +1307,7 @@ void FAnimMontageInstance::Advance(float DeltaTime, struct FRootMotionMovementPa
 			RefreshNextPrevSections();
 		}
 #endif
+
 		// if no weight, no reason to update, and if not playing, we don't need to advance
 		// this portion is to advance position
 		// If we just reached zero weight, still tick this frame to fire end of animation events.
@@ -1264,7 +1364,9 @@ void FAnimMontageInstance::Advance(float DeltaTime, struct FRootMotionMovementPa
 
 					const float PositionBeforeFiringEvents = Position;
 
-					if (FMath::Abs(ActualDeltaMove) > 0.f)
+					const bool bHaveMoved = FMath::Abs(ActualDeltaMove) > 0.f;
+
+					if (bHaveMoved)
 					{
 						// Extract Root Motion for this time slice, and accumulate it.
 						if (bExtractRootMotion && AnimInstance.IsValid())
@@ -1281,25 +1383,28 @@ void FAnimMontageInstance::Advance(float DeltaTime, struct FRootMotionMovementPa
 								OutRootMotionParams->Accumulate(RootMotion);
 							}
 						}
+					}
 
-						// If current section is last one, check to trigger a blend out.
-						if( NextSectionIndex == INDEX_NONE )
-						{
-							const float DeltaPosToEnd = bPlayingForward ? (CurrentSectionLength - PosInSection) : PosInSection;
-							const float DeltaTimeToEnd = DeltaPosToEnd / CombinedPlayRate;
+					// If current section is last one, check to trigger a blend out.
+					if( NextSectionIndex == INDEX_NONE )
+					{
+						const float DeltaPosToEnd = bPlayingForward ? (CurrentSectionLength - PosInSection) : PosInSection;
+						const float DeltaTimeToEnd = DeltaPosToEnd / FMath::Abs(CombinedPlayRate);
 
-							const bool bCustomBlendOutTriggerTime = (Montage->BlendOutTriggerTime >= 0);
-							const float DefaultBlendOutTime = Montage->BlendOutTime * DefaultBlendTimeMultiplier;
-							const float BlendOutTriggerTime = bCustomBlendOutTriggerTime ? Montage->BlendOutTriggerTime : DefaultBlendOutTime;
+						const bool bCustomBlendOutTriggerTime = (Montage->BlendOutTriggerTime >= 0);
+						const float DefaultBlendOutTime = Montage->BlendOutTime * DefaultBlendTimeMultiplier;
+						const float BlendOutTriggerTime = bCustomBlendOutTriggerTime ? Montage->BlendOutTriggerTime : DefaultBlendOutTime;
 							
-							// ... trigger blend out if within blend out time window.
-							if (DeltaTimeToEnd <= FMath::Max<float>(BlendOutTriggerTime, KINDA_SMALL_NUMBER))
-							{
-								const float BlendOutTime = bCustomBlendOutTriggerTime ? DefaultBlendOutTime : DeltaTimeToEnd;
-								Stop(BlendOutTime, false);
-							}
+						// ... trigger blend out if within blend out time window.
+						if (DeltaTimeToEnd <= FMath::Max<float>(BlendOutTriggerTime, KINDA_SMALL_NUMBER))
+						{
+							const float BlendOutTime = bCustomBlendOutTriggerTime ? DefaultBlendOutTime : DeltaTimeToEnd;
+							Stop(BlendOutTime, false);
 						}
+					}
 
+					if (bHaveMoved)
+					{
 						// Delegate has to be called last in this loop
 						// so that if this changes position, the new position will be applied in the next loop
 						// first need to have event handler to handle it
@@ -1309,8 +1414,8 @@ void FAnimMontageInstance::Advance(float DeltaTime, struct FRootMotionMovementPa
 						{
 							HandleEvents(PrevPosition, Position, BranchingPointMarker);
 						}
-
 					}
+
 					// if we reached end of section, and we were not processing a branching point, and no events has messed with out current position..
 					// .. Move to next section.
 					// (this also handles looping, the same as jumping to a different section).

@@ -170,6 +170,11 @@ namespace UnrealBuildTool
 			Result += " -Wno-unused-private-field";
 			Result += " -Wno-invalid-offsetof"; // needed to suppress warnings about using offsetof on non-POD types.
 
+			if (BuildConfiguration.bEnableShadowVariableWarning)
+			{
+				Result += " -Wshadow";
+			}
+
 			// @todo: Remove these two when the code is fixed and they're no longer needed
 			Result += " -Wno-logical-op-parentheses";
 			Result += " -Wno-unknown-pragmas";
@@ -1097,7 +1102,7 @@ namespace UnrealBuildTool
 			}
 
 			// For Mac, generate the dSYM file if the config file is set to do so
-			if (BuildConfiguration.bGeneratedSYMFile == true && (!bIsBuildingLibrary || LinkEnvironment.Config.bIsBuildingDLL))
+			if ((BuildConfiguration.bGeneratedSYMFile == true || BuildConfiguration.bUsePDBFiles == true) && (!bIsBuildingLibrary || LinkEnvironment.Config.bIsBuildingDLL))
 			{
 				Log.TraceInformation("Generating dSYM file for {0} - this will add some time to your build...", Path.GetFileName(OutputFile.AbsolutePath));
 				RemoteOutputFile = GenerateDebugInfo(OutputFile);
@@ -1326,6 +1331,31 @@ namespace UnrealBuildTool
 
         public override void AddFilesToReceipt(BuildReceipt Receipt, UEBuildBinary Binary)
 		{
+			string DebugExtension = UEBuildPlatform.GetBuildPlatform(Binary.Target.Platform).GetDebugInfoExtension(Binary.Config.Type);
+			if(DebugExtension == ".dsym")
+			{
+				for (int i = 0; i < Receipt.BuildProducts.Count; i++)
+				{
+					if(Receipt.BuildProducts[i].Type == BuildProductType.Executable || Receipt.BuildProducts[i].Type == BuildProductType.DynamicLibrary)
+					{
+						string OutputFilePath = Receipt.BuildProducts[i].Path;
+						string DsymInfo = OutputFilePath + ".dSYM/Contents/Info.plist";
+						Receipt.AddBuildProduct(DsymInfo, BuildProductType.SymbolFile);
+
+						string DsymDylib = OutputFilePath + ".dSYM/Contents/Resources/DWARF/" + Path.GetFileName(OutputFilePath);
+						Receipt.AddBuildProduct(DsymDylib, BuildProductType.SymbolFile);
+					}
+				}
+
+				for (int i = 0; i < Receipt.BuildProducts.Count; i++)
+				{
+					if(Path.GetExtension(Receipt.BuildProducts[i].Path) == DebugExtension)
+					{
+						Receipt.BuildProducts.RemoveAt(i--);
+					}
+				}
+			}
+
 			if (Binary.Target.GlobalLinkEnvironment.Config.bIsBuildingConsoleApplication)
 			{
 				return;
@@ -1381,7 +1411,7 @@ namespace UnrealBuildTool
 				Receipt.AddBuildProduct(BundleContentsDirectory + "PkgInfo", BuildProductType.RequiredResource);
 				Receipt.AddBuildProduct(BundleContentsDirectory + "Resources/UE4.icns", BuildProductType.RequiredResource);
 
-				if (Binary.Config.TargetName.StartsWith("UE4Editor"))
+				if (Binary.Target.AppName.StartsWith("UE4Editor"))
 				{
 					Receipt.AddBuildProduct(BundleContentsDirectory + "Resources/UProject.icns", BuildProductType.RequiredResource);
 				}
@@ -1478,6 +1508,18 @@ namespace UnrealBuildTool
 		public override UnrealTargetPlatform GetPlatform()
 		{
 			return UnrealTargetPlatform.Mac;
+		}
+
+		public override void StripSymbols(string SourceFileName, string TargetFileName)
+		{
+			File.Copy(SourceFileName, TargetFileName, true);
+
+			ProcessStartInfo StartInfo = new ProcessStartInfo();
+			StartInfo.FileName = Path.Combine(XcodeDeveloperDir, "usr/bin/xcrun");
+			StartInfo.Arguments = String.Format("strip \"{0}\" -S", TargetFileName);
+			StartInfo.UseShellExecute = false;
+			StartInfo.CreateNoWindow = true;
+			Utils.RunLocalProcessAndLogOutput(StartInfo);
 		}
 	};
 }

@@ -4,7 +4,7 @@
 #pragma once
 #include "PhATSimOptions.generated.h"
 
-UCLASS(hidecategories=Object, config=EditorUserSettings)
+UCLASS(hidecategories=Object, config=EditorPerProjectUserSettings)
 class UNREALED_API UPhATSimOptions : public UObject
 {
 	GENERATED_UCLASS_BODY()
@@ -27,6 +27,10 @@ class UNREALED_API UPhATSimOptions : public UObject
 	/** Scale factor for the gravity used in the simulation */
 	UPROPERTY(EditAnywhere, config, Category=Simulation)
 	float GravScale;
+
+	/** Max FPS for simulation in PhAT. This is helpful for targeting the same FPS as your game. -1 means disabled*/
+	UPROPERTY(EditAnywhere, config, Category = Simulation)
+	int32 MaxFPS;
 
 	/** Linear damping of mouse spring forces */
 	UPROPERTY(EditAnywhere, config, Category=MouseSpring)

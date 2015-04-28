@@ -1387,8 +1387,7 @@ FORCEINLINE FTransform FTransform::GetScaled(FVector InScale) const
 
 FORCEINLINE FVector4 FTransform::TransformFVector4NoScale(const FVector4& V) const
 {
-	DiagnosticCheckNaN_Rotate();
-	DiagnosticCheckNaN_Translate();
+	DiagnosticCheckNaN_All();
 
 	// if not, this won't work
 	checkSlow (V.W == 0.f || V.W == 1.f);
@@ -1446,18 +1445,50 @@ FORCEINLINE FVector4 FTransform::TransformFVector4(const FVector4& V) const
 
 FORCEINLINE FVector FTransform::TransformPosition(const FVector& V) const
 {
-	return TransformFVector4(FVector4(V.X,V.Y,V.Z,1.0f));
+	DiagnosticCheckNaN_All();
+
+	const VectorRegister InputVectorW0 = VectorLoadFloat3_W0(&V);
+
+	//Transform using QST is following
+	//QST(P) = Q*S*P*-Q + T where Q = quaternion, S = scale, T = translation
+	const VectorRegister InverseRotation = MAKE_QUATINV_VECTORREGISTER(Rotation);
+
+	//FQuat Transform = Rotation*FQuat(Scale*V.X, Scale*V.Y, Scale*V.Z, 0.f)*Rotation.Inverse();
+	const VectorRegister ScaledVec = VectorMultiply(Scale3D, InputVectorW0);
+	const VectorRegister TempStorage = VectorQuaternionMultiply2(Rotation, ScaledVec);
+	const VectorRegister RotatedVec = VectorQuaternionMultiply2(TempStorage, InverseRotation);
+
+	const VectorRegister TranslatedVec = VectorAdd(RotatedVec, Translation);
+
+	FVector Result;
+	VectorStoreFloat3(TranslatedVec, &Result);
+	return Result;
 }
 
 FORCEINLINE FVector FTransform::TransformPositionNoScale(const FVector& V) const
 {
-	return TransformFVector4NoScale(FVector4(V.X,V.Y,V.Z,1.0f));
+	DiagnosticCheckNaN_All();
+
+	const VectorRegister InputVectorW0 = VectorLoadFloat3_W0(&V);
+
+	//Transform using QST is following
+	//QST(P) = Q*S*P*-Q + T where Q = quaternion, S = 1.0f, T = translation
+	const VectorRegister InverseRotation = MAKE_QUATINV_VECTORREGISTER(Rotation);
+
+	//FQuat Transform = Rotation*FQuat(V.X, V.Y, V.Z, 0.f)*Rotation.Inverse();
+	const VectorRegister TempStorage = VectorQuaternionMultiply2(Rotation, InputVectorW0);
+	const VectorRegister RotatedVec = VectorQuaternionMultiply2(TempStorage, InverseRotation);
+
+	const VectorRegister TranslatedVec = VectorAdd(RotatedVec, Translation);
+
+	FVector Result;
+	VectorStoreFloat3(TranslatedVec, &Result);
+	return Result;
 }
 
 FORCEINLINE FVector FTransform::TransformVector(const FVector& V) const
 {
-	DiagnosticCheckNaN_Rotate();
-	DiagnosticCheckNaN_Scale3D();
+	DiagnosticCheckNaN_All();
 
 	const VectorRegister InputVectorW0 = VectorLoadFloat3_W0(&V);
 	const VectorRegister InverseRotation = MAKE_QUATINV_VECTORREGISTER(Rotation);
@@ -1474,7 +1505,7 @@ FORCEINLINE FVector FTransform::TransformVector(const FVector& V) const
 
 FORCEINLINE FVector FTransform::TransformVectorNoScale(const FVector& V) const
 {
-	DiagnosticCheckNaN_Rotate();
+	DiagnosticCheckNaN_All();
 
 	const VectorRegister InputVectorW0 = VectorLoadFloat3_W0(&V);
 	const VectorRegister InverseRotation = MAKE_QUATINV_VECTORREGISTER(Rotation);
@@ -1491,6 +1522,8 @@ FORCEINLINE FVector FTransform::TransformVectorNoScale(const FVector& V) const
 // do backward operation when inverse, translation -> rotation -> scale
 FORCEINLINE FVector FTransform::InverseTransformPosition(const FVector &V) const
 {
+	DiagnosticCheckNaN_All();
+
 	VectorRegister InputVector = VectorLoadFloat3_W0(&V);
 
 	// Rotation.Inverse()
@@ -1517,6 +1550,8 @@ FORCEINLINE FVector FTransform::InverseTransformPosition(const FVector &V) const
 // do backward operation when inverse, translation -> rotation
 FORCEINLINE FVector FTransform::InverseTransformPositionNoScale(const FVector &V) const
 {
+	DiagnosticCheckNaN_All();
+
 	VectorRegister InputVector = VectorLoadFloat3_W0(&V);
 
 	// Rotation.Inverse()
@@ -1538,6 +1573,8 @@ FORCEINLINE FVector FTransform::InverseTransformPositionNoScale(const FVector &V
 // do backward operation when inverse, translation -> rotation -> scale
 FORCEINLINE FVector FTransform::InverseTransformVector(const FVector &V) const
 {
+	DiagnosticCheckNaN_All();
+
 	VectorRegister InputVector = VectorLoadFloat3_W0(&V);
 
 	// Rotation.Inverse()
@@ -1561,6 +1598,8 @@ FORCEINLINE FVector FTransform::InverseTransformVector(const FVector &V) const
 // do backward operation when inverse, translation -> rotation
 FORCEINLINE FVector FTransform::InverseTransformVectorNoScale(const FVector &V) const
 {
+	DiagnosticCheckNaN_All();
+
 	VectorRegister InputVector = VectorLoadFloat3_W0(&V);
 
 	// Rotation.Inverse()

@@ -9,6 +9,7 @@
 #include "ParticleDefinitions.h"
 #include "AnimationUtils.h"
 #include "LevelUtils.h"
+#include "EditorLevelUtils.h"
 #include "Layers/ILayers.h"
 #include "ScopedTransaction.h"
 #include "SurfaceIterators.h"
@@ -60,6 +61,15 @@
 #include "NotificationManager.h"
 #include "EditorUndoClient.h"
 #include "DesktopPlatformModule.h"
+#include "Layers/Layer.h"
+#include "Engine/Light.h"
+#include "Animation/AnimNotifies/AnimNotify.h"
+#include "Components/BillboardComponent.h"
+#include "Components/DrawFrustumComponent.h"
+#include "UnrealEngine.h"
+#include "AI/Navigation/NavLinkRenderingComponent.h"
+
+#include "Settings/EditorSettings.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogEditorServer, Log, All);
 
@@ -1091,7 +1101,7 @@ void UEditorEngine::HandleTransactorUndo( FUndoSessionContext SessionContext, bo
 
 bool UEditorEngine::AreEditorAnalyticsEnabled() const 
 {
-	return GetGameAgnosticSettings().bEditorAnalyticsEnabled;
+	return GetDefault<UEditorSettings>()->bEditorAnalyticsEnabled;
 }
 
 void UEditorEngine::CreateStartupAnalyticsAttributes( TArray<FAnalyticsEventAttribute>& StartSessionAttributes ) const
@@ -1113,7 +1123,7 @@ UTransactor* UEditorEngine::CreateTrans()
 {
 	int32 UndoBufferSize;
 
-	if (!GConfig->GetInt(TEXT("Undo"), TEXT("UndoBufferSize"), UndoBufferSize, GEditorUserSettingsIni))
+	if (!GConfig->GetInt(TEXT("Undo"), TEXT("UndoBufferSize"), UndoBufferSize, GEditorPerProjectIni))
 	{
 		UndoBufferSize = 16;
 	}
@@ -1260,6 +1270,11 @@ bool UEditorEngine::IsTransactionActive()
 FText UEditorEngine::GetTransactionName() const
 {
 	return Trans->GetUndoContext(false).Title;
+}
+
+bool UEditorEngine::IsObjectInTransactionBuffer( const UObject* Object ) const
+{
+	return Trans->IsObjectInTransationBuffer(Object);
 }
 
 bool UEditorEngine::Map_Select( UWorld* InWorld, const TCHAR* Str, FOutputDevice& Ar)
@@ -1620,72 +1635,72 @@ void UEditorEngine::RebuildAlteredBSP()
 {
 	if( GUndo && !GIsTransacting )
 	{
-	// Early out if BSP auto-updating is disabled
-	if (!GetDefault<ULevelEditorMiscSettings>()->bBSPAutoUpdate)
-	{
-		return;
-	}
-
-	FlushRenderingCommands();
-
-	// A list of all the levels that need to be rebuilt
-	TArray< TWeakObjectPtr< ULevel > > LevelsToRebuild;
-		ABrush::NeedsRebuild(&LevelsToRebuild);
-
-	// Determine which levels need to be rebuilt
-	for (FSelectionIterator It(GetSelectedActorIterator()); It; ++It)
-	{
-		AActor* Actor = static_cast<AActor*>(*It);
-			checkSlow(Actor->IsA(AActor::StaticClass()));
-
-			ABrush* SelectedBrush = Cast< ABrush >(Actor);
-		if (SelectedBrush && !FActorEditorUtils::IsABuilderBrush(Actor))
+		// Early out if BSP auto-updating is disabled
+		if (!GetDefault<ULevelEditorMiscSettings>()->bBSPAutoUpdate)
 		{
-			ULevel* Level = SelectedBrush->GetLevel();
-			if (Level)
-			{
-				LevelsToRebuild.AddUnique(Level);
-			}
+			return;
 		}
-		else
-		{
-			// In addition to any selected brushes, any brushes attached to a selected actor should be rebuilt
-			TArray<AActor*> AttachedActors;
-				Actor->GetAttachedActors(AttachedActors);
 
-			const bool bExactClass = true;
-			TArray<AActor*> AttachedBrushes;
-			// Get any brush actors attached to the selected actor
-				if (ContainsObjectOfClass(AttachedActors, ABrush::StaticClass(), bExactClass, &AttachedBrushes))
+		FlushRenderingCommands();
+
+		// A list of all the levels that need to be rebuilt
+		TArray< TWeakObjectPtr< ULevel > > LevelsToRebuild;
+			ABrush::NeedsRebuild(&LevelsToRebuild);
+
+		// Determine which levels need to be rebuilt
+		for (FSelectionIterator It(GetSelectedActorIterator()); It; ++It)
+		{
+			AActor* Actor = static_cast<AActor*>(*It);
+				checkSlow(Actor->IsA(AActor::StaticClass()));
+
+				ABrush* SelectedBrush = Cast< ABrush >(Actor);
+			if (SelectedBrush && !FActorEditorUtils::IsABuilderBrush(Actor))
 			{
-					for (int32 BrushIndex = 0; BrushIndex < AttachedBrushes.Num(); ++BrushIndex)
+				ULevel* Level = SelectedBrush->GetLevel();
+				if (Level)
 				{
-						ULevel* Level = CastChecked<ABrush>(AttachedBrushes[BrushIndex])->GetLevel();
-					if (Level)
-					{
-						LevelsToRebuild.AddUnique(Level);
-					}
+					LevelsToRebuild.AddUnique(Level);
 				}
 			}
+			else
+			{
+				// In addition to any selected brushes, any brushes attached to a selected actor should be rebuilt
+				TArray<AActor*> AttachedActors;
+					Actor->GetAttachedActors(AttachedActors);
+
+				const bool bExactClass = true;
+				TArray<AActor*> AttachedBrushes;
+				// Get any brush actors attached to the selected actor
+					if (ContainsObjectOfClass(AttachedActors, ABrush::StaticClass(), bExactClass, &AttachedBrushes))
+				{
+						for (int32 BrushIndex = 0; BrushIndex < AttachedBrushes.Num(); ++BrushIndex)
+					{
+							ULevel* Level = CastChecked<ABrush>(AttachedBrushes[BrushIndex])->GetLevel();
+						if (Level)
+						{
+							LevelsToRebuild.AddUnique(Level);
+						}
+					}
+				}
+
+			}
 
 		}
 
-	}
-
-	// Rebuild the levels
-	for (int32 LevelIdx = 0; LevelIdx < LevelsToRebuild.Num(); ++LevelIdx)
-	{
-		TWeakObjectPtr< ULevel > LevelToRebuild = LevelsToRebuild[LevelIdx];
-			if (LevelToRebuild.IsValid())
+		// Rebuild the levels
+		for (int32 LevelIdx = 0; LevelIdx < LevelsToRebuild.Num(); ++LevelIdx)
 		{
-			RebuildLevel(*LevelToRebuild.Get());
+			TWeakObjectPtr< ULevel > LevelToRebuild = LevelsToRebuild[LevelIdx];
+				if (LevelToRebuild.IsValid())
+			{
+				RebuildLevel(*LevelToRebuild.Get());
+			}
 		}
+
+		RedrawLevelEditingViewports();
+
+		ABrush::OnRebuildDone();
 	}
-
-	RedrawLevelEditingViewports();
-
-	ABrush::OnRebuildDone();
-}
 	else
 	{
  		ensureMsgf(0, TEXT("Rebuild BSP ignored. Not in a transaction") );
@@ -1791,7 +1806,8 @@ void UEditorEngine::EditorDestroyWorld( FWorldContext & Context, const FText& Cl
 
 	GUnrealEd->CurrentLODParentActor = NULL;
 	SelectNone( true, true );
-	EditorClearComponents();
+
+	ContextWorld->ClearWorldComponents();
 	ClearPreviewComponents();
 	// Remove all active groups, they belong to a map being unloaded
 	ContextWorld->ActiveGroupActors.Empty();
@@ -2510,7 +2526,7 @@ bool UEditorEngine::Map_Import( UWorld* InWorld, const TCHAR* Str, FOutputDevice
 		
 		ResetTransaction( LocalizedImportingMap );
 		GWarn->BeginSlowTask( LocalizedImportingMap, true );
-		EditorClearComponents();
+		InWorld->ClearWorldComponents();
 		InWorld->CleanupWorld();
 		ImportObject<UWorld>(InWorld->GetOuter(), InWorld->GetFName(), RF_Transactional, TempFname );
 		GWarn->EndSlowTask();
@@ -2843,10 +2859,22 @@ void UEditorEngine::DoMoveSelectedActorsToLevel( ULevel* InDestLevel )
 	// Copy the actors we have selected to the clipboard
 	CopySelectedActorsToClipboard( World, true );
 
-	// Set the new level
+	// Set the new level and force it visible while we do the paste
 	World->SetCurrentLevel( InDestLevel );
+	const bool bLevelVisible = InDestLevel->bIsVisible;
+	if (!bLevelVisible)
+	{
+		EditorLevelUtils::SetLevelVisibility(InDestLevel, true, false);
+	}
+
 	// Paste the actors into the new level
 	edactPasteSelected( World, false, false, false );
+
+	// Restore new level visibility to previous state
+	if (!bLevelVisible)
+	{
+		EditorLevelUtils::SetLevelVisibility(InDestLevel, false, false);
+	}
 
 	// Restore the original current level
 	World->SetCurrentLevel( OldCurrentLevel );
@@ -5483,10 +5511,6 @@ bool UEditorEngine::Exec( UWorld* InWorld, const TCHAR* Stream, FOutputDevice& A
 	{		
 		bProcessed = HandleCleanBSPMaterialCommand( Str, Ar, InWorld );
 	}
-	else if( FParse::Command(&Str,TEXT("CREATESMFROMBSP")) )
-	{
-		bProcessed = HandleCreateMeshFromBSPCommand( Str, Ar );
-	}
 	else if( FParse::Command(&Str,TEXT("AUTOMERGESM")) )
 	{		
 		bProcessed = HandleAutoMergeStaticMeshCommand( Str, Ar );
@@ -6174,12 +6198,6 @@ bool UEditorEngine::HandleCleanBSPMaterialCommand( const TCHAR* Str, FOutputDevi
 	return true;
 }
 
-bool UEditorEngine::HandleCreateMeshFromBSPCommand( const TCHAR* Str, FOutputDevice& Ar )
-{
-	// TODO_STATICMESH: Remove this command.
-	return true;
-}
-
 bool UEditorEngine::HandleAutoMergeStaticMeshCommand( const TCHAR* Str, FOutputDevice& Ar )
 {
 	AutoMergeStaticMeshes();
@@ -6284,27 +6302,6 @@ bool UEditorEngine::HandleRemoveArchtypeFlagCommand( const TCHAR* Str, FOutputDe
 		}
 	}
 	return true;
-}
-
-UClass* UEditorEngine::GetClassFromPairMap( FString ClassName )
-{
-	UClass* ClassToUse = FindObject<UClass>(ANY_PACKAGE,*ClassName);
-	for( int32 i = 0; i < ClassMapPair.Num(); i++ )
-	{
-		const FString& Str = ClassMapPair[i];
-		int32 DelimIdx = Str.Find(TEXT("/"), ESearchCase::CaseSensitive);
-		if( DelimIdx >= 0 )
-		{
-			const FString Key = Str.Left(DelimIdx);
-			const FString Value = Str.Mid(DelimIdx+1);
-			if( FCString::Stricmp( *ClassName, *Key ) == 0 )
-			{
-				ClassToUse = FindObject<UClass>(ANY_PACKAGE,*Value);
-				break;
-			}
-		}
-	}	
-	return ClassToUse;
 }
 
 /**

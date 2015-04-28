@@ -10,6 +10,7 @@
 #include "Components/InstancedStaticMeshComponent.h"
 #include "InstancedStaticMesh.h"
 #include "../../Renderer/Private/ScenePrivate.h"
+#include "PhysicsSerializer.h"
 
 const int32 InstancedStaticMeshMaxTexCoord = 8;
 
@@ -116,7 +117,9 @@ void FStaticMeshInstanceBuffer::Init(UInstancedStaticMeshComponent* InComponent,
 void FStaticMeshInstanceBuffer::InitFromPreallocatedData(UInstancedStaticMeshComponent* InComponent, FStaticMeshInstanceData& Other)
 {
 	QUICK_SCOPE_CYCLE_COUNTER(STAT_FStaticMeshInstanceBuffer_InitFromPreallocatedData);
+	const uint32 NewNumInstances = Other.Num();
 	AllocateData(Other);
+	NumInstances = NewNumInstances;
 	SetupCPUAccess(InComponent);
 	InstanceData->SetAllowCPUAccess(true);		// GDC demo hack!
 }
@@ -615,9 +618,9 @@ void FInstancedStaticMeshSceneProxy::SetupInstancedMeshBatch(int32 LODIndex, int
 	}
 }
 
-bool FInstancedStaticMeshSceneProxy::GetShadowMeshElement(int32 LODIndex, int32 BatchIndex, uint8 InDepthPriorityGroup, FMeshBatch& OutMeshBatch) const
+bool FInstancedStaticMeshSceneProxy::GetShadowMeshElement(int32 LODIndex, int32 BatchIndex, uint8 InDepthPriorityGroup, FMeshBatch& OutMeshBatch, bool bDitheredLODTransition) const
 {
-	if (LODIndex < InstancedRenderData.VertexFactories.Num() && FStaticMeshSceneProxy::GetShadowMeshElement(LODIndex, BatchIndex, InDepthPriorityGroup, OutMeshBatch))
+	if (LODIndex < InstancedRenderData.VertexFactories.Num() && FStaticMeshSceneProxy::GetShadowMeshElement(LODIndex, BatchIndex, InDepthPriorityGroup, OutMeshBatch, bDitheredLODTransition))
 	{
 		SetupInstancedMeshBatch(LODIndex, BatchIndex, OutMeshBatch);
 		return true;
@@ -729,6 +732,8 @@ UInstancedStaticMeshComponent::UInstancedStaticMeshComponent(const FObjectInitia
 {
 	Mobility = EComponentMobility::Movable;
 	BodyInstance.bSimulatePhysics = false;
+
+	PhysicsSerializer = ObjectInitializer.CreateDefaultSubobject<UPhysicsSerializer>(this, TEXT("PhysicsSerializer"));
 }
 
 #if WITH_EDITOR
@@ -758,11 +763,17 @@ public:
 		{
 			for (FLightMapRef& LightMapRef : CachedStaticLighting.LODDataLightMap)
 			{
-				LightMapRef->AddReferencedObjects(Collector);
+				if (LightMapRef != nullptr)
+				{
+					LightMapRef->AddReferencedObjects(Collector);
+				}
 			}
 			for (FShadowMapRef& ShadowMapRef : CachedStaticLighting.LODDataShadowMap)
 			{
-				ShadowMapRef->AddReferencedObjects(Collector);
+				if (ShadowMapRef != nullptr)
+				{
+					ShadowMapRef->AddReferencedObjects(Collector);
+				}
 			}		
 		}
 	}
@@ -973,10 +984,9 @@ void UInstancedStaticMeshComponent::CreateAllInstanceBodies()
 {
 	QUICK_SCOPE_CYCLE_COUNTER(STAT_UInstancedStaticMeshComponent_CreateAllInstanceBodies);
 
-	UBodySetup* BodySetup = GetBodySetup();
-	if (BodySetup)
+	if (UBodySetup* BodySetup = GetBodySetup())
 	{
-	    int32 NumBodies = PerInstanceSMData.Num();
+	    const int32 NumBodies = PerInstanceSMData.Num();
 	    InstanceBodies.SetNumUninitialized(NumBodies);
     
 	    TArray<FTransform> Transforms;
@@ -991,6 +1001,15 @@ void UInstancedStaticMeshComponent::CreateAllInstanceBodies()
 		    Instance->CopyBodyInstancePropertiesFrom(&BodyInstance);
 		    Instance->InstanceBodyIndex = i; // Set body index 
 		    Instance->bAutoWeld = false;
+
+#if WITH_PHYSX
+			Instance->RigidActorSyncId = i+1;
+
+			if(GetWorld()->GetPhysicsScene()->HasAsyncScene())
+			{
+				Instance->RigidActorAsyncId = Instance->RigidActorSyncId + NumBodies;
+			}
+#endif
     
 		    // make sure we never enable bSimulatePhysics for ISMComps
 		    Instance->bSimulatePhysics = false;
@@ -998,7 +1017,27 @@ void UInstancedStaticMeshComponent::CreateAllInstanceBodies()
 
 		if (NumBodies > 0)
 		{
-			FBodyInstance::InitBodies(InstanceBodies, Transforms, BodySetup, this, GetWorld()->GetPhysicsScene(), nullptr, true);
+			TArray<UBodySetup*> BodySetups;
+			TArray<UPhysicalMaterial*> PhysicalMaterials;
+
+			BodySetups.Add(BodySetup);
+			TWeakObjectPtr<UPrimitiveComponent> WeakSelfPtr(this);
+			FBodyInstance::GetComplexPhysicalMaterials(&BodyInstance, WeakSelfPtr, PhysicalMaterials);
+			PhysicalMaterials.Add(FBodyInstance::GetSimplePhysicalMaterial(&BodyInstance, WeakSelfPtr, TWeakObjectPtr<UBodySetup>(BodySetup)));
+
+			PhysicsSerializer->CreatePhysicsData(BodySetups, PhysicalMaterials);
+			
+			if(Mobility == EComponentMobility::Static)
+			{
+				FBodyInstance::InitStaticBodies(InstanceBodies, Transforms, BodySetup, this, GetWorld()->GetPhysicsScene(), PhysicsSerializer);
+			}else
+			{
+				FBodyInstance::InitBodies(InstanceBodies, Transforms, BodySetup, this, GetWorld()->GetPhysicsScene(), nullptr, true, PhysicsSerializer);
+			}
+			
+
+			//Serialize physics data for fast path cooking
+			PhysicsSerializer->SerializePhysics(InstanceBodies, BodySetups, PhysicalMaterials);
 		}
 	}
 }
@@ -1409,7 +1448,7 @@ bool UInstancedStaticMeshComponent::GetInstanceTransform(int32 InstanceIndex, FT
 	return true;
 }
 
-bool UInstancedStaticMeshComponent::UpdateInstanceTransform(int32 InstanceIndex, const FTransform& NewInstanceTransform, bool bWorldSpace)
+bool UInstancedStaticMeshComponent::UpdateInstanceTransform(int32 InstanceIndex, const FTransform& NewInstanceTransform, bool bWorldSpace, bool bMarkRenderStateDirty)
 {
 	if (!PerInstanceSMData.IsValidIndex(InstanceIndex))
 	{
@@ -1441,7 +1480,10 @@ bool UInstancedStaticMeshComponent::UpdateInstanceTransform(int32 InstanceIndex,
 	PartialNavigationUpdate(InstanceIndex);
 
 	ReleasePerInstanceRenderData();
-	MarkRenderStateDirty();
+	if (bMarkRenderStateDirty)
+	{
+		MarkRenderStateDirty();
+	}
 
 	return true;
 }

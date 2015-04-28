@@ -239,18 +239,14 @@ struct FSlotEvaluationPose
 	/** Pose */
 	UPROPERTY()
 	FA2Pose Pose;
-
-	/** Pointer to Montage Instance */
-	FAnimMontageInstance * MontageInstance;
 	
 	FSlotEvaluationPose()
 	{
 	}
 
-	FSlotEvaluationPose(FAnimMontageInstance * InMontageInstance, float InWeight, EAdditiveAnimationType InAdditiveType)
+	FSlotEvaluationPose(float InWeight, EAdditiveAnimationType InAdditiveType)
 		: AdditiveType(InAdditiveType)
 		, Weight(InWeight)
-		, MontageInstance(InMontageInstance)
 	{
 	}
 };
@@ -350,6 +346,20 @@ struct FMontageActiveSlotTracker
 	bool  bWasRelevantOnPreviousTick;
 
 	FMontageActiveSlotTracker() : RootMotionWeight(0.f), bIsRelevantThisTick(false), bWasRelevantOnPreviousTick(false) {}
+};
+
+struct FMontageEvaluationState
+{
+	FMontageEvaluationState(UAnimMontage* InMontage, float InWeight, float InPosition) : Montage(InMontage), MontageWeight(InWeight), MontagePosition(InPosition) {}
+
+	// The montage to evaluate
+	UAnimMontage* Montage;
+
+	// The weight to use for this montage
+	float MontageWeight;
+
+	// The position to evaluate this montage at
+	float MontagePosition;
 };
 
 UCLASS(transient, Blueprintable, hideCategories=AnimInstance, BlueprintType)
@@ -462,7 +472,8 @@ public:
 
 	/** DEPRECATED. Use PlaySlotAnimationAsDynamicMontage instead, it returns the UAnimMontage created instead of time, allowing more control */
 	/** Play normal animation asset on the slot node. You can only play one asset (whether montage or animsequence) at a time. */
-	UFUNCTION(BlueprintCallable, Category="Animation", Meta = (DeprecatedFunction, DeprecationMessage = "Use PlaySlotAnimationAsDynamicMontage instead"))
+	DEPRECATED(4.9, "This function is deprecated, please use PlaySlotAnimationAsDynamicMontage instead.")
+	UFUNCTION(BlueprintCallable, Category="Animation")
 	float PlaySlotAnimation(UAnimSequenceBase* Asset, FName SlotNodeName, float BlendInTime = 0.25f, float BlendOutTime = 0.25f, float InPlayRate = 1.f, int32 LoopCount = 1);
 
 	/** Play normal animation asset on the slot node by creating a dynamic UAnimMontage. You can only play one asset (whether montage or animsequence) at a time per SlotGroup. */
@@ -591,6 +602,9 @@ public:
 	*/
 	TArray<struct FAnimMontageInstance*> MontageInstances;
 
+	// Cached data for montage evaluation, save us having to access MontageInstances from slot nodes as that isn't thread safe
+	TArray<FMontageEvaluationState> MontageEvaluationData;
+
 	void OnMontageInstanceStopped(FAnimMontageInstance & StoppedMontageInstance);
 
 protected:
@@ -702,6 +716,8 @@ public:
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 	// End UObject Interface
 
+	// Updates the montage data used for evaluation based on the current playing montages
+	void UpdateMontageEvaluationData();
 
 	//@TODO: Better comments
 	virtual void EvaluateAnimation(struct FPoseContext& Output);

@@ -392,6 +392,7 @@ void FMacPlatformMisc::PlatformPostInit(bool ShowSplashScreen)
 	{
 		// No MacApplication means that app is a dedicated server, commandline tool or the editor running a commandlet. In these cases we don't want OS X to put our app into App Nap mode.
 		CommandletActivity = [[NSProcessInfo processInfo] beginActivityWithOptions:NSActivityUserInitiated reason:IsRunningCommandlet() ? @"Running commandlet" : @"Running dedicated server"];
+		[CommandletActivity retain];
 	}
 }
 
@@ -399,7 +400,10 @@ void FMacPlatformMisc::PlatformTearDown()
 {
 	if (CommandletActivity)
 	{
-		[[NSProcessInfo processInfo] endActivity:CommandletActivity];
+		MainThreadCall(^{
+			[[NSProcessInfo processInfo] endActivity:CommandletActivity];
+			[CommandletActivity release];
+		}, NSDefaultRunLoopMode, false);
 		CommandletActivity = nil;
 	}
 	FApplePlatformSymbolication::EnableCoreSymbolication(false);

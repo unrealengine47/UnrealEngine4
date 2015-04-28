@@ -425,6 +425,10 @@ class ENGINE_API ARecastNavMesh : public ANavigationData
 	UPROPERTY(EditAnywhere, Category=Display, config)
 	uint32 bDrawPolyEdges:1;
 
+	/** if disabled skips filling drawn navmesh polygons */
+	UPROPERTY(EditAnywhere, Category = Display)
+	uint32 bDrawFilledPolys:1;
+
 	/** should we draw border-edges */
 	UPROPERTY(EditAnywhere, Category=Display)
 	uint32 bDrawNavMeshEdges:1;
@@ -634,8 +638,12 @@ public:
 	// Recast runtime params
 	//----------------------------------------------------------------------//
 	/** Euclidean distance heuristic scale used while pathfinding */
-	UPROPERTY(EditAnywhere, Category=Pathfinding, config, meta=(ClampMin = "0.1"))
+	UPROPERTY(EditAnywhere, Category = Query, config, meta = (ClampMin = "0.1"))
 	float HeuristicScale;
+
+	/** Value added to each search height to compensate for error between navmesh polys and walkable geometry  */
+	UPROPERTY(EditAnywhere, Category = Query, config, meta = (ClampMin = "0.0"))
+	float VerticalDeviationFromGroundCompensation;
 
 	/** broadcast for navmesh updates */
 	FOnNavMeshUpdate OnNavMeshUpdate;
@@ -677,7 +685,8 @@ public:
 
 	// Begin ANavigationData Interface
 	virtual FNavLocation GetRandomPoint(TSharedPtr<const FNavigationQueryFilter> Filter = NULL, const UObject* Querier = NULL) const override;
-	virtual bool GetRandomPointInRadius(const FVector& Origin, float Radius, FNavLocation& OutResult, TSharedPtr<const FNavigationQueryFilter> Filter = NULL, const UObject* Querier = NULL) const override;
+	virtual bool GetRandomReachablePointInRadius(const FVector& Origin, float Radius, FNavLocation& OutResult, TSharedPtr<const FNavigationQueryFilter> Filter = NULL, const UObject* Querier = NULL) const override;
+	virtual bool GetRandomPointInNavigableRadius(const FVector& Origin, float Radius, FNavLocation& OutResult, TSharedPtr<const FNavigationQueryFilter> Filter = NULL, const UObject* Querier = NULL) const override;
 
 	virtual bool ProjectPoint(const FVector& Point, FNavLocation& OutLocation, const FVector& Extent, TSharedPtr<const FNavigationQueryFilter> Filter = NULL, const UObject* Querier = NULL) const override;
 	
@@ -921,6 +930,10 @@ public:
 	void RebuildTile(const TArray<FIntPoint>& Tiles);
 
 protected:
+
+	/** Returns query extent including adjustments for voxelization error compensation */
+	FVector GetModifiedQueryExtent(const FVector& QueryExtent) const;
+
 	// @todo docuement
 	UPrimitiveComponent* ConstructRenderingComponentImpl();
 

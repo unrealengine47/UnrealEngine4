@@ -11,7 +11,7 @@ class AIMODULE_API UBTDecorator_IsBBEntryOfClass : public UBTDecorator_Blackboar
 	GENERATED_BODY()
 		
 public:
-	UBTDecorator_IsBBEntryOfClass(const FObjectInitializer& ObjectInitializer);
+	UBTDecorator_IsBBEntryOfClass(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 protected:
 
@@ -19,7 +19,7 @@ protected:
 	TSubclassOf<UObject> TestClass;
 
 	virtual bool CalculateRawConditionValue(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory) const override;
-	virtual void OnBlackboardChange(const UBlackboardComponent& Blackboard, FBlackboard::FKey ChangedKeyID) override;
+	virtual EBlackboardNotificationResult OnBlackboardKeyValueChange(const UBlackboardComponent& Blackboard, FBlackboard::FKey ChangedKeyID) override;
 	virtual void DescribeRuntimeValues(const UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, EBTDescriptionVerbosity::Type Verbosity, TArray<FString>& Values) const override;
 	virtual FString GetStaticDescription() const override;
 };

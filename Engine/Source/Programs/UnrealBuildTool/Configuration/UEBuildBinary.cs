@@ -111,25 +111,10 @@ namespace UnrealBuildTool
         public bool bIsCrossTarget = false;
 
         /// <summary>
-		/// If true, the binary is being compiled as a monolithic build
-		/// </summary>
-		public bool bCompileMonolithic = false;
-
-        /// <summary>
 		/// If true, creates an additional console application. Hack for Windows, where it's not possible to conditionally inherit a parent's console Window depending on how
 		/// the application is invoked; you have to link the same executable with a different subsystem setting.
 		/// </summary>
 		public bool bBuildAdditionalConsoleApp = false;
-
-		/// <summary>
-		/// The build target configuration being compiled
-		/// </summary>
-		public UnrealTargetConfiguration TargetConfiguration = UnrealTargetConfiguration.Development;
-
-		/// <summary>
-		/// The name of the target being compiled
-		/// </summary>
-		public string TargetName = "";
 
 		/// <summary>
 		/// The projectfile path
@@ -161,9 +146,6 @@ namespace UnrealBuildTool
 				bool bInAllowCompilation = true,
 				bool bInHasModuleRules = true,
                 bool bInIsCrossTarget = false,
-                bool bInCompileMonolithic = false,
-				UnrealTargetConfiguration InTargetConfiguration = UnrealTargetConfiguration.Development,
-				string InTargetName = "",
 				string InProjectFilePath = "",
 				List<string> InModuleNames = null
 			)
@@ -177,11 +159,11 @@ namespace UnrealBuildTool
 			bAllowCompilation = bInAllowCompilation;
 			bHasModuleRules = bInHasModuleRules;
             bIsCrossTarget = bInIsCrossTarget;
-            bCompileMonolithic = bInCompileMonolithic;
-			TargetConfiguration = InTargetConfiguration;
-			TargetName = InTargetName;
 			ProjectFilePath = InProjectFilePath;
-			ModuleNames = InModuleNames;
+			if(InModuleNames != null)
+			{
+				ModuleNames.AddRange(InModuleNames);
+			}
 		}
 	}
 
@@ -270,11 +252,8 @@ namespace UnrealBuildTool
 		/// Process all modules that aren't yet bound, creating binaries for modules that don't yet have one (if needed),
 		/// and updating modules for circular dependencies.
 		/// </summary>
-		/// <param name="ExecutableBinary">The executable binary, which links against all unbound modules when building monolithically</param>
-		/// <returns>List of newly-created binaries (may be empty)</returns>
-		public virtual List<UEBuildBinary> ProcessUnboundModules(UEBuildBinary ExecutableBinary)
+		public virtual void ProcessUnboundModules()
 		{
-			return null;
 		}
 
 		/// <summary>
@@ -423,11 +402,7 @@ namespace UnrealBuildTool
 	/// </summary>
 	public class UEBuildBinaryCPP : UEBuildBinary
 	{
-		public HashSet<string> ModuleNames
-		{
-			get;
-			private set;
-		}
+		public readonly List<string> ModuleNames;
 		private bool bCreateImportLibrarySeparately;
 		private bool bIncludeDependentLibrariesInLibrary;
 
@@ -438,7 +413,7 @@ namespace UnrealBuildTool
 		public UEBuildBinaryCPP( UEBuildTarget InTarget, UEBuildBinaryConfiguration InConfig )
 			: base( InTarget, InConfig )
 		{
-			ModuleNames = new HashSet<string>(InConfig.ModuleNames);
+			ModuleNames = new List<string>(InConfig.ModuleNames);
 			bCreateImportLibrarySeparately = InConfig.bCreateImportLibrarySeparately;
 			bIncludeDependentLibrariesInLibrary = InConfig.bIncludeDependentLibrariesInLibrary;
 		}
@@ -480,25 +455,6 @@ namespace UnrealBuildTool
 						throw new BuildException("Module \"{0}\" linked into both {1} and {2}, which creates ambiguous linkage for dependents.", ModuleName, Module.Binary.Config.OutputFilePath, Config.OutputFilePath);
 					}
 				}
-
-				// We set whether the binary is being compiled monolithic here to know later - specifically
-				// when we are determining whether to use SharedPCHs or not for static lib builds of plugins.
-				Config.bCompileMonolithic = Target.ShouldCompileMonolithic();
-
-				// We also need to know what the actual build target configuration is later in the process
-				// where we do not have access to the Target itself... This is for generating the paths
-				// to the plugins.
-				Config.TargetConfiguration = Target.Configuration;
-				Config.TargetName = Target.GetAppName();
-
-				if (Module != null && (Target.Rules == null || Target.Rules.bOutputToEngineBinaries == false))
-				{
-					// Fix up the binary path if this is module specifies an alternate output directory
-					for (int Index = 0; Index < Config.OutputFilePaths.Length; Index++ )
-					{
-						Config.OutputFilePaths[Index] = Module.FixupOutputPath(Config.OutputFilePaths[Index]);
-					}
-				}
 			}
 		}
 
@@ -533,43 +489,18 @@ namespace UnrealBuildTool
 		/// Process all modules that aren't yet bound, creating binaries for modules that don't yet have one (if needed),
 		/// and updating modules for circular dependencies.
 		/// </summary>
-		/// <param name="ExecutableBinary">The executable binary, which links against all unbound modules when building monolithically</param>
 		/// <returns>List of newly-created binaries (may be empty)</returns>
-		public override List<UEBuildBinary> ProcessUnboundModules(UEBuildBinary ExecutableBinary)
+		public override void ProcessUnboundModules()
 		{
-			var Binaries = new Dictionary<string, UEBuildBinary>( StringComparer.InvariantCultureIgnoreCase );
 			if (Config.bHasModuleRules)
 			{
-				foreach (var ModuleName in ModuleNames)
+				// Modules may be added to this binary during this process, so don't foreach over ModuleNames
+				for(int Idx = 0; Idx < ModuleNames.Count; Idx++)
 				{
-					var Module = Target.FindOrCreateModuleByName(ModuleName);
-					Module.RecursivelyProcessUnboundModules(Target, Binaries, ExecutableBinary);
+					UEBuildModule Module = Target.FindOrCreateModuleByName(ModuleNames[Idx]);
+					Module.RecursivelyProcessUnboundModules();
 				}
 			}
-			else
-			{
-				// There's only one module in this case, so just bind it to this binary
-				foreach (var ModuleName in ModuleNames)
-				{
-					Binaries.Add(ModuleName, this);
-				}
-			}
-
-			// Now build a final list of newly-created binaries that were bound to.  The hash may contain duplicates, so
-			// we filter those out here.
-			var BinaryList = new List<UEBuildBinary>();
-			foreach( var CurBinary in Binaries.Values )
-			{
-				// Never include ourselves in the new binary list (monolithic case)
-				if( CurBinary != this )
-				{
-					if( !BinaryList.Contains( CurBinary ) )
-					{
-						BinaryList.Add( CurBinary );
-					}
-				}
-			}
-			return BinaryList;
 		}
 
 		/// <summary>
@@ -775,7 +706,7 @@ namespace UnrealBuildTool
 				{
 					// Compile each module.
 					Log.TraceVerbose("Compile module: " + ModuleName);
-					LinkInputFiles = Module.Compile(CompileEnvironment, BinaryCompileEnvironment, Config.bCompileMonolithic);
+					LinkInputFiles = Module.Compile(CompileEnvironment, BinaryCompileEnvironment);
 
 					// NOTE: Because of 'Shared PCHs', in monolithic builds the same PCH file may appear as a link input
 					// multiple times for a single binary.  We'll check for that here, and only add it once.  This avoids
@@ -916,7 +847,6 @@ namespace UnrealBuildTool
 			Action LinkAction = new Action(ActionType.Compile);
 			LinkAction.WorkingDirectory = Path.GetFullPath(".");
 			LinkAction.CommandPath = System.IO.Path.Combine(LinkAction.WorkingDirectory, @"..", @"Binaries", @"Win32", @"NotForLicensees", @"UnrealCodeAnalyzer.exe");
-			LinkAction.bIsVCCompiler = false;
 			LinkAction.ProducedItems.Add(OutputFile);
 			LinkAction.PrerequisiteItems.AddRange(BinaryLinkEnvironment.InputFiles);
 			LinkAction.CommandArguments = @"-AnalyzePCHFile -PCHFile=""" + ModulePrivatePCH.AbsolutePath + @""" -OutputFile=""" + OutputFileName + @""" -HeaderDataPath=""" + IntermediatePath + @""" -UsageThreshold " + BuildConfiguration.UCAUsageThreshold.ToString(CultureInfo.InvariantCulture);

@@ -14,44 +14,18 @@ namespace UAudio
 	 * so we need to support converting byte buffers to and from various formats.
 	 */
 
-	uint32 IUnrealAudioDeviceModule::GetNumBytesForFormat(EStreamFormat::Type Format) const
+	void IUnrealAudioDeviceModule::SetupBufferFormatConvertInfo()
 	{
-		switch (Format)
-		{
-			case EStreamFormat::FLT:		return 4;
-			case EStreamFormat::DBL:		return 8;
-			case EStreamFormat::INT_16:		return 2;
-			case EStreamFormat::INT_24:		return 3;
-			case EStreamFormat::INT_32:		return 4;
-			default:						return 0;
-		}
-	}
+		FBufferFormatConvertInfo& ConvertInfo = StreamInfo.DeviceInfo.BufferFormatConvertInfo;
 
-	void IUnrealAudioDeviceModule::SetupBufferFormatConvertInfo(EStreamType::Type StreamType)
-	{
-		FBufferFormatConvertInfo& ConvertInfo = StreamInfo.GetConvertInfo(StreamType);
-		FStreamDeviceInfo& DeviceInfo = StreamInfo.GetDeviceInfo(StreamType);
-
-		if (StreamType == EStreamType::INPUT)
-		{
-			// Setup the convert info to convert from device channels and format to user channels and format
-			ConvertInfo.FromChannels = DeviceInfo.NumChannels;
-			ConvertInfo.ToChannels = DeviceInfo.NumChannels;
-			ConvertInfo.FromFormat = DeviceInfo.DeviceDataFormat;
-			ConvertInfo.ToFormat = EStreamFormat::FLT;
-		}
-		else
-		{
-			// Setup the convert info to convert from user channels and format to device channels and format
-			ConvertInfo.FromChannels = DeviceInfo.NumChannels;
-			ConvertInfo.ToChannels = DeviceInfo.NumChannels;
-			ConvertInfo.FromFormat = EStreamFormat::FLT;
-			ConvertInfo.ToFormat = DeviceInfo.DeviceDataFormat;
-		}
+		// Setup the convert info to convert from user channels and format to device channels and format
+		ConvertInfo.FromChannels = StreamInfo.DeviceInfo.NumChannels;
+		ConvertInfo.ToChannels = StreamInfo.DeviceInfo.NumChannels;
+		ConvertInfo.FromFormat = EStreamFormat::FLT;
+		ConvertInfo.ToFormat = StreamInfo.DeviceInfo.DeviceDataFormat;
 
 		// For either stream types, set the number of channels to use for the conversion to be the smallest number of channels
 		ConvertInfo.NumChannels = FMath::Min(ConvertInfo.FromChannels, ConvertInfo.ToChannels);
-
 	}
 
 	template <typename FromType, typename ToType>
@@ -196,9 +170,9 @@ namespace UAudio
 		}
 	}
 
-	bool IUnrealAudioDeviceModule::ConvertBufferFormat(TArray<uint8>& ToBuffer, TArray<uint8>& FromBuffer, EStreamType::Type StreamType)
+	bool IUnrealAudioDeviceModule::ConvertBufferFormat(TArray<uint8>& ToBuffer, TArray<uint8>& FromBuffer)
 	{
-		FBufferFormatConvertInfo& ConvertInfo = StreamInfo.GetConvertInfo(StreamType);
+		FBufferFormatConvertInfo& ConvertInfo = StreamInfo.DeviceInfo.BufferFormatConvertInfo;
 
 		switch (ConvertInfo.ToFormat)
 		{

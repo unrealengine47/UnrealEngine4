@@ -49,6 +49,11 @@ class PAPER2D_API UPaperTileMap : public UObject
 	UPROPERTY(Category=Setup, EditAnywhere, BlueprintReadOnly, meta=(UIMin=1, ClampMin=1))
 	int32 TileHeight;
 
+	// The vertical height of the sides of the hex cell for a tile.
+	// Note: This value should already be included as part of the TileHeight, and is purely cosmetic; it only affects how the tile cursor preview is drawn.
+	UPROPERTY(Category=Setup, EditAnywhere, meta=(UIMin=0, ClampMin=0))
+	int32 HexSideLength;
+
 	// The scaling factor between pixels and Unreal units (cm) (e.g., 0.64 would make a 64 pixel wide tile take up 100 cm)
 	UPROPERTY(Category = Setup, EditAnywhere)
 	float PixelsPerUnrealUnit;
@@ -118,6 +123,7 @@ public:
 	// UObject interface
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+	virtual bool CanEditChange(const UProperty* InProperty) const override;
 	virtual void PostLoad() override;
 	void ValidateSelectedLayerIndex();
 #endif
@@ -171,6 +177,13 @@ public:
 	// Called when a fresh tile map has been created (by factory or otherwise)
 	// Adds a default layer and pulls the PixelsPerUnrealUnit from the project settings
 	void InitializeNewEmptyTileMap();
+
+	// Creates a clone of this tile map in the specified outer
+	UPaperTileMap* CloneTileMap(UObject* OuterForClone);
+
+	// Checks to see if this tile map uses the specified tile set
+	// Note: This is a slow operation, it scans each tile of each layer!
+	bool UsesTileSet(UPaperTileSet* TileSet) const;
 
 protected:
 	virtual void UpdateBodySetup();

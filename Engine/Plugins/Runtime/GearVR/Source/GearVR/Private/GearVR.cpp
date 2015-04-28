@@ -198,7 +198,7 @@ void FGearVR::PoseToOrientationAndPosition(const ovrPosef& InPose, FQuat& OutOri
 
 void FGearVR::GetCurrentOrientationAndPosition(FQuat& CurrentOrientation, FVector& CurrentPosition)
 {
-	const ovrSensorState ss = ovrHmd_GetSensorState(OvrHmd, ovr_GetTimeInSeconds() + MotionPredictionInSeconds, true);
+	const ovrSensorState ss = ovr_GetPredictedSensorState(OvrMobile, ovr_GetTimeInSeconds() + MotionPredictionInSeconds);
 	const ovrPosef& pose = ss.Predicted.Pose;
 
 	PoseToOrientationAndPosition(pose, CurrentOrientation, CurrentPosition);
@@ -580,7 +580,12 @@ bool FGearVR::Exec( UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar )
 	}
 	else if (FParse::Command(&Cmd, TEXT("OVRGLOBALMENU")))
 	{
-		ovr_StartPackageActivity(OvrMobile, PUI_CLASS_NAME, PUI_GLOBAL_MENU);
+		// fire off the global menu from the render thread
+		ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(OVRGlobalMenu,
+			FGearVR*, Plugin, this,
+			{
+				Plugin->StartOVRGlobalMenu();
+			});
 	}
 
 	return false;
@@ -735,10 +740,12 @@ void FGearVR::CalculateStereoViewOffset(const EStereoscopicPass StereoPassType, 
 		check(WorldToMeters != 0.f)
 
 		const int idx = (StereoPassType == eSSP_LEFT_EYE) ? 0 : 1;
-		float EyeMul = (StereoPassType == eSSP_LEFT_EYE) ? -1.0f : 1.0f;
-		const float PassEyeOffset = InterpupillaryDistance * EyeMul * 0.5f * WorldToMeters;
+		float EyeMul = (StereoPassType == eSSP_LEFT_EYE) ? -0.5f : 0.5f;
 
-		const FVector TotalOffset = FVector(0, PassEyeOffset, 0);
+		FVector TotalOffset = FVector(0, InterpupillaryDistance * EyeMul, 0);
+		TotalOffset += HeadModel;
+
+		TotalOffset *= WorldToMeters;
 
 		ViewLocation += ViewRotation.Quaternion().RotateVector(TotalOffset);
 
@@ -760,7 +767,7 @@ void FGearVR::CalculateStereoViewOffset(const EStereoscopicPass StereoPassType, 
 
 void FGearVR::ResetOrientationAndPosition(float yaw)
 {
-	const ovrSensorState ss = ovrHmd_GetSensorState(OvrHmd, ovr_GetTimeInSeconds(), true);
+	const ovrSensorState ss = ovr_GetPredictedSensorState(OvrMobile, ovr_GetTimeInSeconds());
 	const ovrPosef& pose = ss.Recorded.Pose;
 	const OVR::Quatf orientation = OVR::Quatf(pose.Orientation);
 
@@ -941,6 +948,7 @@ FGearVR::FGearVR()
 	, IdealScreenPercentage(100.0f)
 	, bAllowFinishCurrentFrame(false)
 	, InterpupillaryDistance(OVR_DEFAULT_IPD)
+	, HeadModel(0.12f, 0.0f, 0.17f)
 	, WorldToMetersScale(100.f)
 	, bWorldToMetersOverride(false)
 	, UserDistanceToScreenModifier(0.f)
@@ -948,6 +956,7 @@ FGearVR::FGearVR()
 	, VFOVInRadians(FMath::DegreesToRadians(90.f))
 	, RenderTargetWidth(2048)
 	, RenderTargetHeight(1024)
+	, MinimumVsyncs(1)
 	, MotionPredictionInSeconds(DEFAULT_PREDICTION_IN_SECONDS)
 	, bChromaAbCorrectionEnabled(true)
 	, bOverride2D(false)
@@ -990,12 +999,16 @@ void FGearVR::Startup()
 	const TCHAR* GearVRSettings = TEXT("GearVR.Settings");
 	int CpuLevel = 2;
 	int GpuLevel = 2;
+	float HeadModelScale = 1.0f;
 	GConfig->GetInt(GearVRSettings, TEXT("CpuLevel"), CpuLevel, GEngineIni);
 	GConfig->GetInt(GearVRSettings, TEXT("GpuLevel"), GpuLevel, GEngineIni);
+	GConfig->GetInt(GearVRSettings, TEXT("MinimumVsyncs"), MinimumVsyncs, GEngineIni);
+	GConfig->GetFloat(GearVRSettings, TEXT("HeadModelScale"), HeadModelScale, GEngineIni);
 
-	UE_LOG(LogHMD, Log, TEXT("GearVR starting with CPU: %d GPU: %d"), CpuLevel, GpuLevel);
+	UE_LOG(LogHMD, Log, TEXT("GearVR starting with CPU: %d GPU: %d MinimumVsyncs: %d"), CpuLevel, GpuLevel, MinimumVsyncs);
 
 	FMemory::Memzero(VrModeParms);
+	VrModeParms.SkipWindowFullscreenReset = true;
 	VrModeParms.AsynchronousTimeWarp = true;
 	VrModeParms.DistortionFileName = NULL;
 	VrModeParms.EnableImageServer = false;
@@ -1003,6 +1016,8 @@ void FGearVR::Startup()
 	VrModeParms.CpuLevel = CpuLevel;
 	VrModeParms.GpuLevel = GpuLevel;
 	VrModeParms.ActivityObject = FJavaWrapper::GameActivityThis;
+
+	HeadModel *= HeadModelScale;
 
 	FPlatformMisc::MemoryBarrier();
 
@@ -1025,7 +1040,7 @@ void FGearVR::Startup()
 	// Uncap fps to enable FPS higher than 62
 	GEngine->bSmoothFrameRate = false;
 
-	pGearVRBridge = new FGearVRBridge(this, RenderTargetWidth, RenderTargetHeight, HFOVInRadians);
+	pGearVRBridge = new FGearVRBridge(this, RenderTargetWidth, RenderTargetHeight, HFOVInRadians, MinimumVsyncs);
 
 	LoadFromIni();
 	SaveSystemValues();
@@ -1070,7 +1085,7 @@ void FGearVR::ApplicationResumeDelegate()
 	FPlatformMisc::LowLevelOutputDebugString(TEXT("+++++++ GEARVR APP RESUME ++++++"));
 	if(!pGearVRBridge)
 	{
-		pGearVRBridge = new FGearVRBridge(this, RenderTargetWidth, RenderTargetHeight, HFOVInRadians);
+		pGearVRBridge = new FGearVRBridge(this, RenderTargetWidth, RenderTargetHeight, HFOVInRadians, MinimumVsyncs);
 	}
 }
 
@@ -1255,8 +1270,6 @@ void FGearVR::PreRenderView_RenderThread(FSceneView& View)
 	if (!RenderParams_RenderThread.ShowFlags.Rendering)
 		return;
 
-	const ovrEyeType eyeIdx = (View.StereoPass == eSSP_LEFT_EYE) ? ovrEye_Left : ovrEye_Right;
-
 	FQuat	CurrentHmdOrientation = RenderParams_RenderThread.CurHmdOrientation;
 	FVector	CurrentHmdPosition = RenderParams_RenderThread.CurHmdPosition;
 
@@ -1276,7 +1289,7 @@ void FGearVR::PreRenderView_RenderThread(FSceneView& View)
 	}
 }
 
-void FGearVR::PreRenderViewFamily_RenderThread(FSceneViewFamily& ViewFamily)
+void FGearVR::PreRenderViewFamily_RenderThread(FRHICommandListImmediate& RHICmdList, FSceneViewFamily& ViewFamily)
 {
 	check(IsInRenderingThread());
 
@@ -1296,7 +1309,7 @@ void FGearVR::PreRenderViewFamily_RenderThread(FSceneViewFamily& ViewFamily)
 	{
 		Lock::Locker lock(&UpdateOnRTLock);
 
-		const ovrSensorState ss = ovrHmd_GetSensorState(OvrHmd, ovr_GetTimeInSeconds(), true);
+		const ovrSensorState ss = ovr_GetPredictedSensorState(OvrMobile, ovr_GetTimeInSeconds());
 		const ovrPosef& pose = ss.Predicted.Pose;
 
 		PoseToOrientationAndPosition(pose, RenderParams_RenderThread.CurHmdOrientation, RenderParams_RenderThread.CurHmdPosition);
@@ -1393,6 +1406,16 @@ void FGearVR::ShutdownRendering()
 	}
 }
 
+void FGearVR::StartOVRGlobalMenu()
+{
+	check(IsInRenderingThread());
+
+	if (OvrMobile)
+	{
+		ovr_StartSystemActivity(OvrMobile, PUI_GLOBAL_MENU, NULL);
+	}
+}
+
 void FGearVR::UpdateViewport(bool bUseSeparateRenderTarget, const FViewport& InViewport, SViewport* ViewportWidget)
 {
 	check(IsInGameThread());
@@ -1430,12 +1453,13 @@ void FGearVR::UpdateViewport(bool bUseSeparateRenderTarget, const FViewport& InV
 }
 
 
-FGearVR::FGearVRBridge::FGearVRBridge(FGearVR* plugin, uint32 RenderTargetWidth, uint32 RenderTargetHeight, float FOV) :
+FGearVR::FGearVRBridge::FGearVRBridge(FGearVR* plugin, uint32 RenderTargetWidth, uint32 RenderTargetHeight, float FOV, int MinimumVsyncs) :
 	FRHICustomPresent(nullptr),
 	Plugin(plugin), 
 	bInitialized(false),
 	RenderTargetWidth(RenderTargetWidth),
 	RenderTargetHeight(RenderTargetHeight),
+	MinimumVsyncs(MinimumVsyncs),
 	FOV(FOV)
 {
 	Init();
@@ -1528,6 +1552,7 @@ void FGearVR::FGearVRBridge::FinishRendering()
 			glBindTexture(GL_TEXTURE_2D, 0 );
 
 			ovr_WarpSwap(Plugin->OvrMobile, &SwapParms);
+			ovr_HandleDeviceStateChanges(Plugin->OvrMobile);
 			CurrentSwapChainIndex = (CurrentSwapChainIndex + 1) % 3;
 		}
 	}
@@ -1549,6 +1574,9 @@ void FGearVR::FGearVRBridge::Init()
 			SwapChainTextures[Eye][i] = 0;
 		}
 	}
+
+	SwapParms = InitTimeWarpParms();
+	SwapParms.MinimumVsyncs = MinimumVsyncs;
 }
 
 void FGearVR::FGearVRBridge::Reset()
@@ -1582,13 +1610,13 @@ void FGearVR::FGearVRBridge::UpdateViewport(const FViewport& Viewport, FRHIViewp
 	GLuint RTTexId = *(GLuint*)RT->GetNativeResource();
 
 	FMatrix ProjMat = Plugin->GetStereoProjectionMatrix(eSSP_LEFT_EYE, 90.0f);
-	const Matrix4f proj = Plugin->ToMatrix4f(ProjMat);
+	const ovrMatrix4f proj = Plugin->ToMatrix4f(ProjMat);
  //	const Matrix4f proj = Matrix4f::PerspectiveRH( FOV, 1.0f, 1.0f, 100.0f);
- 	SwapParms.Images[0][0].TexCoordsFromTanAngles = TanAngleMatrixFromProjection( proj );
+ 	SwapParms.Images[0][0].TexCoordsFromTanAngles = TanAngleMatrixFromProjection( &proj );
 // 	SwapParms.Images[0][0].TexId = RTTexId;
 // 	SwapParms.Images[0][0].Pose = Plugin->RenderParams_RenderThread.EyeRenderPose[0];
 // 
- 	SwapParms.Images[1][0].TexCoordsFromTanAngles = TanAngleMatrixFromProjection( proj );
+ 	SwapParms.Images[1][0].TexCoordsFromTanAngles = TanAngleMatrixFromProjection( &proj );
 // 	SwapParms.Images[1][0].TexId = RTTexId;
 // 	SwapParms.Images[1][0].Pose = Plugin->RenderParams_RenderThread.EyeRenderPose[1];
 

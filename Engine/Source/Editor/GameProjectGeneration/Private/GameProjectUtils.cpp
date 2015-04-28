@@ -2,7 +2,6 @@
 
 
 #include "GameProjectGenerationPrivatePCH.h"
-
 #include "FeaturedClasses.inl"
 
 #include "UnrealEdMisc.h"
@@ -29,6 +28,8 @@
 #include "SVerbChoiceDialog.h"
 #include "SourceCodeNavigation.h"
 ///#include "AssetToolsModule.h"
+
+#include "SOutputLogDialog.h"
 
 #define LOCTEXT_NAMESPACE "GameProjectUtils"
 
@@ -956,9 +957,9 @@ bool GameProjectUtils::IsValidBaseClassForCreation_Internal(const UClass* InClas
 	return !bIsBlueprintClass && (!bNeedsAPI || bHasAPI) && !bIsInterface;
 }
 
-bool GameProjectUtils::AddCodeToProject(const FString& NewClassName, const FString& NewClassPath, const FModuleContextInfo& ModuleInfo, const FNewClassInfo ParentClassInfo, const TSet<FString>& DisallowedHeaderNames, FString& OutHeaderFilePath, FString& OutCppFilePath, FText& OutFailReason)
+GameProjectUtils::EAddCodeToProjectResult GameProjectUtils::AddCodeToProject(const FString& NewClassName, const FString& NewClassPath, const FModuleContextInfo& ModuleInfo, const FNewClassInfo ParentClassInfo, const TSet<FString>& DisallowedHeaderNames, FString& OutHeaderFilePath, FString& OutCppFilePath, FText& OutFailReason)
 {
-	const bool bAddCodeSuccessful = AddCodeToProject_Internal(NewClassName, NewClassPath, ModuleInfo, ParentClassInfo, DisallowedHeaderNames, OutHeaderFilePath, OutCppFilePath, OutFailReason);
+	const EAddCodeToProjectResult Result = AddCodeToProject_Internal(NewClassName, NewClassPath, ModuleInfo, ParentClassInfo, DisallowedHeaderNames, OutHeaderFilePath, OutCppFilePath, OutFailReason);
 
 	if( FEngineAnalytics::IsAvailable() )
 	{
@@ -966,12 +967,13 @@ bool GameProjectUtils::AddCodeToProject(const FString& NewClassName, const FStri
 
 		TArray<FAnalyticsEventAttribute> EventAttributes;
 		EventAttributes.Add(FAnalyticsEventAttribute(TEXT("ParentClass"), ParentClassName.IsEmpty() ? TEXT("None") : ParentClassName));
-		EventAttributes.Add(FAnalyticsEventAttribute(TEXT("Outcome"), bAddCodeSuccessful ? TEXT("Successful") : TEXT("Failed")));
+		EventAttributes.Add(FAnalyticsEventAttribute(TEXT("Outcome"), Result == EAddCodeToProjectResult::Succeeded ? TEXT("Successful") : TEXT("Failed")));
+		EventAttributes.Add(FAnalyticsEventAttribute(TEXT("FailureReason"), OutFailReason.ToString()));
 
 		FEngineAnalytics::GetProvider().RecordEvent( TEXT( "Editor.AddCodeToProject.CodeAdded" ), EventAttributes );
 	}
 
-	return bAddCodeSuccessful;
+	return Result;
 }
 
 UTemplateProjectDefs* GameProjectUtils::LoadTemplateDefs(const FString& ProjectDirectory)
@@ -1763,6 +1765,23 @@ bool GameProjectUtils::GenerateConfigFiles(const FProjectInformation& InProjectI
 		}
 	}
 
+	// DefaultGame.ini
+	{
+		const FString DefaultGameIniFilename = ProjectConfigPath / TEXT("DefaultGame.ini");
+		FString FileContents;
+		FileContents += TEXT("[/Script/EngineSettings.GeneralProjectSettings]") LINE_TERMINATOR;
+		FileContents += TEXT("ProjectID=") + FGuid::NewGuid().ToString() + LINE_TERMINATOR;
+
+		if (WriteOutputFile(DefaultGameIniFilename, FileContents, OutFailReason))
+		{
+			OutCreatedFiles.Add(DefaultGameIniFilename);
+		}
+		else
+		{
+			return false;
+		}
+	}
+
 	return true;
 }
 
@@ -1935,15 +1954,10 @@ bool GameProjectUtils::BuildCodeProject(const FString& ProjectFilename)
 
 		TArray<FText> CompileFailedButtons;
 		int32 OpenIDEButton = CompileFailedButtons.Add(FText::Format(LOCTEXT("CompileFailedOpenIDE", "Open with {0}"), DevEnvName));
-		int32 ViewLogButton = CompileFailedButtons.Add(LOCTEXT("CompileFailedViewLog", "View build log"));
 		CompileFailedButtons.Add(LOCTEXT("CompileFailedCancel", "Cancel"));
 
-		int32 CompileFailedChoice = SVerbChoiceDialog::ShowModal(LOCTEXT("ProjectUpgradeTitle", "Project Conversion Failed"), FText::Format(LOCTEXT("ProjectUpgradeCompileFailed", "The project failed to compile with this version of the engine. Would you like to open the project in {0}?"), DevEnvName), CompileFailedButtons);
-		if(CompileFailedChoice == ViewLogButton)
-		{
-			CompileFailedButtons.RemoveAt(ViewLogButton);
-			CompileFailedChoice = SVerbChoiceDialog::ShowModal(LOCTEXT("ProjectUpgradeTitle", "Project Conversion Failed"), FText::Format(LOCTEXT("ProjectUpgradeCompileFailed", "The project failed to compile with this version of the engine. Build output is as follows:\n\n{0}"), FText::FromString(OutputLog)), CompileFailedButtons);
-		}
+		FText LogText = FText::FromString(OutputLog.Replace(LINE_TERMINATOR, TEXT("\n")).TrimTrailing());
+		int32 CompileFailedChoice = SOutputLogDialog::Open(LOCTEXT("CompileFailedTitle", "Compile Failed"), FText::Format(LOCTEXT("CompileFailedHeader", "The project could not be compiled. Would you like to open it in {0}?"), DevEnvName), LogText, FText::GetEmpty(), CompileFailedButtons);
 
 		FText FailReason;
 		if(CompileFailedChoice == OpenIDEButton && !GameProjectUtils::OpenCodeIDE(ProjectFilename, FailReason))
@@ -2958,12 +2972,12 @@ TArray<FString> GameProjectUtils::GetRequiredAdditionalDependencies(const FNewCl
 	return Out;
 }
 
-bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, const FString& NewClassPath, const FModuleContextInfo& ModuleInfo, const FNewClassInfo ParentClassInfo, const TSet<FString>& DisallowedHeaderNames, FString& OutHeaderFilePath, FString& OutCppFilePath, FText& OutFailReason)
+GameProjectUtils::EAddCodeToProjectResult GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, const FString& NewClassPath, const FModuleContextInfo& ModuleInfo, const FNewClassInfo ParentClassInfo, const TSet<FString>& DisallowedHeaderNames, FString& OutHeaderFilePath, FString& OutCppFilePath, FText& OutFailReason)
 {
 	if ( !ParentClassInfo.IsSet() )
 	{
 		OutFailReason = LOCTEXT("NoParentClass", "You must specify a parent class");
-		return false;
+		return EAddCodeToProjectResult::InvalidInput;
 	}
 
 	const FString CleanClassName = ParentClassInfo.GetCleanClassName(NewClassName);
@@ -2971,20 +2985,20 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 
 	if (!IsValidClassNameForCreation(FinalClassName, ModuleInfo, DisallowedHeaderNames, OutFailReason))
 	{
-		return false;
+		return EAddCodeToProjectResult::InvalidInput;
 	}
 
 	if ( !FApp::HasGameName() )
 	{
 		OutFailReason = LOCTEXT("AddCodeToProject_NoGameName", "You can not add code because you have not loaded a project.");
-		return false;
+		return EAddCodeToProjectResult::FailedToAddCode;
 	}
 
 	FString NewHeaderPath;
 	FString NewCppPath;
 	if ( !CalculateSourcePaths(NewClassPath, ModuleInfo, NewHeaderPath, NewCppPath, &OutFailReason) )
 	{
-		return false;
+		return EAddCodeToProjectResult::FailedToAddCode;
 	}
 
 	FScopedSlowTask SlowTask( 7, LOCTEXT( "AddingCodeToProject", "Adding code to project..." ) );
@@ -3018,7 +3032,7 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 		else
 		{
 			DeleteCreatedFiles(SourceDir, CreatedFiles);
-			return false;
+			return EAddCodeToProjectResult::FailedToAddCode;
 		}
 	}
 
@@ -3050,7 +3064,7 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 		else
 		{
 			DeleteCreatedFiles(NewHeaderPath, CreatedFiles);
-			return false;
+			return EAddCodeToProjectResult::FailedToAddCode;
 		}
 	}
 
@@ -3067,7 +3081,7 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 		else
 		{
 			DeleteCreatedFiles(NewCppPath, CreatedFiles);
-			return false;
+			return EAddCodeToProjectResult::FailedToAddCode;
 		}
 	}
 
@@ -3099,7 +3113,7 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 		if ( !FDesktopPlatformModule::Get()->GenerateProjectFiles(FPaths::RootDir(), FPaths::GetProjectFilePath(), GWarn) )
 		{
 			OutFailReason = LOCTEXT("FailedToGenerateProjectFiles", "Failed to generate project files.");
-			return false;
+			return EAddCodeToProjectResult::FailedToHotReload;
 		}
 	}
 
@@ -3130,13 +3144,13 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 		if (!HotReloadSupport.RecompileModule(*GameModuleName, bReloadAfterCompiling, *GWarn, bFailIfGeneratedCodeChanges, bForceCodeProject))
 		{
 			OutFailReason = LOCTEXT("FailedToCompileNewGameModule", "Failed to compile newly created game module.");
-			return false;
+			return EAddCodeToProjectResult::FailedToHotReload;
 		}
 
 		// Notify that we've created a brand new module
 		FSourceCodeNavigation::AccessOnNewModuleAdded().Broadcast(*GameModuleName);
 	}
-	else if (GEditor->AccessEditorUserSettings().bAutomaticallyHotReloadNewClasses)
+	else if (GetDefault<UEditorPerProjectUserSettings>()->bAutomaticallyHotReloadNewClasses)
 	{
 		FModuleStatus ModuleStatus;
 		const FName ModuleFName = *ModuleInfo.ModuleName;
@@ -3168,7 +3182,7 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 				if( CompilationResult != ECompilationResult::Succeeded && CompilationResult != ECompilationResult::UpToDate )
 				{
 					OutFailReason = FText::Format(LOCTEXT("FailedToHotReloadModuleFmt", "Failed to automatically hot reload the '{0}' module."), FText::FromString(ModuleInfo.ModuleName));
-					return false;
+					return EAddCodeToProjectResult::FailedToHotReload;
 				}
 			}
 			else
@@ -3180,13 +3194,13 @@ bool GameProjectUtils::AddCodeToProject_Internal(const FString& NewClassName, co
 				if (!HotReloadSupport.RecompileModule(ModuleFName, bReloadAfterRecompile, *GWarn, bFailIfGeneratedCodeChanges, bForceCodeProject))
 				{
 					OutFailReason = FText::Format(LOCTEXT("FailedToCompileModuleFmt", "Failed to automatically compile the '{0}' module."), FText::FromString(ModuleInfo.ModuleName));
-					return false;
+					return EAddCodeToProjectResult::FailedToHotReload;
 				}
 			}
 		}
 	}
 
-	return true;
+	return EAddCodeToProjectResult::Succeeded;
 }
 
 bool GameProjectUtils::FindSourceFileInProject(const FString& InFilename, const FString& InSearchPath, FString& OutPath)

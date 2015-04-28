@@ -7,6 +7,7 @@
 #include "IProjectManager.h"
 #include "HotReloadInterface.h"
 #include "SourceCodeNavigation.h"
+#include "IPluginManager.h"
 
 TSharedRef<FNativeClassHierarchyNode> FNativeClassHierarchyNode::MakeFolderEntry(FName InEntryName, FString InEntryPath)
 {
@@ -488,9 +489,9 @@ TMap<FName, FName> FNativeClassHierarchy::GetPluginModules()
 	TMap<FName, FName> PluginModules;
 	{
 		TArray<FPluginStatus> Plugins = PluginManager.QueryStatusForAllPlugins();
-		for(const auto& Plugin : Plugins)
+		for(const FPluginStatus& Plugin: Plugins)
 		{
-			for(const auto& PluginModule : Plugin.Modules)
+			for(const FModuleDescriptor& PluginModule: Plugin.Descriptor.Modules)
 			{
 				PluginModules.Add(PluginModule.Name, FName(*Plugin.Name));
 			}

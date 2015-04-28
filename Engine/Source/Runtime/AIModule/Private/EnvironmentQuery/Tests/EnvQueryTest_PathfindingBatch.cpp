@@ -142,15 +142,16 @@ void UEnvQueryTest_PathfindingBatch::RunTest(FEnvQueryInstance& QueryInstance) c
 		}
 	}
 
+	int32 ProjectedItemIdx = 0;
 	if (GetWorkOnFloatValues())
 	{
 		NodePoolHelpers::PathParamFunc Func[] = { nullptr, NodePoolHelpers::GetPathCost, NodePoolHelpers::GetPathLength };
 		FEnvQueryInstance::ItemIterator It(this, QueryInstance);
-		for (It.IgnoreTimeLimit(); It; ++It)
+		for (It.IgnoreTimeLimit(); It; ++It, ProjectedItemIdx++)
 		{
 			for (int32 ContextIndex = 0; ContextIndex < ContextLocations.Num(); ContextIndex++)
 			{
-				const float PathValue = Func[TestMode](NodePoolData[ContextIndex], TestPoints[*It], NavQueryFilter);
+				const float PathValue = Func[TestMode](NodePoolData[ContextIndex], TestPoints[ProjectedItemIdx], NavQueryFilter);
 				It.SetScore(TestPurpose, FilterType, PathValue, MinThresholdValue, MaxThresholdValue);
 
 				if (bDiscardFailed && PathValue >= BIG_NUMBER)
@@ -163,11 +164,11 @@ void UEnvQueryTest_PathfindingBatch::RunTest(FEnvQueryInstance& QueryInstance) c
 	else
 	{
 		FEnvQueryInstance::ItemIterator It(this, QueryInstance);
-		for (It.IgnoreTimeLimit(); It; ++It)
+		for (It.IgnoreTimeLimit(); It; ++It, ProjectedItemIdx++)
 		{
 			for (int32 ContextIndex = 0; ContextIndex < ContextLocations.Num(); ContextIndex++)
 			{
-				const bool bFoundPath = NodePoolHelpers::HasPath(NodePoolData[ContextIndex], TestPoints[*It]);
+				const bool bFoundPath = NodePoolHelpers::HasPath(NodePoolData[ContextIndex], TestPoints[ProjectedItemIdx]);
 				It.SetScore(TestPurpose, FilterType, bFoundPath, bWantsPath);
 			}
 		}

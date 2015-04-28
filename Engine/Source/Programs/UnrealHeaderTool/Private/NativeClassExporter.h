@@ -31,6 +31,7 @@ namespace EExportFunctionType
 class FClass;
 class FClasses;
 class FModuleClasses;
+class FScope;
 
 // These are declared in this way to allow swapping out the classes for something more optimized in the future
 typedef FStringOutputDevice FUHTStringBuilder;
@@ -75,10 +76,9 @@ private:
 	FUHTStringBuilder InClassNoPureDeclsMacroCalls;
 	FUHTStringBuilder StandardUObjectConstructorsMacroCall;
 	FUHTStringBuilder EnhancedUObjectConstructorsMacroCall;
-	FUHTStringBuilder StaticChecks;
 
 	/** Generated function implementations that belong in the cpp file, split into multiple files base on line count **/
-	TArray<FUHTStringBuilderLineCounter> GeneratedFunctionBodyTextSplit;
+	TArray<TUniqueObj<FUHTStringBuilderLineCounter>> GeneratedFunctionBodyTextSplit;
 	/** Declarations of generated functions for this module**/
 	FUHTStringBuilder GeneratedFunctionDeclarations;
 	/** Declarations of generated functions for cross module**/
@@ -376,14 +376,15 @@ private:
 	void ExportNativeFunctionHeader(const FFuncInfo& FunctionData, FUHTStringBuilder& HeaderOutput, EExportFunctionType::Type FunctionType, EExportFunctionHeaderStyle::Type FunctionHeaderStyle, const TCHAR* ExtraParam = NULL);
 
 	/**
-	* Exports checks if function exists
+	* Runs checks whether necessary RPC functions exist for function described by FunctionData.
 	*
 	* @param	FunctionData			Data representing the function to export.
-	* @param	CheckClasses			Where to write the member check classes.
-	* @param	StaticChecks			Where to write the static asserts throwing errors when function doesn't exist.
 	* @param	ClassName				Name of currently parsed class.
+	* @param	ImplementationPosition	Position in source file of _Implementation function for function described by FunctionData.
+	* @param	ValidatePosition		Position in source file of _Validate function for function described by FunctionData.
+	* @param	SourceFile				Currently analyzed source file.
 	*/
-	void ExportFunctionChecks(const FFuncInfo& FunctionData, FUHTStringBuilder& CheckClasses, FUHTStringBuilder& StaticChecks, const FString& ClassName);
+	void CheckRPCFunctions(const FFuncInfo& FunctionData, const FString& ClassName, int32 ImplementationPosition, int32 ValidatePosition, const FUnrealSourceFile& SourceFile);
 
 	/**
 	 * Exports the native stubs for the list of functions specified
@@ -550,4 +551,13 @@ public:
 	* @return FString with function parameters.
 	*/
 	FString GetFunctionParameterString(UFunction* Function);
+
+	/**
+	 * Checks if function is missing "virtual" specifier.
+	 * 
+	 * @param SourceFile SourceFile where function is declared.
+	 * @param FunctionNamePosition Position of name of function in SourceFile.
+	 * @return true if function misses "virtual" specifier, false otherwise.
+	 */
+	bool IsMissingVirtualSpecifier(const FString& SourceFile, int32 FunctionNamePosition) const;
 };

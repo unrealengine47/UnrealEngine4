@@ -121,7 +121,7 @@ private_subobject:
 
 public:
 
-	AAIController(const FObjectInitializer& ObjectInitializer);
+	AAIController(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	/** Event called when PossessedPawn is possessed by this controller. */
 	UFUNCTION(BlueprintImplementableEvent)
@@ -334,6 +334,11 @@ public:
 	// IAIPerceptionListenerInterface
 	//----------------------------------------------------------------------//
 	virtual UAIPerceptionComponent* GetPerceptionComponent() override { return GetAIPerceptionComponent(); }
+
+	//----------------------------------------------------------------------//
+	// INavAgentInterface
+	//----------------------------------------------------------------------//
+	virtual bool IsFollowingAPath() const override;
 
 	//----------------------------------------------------------------------//
 	// Actions

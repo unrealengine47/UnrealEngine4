@@ -2,7 +2,12 @@
 
 #include "UnrealEd.h"
 #include "DataTableEditorUtils.h"
+#include "DataTableUtils.h"
+#include "ScopedTransaction.h"
 #include "K2Node_GetDataTableRow.h"
+#include "Engine/UserDefinedStruct.h"
+
+#define LOCTEXT_NAMESPACE "DataTableEditorUtils"
 
 FDataTableEditorUtils::FDataTableEditorManager& FDataTableEditorUtils::FDataTableEditorManager::Get()
 {
@@ -15,6 +20,8 @@ bool FDataTableEditorUtils::RemoveRow(UDataTable* DataTable, FName Name)
 	bool bResult = false;
 	if (DataTable && DataTable->RowStruct)
 	{
+		const FScopedTransaction Transaction(LOCTEXT("RemoveDataTableRow", "Remove Data Table Row"));
+
 		BroadcastPreChange(DataTable, EDataTableChangeInfo::RowList);
 		DataTable->Modify();
 		uint8* RowData = NULL;
@@ -39,6 +46,9 @@ uint8* FDataTableEditorUtils::AddRow(UDataTable* DataTable, FName RowName)
 	{
 		return NULL;
 	}
+
+	const FScopedTransaction Transaction(LOCTEXT("AddDataTableRow", "Add Data Table Row"));
+
 	BroadcastPreChange(DataTable, EDataTableChangeInfo::RowList);
 	DataTable->Modify();
 	// Allocate data to store information, using UScriptStruct to know its size
@@ -62,6 +72,8 @@ bool FDataTableEditorUtils::RenameRow(UDataTable* DataTable, FName OldName, FNam
 	bool bResult = false;
 	if (DataTable)
 	{
+		const FScopedTransaction Transaction(LOCTEXT("RenameDataTableRow", "Rename Data Table Row"));
+
 		BroadcastPreChange(DataTable, EDataTableChangeInfo::RowList);
 		DataTable->Modify();
 
@@ -136,6 +148,8 @@ bool FDataTableEditorUtils::MoveRow(UDataTable* DataTable, FName RowName, ERowMo
 		NamesToNewIndex.Add(OrderedRowNames[NameIndex], NameIndex);
 	}
 
+	const FScopedTransaction Transaction(LOCTEXT("MoveDataTableRow", "Move Data Table Row"));
+
 	BroadcastPreChange(DataTable, EDataTableChangeInfo::RowList);
 	DataTable->Modify();
 
@@ -169,6 +183,68 @@ void FDataTableEditorUtils::BroadcastPostChange(UDataTable* DataTable, EDataTabl
 	FDataTableEditorManager::Get().PostChange(DataTable, Info);
 }
 
+void FDataTableEditorUtils::CacheDataTableForEditing(const UDataTable* DataTable, TArray<FDataTableEditorColumnHeaderDataPtr>& OutAvailableColumns, TArray<FDataTableEditorRowListViewDataPtr>& OutAvailableRows)
+{
+	if (!DataTable || !DataTable->RowStruct)
+	{
+		OutAvailableColumns.Empty();
+		OutAvailableRows.Empty();
+		return;
+	}
+
+	// First build array of properties
+	TArray<const UProperty*> StructProps;
+	for (TFieldIterator<const UProperty> It(DataTable->RowStruct); It; ++It)
+	{
+		const UProperty* Prop = *It;
+		check(Prop);
+		StructProps.Add(Prop);
+	}
+
+	TSharedRef<FSlateFontMeasure> FontMeasure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
+	const FTextBlockStyle& CellTextStyle = FEditorStyle::GetWidgetStyle<FTextBlockStyle>("DataTableEditor.CellText");
+	static const float CellPadding = 10.0f;
+
+	// Populate the column data
+	OutAvailableColumns.Reset(StructProps.Num());
+	for (const UProperty* Prop : StructProps)
+	{
+		FDataTableEditorColumnHeaderDataPtr CachedColumnData = MakeShareable(new FDataTableEditorColumnHeaderData());
+		CachedColumnData->ColumnId = Prop->GetFName();
+		CachedColumnData->DisplayName = FText::FromString(DataTableUtils::GetPropertyDisplayName(Prop, Prop->GetName()));
+		CachedColumnData->DesiredColumnWidth = FontMeasure->Measure(CachedColumnData->DisplayName, CellTextStyle.Font).X + CellPadding;
+
+		OutAvailableColumns.Add(CachedColumnData);
+	}
+
+	// Populate the row data
+	OutAvailableRows.Reset(DataTable->RowMap.Num());
+	for (auto RowIt = DataTable->RowMap.CreateConstIterator(); RowIt; ++RowIt)
+	{
+		FDataTableEditorRowListViewDataPtr CachedRowData = MakeShareable(new FDataTableEditorRowListViewData());
+		CachedRowData->RowId = RowIt->Key;
+		CachedRowData->DisplayName = FText::FromName(RowIt->Key);
+
+		CachedRowData->CellData.Reserve(StructProps.Num());
+		{
+			uint8* RowData = RowIt.Value();
+			for (int32 ColumnIndex = 0; ColumnIndex < StructProps.Num(); ++ColumnIndex)
+			{
+				const UProperty* Prop = StructProps[ColumnIndex];
+				FDataTableEditorColumnHeaderDataPtr CachedColumnData = OutAvailableColumns[ColumnIndex];
+
+				const FText CellText = FText::FromString(DataTableUtils::GetPropertyValueAsString(Prop, RowData));
+				CachedRowData->CellData.Add(CellText);
+
+				const float CellWidth = FontMeasure->Measure(CellText, CellTextStyle.Font).X + CellPadding;
+				CachedColumnData->DesiredColumnWidth = FMath::Max(CachedColumnData->DesiredColumnWidth, CellWidth);
+			}
+		}
+
+		OutAvailableRows.Add(CachedRowData);
+	}
+}
+
 TArray<UScriptStruct*> FDataTableEditorUtils::GetPossibleStructs()
 {
 	TArray< UScriptStruct* > RowStructs;
@@ -191,3 +267,5 @@ TArray<UScriptStruct*> FDataTableEditorUtils::GetPossibleStructs()
 	}
 	return RowStructs;
 }
+
+#undef LOCTEXT_NAMESPACE

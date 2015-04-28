@@ -87,6 +87,19 @@ struct FMeshMergingSettings
 	
 	/** Whether merged mesh should have pivot at world origin, or at first merged component otherwise */
 	bool bPivotPointAtZero;
+
+	/** Whether to merge source materials into one flat material */
+	bool bMergeMaterials;
+	/** Whether to export normal maps for material merging */
+	bool bExportNormalMap;
+	/** Whether to export metallic maps for material merging */
+	bool bExportMetallicMap;
+	/** Whether to export roughness maps for material merging */
+	bool bExportRoughnessMap;
+	/** Whether to export specular maps for material merging */
+	bool bExportSpecularMap;
+	/** Merged material texture atlas resolution */
+	int32 MergedMaterialAtlasResolution;
 		
 	/** Default settings. */
 	FMeshMergingSettings()
@@ -95,6 +108,12 @@ struct FMeshMergingSettings
 		, TargetLightMapResolution(256)
 		, bImportVertexColors(false)
 		, bPivotPointAtZero(false)
+		, bMergeMaterials(false)
+		, bExportNormalMap(true)
+		, bExportMetallicMap(false)
+		, bExportRoughnessMap(false)
+		, bExportSpecularMap(false)
+		, MergedMaterialAtlasResolution(1024)
 	{
 	}
 };
@@ -212,16 +231,22 @@ public:
 	 *
 	 * @param SourceActors				List of actors to merge
 	 * @param InSettings				Settings to use
-	 * @param PackageName				Destination package name for a generated assets
+	 * @param InOuter					Outer if required
+	 * @param InBasePackageName			Destination package name for a generated assets. Used if Outer is null. 
+	 * @param UseLOD					-1 if you'd like to build for all LODs. If you specify, that LOD mesh for source meshes will be used to merge the mesh
+	 *									This is used by hierarchical building LODs
 	 * @param OutAssetsToSync			Merged mesh assets
 	 * @param OutMergedActorLocation	World position of merged mesh
 	 */
 	virtual void MergeActors(
 		const TArray<AActor*>& SourceActors,
 		const FMeshMergingSettings& InSettings,
-		const FString& PackageName, 
+		UPackage* InOuter,
+		const FString& InBasePackageName,
+		int32 UseLOD, // does not build all LODs but only use this LOD to create base mesh
 		TArray<UObject*>& OutAssetsToSync, 
-		FVector& OutMergedActorLocation) const = 0;
+		FVector& OutMergedActorLocation, 
+		bool bSilent=false) const = 0;
 	
 	/**
 	 *	Merges list of actors into single proxy mesh

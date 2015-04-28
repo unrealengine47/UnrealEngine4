@@ -642,21 +642,21 @@ bool FOnlineSessionSteam::IsPlayerInSession(FName SessionName, const FUniqueNetI
 
 bool FOnlineSessionSteam::StartMatchmaking(const TArray< TSharedRef<FUniqueNetId> >& LocalPlayers, FName SessionName, const FOnlineSessionSettings& NewSessionSettings, TSharedRef<FOnlineSessionSearch>& SearchSettings)
 {
-	UE_LOG(LogOnline, Warning, TEXT("Matchmaking is not supported on this platform."));
+	UE_LOG(LogOnline, Warning, TEXT("StartMatchmaking is not supported on this platform. Use FindSessions or FindSessionById."));
 	TriggerOnMatchmakingCompleteDelegates(SessionName, false);
 	return false;
 }
 
 bool FOnlineSessionSteam::CancelMatchmaking(int32 SearchingPlayerNum, FName SessionName)
 {
-	UE_LOG(LogOnline, Warning, TEXT("Matchmaking is not supported on this platform."));
+	UE_LOG(LogOnline, Warning, TEXT("CancelMatchmaking is not supported on this platform. Use CancelFindSessions."));
 	TriggerOnCancelMatchmakingCompleteDelegates(SessionName, false);
 	return false;
 }
 
 bool FOnlineSessionSteam::CancelMatchmaking(const FUniqueNetId& SearchingPlayerId, FName SessionName)
 {
-	UE_LOG(LogOnline, Warning, TEXT("Matchmaking is not supported on this platform."));
+	UE_LOG(LogOnline, Warning, TEXT("CancelMatchmaking is not supported on this platform. Use CancelFindSessions."));
 	TriggerOnCancelMatchmakingCompleteDelegates(SessionName, false);
 	return false;
 }
@@ -1420,30 +1420,27 @@ void FOnlineSessionSteam::TickPendingInvites(float DeltaTime)
 {
 	if (PendingInvite.PendingInviteType != ESteamSession::None)
 	{
-		for (int32 UserIndex = 0; UserIndex < MAX_LOCAL_PLAYERS; UserIndex++)
+		if (OnSessionUserInviteAcceptedDelegates.IsBound())
 		{
-			if (OnSessionInviteAcceptedDelegates[UserIndex].IsBound())
+			FOnlineAsyncItem* NewEvent = NULL;
+			FUniqueNetIdSteam FriendId(0);
+			if (PendingInvite.PendingInviteType == ESteamSession::LobbySession)
 			{
-				FOnlineAsyncItem* NewEvent = NULL;
-				FUniqueNetIdSteam FriendId(0);
-				if (PendingInvite.PendingInviteType == ESteamSession::LobbySession)
-				{
-					NewEvent = new FOnlineAsyncEventSteamLobbyInviteAccepted(SteamSubsystem, FriendId, PendingInvite.LobbyId);
-				}
-				else
-				{
-					NewEvent = new FOnlineAsyncEventSteamInviteAccepted(SteamSubsystem, FriendId, PendingInvite.ServerIp);
-				}
-
-				if (NewEvent)
-				{
-					UE_LOG_ONLINE(Verbose, TEXT("%s"), *NewEvent->ToString());
-					SteamSubsystem->QueueAsyncOutgoingItem(NewEvent);
-				}
-
-				// Clear the invite
-				PendingInvite.PendingInviteType = ESteamSession::None;
+				NewEvent = new FOnlineAsyncEventSteamLobbyInviteAccepted(SteamSubsystem, FriendId, PendingInvite.LobbyId);
 			}
+			else
+			{
+				NewEvent = new FOnlineAsyncEventSteamInviteAccepted(SteamSubsystem, FriendId, PendingInvite.ServerIp);
+			}
+
+			if (NewEvent)
+			{
+				UE_LOG_ONLINE(Verbose, TEXT("%s"), *NewEvent->ToString());
+				SteamSubsystem->QueueAsyncOutgoingItem(NewEvent);
+			}
+
+			// Clear the invite
+			PendingInvite.PendingInviteType = ESteamSession::None;
 		}
 	}
 }

@@ -126,6 +126,9 @@ namespace UnrealBuildTool
 		[XmlArrayItem("RuntimeDependency")]
 		public List<RuntimeDependency> RuntimeDependencies = new List<RuntimeDependency>();
 
+		// if packaging in a mode where some files aren't required, set this to false
+		public bool bRequireDependenciesToExist = true;
+
 		/// <summary>
 		/// Default constructor
 		/// </summary>
@@ -241,6 +244,15 @@ namespace UnrealBuildTool
 		}
 
 		/// <summary>
+		/// Control whether the dependencies are required while staging them
+		/// </summary>
+		/// <param name="InDependenciesAreRequired"></param>
+		public void SetDependenciesToBeRequired(bool InDependenciesAreRequired)
+		{
+			bRequireDependenciesToExist = InDependenciesAreRequired;
+		}
+
+		/// <summary>
 		/// Expand all the path variables in the manifest, including a list of supplied variable values.
 		/// </summary>
 		/// <param name="EngineDir">Value for the $(EngineDir) variable</param>
@@ -329,13 +341,14 @@ namespace UnrealBuildTool
 			return Path.Combine(BaseDir, "Build", "Receipts", String.Format("{0}-{1}-{2}{3}.target.xml", TargetName, Platform.ToString(), Configuration.ToString(), BuildArchitecture));
 		}
 
+		static XmlSerializer Serializer = XmlSerializer.FromTypes(new Type[]{ typeof(BuildReceipt) })[0];
+
 		/// <summary>
 		/// Read a receipt from disk.
 		/// </summary>
 		/// <param name="FileName">Filename to read from</param>
 		public static BuildReceipt Read(string FileName)
 		{
-			XmlSerializer Serializer = new XmlSerializer(typeof(BuildReceipt));
 			using(StreamReader Reader = new StreamReader(FileName))
 			{
 				return (BuildReceipt)Serializer.Deserialize(Reader);
@@ -348,7 +361,6 @@ namespace UnrealBuildTool
 		/// <param name="FileName">Output filename</param>
 		public void Write(string FileName)
 		{
-			XmlSerializer Serializer = new XmlSerializer(typeof(BuildReceipt));
 			using(StreamWriter Writer = new StreamWriter(FileName))
 			{
 				Serializer.Serialize(Writer, this);

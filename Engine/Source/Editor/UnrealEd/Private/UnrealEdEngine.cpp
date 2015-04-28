@@ -32,6 +32,10 @@
 #include "NotificationManager.h"
 #include "SNotificationList.h"
 #include "UObject/UObjectThreadContext.h"
+#include "Components/BillboardComponent.h"
+#include "Components/ArrowComponent.h"
+#include "Engine/Selection.h"
+#include "EngineUtils.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogUnrealEdEngine, Log, All);
 
@@ -47,7 +51,7 @@ void UUnrealEdEngine::Init(IEngineLoop* InEngineLoop)
 	PackageAutoSaver->LoadRestoreFile();
 
 #if !UE_BUILD_DEBUG
-	if( !GEditorGameAgnosticIni.IsEmpty() )
+	if( !GEditorSettingsIni.IsEmpty() )
 	{
 		// We need the game agnostic ini for this code
 		PerformanceMonitor = new FPerformanceMonitor;
@@ -122,7 +126,7 @@ void UUnrealEdEngine::Init(IEngineLoop* InEngineLoop)
 	}
 
 	UEditorExperimentalSettings const* ExperimentalSettings =  GetDefault<UEditorExperimentalSettings>();
-	ECookInitializationFlags BaseCookingFlags = ECookInitializationFlags::AutoTick | ECookInitializationFlags::AsyncSave;
+	ECookInitializationFlags BaseCookingFlags = ECookInitializationFlags::AutoTick | ECookInitializationFlags::AsyncSave | ECookInitializationFlags::Compressed;
 	BaseCookingFlags |= ExperimentalSettings->bIterativeCookingForLaunchOn ? ECookInitializationFlags::Iterative : ECookInitializationFlags::None;
 	if ( ExperimentalSettings->bCookOnTheSide )
 	{
@@ -432,7 +436,7 @@ void UUnrealEdEngine::OnPackageDirtyStateUpdated( UPackage* Pkg)
 	const FString PackageName = Package->GetName();
 
 	// Alert the user if they have modified a package that won't be able to be saved because
-	// it's already been saved with an engine version that is newer than the current one.	
+	// it's already been saved with an engine version that is newer than the current one.
 	if (!FUObjectThreadContext::Get().IsRoutingPostLoad && Package->IsDirty() && !PackagesCheckedForEngineVersion.Contains(PackageName))
 	{
 		EWriteDisallowedWarningState WarningStateToSet = WDWS_WarningUnnecessary;
@@ -651,6 +655,11 @@ void UUnrealEdEngine::OnOpenMatinee()
 	OnMatineeEditorClosedDelegateHandle = GLevelEditorModeTools().OnEditorModeChanged().AddUObject( this, &UUnrealEdEngine::OnMatineeEditorClosed );
 }
 
+bool UUnrealEdEngine::IsAutosaving() const
+{
+	return PackageAutoSaver->IsAutoSaving();
+}
+
 
 void UUnrealEdEngine::ConvertMatinees()
 {
@@ -816,7 +825,7 @@ void UUnrealEdEngine::CloseEditor()
 
 bool UUnrealEdEngine::AllowSelectTranslucent() const
 {
-	return GEditor->GetEditorUserSettings().bAllowSelectTranslucent;
+	return GetDefault<UEditorPerProjectUserSettings>()->bAllowSelectTranslucent;
 }
 
 

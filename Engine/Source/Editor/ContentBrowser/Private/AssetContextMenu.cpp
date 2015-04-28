@@ -13,6 +13,7 @@
 #include "Toolkits/ToolkitManager.h"
 #include "ConsolidateWindow.h"
 #include "ReferenceViewer.h"
+#include "ISizeMapModule.h"
 
 #include "ReferencedAssetsUtils.h"
 
@@ -99,6 +100,9 @@ TSharedRef<SWidget> FAssetContextMenu::MakeContextMenu(const TArray<FAssetData>&
 		// Add quick access to common commands.
 		AddCommonMenuOptions(MenuBuilder);
 
+		// Add quick access to view commands
+		AddExploreMenuOptions(MenuBuilder);
+
 		// Add reference options
 		AddReferenceMenuOptions(MenuBuilder);
 
@@ -158,7 +162,7 @@ bool FAssetContextMenu::AddImportedAssetMenuOptions(FMenuBuilder& MenuBuilder)
 			MenuBuilder.AddMenuEntry(
 				LOCTEXT("Reimport", "Reimport"),
 				LOCTEXT("ReimportTooltip", "Reimport the selected asset(s) from the source file on disk."),
-				FSlateIcon(FEditorStyle::GetStyleSetName(), "ContentBrowser.AssetActions.ReimportAsset"),
+				FSlateIcon(),
 				FUIAction(
 					FExecuteAction::CreateSP(this, &FAssetContextMenu::ExecuteReimport),
 					FCanExecuteAction()
@@ -200,64 +204,105 @@ bool FAssetContextMenu::AddCommonMenuOptions(FMenuBuilder& MenuBuilder)
 {
 	MenuBuilder.BeginSection("CommonAssetActions", LOCTEXT("CommonAssetActionsMenuHeading", "Common"));
 	{
-	// Edit
-	MenuBuilder.AddMenuEntry(
-		LOCTEXT("EditAsset", "Edit..."),
-		LOCTEXT("EditAssetTooltip", "Opens the selected asset(s) for edit."),
-		FSlateIcon(FEditorStyle::GetStyleSetName(), "ContentBrowser.AssetActions.Edit"),
-		FUIAction( FExecuteAction::CreateSP(this, &FAssetContextMenu::ExecuteEditAsset) )
-		);
+		// Edit
+		MenuBuilder.AddMenuEntry(
+			LOCTEXT("EditAsset", "Edit..."),
+			LOCTEXT("EditAssetTooltip", "Opens the selected asset(s) for edit."),
+			FSlateIcon(),
+			FUIAction( FExecuteAction::CreateSP(this, &FAssetContextMenu::ExecuteEditAsset) )
+			);
 	
-	// Rename
-	MenuBuilder.AddMenuEntry(FGenericCommands::Get().Rename, NAME_None,
-		LOCTEXT("Rename", "Rename"),
-		LOCTEXT("RenameTooltip", "Rename the selected asset."),
-		FSlateIcon(FEditorStyle::GetStyleSetName(), "ContentBrowser.AssetActions.Rename")
-		);
+		// Rename
+		MenuBuilder.AddMenuEntry(FGenericCommands::Get().Rename, NAME_None,
+			LOCTEXT("Rename", "Rename"),
+			LOCTEXT("RenameTooltip", "Rename the selected asset."),
+			FSlateIcon()
+			);
 
-	// Duplicate
-	MenuBuilder.AddMenuEntry(FGenericCommands::Get().Duplicate, NAME_None,
-		LOCTEXT("Duplicate", "Duplicate"),
-		LOCTEXT("DuplicateTooltip", "Create a copy of the selected asset(s)."),
-		FSlateIcon(FEditorStyle::GetStyleSetName(), "ContentBrowser.AssetActions.Duplicate")
-		);
+		// Duplicate
+		MenuBuilder.AddMenuEntry(FGenericCommands::Get().Duplicate, NAME_None,
+			LOCTEXT("Duplicate", "Duplicate"),
+			LOCTEXT("DuplicateTooltip", "Create a copy of the selected asset(s)."),
+			FSlateIcon()
+			);
 
-	// Save
-	MenuBuilder.AddMenuEntry(
-		LOCTEXT("SaveAsset", "Save"),
-		LOCTEXT("SaveAssetTooltip", "Saves the asset to file."),
-		FSlateIcon(FEditorStyle::GetStyleSetName(), "Level.SaveIcon16x"),
-		FUIAction(
-			FExecuteAction::CreateSP( this, &FAssetContextMenu::ExecuteSaveAsset ),
-			FCanExecuteAction::CreateSP( this, &FAssetContextMenu::CanExecuteSaveAsset )
-			)
-		);
+		// Save
+		MenuBuilder.AddMenuEntry(
+			LOCTEXT("SaveAsset", "Save"),
+			LOCTEXT("SaveAssetTooltip", "Saves the asset to file."),
+			FSlateIcon(),
+			FUIAction(
+				FExecuteAction::CreateSP( this, &FAssetContextMenu::ExecuteSaveAsset ),
+				FCanExecuteAction::CreateSP( this, &FAssetContextMenu::CanExecuteSaveAsset )
+				)
+			);
 
-	// Delete
-	MenuBuilder.AddMenuEntry(FGenericCommands::Get().Delete, NAME_None,
-		LOCTEXT("Delete", "Delete"),
-		LOCTEXT("DeleteTooltip", "Delete the selected assets."),
-		FSlateIcon(FEditorStyle::GetStyleSetName(), "ContentBrowser.AssetActions.Delete")
-		);
+		// Delete
+		MenuBuilder.AddMenuEntry(FGenericCommands::Get().Delete, NAME_None,
+			LOCTEXT("Delete", "Delete"),
+			LOCTEXT("DeleteTooltip", "Delete the selected assets."),
+			FSlateIcon()
+			);
 
-	// Asset Actions sub-menu
-	MenuBuilder.AddSubMenu(
-		LOCTEXT("AssetActionsSubMenuLabel", "Asset Actions"),
-		LOCTEXT("AssetActionsSubMenuToolTip", "Other asset actions"),
-		FNewMenuDelegate::CreateSP(this, &FAssetContextMenu::MakeAssetActionsSubMenu),
-		FUIAction(
-			FExecuteAction(),
-			FCanExecuteAction::CreateSP( this, &FAssetContextMenu::CanExecuteAssetActions )
-			),
-		NAME_None,
-		EUserInterfaceActionType::Button,
-		false, 
-		FSlateIcon(FEditorStyle::GetStyleSetName(), "ContentBrowser.AssetActions")
-		);
+			// Open Containing Folder
+			MenuBuilder.AddMenuEntry(
+				LOCTEXT("SyncToAssetTree", "Show in Sources Panel"),
+				LOCTEXT("SyncToAssetTreeTooltip", "Selects the folder that contains this asset in the Content Browser Sources Panel."),
+				FSlateIcon(),
+				FUIAction(
+					FExecuteAction::CreateSP(this, &FAssetContextMenu::ExecuteSyncToAssetTree),
+					FCanExecuteAction::CreateSP(this, &FAssetContextMenu::CanExecuteSyncToAssetTree)
+					)
+				);
+
+		// Asset Actions sub-menu
+		MenuBuilder.AddSubMenu(
+			LOCTEXT("AssetActionsSubMenuLabel", "Asset Actions"),
+			LOCTEXT("AssetActionsSubMenuToolTip", "Other asset actions"),
+			FNewMenuDelegate::CreateSP(this, &FAssetContextMenu::MakeAssetActionsSubMenu),
+			FUIAction(
+				FExecuteAction(),
+				FCanExecuteAction::CreateSP( this, &FAssetContextMenu::CanExecuteAssetActions )
+				),
+			NAME_None,
+			EUserInterfaceActionType::Button,
+			false, 
+			FSlateIcon()
+			);
 	}
 	MenuBuilder.EndSection();
 
 	return true;
+}
+
+void FAssetContextMenu::AddExploreMenuOptions(FMenuBuilder& MenuBuilder)
+{
+	MenuBuilder.BeginSection("AssetContextExploreMenuOptions", LOCTEXT("AssetContextExploreMenuOptionsHeading", "Explore"));
+	{
+		// Open Containing Folder
+		MenuBuilder.AddMenuEntry(
+			LOCTEXT("SyncToAssetTree", "Show in Folder View"),
+			LOCTEXT("SyncToAssetTreeTooltip", "Selects the folder that contains this asset in the Content Browser Sources Panel."),
+			FSlateIcon(),
+			FUIAction(
+				FExecuteAction::CreateSP(this, &FAssetContextMenu::ExecuteSyncToAssetTree),
+				FCanExecuteAction::CreateSP(this, &FAssetContextMenu::CanExecuteSyncToAssetTree)
+				)
+			);
+
+
+		// Find in Explorer
+		MenuBuilder.AddMenuEntry(
+			ContentBrowserUtils::GetExploreFolderText(),
+			LOCTEXT("FindInExplorerTooltip", "Finds this asset on disk"),
+			FSlateIcon(),
+			FUIAction(
+				FExecuteAction::CreateSP( this, &FAssetContextMenu::ExecuteFindInExplorer ),
+				FCanExecuteAction::CreateSP( this, &FAssetContextMenu::CanExecuteFindInExplorer )
+				)
+			);
+	}
+	MenuBuilder.EndSection();
 }
 
 void FAssetContextMenu::MakeAssetActionsSubMenu(FMenuBuilder& MenuBuilder)
@@ -312,28 +357,6 @@ void FAssetContextMenu::MakeAssetActionsSubMenu(FMenuBuilder& MenuBuilder)
 				FCanExecuteAction::CreateSP(this, &FAssetContextMenu::CanExecuteFindAssetInWorld)
 				)
 			);
-
-		// Open Containing Folder
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("SyncToAssetTree", "Show in Sources Panel"),
-			LOCTEXT("SyncToAssetTreeTooltip", "Selects the folder that contains this asset in the Content Browser Sources Panel."),
-			FSlateIcon(),
-			FUIAction(
-				FExecuteAction::CreateSP(this, &FAssetContextMenu::ExecuteSyncToAssetTree),
-				FCanExecuteAction::CreateSP(this, &FAssetContextMenu::CanExecuteSyncToAssetTree)
-				)
-			);
-
-		// Find in Explorer
-		MenuBuilder.AddMenuEntry(
-			ContentBrowserUtils::GetExploreFolderText(),
-			LOCTEXT("FindInExplorerTooltip", "Finds this asset on disk"),
-			FSlateIcon(),
-			FUIAction(
-				FExecuteAction::CreateSP( this, &FAssetContextMenu::ExecuteFindInExplorer ),
-				FCanExecuteAction::CreateSP( this, &FAssetContextMenu::CanExecuteFindInExplorer )
-				)
-			);
 	}
 	MenuBuilder.EndSection();
 
@@ -386,15 +409,29 @@ void FAssetContextMenu::MakeAssetActionsSubMenu(FMenuBuilder& MenuBuilder)
 		}
 
 		// Property Matrix
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("PropertyMatrix", "Bulk Edit via Property Matrix..."),
-			LOCTEXT("PropertyMatrixTooltip", "Opens the property matrix editor for the selected assets."),
-			FSlateIcon(),
-			FUIAction(
-			FExecuteAction::CreateSP(this, &FAssetContextMenu::ExecutePropertyMatrix),
-			FCanExecuteAction::CreateSP(this, &FAssetContextMenu::CanExecuteProperties)
-			)
-			);
+		bool bCanUsePropertyMatrix = true;
+		// Materials can't be bulk edited currently as they require very special handling because of their dependencies with the rendering thread, and we'd have to hack the property matrix too much.
+		for (auto& Asset : SelectedAssets)
+		{
+			if (Asset.AssetClass == UMaterial::StaticClass()->GetFName() || Asset.AssetClass == UMaterialInstanceConstant::StaticClass()->GetFName() || Asset.AssetClass == UMaterialFunction::StaticClass()->GetFName())
+			{
+				bCanUsePropertyMatrix = false;
+				break;
+			}
+		}
+
+		if (bCanUsePropertyMatrix)
+		{
+			MenuBuilder.AddMenuEntry(
+				LOCTEXT("PropertyMatrix", "Bulk Edit via Property Matrix..."),
+				LOCTEXT("PropertyMatrixTooltip", "Opens the property matrix editor for the selected assets."),
+				FSlateIcon(),
+				FUIAction(
+				FExecuteAction::CreateSP(this, &FAssetContextMenu::ExecutePropertyMatrix),
+				FCanExecuteAction::CreateSP(this, &FAssetContextMenu::CanExecuteProperties)
+				)
+				);
+		}
 
 		// Chunk actions
 		if (GetDefault<UEditorExperimentalSettings>()->bContextMenuChunkAssignments)
@@ -430,7 +467,7 @@ bool FAssetContextMenu::CanExecuteAssetActions() const
 
 bool FAssetContextMenu::AddReferenceMenuOptions(FMenuBuilder& MenuBuilder)
 {
-	MenuBuilder.BeginSection("AssetContextReferences"/*, LOCTEXT("ReferencesMenuHeading", "References")*/);
+	MenuBuilder.BeginSection("AssetContextReferences", LOCTEXT("ReferencesMenuHeading", "References"));
 	{
 		MenuBuilder.AddMenuEntry(
 			LOCTEXT("CopyReference", "Copy Reference"),
@@ -445,6 +482,15 @@ bool FAssetContextMenu::AddReferenceMenuOptions(FMenuBuilder& MenuBuilder)
 			FSlateIcon(),
 			FUIAction(
 				FExecuteAction::CreateSP( this, &FAssetContextMenu::ExecuteShowReferenceViewer )
+				)
+			);
+
+		MenuBuilder.AddMenuEntry(
+			LOCTEXT("SizeMap", "Size Map..."),
+			LOCTEXT("SizeMapTooltip", "Shows an interactive map of the approximate memory used by this asset and everything it references."),
+			FSlateIcon(),
+			FUIAction(
+				FExecuteAction::CreateSP( this, &FAssetContextMenu::ExecuteShowSizeMap )
 				)
 			);
 	}
@@ -684,7 +730,7 @@ void FAssetContextMenu::FillSourceControlSubMenu(FMenuBuilder& MenuBuilder)
 		MenuBuilder.AddMenuEntry(
 			LOCTEXT("SCCCheckOut", "Check Out"),
 			LOCTEXT("SCCCheckOutTooltip", "Checks out the selected asset from source control."),
-			FSlateIcon(FEditorStyle::GetStyleSetName(), "SourceControl.Actions.CheckOut"),
+			FSlateIcon(),
 			FUIAction(
 				FExecuteAction::CreateSP( this, &FAssetContextMenu::ExecuteSCCCheckOut ),
 				FCanExecuteAction::CreateSP( this, &FAssetContextMenu::CanExecuteSCCCheckOut )
@@ -697,7 +743,7 @@ void FAssetContextMenu::FillSourceControlSubMenu(FMenuBuilder& MenuBuilder)
 		MenuBuilder.AddMenuEntry(
 			LOCTEXT("SCCOpenForAdd", "Mark For Add"),
 			LOCTEXT("SCCOpenForAddTooltip", "Adds the selected asset to source control."),
-			FSlateIcon(FEditorStyle::GetStyleSetName(), "SourceControl.Actions.Add"),
+			FSlateIcon(),
 			FUIAction(
 				FExecuteAction::CreateSP( this, &FAssetContextMenu::ExecuteSCCOpenForAdd ),
 				FCanExecuteAction::CreateSP( this, &FAssetContextMenu::CanExecuteSCCOpenForAdd )
@@ -721,7 +767,7 @@ void FAssetContextMenu::FillSourceControlSubMenu(FMenuBuilder& MenuBuilder)
 	MenuBuilder.AddMenuEntry(
 		LOCTEXT("SCCRefresh", "Refresh"),
 		LOCTEXT("SCCRefreshTooltip", "Updates the source control status of the asset."),
-		FSlateIcon(FEditorStyle::GetStyleSetName(), "SourceControl.Actions.Refresh"),
+		FSlateIcon(),
 		FUIAction(
 			FExecuteAction::CreateSP( this, &FAssetContextMenu::ExecuteSCCRefresh ),
 			FCanExecuteAction::CreateSP( this, &FAssetContextMenu::CanExecuteSCCRefresh )
@@ -1324,6 +1370,20 @@ void FAssetContextMenu::ExecuteShowReferenceViewer()
 	if ( PackageNames.Num() > 0 )
 	{
 		IReferenceViewerModule::Get().InvokeReferenceViewerTab(PackageNames);
+	}
+}
+
+void FAssetContextMenu::ExecuteShowSizeMap()
+{
+	TArray<FName> PackageNames;
+	for ( auto AssetIt = SelectedAssets.CreateConstIterator(); AssetIt; ++AssetIt )
+	{
+		PackageNames.Add(AssetIt->PackageName);
+	}
+
+	if ( PackageNames.Num() > 0 )
+	{
+		ISizeMapModule::Get().InvokeSizeMapTab(PackageNames);
 	}
 }
 

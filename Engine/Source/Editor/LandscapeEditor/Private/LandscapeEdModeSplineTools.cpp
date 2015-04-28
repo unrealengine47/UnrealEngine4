@@ -305,27 +305,36 @@ public:
 		Start->ConnectedSegments.Add(FLandscapeSplineConnection(NewSegment, 0));
 		End->ConnectedSegments.Add(FLandscapeSplineConnection(NewSegment, 1));
 
+		bool bUpdatedStart = false;
+		bool bUpdatedEnd = false;
 		if (bAutoRotateStart)
 		{
 			Start->AutoCalcRotation();
 			Start->UpdateSplinePoints();
+			bUpdatedStart = true;
 		}
 		if (bAutoRotateEnd)
 		{
 			End->AutoCalcRotation();
 			End->UpdateSplinePoints();
+			bUpdatedEnd = true;
 		}
 
 		// Control points' points are currently based on connected segments, so need to be updated.
-		if (Start->Mesh != NULL)
+		if (!bUpdatedStart && Start->Mesh)
 		{
 			Start->UpdateSplinePoints();
 		}
-		if (End->Mesh != NULL)
+		if (!bUpdatedEnd && End->Mesh)
 		{
-			Start->UpdateSplinePoints();
+			End->UpdateSplinePoints();
 		}
-		NewSegment->UpdateSplinePoints();
+
+		// If we've called UpdateSplinePoints on either control point it will already have called UpdateSplinePoints on the new segment
+		if (!(bUpdatedStart || bUpdatedEnd))
+		{
+			NewSegment->UpdateSplinePoints();
+		}
 	}
 
 	void AddControlPoint(ALandscapeProxy* Landscape, const FVector& LocalLocation)
@@ -610,9 +619,9 @@ public:
 			{
 				if (!ToLandscape)
 				{
-					ULandscapeInfo* LandscapeInfo = FromProxy->GetLandscapeInfo(false);
-					check(LandscapeInfo);
-					ToLandscape = LandscapeInfo->GetCurrentLevelLandscapeProxy(true);
+					ULandscapeInfo* ProxyLandscapeInfo = FromProxy->GetLandscapeInfo(false);
+					check(ProxyLandscapeInfo);
+					ToLandscape = ProxyLandscapeInfo->GetCurrentLevelLandscapeProxy(true);
 					if (!ToLandscape)
 					{
 						// No Landscape Proxy, don't support for creating only for Spline now
@@ -699,9 +708,9 @@ public:
 			{
 				if (!ToLandscape)
 				{
-					ULandscapeInfo* LandscapeInfo = FromProxy->GetLandscapeInfo(false);
-					check(LandscapeInfo);
-					ToLandscape = LandscapeInfo->GetCurrentLevelLandscapeProxy(true);
+					ULandscapeInfo* ProxyLandscapeInfo = FromProxy->GetLandscapeInfo(false);
+					check(ProxyLandscapeInfo);
+					ToLandscape = ProxyLandscapeInfo->GetCurrentLevelLandscapeProxy(true);
 					if (!ToLandscape)
 					{
 						// No Landscape Proxy, don't support for creating only for Spline now

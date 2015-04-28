@@ -8,6 +8,7 @@
 #include "IDetailsView.h"
 #include "DataTableUtils.h"
 #include "DataTableEditorUtils.h"
+#include "Engine/UserDefinedStruct.h"
 
 #define LOCTEXT_NAMESPACE "SRowEditor"
 
@@ -58,7 +59,8 @@ public:
 	}
 };
 
-SRowEditor::SRowEditor() : SCompoundWidget()
+SRowEditor::SRowEditor() 
+	: SCompoundWidget()
 {
 }
 
@@ -66,22 +68,21 @@ SRowEditor::~SRowEditor()
 {
 }
 
-void SRowEditor::OnFinishedChangingProperties(const FPropertyChangedEvent& PropertyChangedEvent)
+void SRowEditor::NotifyPreChange( UProperty* PropertyAboutToChange )
 {
-	check(PropertyChangedEvent.MemberProperty
-		&& PropertyChangedEvent.MemberProperty->GetOwnerStruct()
-		&& (PropertyChangedEvent.MemberProperty->GetOwnerStruct() == GetScriptStruct()));
+	check(DataTable.IsValid());
+	DataTable->Modify();
 
-	// TODO:
-	// FNotifyHook won't be called, because the struct has no "property-path" from DT object. THe struct is seen as detached.
-	// But the notification must be called somewhere.
+	FDataTableEditorUtils::BroadcastPreChange(DataTable.Get(), FDataTableEditorUtils::EDataTableChangeInfo::RowData);
+}
 
-	FDataTableEditorUtils::BroadcastPostChange(DataTable.Get(), FDataTableEditorUtils::EDataTableChangeInfo::RowDataPostChangeOnly);
+void SRowEditor::NotifyPostChange( const FPropertyChangedEvent& PropertyChangedEvent, UProperty* PropertyThatChanged )
+{
+	check(DataTable.IsValid());
 
-	if (DataTable.IsValid())
-	{
-		DataTable->MarkPackageDirty();
-	}
+	FDataTableEditorUtils::BroadcastPostChange(DataTable.Get(), FDataTableEditorUtils::EDataTableChangeInfo::RowData);
+
+	DataTable->MarkPackageDirty();
 }
 
 void SRowEditor::PreChange(const class UUserDefinedStruct* Struct, FStructureEditorUtils::EStructureEditorChangeInfo Info)
@@ -146,28 +147,38 @@ void SRowEditor::RefreshNameList()
 
 void SRowEditor::Restore()
 {
-	if (SelectedName.IsValid())
+	if (!SelectedName.IsValid() || !SelectedName->IsNone())
 	{
-		auto CurrentName = *SelectedName;
-		SelectedName = NULL;
-		for (auto Element : CachedRowNames)
+		if (SelectedName.IsValid())
 		{
-			if (*Element == CurrentName)
+			auto CurrentName = *SelectedName;
+			SelectedName = NULL;
+			for (auto Element : CachedRowNames)
 			{
-				SelectedName = Element;
-				break;
+				if (*Element == CurrentName)
+				{
+					SelectedName = Element;
+					break;
+				}
 			}
 		}
-	}
 
-	if (!SelectedName.IsValid() && CachedRowNames.Num() && CachedRowNames[0].IsValid())
-	{
-		SelectedName = CachedRowNames[0];
-	}
+		if (!SelectedName.IsValid() && CachedRowNames.Num() && CachedRowNames[0].IsValid())
+		{
+			SelectedName = CachedRowNames[0];
+		}
 
-	if (RowComboBox.IsValid())
+		if (RowComboBox.IsValid())
+		{
+			RowComboBox->SetSelectedItem(SelectedName);
+		}
+	}
+	else
 	{
-		RowComboBox->SetSelectedItem(SelectedName);
+		if (RowComboBox.IsValid())
+		{
+			RowComboBox->ClearSelection();
+		}
 	}
 
 	auto FinalName = SelectedName.IsValid() ? *SelectedName : NAME_None;
@@ -210,7 +221,7 @@ TSharedRef<SWidget> SRowEditor::OnGenerateWidget(TSharedPtr<FName> InItem)
 
 void SRowEditor::OnSelectionChanged(TSharedPtr<FName> InItem, ESelectInfo::Type InSeletionInfo)
 {
-	if (InItem != SelectedName)
+	if (InItem.IsValid() && InItem != SelectedName)
 	{
 		CleanBeforeChange();
 
@@ -236,11 +247,17 @@ void SRowEditor::SelectRow(FName InName)
 			NewSelectedName = Name;
 		}
 	}
-	if (!NewSelectedName->IsValid())
+	if (!NewSelectedName.IsValid())
 	{
 		NewSelectedName = MakeShareable(new FName(InName));
 	}
 	OnSelectionChanged(NewSelectedName, ESelectInfo::Direct);
+}
+
+void SRowEditor::HandleUndoRedo()
+{
+	RefreshNameList();
+	Restore();
 }
 
 FReply SRowEditor::OnAddClicked()
@@ -253,8 +270,8 @@ FReply SRowEditor::OnAddClicked()
 		{
 			NewName.SetNumber(NewName.GetNumber() + 1);
 		}
-		SelectedName = MakeShareable(new FName(NewName));
 		FDataTableEditorUtils::AddRow(DataTable.Get(), NewName);
+		SelectRow(NewName);
 	}
 	return FReply::Handled();
 }
@@ -305,8 +322,8 @@ void SRowEditor::OnRowRenamed(const FText& Text, ETextCommit::Type CommitType)
 		}
 
 		const FName OldName = GetCurrentName();
-		SelectedName = MakeShareable(new FName(NewName));
 		FDataTableEditorUtils::RenameRow(DataTable.Get(), OldName, NewName);
+		SelectRow(NewName);
 	}
 }
 
@@ -319,9 +336,15 @@ void SRowEditor::Construct(const FArguments& InArgs, UDataTable* Changed)
 		ViewArgs.bAllowSearch = false;
 		ViewArgs.bHideSelectionTip = false;
 		ViewArgs.bShowActorLabel = false;
+		ViewArgs.NotifyHook = this;
 
-		StructureDetailsView = PropertyModule.CreateStructureDetailView(ViewArgs, CurrentRow, true/*bShowObjects*/, LOCTEXT("RowValue", "Row Value"));
-		StructureDetailsView->GetOnFinishedChangingPropertiesDelegate().AddSP(this, &SRowEditor::OnFinishedChangingProperties);
+		FStructureDetailsViewArgs StructureViewArgs;
+		StructureViewArgs.bShowObjects = false;
+		StructureViewArgs.bShowAssets = true;
+		StructureViewArgs.bShowClasses = true;
+		StructureViewArgs.bShowInterfaces = false;
+
+		StructureDetailsView = PropertyModule.CreateStructureDetailView(ViewArgs, StructureViewArgs, CurrentRow, LOCTEXT("RowValue", "Row Value"));
 	}
 
 	RefreshNameList();

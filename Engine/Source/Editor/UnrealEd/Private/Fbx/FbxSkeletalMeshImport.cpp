@@ -54,6 +54,8 @@
 #include "ComponentReregisterContext.h"
 
 #include "FbxErrors.h"
+#include "PhysicsEngine/PhysicsAsset.h"
+#include "Engine/SkeletalMeshSocket.h"
 
 #define LOCTEXT_NAMESPACE "FBXImpoter"
 
@@ -2149,7 +2151,8 @@ bool UnFbx::FFbxImporter::FillSkelMeshImporterFromFbx( FSkeletalMeshImportData& 
 				Triangle.MatIndex = 0;
 			}
 		}
-	
+		ImportData.MaxMaterialIndex = FMath::Max<uint32>( ImportData.MaxMaterialIndex, Triangle.MatIndex );
+
 		Triangle.AuxMatIndex = 0;
 		for (int32 VertexIndex=0; VertexIndex<3; VertexIndex++)
 		{

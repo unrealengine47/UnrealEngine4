@@ -74,14 +74,7 @@ namespace Rocket
 		{
 			if(!bp.BranchOptions.bNoInstalledEngine)
 			{
-				// Get the promotable node, so we can add additional dependencies to it
-//				GUBP.GUBPNode PromotableNode = bp.FindNode(GUBP.SharedAggregatePromotableNode.StaticGetFullName());
-
-				// Get the output paths for the installed engine
-				string InstallDir = CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, "LocalBuilds", "Engine", CommandUtils.GetGenericPlatformName(HostPlatform));
-				string SymbolsDir = CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, "LocalBuilds", "Engine", CommandUtils.GetGenericPlatformName(HostPlatform) + "Symbols");
-
-				// Find all the target platforms for this host platform
+				// Find all the target platforms for this host platform.
 				List<UnrealTargetPlatform> TargetPlatforms = GetTargetPlatforms(bp, HostPlatform);
 
 				// Get a list of all the code target platforms
@@ -94,24 +87,39 @@ namespace Rocket
 					}
 				}
 
-				// Add the aggregate node for the whole install, if there isn't one already
-				if(!bp.HasNode(RocketAggregateNode.StaticGetFullName()))
+				// Get the temp directory for stripped files for this host
+				string StrippedDir = Path.GetFullPath(CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, "Engine", "Saved", "Rocket", HostPlatform.ToString()));
+
+				// Strip the host platform
+				if (StripRocketNode.IsRequiredForPlatform(HostPlatform))
 				{
-					bp.AddNode(new RocketAggregateNode());
+					bp.AddNode(new StripRocketToolsNode(HostPlatform, StrippedDir));
+					bp.AddNode(new StripRocketEditorNode(HostPlatform, StrippedDir));
 				}
 
-				// Add a dependency on this platform finishing
-				RocketAggregateNode AggNode = (RocketAggregateNode)bp.FindNode(RocketAggregateNode.StaticGetFullName());
+				// Strip all the target platforms
+				foreach (UnrealTargetPlatform TargetPlatform in TargetPlatforms)
+				{
+					if (GetSourceHostPlatform(bp, HostPlatform, TargetPlatform) == HostPlatform)
+					{
+						bp.AddNode(new StripRocketMonolithicsNode(bp, HostPlatform, TargetPlatform, CodeTargetPlatforms.Contains(TargetPlatform), StrippedDir));
+					}
+				}
 
-				// Copy to output folders
-				AggNode.AddDependency(bp.AddNode(new CopyInstalledEditorNode(bp, HostPlatform, InstallDir)));
-				AggNode.AddDependency(bp.AddNode(new CopyInstalledPlatformsNode(bp, HostPlatform, TargetPlatforms, CodeTargetPlatforms, InstallDir, CurrentFeaturePacks, CurrentTemplates)));
-				AggNode.AddDependency(bp.AddNode(new CopyInstalledDerivedDataNode(HostPlatform, GetCookPlatforms(HostPlatform, TargetPlatforms), CurrentFeaturePacks, InstallDir)));
-				AggNode.AddDependency(bp.AddNode(new CopyInstalledSymbolsNode(bp, HostPlatform, CodeTargetPlatforms, SymbolsDir)));
+				// Build the DDC
+				bp.AddNode(new BuildDerivedDataCacheNode(HostPlatform, GetCookPlatforms(HostPlatform, TargetPlatforms), CurrentFeaturePacks));
+
+				// Generate a list of files that needs to be copied for each target platform
+				bp.AddNode(new FilterRocketNode(bp, HostPlatform, TargetPlatforms, CodeTargetPlatforms, CurrentFeaturePacks, CurrentTemplates));
+
+				// Copy the install to the output directory
+				string LocalOutputDir = CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, "LocalBuilds", "Rocket", CommandUtils.GetGenericPlatformName(HostPlatform));
+				bp.AddNode(new GatherRocketNode(HostPlatform, CodeTargetPlatforms, LocalOutputDir));
 
 				// Add the aggregate node for the entire install
-				AggNode.AddDependency(bp.AddNode(new BuildInstalledEngineNode(HostPlatform, InstallDir, SymbolsDir)));
-//				PromotableNode.AddDependency(BuildInstalledEngineNode.StaticGetFullName(HostPlatform));
+				GUBP.GUBPNode PromotableNode = bp.FindNode(GUBP.SharedAggregatePromotableNode.StaticGetFullName());
+				PromotableNode.AddDependency(FilterRocketNode.StaticGetFullName(HostPlatform));
+				PromotableNode.AddDependency(BuildDerivedDataCacheNode.StaticGetFullName(HostPlatform));
 
 				// Add a node for GitHub promotions
 				if(HostPlatform == UnrealTargetPlatform.Win64)
@@ -120,42 +128,79 @@ namespace Rocket
 					if(CommandUtils.FileExists(CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, GitConfigRelativePath)))
 					{
 						bp.AddNode(new BuildGitPromotable(bp, HostPlatform, GitConfigRelativePath));
-//						PromotableNode.AddDependency(BuildGitPromotable.StaticGetFullName(HostPlatform));
+						PromotableNode.AddDependency(BuildGitPromotable.StaticGetFullName(HostPlatform));
 					}
 				}
+
+				// Publish the install to the network
+				string RemoteOutputDir = CommandUtils.CombinePaths(CommandUtils.RootSharedTempStorageDirectory(), "Rocket", "Automated", GetBuildLabel(), CommandUtils.GetGenericPlatformName(HostPlatform));
+				bp.AddNode(new PublishRocketNode(HostPlatform, LocalOutputDir, RemoteOutputDir));
+				bp.AddNode(new PublishRocketSymbolsNode(bp, HostPlatform, CodeTargetPlatforms, RemoteOutputDir + "Symbols"));
+
+				// Add a dependency on this being published as part of the shared promotable being labeled
+				GUBP.SharedLabelPromotableSuccessNode LabelPromotableNode = (GUBP.SharedLabelPromotableSuccessNode)bp.FindNode(GUBP.SharedLabelPromotableSuccessNode.StaticGetFullName());
+				LabelPromotableNode.AddDependency(PublishRocketNode.StaticGetFullName(HostPlatform));
+				LabelPromotableNode.AddDependency(PublishRocketSymbolsNode.StaticGetFullName(HostPlatform));
 			}
+		}
+
+		public static string GetBuildLabel()
+		{
+			return FEngineVersionSupport.FromVersionFile(CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, @"Engine\Source\Runtime\Launch\Resources\Version.h")).ToString();
 		}
 
 		public static List<UnrealTargetPlatform> GetTargetPlatforms(GUBP bp, UnrealTargetPlatform HostPlatform)
 		{
 			List<UnrealTargetPlatform> TargetPlatforms = new List<UnrealTargetPlatform>();
-			bool bSupportsMobilePlatforms = (HostPlatform == UnrealTargetPlatform.Win64 || HostPlatform == UnrealTargetPlatform.Mac);
-			if(!bp.ParseParam("NoPlatforms"))
+			if(!bp.ParseParam("NoTargetPlatforms"))
 			{
+				// Always support the host platform
 				TargetPlatforms.Add(HostPlatform);
 
+				// Add other target platforms for each host platform
 				if(HostPlatform == UnrealTargetPlatform.Win64)
 				{
 					TargetPlatforms.Add(UnrealTargetPlatform.Win32);
 				}
-				if(!bp.ParseParam("NoAndroid") && bSupportsMobilePlatforms)
+				if(HostPlatform == UnrealTargetPlatform.Win64 || HostPlatform == UnrealTargetPlatform.Mac)
 				{
 					TargetPlatforms.Add(UnrealTargetPlatform.Android);
 				}
-				if(!bp.ParseParam("NoIOS") && bSupportsMobilePlatforms)
+				if(HostPlatform == UnrealTargetPlatform.Win64 || HostPlatform == UnrealTargetPlatform.Mac)
 				{
 					TargetPlatforms.Add(UnrealTargetPlatform.IOS);
 				}
-				if(!bp.ParseParam("NoLinux") && HostPlatform == UnrealTargetPlatform.Win64)
+				if(HostPlatform == UnrealTargetPlatform.Win64)
 				{
 					TargetPlatforms.Add(UnrealTargetPlatform.Linux);
 				}
-				if(!bp.ParseParam("NoHTML5") && HostPlatform == UnrealTargetPlatform.Win64)
+				if(HostPlatform == UnrealTargetPlatform.Win64 || HostPlatform == UnrealTargetPlatform.Mac )
 				{
 					TargetPlatforms.Add(UnrealTargetPlatform.HTML5);
 				}
 
+				// Remove any platforms that aren't available on this machine
 				TargetPlatforms.RemoveAll(x => !bp.ActivePlatforms.Contains(x));
+
+				// Remove any platforms that aren't enabled on the command line
+				string TargetPlatformFilter = bp.ParseParamValue("TargetPlatforms", null);
+				if(TargetPlatformFilter != null)
+				{
+					List<UnrealTargetPlatform> NewTargetPlatforms = new List<UnrealTargetPlatform>();
+					foreach (string TargetPlatformName in TargetPlatformFilter.Split(new char[]{ '+' }, StringSplitOptions.RemoveEmptyEntries))
+					{
+						UnrealTargetPlatform TargetPlatform;
+						if(!Enum.TryParse(TargetPlatformName, out TargetPlatform))
+						{
+							throw new AutomationException("Unknown target platform '{0}' specified on command line");
+						}
+						else if(TargetPlatforms.Contains(TargetPlatform))
+						{
+							NewTargetPlatforms.Add(TargetPlatform);
+						}
+					}
+					TargetPlatforms = NewTargetPlatforms;
+				}
 			}
 			return TargetPlatforms;
 		}
@@ -188,6 +233,10 @@ namespace Rocket
 
 		public static UnrealTargetPlatform GetSourceHostPlatform(GUBP bp, UnrealTargetPlatform HostPlatform, UnrealTargetPlatform TargetPlatform)
 		{
+            if (TargetPlatform == UnrealTargetPlatform.HTML5 && HostPlatform == UnrealTargetPlatform.Mac && bp.HostPlatforms.Contains(UnrealTargetPlatform.Win64))
+            {
+                return UnrealTargetPlatform.Win64;
+            }
 			if (TargetPlatform == UnrealTargetPlatform.Android && HostPlatform == UnrealTargetPlatform.Mac && bp.HostPlatforms.Contains(UnrealTargetPlatform.Win64))
 			{
 				return UnrealTargetPlatform.Win64;
@@ -227,12 +276,6 @@ namespace Rocket
 				AddDependency(GUBP.ToolsNode.StaticGetFullName(OtherHostPlatform));
 				AddDependency(GUBP.InternalToolsNode.StaticGetFullName(OtherHostPlatform));
 			}
-
-			SingleTargetProperties VersionSelector = bp.Branch.FindProgram("UnrealVersionSelector"); 
-			if (VersionSelector.Rules != null) 
-			{ 
-				AddDependency(GUBP.SingleInternalToolsNode.StaticGetFullName(UnrealTargetPlatform.Win64, VersionSelector));
-			}
 		}
 
 		public static string StaticGetFullName(UnrealTargetPlatform HostPlatform)
@@ -249,78 +292,113 @@ namespace Rocket
 		{
 			// Create a filter for all the promoted binaries
 			FileFilter PromotableFilter = new FileFilter();
-			CopyNode.AddFilesToFilter(PromotableFilter, AllDependencyBuildProducts, CommandUtils.CmdEnv.LocalRoot, FileFilterType.Include);
-			PromotableFilter.AddRulesFromFile(CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, ConfigRelativePath), "promotable");
-			CopyNode.ExcludeConfidentialFolders(PromotableFilter);
+			PromotableFilter.AddRuleForFiles(AllDependencyBuildProducts, CommandUtils.CmdEnv.LocalRoot, FileFilterType.Include);
+			PromotableFilter.ReadRulesFromFile(CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, ConfigRelativePath), "promotable");
+			PromotableFilter.ExcludeConfidentialFolders();
 			
 			// Copy everything that matches the filter to the promotion folder
 			string PromotableFolder = CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, "Engine", "Saved", "GitPromotable");
 			CommandUtils.DeleteDirectoryContents(PromotableFolder);
-			string[] PromotableFiles = CopyNode.CopyFolder(CommandUtils.CmdEnv.LocalRoot, PromotableFolder, PromotableFilter);
+			string[] PromotableFiles = CommandUtils.ThreadedCopyFiles(CommandUtils.CmdEnv.LocalRoot, PromotableFolder, PromotableFilter, bIgnoreSymlinks: true);
 			BuildProducts = new List<string>(PromotableFiles);
 		}
 	}
 
-	public class CopySymbolsNode : GUBP.HostPlatformNode
+	public abstract class StripRocketNode : GUBP.HostPlatformNode
 	{
-		public string OutputDirectory;
-		public bool bAddToBuildProducts;
+		public UnrealTargetPlatform TargetPlatform;
+		public string StrippedDir;
+		public List<string> NodesToStrip = new List<string>();
 
-		public CopySymbolsNode(UnrealTargetPlatform HostPlatform, string InOutputDirectory, bool bInAddToBuildProducts) : base(HostPlatform)
+		public StripRocketNode(UnrealTargetPlatform InHostPlatform, UnrealTargetPlatform InTargetPlatform, string InStrippedDir) : base(InHostPlatform)
 		{
-			OutputDirectory = InOutputDirectory;
-			bAddToBuildProducts = bInAddToBuildProducts;
-			AgentSharingGroup = "BuildMinimalInstall" + StaticGetHostPlatformSuffix(HostPlatform);
+			TargetPlatform = InTargetPlatform;
+			StrippedDir = InStrippedDir;
+		}
+
+		public override abstract string GetFullName();
+
+		public void AddNodeToStrip(string NodeName)
+		{
+			NodesToStrip.Add(NodeName);
+			AddDependency(NodeName);
+		}
+
+		public static bool IsRequiredForPlatform(UnrealTargetPlatform Platform)
+		{
+			switch(Platform)
+			{
+				case UnrealTargetPlatform.Win32:
+				case UnrealTargetPlatform.Win64:
+				case UnrealTargetPlatform.Android:
+				case UnrealTargetPlatform.Linux:
+					return true;
+				default:
+					return false;
+			}
 		}
 
 		public override void DoBuild(GUBP bp)
 		{
 			BuildProducts = new List<string>();
 
-			// Make a lookup for all the known debug extensions, and filter all the dependency build products against that
-			HashSet<string> DebugExtensions = new HashSet<string>(Platform.Platforms.Values.SelectMany(x => x.GetDebugFileExtentions()).Distinct().ToArray(), StringComparer.InvariantCultureIgnoreCase);
-			foreach(string InputFileName in AllDependencyBuildProducts)
-			{
-				string Extension = Path.GetExtension(InputFileName);
-				if(DebugExtensions.Contains(Extension))
-				{
-					string OutputFileName = CommandUtils.MakeRerootedFilePath(InputFileName, CommandUtils.CmdEnv.LocalRoot, OutputDirectory);
-					CommandUtils.CopyFile(InputFileName, OutputFileName);
+			string InputDir = Path.GetFullPath(CommandUtils.CmdEnv.LocalRoot);
+			string RulesFileName = CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, "Engine", "Build", "InstalledEngineFilters.ini");
 
-					if(bAddToBuildProducts)
+			// Read the filter for files on this platform
+			FileFilter StripFilter = new FileFilter();
+			StripFilter.ReadRulesFromFile(RulesFileName, "StripSymbols." + TargetPlatform.ToString(), HostPlatform.ToString());
+
+			// Apply the filter to the build products
+			List<string> SourcePaths = new List<string>();
+			List<string> TargetPaths = new List<string>();
+			foreach(string NodeToStrip in NodesToStrip)
+			{
+				GUBP.GUBPNode Node = bp.FindNode(NodeToStrip);
+				foreach(string DependencyBuildProduct in Node.BuildProducts)
+				{
+					string RelativePath = CommandUtils.StripBaseDirectory(Path.GetFullPath(DependencyBuildProduct), InputDir);
+					if(StripFilter.Matches(RelativePath))
 					{
-						BuildProducts.Add(OutputFileName);
+						SourcePaths.Add(CommandUtils.CombinePaths(InputDir, RelativePath));
+						TargetPaths.Add(CommandUtils.CombinePaths(StrippedDir, RelativePath));
 					}
 				}
 			}
 
-			// Add a dummy build product if we're not adding all the files we copied
-			if(!bAddToBuildProducts)
+			// Strip the files and add them to the build products
+			StripSymbols(TargetPlatform, SourcePaths.ToArray(), TargetPaths.ToArray());
+			BuildProducts.AddRange(TargetPaths);
+
+			SaveRecordOfSuccessAndAddToBuildProducts();
+		}
+
+		public static void StripSymbols(UnrealTargetPlatform TargetPlatform, string[] SourceFileNames, string[] TargetFileNames)
+		{
+			IUEBuildPlatform Platform = UEBuildPlatform.GetBuildPlatform(TargetPlatform);
+			IUEToolChain ToolChain = UEToolChain.GetPlatformToolChain(Platform.GetCPPTargetPlatform(TargetPlatform));
+			for (int Idx = 0; Idx < SourceFileNames.Length; Idx++)
 			{
-				SaveRecordOfSuccessAndAddToBuildProducts();
+				CommandUtils.CreateDirectory(Path.GetDirectoryName(TargetFileNames[Idx]));
+				CommandUtils.Log("Stripping symbols: {0} -> {1}", SourceFileNames[Idx], TargetFileNames[Idx]);
+				ToolChain.StripSymbols(SourceFileNames[Idx], TargetFileNames[Idx]);
 			}
 		}
 	}
 
-	public class CopyInstalledSymbolsNode : CopySymbolsNode
+	public class StripRocketToolsNode : StripRocketNode
 	{
-		public CopyInstalledSymbolsNode(GUBP bp, UnrealTargetPlatform HostPlatform, IEnumerable<UnrealTargetPlatform> TargetPlatforms, string OutputDirectory) 
-			: base(HostPlatform, OutputDirectory, false)
+		public StripRocketToolsNode(UnrealTargetPlatform InHostPlatform, string InStrippedDir)
+			: base(InHostPlatform, InHostPlatform, InStrippedDir)
 		{
-			AddDependency(GUBP.ToolsForCompileNode.StaticGetFullName(HostPlatform));
-			AddDependency(GUBP.RootEditorNode.StaticGetFullName(HostPlatform));
-			AddDependency(GUBP.ToolsNode.StaticGetFullName(HostPlatform));
-
-			foreach(UnrealTargetPlatform TargetPlatform in TargetPlatforms)
-			{
-				UnrealTargetPlatform SourceHostPlatform = CopyInstalledPlatformsNode.GetSourceHostPlatform(bp, HostPlatform, TargetPlatform);
-				AddDependency(GUBP.GamePlatformMonolithicsNode.StaticGetFullName(SourceHostPlatform, bp.Branch.BaseEngineProject, TargetPlatform, Precompiled: true));
-			}
+			AddNodeToStrip(GUBP.ToolsForCompileNode.StaticGetFullName(HostPlatform));
+			AddNodeToStrip(GUBP.ToolsNode.StaticGetFullName(HostPlatform));
+			AgentSharingGroup = "ToolsGroup" + StaticGetHostPlatformSuffix(InHostPlatform);
 		}
 
-		public static string StaticGetFullName(UnrealTargetPlatform HostPlatform)
+		public static string StaticGetFullName(UnrealTargetPlatform InHostPlatform)
 		{
-			return "CopyEngineSymbols" + StaticGetHostPlatformSuffix(HostPlatform);
+			return "Strip" + GUBP.ToolsNode.StaticGetFullName(InHostPlatform);
 		}
 
 		public override string GetFullName()
@@ -329,174 +407,140 @@ namespace Rocket
 		}
 	}
 
-	public class CopyNode : GUBP.HostPlatformNode
+	public class StripRocketEditorNode : StripRocketNode
 	{
-		public CopyNode(UnrealTargetPlatform InHostPlatform) : base(InHostPlatform)
+		public StripRocketEditorNode(UnrealTargetPlatform InHostPlatform, string InStrippedDir)
+			: base(InHostPlatform, InHostPlatform, InStrippedDir)
 		{
+			AddNodeToStrip(GUBP.RootEditorNode.StaticGetFullName(HostPlatform));
+			AgentSharingGroup = "Editor" + StaticGetHostPlatformSuffix(HostPlatform);
 		}
 
-		static IEnumerable<string> FindBuildProducts(GUBP bp, string NodeName)
+		public static string StaticGetFullName(UnrealTargetPlatform InHostPlatform)
 		{
-			GUBP.GUBPNode Node = bp.FindNode(NodeName);
-			if (Node == null)
-			{
-				throw new AutomationException("Couldn't find node '{0}'", NodeName);
-			}
-			return Node.BuildProducts;
+			return "Strip" + GUBP.RootEditorNode.StaticGetFullName(InHostPlatform);
 		}
 
-		static IEnumerable<string> MakeRerootedFilePaths(IEnumerable<string> FileNames, string SourceDir, string TargetDir)
+		public override string GetFullName()
 		{
-			foreach(string FileName in FileNames)
-			{
-				yield return CommandUtils.MakeRerootedFilePath(Path.GetFullPath(FileName), SourceDir, TargetDir);
-			}
-		}
-
-		public static void AddFileToFilter(FileFilter Filter, string FileName, FileFilterType Type)
-		{
-			AddFileToFilter(Filter, FileName, CommandUtils.CmdEnv.LocalRoot, Type);
-		}
-
-		public static void AddFileToFilter(FileFilter Filter, string FileName, string BaseDirectoryName, FileFilterType Type)
-		{
-			Filter.AddRule("/" + CommandUtils.StripBaseDirectory(Path.GetFullPath(FileName), BaseDirectoryName), Type);
-		}
-
-		public static void AddFilesToFilter(FileFilter Filter, IEnumerable<string> FileNames, FileFilterType Type)
-		{
-			AddFilesToFilter(Filter, FileNames, CommandUtils.CmdEnv.LocalRoot, Type);
-		}
-
-		public static void AddFilesToFilter(FileFilter Filter, IEnumerable<string> FileNames, string BaseDirectoryName, FileFilterType Type)
-		{
-			foreach (string FileName in FileNames)
-			{
-				AddFileToFilter(Filter, FileName, BaseDirectoryName, Type);
-			}
-		}
-
-		public static void AddNodeToFilter(FileFilter Filter, GUBP bp, string NodeName, FileFilterType Type)
-		{
-			AddNodeToFilter(Filter, bp, NodeName, CommandUtils.CmdEnv.LocalRoot, Type);
-		}
-
-		public static void AddNodeToFilter(FileFilter Filter, GUBP bp, string NodeName, string BaseDirectoryName, FileFilterType Type)
-		{
-			GUBP.GUBPNode Node = bp.FindNode(NodeName);
-			if(Node == null)
-			{
-				throw new AutomationException("Couldn't find node '{0}'", NodeName);
-			}
-			AddFilesToFilter(Filter, Node.BuildProducts, BaseDirectoryName, Type);
-		}
-
-		public static void ExcludeConfidentialPlatforms(FileFilter Filter)
-		{
-			// Exclude platforms that can't be redistributed without an NDA
-			Filter.Exclude(".../PS4/...");
-			Filter.Exclude(".../XboxOne/...");
-		}
-
-		public static void ExcludeConfidentialFolders(FileFilter Filter)
-		{
-			// Exclude standard folders
-			Filter.Exclude(".../EpicInternal/...");
-			Filter.Exclude(".../CarefullyRedist/...");
-			Filter.Exclude(".../NotForLicensees/...");
-			Filter.Exclude(".../NoRedist/...");
-		}
-
-		public static string[] CopyFolder(string SourceDir, string TargetDir, FileFilter Filter)
-		{
-			// Filter all the relative paths
-			CommandUtils.Log("Applying filter to {0}...", SourceDir);
-			string[] RelativePaths = Filter.ApplyToDirectory(SourceDir).ToArray();
-			return CopyFolder(SourceDir, TargetDir, RelativePaths);
-		}
-
-		public static string[] CopyFolder(string SourceDir, string TargetDir, IEnumerable<string> RelativePaths)
-		{
-			// Find all the source and target filenames, removing any symlinks.
-			List<string> SourceFileNames = new List<string>();
-			List<string> TargetFileNames = new List<string>();
-			foreach(string RelativePath in RelativePaths)
-			{
-				string SourceFileName = CommandUtils.CombinePaths(SourceDir, RelativePath);
-				if(!File.GetAttributes(SourceFileName).HasFlag(FileAttributes.ReparsePoint))
-				{
-					SourceFileNames.Add(SourceFileName);
-					TargetFileNames.Add(CommandUtils.CombinePaths(TargetDir, RelativePath));
-				}
-			}
-
-			// Copy them all over
-			string[] TargetFileNamesArray = TargetFileNames.ToArray();
-			CommandUtils.Log("Copying {0} files to {1}...", SourceFileNames.Count, TargetDir);
-			CommandUtils.ThreadedCopyFiles(SourceFileNames.ToArray(), TargetFileNamesArray);
-			return TargetFileNamesArray;
-		}
-
-		public static void StripSymbols(UnrealTargetPlatform TargetPlatform, IEnumerable<string> FileNames)
-		{
-			if(TargetPlatform == UnrealTargetPlatform.Win32 || TargetPlatform == UnrealTargetPlatform.Win64)
-			{
-				string PDBCopyPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "MSBuild", "Microsoft", "VisualStudio", "v12.0", "AppxPackage", "PDBCopy.exe");
-				foreach(string FileName in FileNames)
-				{
-					string TempFileName = FileName + ".stripped";
-					CommandUtils.Run(PDBCopyPath, String.Format("{0} {1} -p", CommandUtils.MakePathSafeToUseWithCommandLine(FileName), CommandUtils.MakePathSafeToUseWithCommandLine(TempFileName)));
-					CommandUtils.DeleteFile(FileName);
-					CommandUtils.RenameFile(TempFileName, FileName);
-				}
-			}
-			else if(TargetPlatform == UnrealTargetPlatform.Android)
-			{
-				CommandUtils.LogWarning("Stripping has not yet been implemented for Android. Skipping files:");
-				foreach (string FileName in FileNames)
-				{
-					CommandUtils.LogWarning("  {0}", FileName);
-				}
-			}
-			else if(TargetPlatform == UnrealTargetPlatform.Linux)
-			{
-				CommandUtils.LogWarning("Stripping has not yet been implemented for Linux. Skipping files:");
-				foreach (string FileName in FileNames)
-				{
-					CommandUtils.LogWarning("  {0}", FileName);
-				}
-			}
-			else
-			{
-				if(FileNames.Any())
-				{
-					throw new AutomationException("Symbol stripping has not been implemented for {0}", TargetPlatform.ToString());
-				}
-			}
+			return StaticGetFullName(HostPlatform);
 		}
 	}
 
-	public class CopyInstalledEditorNode : CopyNode
+	public class StripRocketMonolithicsNode : StripRocketNode
 	{
-		string TargetDir;
+		BranchInfo.BranchUProject Project;
+		bool bIsCodeTargetPlatform;
 
-		public CopyInstalledEditorNode(GUBP bp, UnrealTargetPlatform InHostPlatform, string InTargetDir) 
+		public StripRocketMonolithicsNode(GUBP bp, UnrealTargetPlatform InHostPlatform, UnrealTargetPlatform InTargetPlatform, bool bInIsCodeTargetPlatform, string InStrippedDir) : base(InHostPlatform, InTargetPlatform, InStrippedDir)
+		{
+			Project = bp.Branch.BaseEngineProject;
+			bIsCodeTargetPlatform = bInIsCodeTargetPlatform;
+
+			GUBP.GUBPNode Node = bp.FindNode(GUBP.GamePlatformMonolithicsNode.StaticGetFullName(HostPlatform, Project, InTargetPlatform, Precompiled: bIsCodeTargetPlatform));
+			if(String.IsNullOrEmpty(Node.AgentSharingGroup))
+			{
+				Node.AgentSharingGroup = bp.Branch.BaseEngineProject.GameName + "_MonolithicsGroup_" + InTargetPlatform + StaticGetHostPlatformSuffix(InHostPlatform);
+			}
+			AddNodeToStrip(Node.GetFullName());
+
+			AgentSharingGroup = Node.AgentSharingGroup;
+		}
+
+		public override string GetDisplayGroupName()
+		{
+			return Project.GameName + "_Monolithics" + (bIsCodeTargetPlatform? "_Precompiled" : "");
+		}
+
+		public static string StaticGetFullName(UnrealTargetPlatform InHostPlatform, BranchInfo.BranchUProject InProject, UnrealTargetPlatform InTargetPlatform, bool bIsCodeTargetPlatform)
+		{
+			string Name = InProject.GameName + "_" + InTargetPlatform + "_Mono";
+			if(bIsCodeTargetPlatform)
+			{
+				Name += "_Precompiled";
+			}
+			return Name + "_Strip" + StaticGetHostPlatformSuffix(InHostPlatform);
+		}
+
+		public override string GetFullName()
+		{
+			return StaticGetFullName(HostPlatform, Project, TargetPlatform, bIsCodeTargetPlatform);
+		}
+	}
+
+	public class FilterRocketNode : GUBP.HostPlatformNode
+	{
+		List<UnrealTargetPlatform> SourceHostPlatforms;
+		List<UnrealTargetPlatform> TargetPlatforms;
+		List<UnrealTargetPlatform> CodeTargetPlatforms;
+		string[] CurrentFeaturePacks;
+		string[] CurrentTemplates;
+		public readonly string DepotManifestPath;
+		public Dictionary<string, string> StrippedNodeManifestPaths = new Dictionary<string, string>();
+
+		public FilterRocketNode(GUBP bp, UnrealTargetPlatform InHostPlatform, List<UnrealTargetPlatform> InTargetPlatforms, List<UnrealTargetPlatform> InCodeTargetPlatforms, string[] InCurrentFeaturePacks, string[] InCurrentTemplates)
 			: base(InHostPlatform)
 		{
-			TargetDir = InTargetDir;
+			TargetPlatforms = new List<UnrealTargetPlatform>(InTargetPlatforms);
+			CodeTargetPlatforms = new List<UnrealTargetPlatform>(InCodeTargetPlatforms);
+			CurrentFeaturePacks = InCurrentFeaturePacks;
+			CurrentTemplates = InCurrentTemplates;
+			DepotManifestPath = CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, "Engine", "Saved", "Rocket", HostPlatform.ToString(), "Filter.txt");
 
+			// Add the editor
 			AddDependency(GUBP.VersionFilesNode.StaticGetFullName());
 			AddDependency(GUBP.ToolsForCompileNode.StaticGetFullName(HostPlatform));
 			AddDependency(GUBP.RootEditorNode.StaticGetFullName(HostPlatform));
 			AddDependency(GUBP.ToolsNode.StaticGetFullName(HostPlatform));
 
-			// Add win64 tools on Mac, to get the win64 build of UBT and UAT
+			// Get all the external file lists. Android/HTML5 on Mac uses the same files as Win64.
+			List<string> StrippedNodeNames = new List<string>();
+			foreach(UnrealTargetPlatform TargetPlatform in TargetPlatforms)
+			{
+				UnrealTargetPlatform SourceHostPlatform = RocketBuild.GetSourceHostPlatform(bp, HostPlatform, TargetPlatform);
+				bool bIsCodeTargetPlatform = CodeTargetPlatforms.Contains(TargetPlatform);
+				AddDependency(GUBP.GamePlatformMonolithicsNode.StaticGetFullName(SourceHostPlatform, bp.Branch.BaseEngineProject, TargetPlatform, Precompiled: bIsCodeTargetPlatform));
+
+				if(StripRocketNode.IsRequiredForPlatform(TargetPlatform))
+				{
+					string StripNode = StripRocketMonolithicsNode.StaticGetFullName(SourceHostPlatform, bp.Branch.BaseEngineProject, TargetPlatform, bIsCodeTargetPlatform);
+					AddDependency(StripNode);
+					StrippedNodeNames.Add(StripNode);
+				}
+			}
+
+			// Add win64 tools on Mac, to get the win64 build of UBT, UAT and IPP
 			if (HostPlatform == UnrealTargetPlatform.Mac && bp.HostPlatforms.Contains(UnrealTargetPlatform.Win64))
 			{
+				AddDependency(GUBP.ToolsNode.StaticGetFullName(UnrealTargetPlatform.Win64));
 				AddDependency(GUBP.ToolsForCompileNode.StaticGetFullName(UnrealTargetPlatform.Win64));
 			}
 
-			AgentSharingGroup = "BuildMinimalInstall" + StaticGetHostPlatformSuffix(HostPlatform);
+			// Add all the feature packs
+			AddDependency(GUBP.MakeFeaturePacksNode.StaticGetFullName(GUBP.MakeFeaturePacksNode.GetDefaultBuildPlatform(bp)));
+
+			// Find all the host platforms we need
+			SourceHostPlatforms = TargetPlatforms.Select(x => RocketBuild.GetSourceHostPlatform(bp, HostPlatform, x)).Distinct().ToList();
+			if(!SourceHostPlatforms.Contains(HostPlatform))
+			{
+				SourceHostPlatforms.Add(HostPlatform);
+			}
+
+			// Add the stripped host platforms
+			if(StripRocketNode.IsRequiredForPlatform(HostPlatform))
+			{
+				AddDependency(StripRocketToolsNode.StaticGetFullName(HostPlatform));
+				StrippedNodeNames.Add(StripRocketToolsNode.StaticGetFullName(HostPlatform));
+
+				AddDependency(StripRocketEditorNode.StaticGetFullName(HostPlatform));
+				StrippedNodeNames.Add(StripRocketEditorNode.StaticGetFullName(HostPlatform));
+			}
+
+			// Set all the stripped manifest paths
+			foreach(string StrippedNodeName in StrippedNodeNames)
+			{
+				StrippedNodeManifestPaths.Add(StrippedNodeName, Path.Combine(Path.GetDirectoryName(DepotManifestPath), "Filter_" + StrippedNodeName + ".txt"));
+			}
 		}
 
 		public override int CISFrequencyQuantumShift(GUBP bp)
@@ -506,7 +550,7 @@ namespace Rocket
 
 		public static string StaticGetFullName(UnrealTargetPlatform InHostPlatform)
 		{
-			return "CopyEditor" + StaticGetHostPlatformSuffix(InHostPlatform);
+			return "FilterRocket" + StaticGetHostPlatformSuffix(InHostPlatform);
 		}
 
 		public override string GetFullName()
@@ -516,203 +560,352 @@ namespace Rocket
 
 		public override void DoBuild(GUBP bp)
 		{
+			BuildProducts = new List<string>();
 			FileFilter Filter = new FileFilter();
 
 			// Include all the editor products
-			AddNodeToFilter(Filter, bp, GUBP.ToolsForCompileNode.StaticGetFullName(HostPlatform), FileFilterType.Include);
-			AddNodeToFilter(Filter, bp, GUBP.RootEditorNode.StaticGetFullName(HostPlatform), FileFilterType.Include);
-			AddNodeToFilter(Filter, bp, GUBP.ToolsNode.StaticGetFullName(HostPlatform), FileFilterType.Include);
+			AddRuleForBuildProducts(Filter, bp, GUBP.ToolsForCompileNode.StaticGetFullName(HostPlatform), FileFilterType.Include);
+			AddRuleForBuildProducts(Filter, bp, GUBP.RootEditorNode.StaticGetFullName(HostPlatform), FileFilterType.Include);
+			AddRuleForBuildProducts(Filter, bp, GUBP.ToolsNode.StaticGetFullName(HostPlatform), FileFilterType.Include);
 
-			// Include all the standard rules
-			string RulesFileName = CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, "Engine", "Build", "InstalledEngineFilters.ini");
-			Filter.AddRulesFromFile(RulesFileName, "CopyEditor", HostPlatform.ToString());
-
-			// Add the final exclusions for legal reasons.
-			ExcludeConfidentialPlatforms(Filter);
-			ExcludeConfidentialFolders(Filter);
-
-			// Wipe the target directory and copy all the files over
-			CommandUtils.DeleteDirectoryContents(TargetDir);
-
-			// Copy everything over and add the result as build products
-			string[] TargetFileNames = CopyFolder(CommandUtils.CmdEnv.LocalRoot, TargetDir, Filter);
-			BuildProducts = new List<string>(TargetFileNames);
-
-			// Strip symbols from all the debug files
-			FileFilter StripFilter = new FileFilter();
-			StripFilter.AddRulesFromFile(RulesFileName, "StripEditor", HostPlatform.ToString());
-			StripSymbols(HostPlatform, StripFilter.ApplyTo(TargetDir, TargetFileNames));
-
-			// Write the default command line to the root of the output directory
-			string CommandLinePath = Path.Combine(TargetDir, "UE4CommandLine.txt");
-			File.WriteAllText(CommandLinePath, "-installedengine -rocket");
-			AddBuildProduct(CommandLinePath);
-		}
-	}
-
-	public class CopyInstalledPlatformsNode : CopyNode
-	{
-		List<UnrealTargetPlatform> TargetPlatforms;
-		List<UnrealTargetPlatform> CodeTargetPlatforms;
-		string InstallDir;
-		string[] CurrentFeaturePacks;
-		string[] CurrentTemplates;
-
-		public CopyInstalledPlatformsNode(GUBP bp, UnrealTargetPlatform InHostPlatform, List<UnrealTargetPlatform> InTargetPlatforms, List<UnrealTargetPlatform> InCodeTargetPlatforms, string InInstallDir, string[] InCurrentFeaturePacks, string[] InCurrentTemplates)
-			: base(InHostPlatform)
-		{
-			TargetPlatforms = new List<UnrealTargetPlatform>(InTargetPlatforms);
-			CodeTargetPlatforms = new List<UnrealTargetPlatform>(InCodeTargetPlatforms);
-			InstallDir = InInstallDir;
-			CurrentFeaturePacks = InCurrentFeaturePacks;
-			CurrentTemplates = InCurrentTemplates;
-
-			// copy the editor
-			AddDependency(CopyInstalledEditorNode.StaticGetFullName(HostPlatform));
-
-			// add all the feature packs
-			AddDependency(GUBP.MakeFeaturePacksNode.StaticGetFullName(GUBP.MakeFeaturePacksNode.GetDefaultBuildPlatform(bp)));
-
-			// Get all the external file lists. Android on Mac uses the same files as Win64.
-			foreach(UnrealTargetPlatform CodeTargetPlatform in CodeTargetPlatforms)
-			{
-				UnrealTargetPlatform SourceHostPlatform = GetSourceHostPlatform(bp, HostPlatform, CodeTargetPlatform);
-				AddDependency(GUBP.GamePlatformMonolithicsNode.StaticGetFullName(SourceHostPlatform, bp.Branch.BaseEngineProject, CodeTargetPlatform, Precompiled: true));
-			}
-
-			// Add win64 tools on Mac, to get the win64 build of IPP
+			// Include win64 tools on Mac, to get the win64 build of UBT, UAT and IPP
 			if (HostPlatform == UnrealTargetPlatform.Mac && bp.HostPlatforms.Contains(UnrealTargetPlatform.Win64))
 			{
-				AddDependency(GUBP.ToolsNode.StaticGetFullName(UnrealTargetPlatform.Win64));
-				AddDependency(GUBP.ToolsForCompileNode.StaticGetFullName(UnrealTargetPlatform.Win64));
+				AddRuleForBuildProducts(Filter, bp, GUBP.ToolsNode.StaticGetFullName(UnrealTargetPlatform.Win64), FileFilterType.Include);
+				AddRuleForBuildProducts(Filter, bp, GUBP.ToolsForCompileNode.StaticGetFullName(UnrealTargetPlatform.Win64), FileFilterType.Include);
 			}
-		}
 
-		public static UnrealTargetPlatform GetSourceHostPlatform(GUBP bp, UnrealTargetPlatform HostPlatform, UnrealTargetPlatform TargetPlatform)
-		{
-			if(HostPlatform == UnrealTargetPlatform.Mac && TargetPlatform == UnrealTargetPlatform.Android && bp.HostPlatforms.Contains(UnrealTargetPlatform.Win64))
-			{
-				return UnrealTargetPlatform.Win64;
-			}
-			else
-			{
-				return HostPlatform;
-			}
-		}
-
-		public override int CISFrequencyQuantumShift(GUBP bp)
-		{
-			return base.CISFrequencyQuantumShift(bp) + 2;
-		}
-
-		public override float Priority()
-		{
-			return base.Priority() + 5.0f;
-		}
-
-		public override void DoBuild(GUBP bp)
-		{
-			FileFilter Filter = new FileFilter();
+			// Include the editor headers
+			UnzipAndAddRuleForHeaders(GUBP.RootEditorNode.StaticGetArchivedHeadersPath(HostPlatform), Filter, FileFilterType.Include);
 
 			// Include the build dependencies for every code platform
 			foreach(UnrealTargetPlatform CodeTargetPlatform in CodeTargetPlatforms)
 			{
-				UnrealTargetPlatform SourceHostPlatform = GetSourceHostPlatform(bp, HostPlatform, CodeTargetPlatform);
-				string FileListPath = GUBP.GamePlatformMonolithicsNode.StaticGetBuildDependenciesPath(SourceHostPlatform, CodeTargetPlatform);
-				AddFilesToFilter(Filter, UnrealBuildTool.Utils.ReadClass<UnrealBuildTool.ExternalFileList>(FileListPath).FileNames, FileFilterType.Include);
+				UnrealTargetPlatform SourceHostPlatform = RocketBuild.GetSourceHostPlatform(bp, HostPlatform, CodeTargetPlatform);
+				string FileListPath = GUBP.GamePlatformMonolithicsNode.StaticGetBuildDependenciesPath(SourceHostPlatform, bp.Branch.BaseEngineProject, CodeTargetPlatform);
+				Filter.AddRuleForFiles(UnrealBuildTool.Utils.ReadClass<UnrealBuildTool.ExternalFileList>(FileListPath).FileNames, CommandUtils.CmdEnv.LocalRoot, FileFilterType.Include);
+				UnzipAndAddRuleForHeaders(GUBP.GamePlatformMonolithicsNode.StaticGetArchivedHeadersPath(SourceHostPlatform, bp.Branch.BaseEngineProject, CodeTargetPlatform), Filter, FileFilterType.Include);
 			}
 
 			// Add the monolithic binaries
 			foreach(UnrealTargetPlatform CodeTargetPlatform in CodeTargetPlatforms)
 			{
-				UnrealTargetPlatform SourceHostPlatform = GetSourceHostPlatform(bp, HostPlatform, CodeTargetPlatform);
-				AddNodeToFilter(Filter, bp, GUBP.GamePlatformMonolithicsNode.StaticGetFullName(SourceHostPlatform, bp.Branch.BaseEngineProject, CodeTargetPlatform, Precompiled: true), FileFilterType.Include);
+				UnrealTargetPlatform SourceHostPlatform = RocketBuild.GetSourceHostPlatform(bp, HostPlatform, CodeTargetPlatform);
+				AddRuleForBuildProducts(Filter, bp, GUBP.GamePlatformMonolithicsNode.StaticGetFullName(SourceHostPlatform, bp.Branch.BaseEngineProject, CodeTargetPlatform, Precompiled: true), FileFilterType.Include);
 			}
 
 			// Include the feature packs
 			foreach(string CurrentFeaturePack in CurrentFeaturePacks)
 			{
 				BranchInfo.BranchUProject Project = bp.Branch.FindGameChecked(CurrentFeaturePack);
-				AddFileToFilter(Filter, GUBP.MakeFeaturePacksNode.GetOutputFile(Project), FileFilterType.Include);
+				Filter.AddRuleForFile(GUBP.MakeFeaturePacksNode.GetOutputFile(Project), CommandUtils.CmdEnv.LocalRoot, FileFilterType.Include);
 			}
 
 			// Include all the templates
 			foreach (string Template in CurrentTemplates)
 			{
 				BranchInfo.BranchUProject Project = bp.Branch.FindGameChecked(Template);
-				string TemplateRelativeDirectory = "/" + Utils.StripBaseDirectory(Path.GetDirectoryName(Project.FilePath), CommandUtils.CmdEnv.LocalRoot) + "/";
-				Filter.Include(TemplateRelativeDirectory + "/...");
-				Filter.Exclude(TemplateRelativeDirectory + "/.../Binaries/...");
-				Filter.Exclude(TemplateRelativeDirectory + "/.../Intermediate/...");
+				Filter.Include("/" + Utils.StripBaseDirectory(Path.GetDirectoryName(Project.FilePath), CommandUtils.CmdEnv.LocalRoot).Replace('\\', '/') + "/...");
 			}
 
-			// Custom rules for all platforms
+			// Include all the standard rules
 			string RulesFileName = CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, "Engine", "Build", "InstalledEngineFilters.ini");
-			Filter.AddRulesFromFile(RulesFileName, "CopyTargetPlatforms", HostPlatform.ToString());
+			Filter.ReadRulesFromFile(RulesFileName, "CopyEditor", HostPlatform.ToString());
+			Filter.ReadRulesFromFile(RulesFileName, "CopyTargetPlatforms", HostPlatform.ToString());
 
 			// Custom rules for each target platform
 			foreach(UnrealTargetPlatform TargetPlaform in TargetPlatforms)
 			{
 				string SectionName = String.Format("CopyTargetPlatform.{0}", TargetPlaform.ToString());
-				Filter.AddRulesFromFile(RulesFileName, SectionName, HostPlatform.ToString());
+				Filter.ReadRulesFromFile(RulesFileName, SectionName, HostPlatform.ToString());
 			}
-
-			// Exclude any the files which have already been added by the CopyInstalledEditor node
-			AddNodeToFilter(Filter, bp, CopyInstalledEditorNode.StaticGetFullName(HostPlatform), FileFilterType.Exclude);
 
 			// Add the final exclusions for legal reasons.
-			ExcludeConfidentialPlatforms(Filter);
-			ExcludeConfidentialFolders(Filter);
+			Filter.ExcludeConfidentialPlatforms();
+			Filter.ExcludeConfidentialFolders();
 
-			// Copy all the files over
-			string[] TargetFileNames = CopyFolder(CommandUtils.CmdEnv.LocalRoot, InstallDir, Filter);
-			BuildProducts = new List<string>(TargetFileNames);
-
-			// Strip symbols from any of the build products
-			foreach(UnrealTargetPlatform TargetPlatform in TargetPlatforms)
+			// Run the filter on the stripped symbols, and remove those files from the copy filter
+			List<string> AllStrippedFiles = new List<string>();
+			foreach(KeyValuePair<string, string> StrippedNodeManifestPath in StrippedNodeManifestPaths)
 			{
-				FileFilter StripFilter = new FileFilter();
-				StripFilter.AddRulesFromFile(RulesFileName, String.Format("StripTargetPlatform.{0}", TargetPlatform.ToString()), HostPlatform.ToString());
-				StripSymbols(TargetPlatform, StripFilter.ApplyTo(InstallDir, TargetFileNames));
+				List<string> StrippedFiles = new List<string>();
+
+				StripRocketNode StripNode = (StripRocketNode)bp.FindNode(StrippedNodeManifestPath.Key);
+				foreach(string BuildProduct in StripNode.BuildProducts)
+				{
+					if(Utils.IsFileUnderDirectory(BuildProduct, StripNode.StrippedDir))
+					{
+						string RelativePath = CommandUtils.StripBaseDirectory(Path.GetFullPath(BuildProduct), StripNode.StrippedDir);
+						if(Filter.Matches(RelativePath))
+						{
+							StrippedFiles.Add(RelativePath);
+							AllStrippedFiles.Add(RelativePath);
+							Filter.Exclude("/" + RelativePath);
+						}
+					}
+				}
+
+				WriteManifest(StrippedNodeManifestPath.Value, StrippedFiles);
+				BuildProducts.Add(StrippedNodeManifestPath.Value);
+			}
+
+			// Write the filtered list of depot files to disk, removing any symlinks
+			List<string> DepotFiles = Filter.ApplyToDirectory(CommandUtils.CmdEnv.LocalRoot, true).ToList();
+			WriteManifest(DepotManifestPath, DepotFiles);
+			BuildProducts.Add(DepotManifestPath);
+
+			// Sort the list of output files
+			SortedDictionary<string, bool> SortedFiles = new SortedDictionary<string,bool>(StringComparer.InvariantCultureIgnoreCase);
+			foreach(string DepotFile in DepotFiles)
+			{
+				SortedFiles.Add(DepotFile, false);
+			}
+			foreach(string StrippedFile in AllStrippedFiles)
+			{
+				SortedFiles.Add(StrippedFile, true);
+			}
+
+			// Write the list to the log
+			CommandUtils.Log("Files to be included in Rocket build:");
+			foreach(KeyValuePair<string, bool> SortedFile in SortedFiles)
+			{
+				CommandUtils.Log("  {0}{1}", SortedFile.Key, SortedFile.Value? " (stripped)" : "");
 			}
 		}
 
-		public override string RootIfAnyForTempStorage() // this saves a bit of path space for temp storage
+		static void AddRuleForBuildProducts(FileFilter Filter, GUBP bp, string NodeName, FileFilterType Type)
 		{
-			return InstallDir;
+			GUBP.GUBPNode Node = bp.FindNode(NodeName);
+			if(Node == null)
+			{
+				throw new AutomationException("Couldn't find node '{0}'", NodeName);
+			}
+			Filter.AddRuleForFiles(Node.BuildProducts, CommandUtils.CmdEnv.LocalRoot, Type);
 		}
 
-		public static string StaticGetFullName(UnrealTargetPlatform InHostPlatform)
+		static void UnzipAndAddRuleForHeaders(string ZipFileName, FileFilter Filter, FileFilterType Type)
 		{
-			return "CopyPlatforms" + StaticGetHostPlatformSuffix(InHostPlatform);
+			IEnumerable<string> FileNames = CommandUtils.UnzipFiles(ZipFileName, CommandUtils.CmdEnv.LocalRoot);
+			Filter.AddRuleForFiles(FileNames, CommandUtils.CmdEnv.LocalRoot, FileFilterType.Include);
+		}
+
+		public static void WriteManifest(string FileName, IEnumerable<string> Files)
+		{
+			CommandUtils.CreateDirectory(Path.GetDirectoryName(FileName));
+			CommandUtils.WriteAllLines(FileName, Files.ToArray());
+		}
+	}
+
+	public class GatherRocketNode : GUBP.HostPlatformNode
+	{
+		public readonly string OutputDir;
+		public List<UnrealTargetPlatform> CodeTargetPlatforms;
+
+		public GatherRocketNode(UnrealTargetPlatform HostPlatform, List<UnrealTargetPlatform> InCodeTargetPlatforms, string InOutputDir) : base(HostPlatform)
+		{
+			OutputDir = InOutputDir;
+			CodeTargetPlatforms = new List<UnrealTargetPlatform>(InCodeTargetPlatforms);
+
+			// Optimization for testing locally; don't do other things that are part of the shared promotable
+			if(RocketBuild.ShouldDoSeriousThingsLikeP4CheckinAndPostToMCP())
+			{
+				AddDependency(GUBP.WaitForSharedPromotionUserInput.StaticGetFullName(false));
+			}
+
+			AddDependency(FilterRocketNode.StaticGetFullName(HostPlatform));
+			AddDependency(BuildDerivedDataCacheNode.StaticGetFullName(HostPlatform));
+
+			AgentSharingGroup = "RocketGroup" + StaticGetHostPlatformSuffix(HostPlatform);
+		}
+
+		public static string StaticGetFullName(UnrealTargetPlatform HostPlatform)
+		{
+			return "GatherRocket" + StaticGetHostPlatformSuffix(HostPlatform);
 		}
 
 		public override string GetFullName()
 		{
 			return StaticGetFullName(HostPlatform);
 		}
+
+		public override void DoBuild(GUBP bp)
+		{
+			CommandUtils.DeleteDirectoryContents(OutputDir);
+
+			// Extract the editor headers
+			CommandUtils.UnzipFiles(GUBP.RootEditorNode.StaticGetFullName(HostPlatform), CommandUtils.CmdEnv.LocalRoot);
+
+			// Extract all the headers for code target platforms
+			foreach(UnrealTargetPlatform CodeTargetPlatform in CodeTargetPlatforms)
+			{
+				UnrealTargetPlatform SourceHostPlatform = RocketBuild.GetSourceHostPlatform(bp, HostPlatform, CodeTargetPlatform);
+				string ZipFileName = GUBP.GamePlatformMonolithicsNode.StaticGetArchivedHeadersPath(SourceHostPlatform, bp.Branch.BaseEngineProject, CodeTargetPlatform);
+				CommandUtils.UnzipFiles(ZipFileName, CommandUtils.CmdEnv.LocalRoot);
+			}
+
+			// Copy the depot files to the output directory
+			FilterRocketNode FilterNode = (FilterRocketNode)bp.FindNode(FilterRocketNode.StaticGetFullName(HostPlatform));
+			CopyManifestFilesToOutput(FilterNode.DepotManifestPath, CommandUtils.CmdEnv.LocalRoot, OutputDir);
+
+			// Copy the stripped files to the output directory
+			foreach(KeyValuePair<string, string> StrippedManifestPath in FilterNode.StrippedNodeManifestPaths)
+			{
+				StripRocketNode StripNode = (StripRocketNode)bp.FindNode(StrippedManifestPath.Key);
+				CopyManifestFilesToOutput(StrippedManifestPath.Value, StripNode.StrippedDir, OutputDir);
+			}
+
+			// Copy the DDC to the output directory
+			BuildDerivedDataCacheNode DerivedDataCacheNode = (BuildDerivedDataCacheNode)bp.FindNode(BuildDerivedDataCacheNode.StaticGetFullName(HostPlatform));
+			CopyManifestFilesToOutput(DerivedDataCacheNode.SavedManifestPath, DerivedDataCacheNode.SavedDir, OutputDir);
+
+			// Write the UE4CommandLine.txt file with the 
+			string CommandLineFile = CommandUtils.CombinePaths(OutputDir, "UE4CommandLine.txt");
+			CommandUtils.WriteAllText(CommandLineFile, "-installedengine -rocket");
+
+			// Create a dummy build product
+			BuildProducts = new List<string>();
+			SaveRecordOfSuccessAndAddToBuildProducts();
+		}
+
+		static void CopyManifestFilesToOutput(string ManifestPath, string InputDir, string OutputDir)
+		{
+			// Read the files from the manifest
+			CommandUtils.Log("Reading manifest: '{0}'", ManifestPath);
+			string[] Files = CommandUtils.ReadAllLines(ManifestPath).Select(x => x.Trim()).Where(x => x.Length > 0).ToArray();
+
+			// Create lists of source and target files
+			CommandUtils.Log("Preparing file lists...");
+			string[] SourceFiles = Files.Select(x => CommandUtils.CombinePaths(InputDir, x)).ToArray();
+			string[] TargetFiles = Files.Select(x => CommandUtils.CombinePaths(OutputDir, x)).ToArray();
+
+			// Copy everything
+			CommandUtils.ThreadedCopyFiles(SourceFiles, TargetFiles);
+		}
 	}
 
-	public class CopyInstalledDerivedDataNode : GUBP.HostPlatformNode
+	public class PublishRocketNode : GUBP.HostPlatformNode
+	{
+		string LocalDir;
+		string PublishDir;
+
+		public PublishRocketNode(UnrealTargetPlatform HostPlatform, string InLocalDir, string InPublishDir) : base(HostPlatform)
+		{
+			LocalDir = InLocalDir;
+			PublishDir = InPublishDir;
+
+			AddDependency(GatherRocketNode.StaticGetFullName(HostPlatform));
+
+			AgentSharingGroup = "RocketGroup" + StaticGetHostPlatformSuffix(HostPlatform);
+		}
+
+		public static string StaticGetFullName(UnrealTargetPlatform HostPlatform)
+		{
+			return "PublishRocket" + StaticGetHostPlatformSuffix(HostPlatform);
+		}
+
+		public override string GetFullName()
+		{
+			return StaticGetFullName(HostPlatform);
+		}
+
+		public override float Priority()
+		{
+			return -10000.0f; // Do this and PublishRocketSymbolsNode at the end
+		}
+
+		public override void DoBuild(GUBP bp)
+		{
+			if(RocketBuild.ShouldDoSeriousThingsLikeP4CheckinAndPostToMCP())
+			{
+				CommandUtils.ThreadedCopyFiles(LocalDir, PublishDir);
+			}
+
+			BuildProducts = new List<string>();
+			SaveRecordOfSuccessAndAddToBuildProducts();
+		}
+	}
+
+	public class PublishRocketSymbolsNode : GUBP.HostPlatformNode
+	{
+		string SymbolsOutputDir;
+
+		public PublishRocketSymbolsNode(GUBP bp, UnrealTargetPlatform HostPlatform, IEnumerable<UnrealTargetPlatform> TargetPlatforms, string InSymbolsOutputDir) : base(HostPlatform)
+		{
+			SymbolsOutputDir = InSymbolsOutputDir;
+
+			AddDependency(GUBP.WaitForSharedPromotionUserInput.StaticGetFullName(false));
+			AddDependency(GUBP.ToolsForCompileNode.StaticGetFullName(HostPlatform));
+			AddDependency(GUBP.RootEditorNode.StaticGetFullName(HostPlatform));
+			AddDependency(GUBP.ToolsNode.StaticGetFullName(HostPlatform));
+
+			foreach(UnrealTargetPlatform TargetPlatform in TargetPlatforms)
+			{
+				UnrealTargetPlatform SourceHostPlatform = RocketBuild.GetSourceHostPlatform(bp, HostPlatform, TargetPlatform);
+				AddDependency(GUBP.GamePlatformMonolithicsNode.StaticGetFullName(SourceHostPlatform, bp.Branch.BaseEngineProject, TargetPlatform, Precompiled: true));
+			}
+
+			AgentSharingGroup = "RocketGroup" + StaticGetHostPlatformSuffix(HostPlatform);
+		}
+
+		public static string StaticGetFullName(UnrealTargetPlatform HostPlatform)
+		{
+			return "PublishRocketSymbols" + StaticGetHostPlatformSuffix(HostPlatform);
+		}
+
+		public override string GetFullName()
+		{
+			return StaticGetFullName(HostPlatform);
+		}
+
+		public override float Priority()
+		{
+			return -100000.0f; // Do this last; it's not mission critical
+		}
+
+		public override void DoBuild(GUBP bp)
+		{
+			if(RocketBuild.ShouldDoSeriousThingsLikeP4CheckinAndPostToMCP())
+			{
+				// Make a lookup for all the known debug extensions, and filter all the dependency build products against that
+				HashSet<string> DebugExtensions = new HashSet<string>(Platform.Platforms.Values.SelectMany(x => x.GetDebugFileExtentions()).Distinct().ToArray(), StringComparer.InvariantCultureIgnoreCase);
+				foreach(string InputFileName in AllDependencyBuildProducts)
+				{
+					string Extension = Path.GetExtension(InputFileName);
+					if(DebugExtensions.Contains(Extension))
+					{
+						string OutputFileName = CommandUtils.MakeRerootedFilePath(InputFileName, CommandUtils.CmdEnv.LocalRoot, SymbolsOutputDir);
+						CommandUtils.CopyFile(InputFileName, OutputFileName);
+					}
+				}
+			}
+
+			// Add a dummy build product
+			BuildProducts = new List<string>();
+			SaveRecordOfSuccessAndAddToBuildProducts();
+		}
+	}
+
+	public class BuildDerivedDataCacheNode : GUBP.HostPlatformNode
 	{
 		string TargetPlatforms;
-		string InstallDir;
 		string[] ProjectNames;
+		public readonly string SavedDir;
+		public readonly string SavedManifestPath;
 
-		public CopyInstalledDerivedDataNode(UnrealTargetPlatform InHostPlatform, string InTargetPlatforms, string[] InProjectNames, string InInstallDir)
+		public BuildDerivedDataCacheNode(UnrealTargetPlatform InHostPlatform, string InTargetPlatforms, string[] InProjectNames)
 			: base(InHostPlatform)
 		{
 			TargetPlatforms = InTargetPlatforms;
 			ProjectNames = InProjectNames;
-			InstallDir = InInstallDir;
+			SavedDir = CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, "Engine", "Saved", "Rocket", HostPlatform.ToString());
+			SavedManifestPath = CommandUtils.CombinePaths(SavedDir, "DerivedDataCacheManifest.txt");
 
-			AddDependency(CopyInstalledEditorNode.StaticGetFullName(HostPlatform));
-			AgentSharingGroup = "BuildMinimalInstall" + StaticGetHostPlatformSuffix(InHostPlatform);
+			AddDependency(GUBP.RootEditorNode.StaticGetFullName(HostPlatform));
 		}
 
 		public static string StaticGetFullName(UnrealTargetPlatform InHostPlatform)
 		{
-            return "CopyDerivedData" + StaticGetHostPlatformSuffix(InHostPlatform);
+            return "BuildDerivedDataCache" + StaticGetHostPlatformSuffix(InHostPlatform);
 		}
 
 		public override int CISFrequencyQuantumShift(GUBP bp)
@@ -727,101 +920,63 @@ namespace Rocket
 
 		public override void DoBuild(GUBP bp)
 		{
-			// Remove any existing DDP file
-			string OutputFileName = CommandUtils.CombinePaths(InstallDir, "Engine/DerivedDataCache/Compressed.ddp");
-			if(CommandUtils.FileExists(OutputFileName))
-			{
-				CommandUtils.DeleteFile(OutputFileName);
-			}
+			CommandUtils.CreateDirectory(SavedDir);
 
-			// Enumerate all the files in the install directory. We'll remove everything in this list that's not a build product once we're done.
-			string[] InitialFiles = Directory.EnumerateFiles(InstallDir, "*", SearchOption.AllDirectories).ToArray();
-
-			// Generate DDC for all the non-code projects. We don't necessarily have editor DLLs for the code projects, but they should be the same as their blueprint counterparts.
-			foreach(string ProjectName in ProjectNames)
-			{
-                BranchInfo.BranchUProject Project = bp.Branch.FindGameChecked(ProjectName);
-				if(!Project.Properties.bIsCodeBasedProject)
-				{
-					string InstalledProjectPath = CommandUtils.MakeRerootedFilePath(Project.FilePath, CommandUtils.CmdEnv.LocalRoot, InstallDir);
-					if(!CommandUtils.FileExists(InstalledProjectPath))
-					{
-						CommandUtils.CopyFile(Project.FilePath, InstalledProjectPath);
-					}
-					CommandUtils.Log("Running RocketEditor to generate engine DDC data for {0} on {1}", InstalledProjectPath, TargetPlatforms);
-					CommandUtils.DDCCommandlet(InstalledProjectPath, CommandUtils.GetEditorCommandletExe(InstallDir, HostPlatform), null, TargetPlatforms, "-fill -DDC=CreateInstalledEnginePak -MergePaks");
-				}
-			}
-
-			// Create the list of DDC build products 
 			BuildProducts = new List<string>();
-			BuildProducts.Add(OutputFileName);
 
-			// Remove all the files all the temporary files that can be removed
-			SortedSet<string> TemporaryFiles = new SortedSet<string>(Directory.EnumerateFiles(InstallDir, "*", SearchOption.AllDirectories));
-			TemporaryFiles.ExceptWith(InitialFiles);
-			TemporaryFiles.ExceptWith(BuildProducts.Select(x => Path.GetFullPath(x)));
-			foreach(string TemporaryFile in TemporaryFiles)
+			List<string> ManifestFiles = new List<string>();
+			if(!bp.ParseParam("NoDDC"))
 			{
-				CommandUtils.DeleteFile(TemporaryFile);
-			}
+				string EditorExe = CommandUtils.GetEditorCommandletExe(CommandUtils.CmdEnv.LocalRoot, HostPlatform);
+				string RelativePakPath = "Engine/DerivedDataCache/Compressed.ddp";
 
-			// Remove any empty directories left over
-			foreach(string DirectoryName in Directory.EnumerateDirectories(InstallDir, "*", SearchOption.AllDirectories).OrderByDescending(x => x.Length))
-			{
-				if(!Directory.EnumerateFileSystemEntries(DirectoryName).GetEnumerator().MoveNext())
+				// Delete the output file
+				string OutputPakFile = CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, RelativePakPath);
+				string OutputTxtFile = Path.ChangeExtension(OutputPakFile, ".txt");
+
+				// Generate DDC for all the non-code projects. We don't necessarily have editor DLLs for the code projects, but they should be the same as their blueprint counterparts.
+				List<string> ProjectPakFiles = new List<string>();
+				foreach(string ProjectName in ProjectNames)
 				{
-					try { Directory.Delete(DirectoryName); } catch(Exception){ }
+					BranchInfo.BranchUProject Project = bp.Branch.FindGameChecked(ProjectName);
+					if(!Project.Properties.bIsCodeBasedProject)
+					{
+						CommandUtils.Log("Generating DDC data for {0} on {1}", Project.GameName, TargetPlatforms);
+						CommandUtils.DDCCommandlet(Project.FilePath, EditorExe, null, TargetPlatforms, "-fill -DDC=CreateInstalledEnginePak -ProjectOnly");
+
+						string ProjectPakFile = CommandUtils.CombinePaths(Path.GetDirectoryName(OutputPakFile), String.Format("Compressed-{0}.ddp", ProjectName));
+						CommandUtils.DeleteFile(ProjectPakFile);
+						CommandUtils.RenameFile(OutputPakFile, ProjectPakFile);
+
+						string ProjectTxtFile = Path.ChangeExtension(ProjectPakFile, ".txt");
+						CommandUtils.DeleteFile(ProjectTxtFile);
+						CommandUtils.RenameFile(OutputTxtFile, ProjectTxtFile);
+
+						ProjectPakFiles.Add(Path.GetFileName(ProjectPakFile));
+					}
 				}
+
+				// Generate DDC for the editor, and merge all the other PAK files in
+				CommandUtils.Log("Generating DDC data for engine content on {0}", TargetPlatforms);
+				CommandUtils.DDCCommandlet(null, EditorExe, null, TargetPlatforms, "-fill -DDC=CreateInstalledEnginePak " + CommandUtils.MakePathSafeToUseWithCommandLine("-MergePaks=" + String.Join("+", ProjectPakFiles)));
+
+				// Copy the DDP file to the output path
+				string SavedPakFile = CommandUtils.CombinePaths(SavedDir, RelativePakPath);
+				CommandUtils.CopyFile(OutputPakFile, SavedPakFile);
+				BuildProducts.Add(SavedPakFile);
+
+				// Add the pak file to the list of files to copy
+				ManifestFiles.Add(RelativePakPath);
 			}
+			CommandUtils.WriteAllLines(SavedManifestPath, ManifestFiles.ToArray());
+			BuildProducts.Add(SavedManifestPath);
+
+			SaveRecordOfSuccessAndAddToBuildProducts();
 		}
 
 		public override float Priority()
 		{
 			return base.Priority() + 55.0f;
-		}
-	}
-
-	public class BuildInstalledEngineNode : GUBP.HostPlatformAggregateNode
-	{
-		public readonly string InstallDir;
-		public readonly string SymbolsDir;
-
-		public BuildInstalledEngineNode(UnrealTargetPlatform InHostPlatform, string InInstallDir, string InSymbolsDir)
-			: base(InHostPlatform)
-		{
-			InstallDir = InInstallDir;
-			SymbolsDir = InSymbolsDir;
-
-			AddDependency(CopyInstalledEditorNode.StaticGetFullName(InHostPlatform));
-			AddDependency(CopyInstalledPlatformsNode.StaticGetFullName(InHostPlatform));
-			AddDependency(CopyInstalledDerivedDataNode.StaticGetFullName(InHostPlatform));
-			AddDependency(CopyInstalledSymbolsNode.StaticGetFullName(InHostPlatform));
-		}
-
-		public static string StaticGetFullName(UnrealTargetPlatform InHostPlatform)
-		{
-			return "BuildInstalledEngine" + StaticGetHostPlatformSuffix(InHostPlatform);
-		}
-
-		public override string GetFullName()
-		{
-			return StaticGetFullName(HostPlatform);
-		}
-	}
-
-	public class RocketAggregateNode : GUBP.AggregateNode
-	{
-		public RocketAggregateNode()
-		{
-		}
-		public static string StaticGetFullName()
-		{
-			return "Rocket_Aggregate";
-		}
-		public override string GetFullName()
-		{
-			return StaticGetFullName();
 		}
 	}
 }

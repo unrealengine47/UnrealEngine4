@@ -7,6 +7,7 @@
 #include "ExceptionHandling.h"
 #include "FileManagerGeneric.h"
 #include "TaskGraphInterfaces.h"
+#include "StatsMallocProfilerProxy.h"
 #include "Runtime/Core/Public/Modules/ModuleVersion.h"
 
 #include "Projects.h"
@@ -460,7 +461,7 @@ bool LaunchCheckForFileOverride(const TCHAR* CmdLine, bool& OutFileOverrideFound
 			FString HostIpString;
 			FParse::Value(CmdLine, TEXT("-FileHostIP="), HostIpString);
 #if PLATFORM_REQUIRES_FILESERVER
-			FPlatformMisc::LowLevelOutputDebugStringf(TEXT("Failed to connect to file server at %s. EXITING.\n"), *HostIpString);
+			FPlatformMisc::LowLevelOutputDebugStringf(TEXT("Failed to connect to file server at %s. RETRYING.\n"), *HostIpString);
 			uint32 Result = 2;
 #else	//PLATFORM_REQUIRES_FILESERVER
 			// note that this can't be localized because it happens before we connect to a filserver - localizing would cause ICU to try to load.... from over the file server connection!
@@ -697,6 +698,15 @@ int32 FEngineLoop::PreInit( const TCHAR* CmdLine )
 		return -1;
 	}
 
+#if	STATS
+	// Create the stats malloc profiler proxy.
+	if( FStatsMallocProfilerProxy::HasMemoryProfilerToken() )
+	{
+		// Assumes no concurrency here.
+		GMalloc = FStatsMallocProfilerProxy::Get();
+	}
+#endif // STATS
+
 	// Set GameName, based on the command line
 	if (LaunchSetGameName(CmdLine) == false)
 	{
@@ -850,6 +860,15 @@ int32 FEngineLoop::PreInit( const TCHAR* CmdLine )
 
 		Token = FParse::Token( ParsedCmdLine, 0);
 		Token = Token.Trim();
+
+		// if the next token is a project file, then we skip it (which can happen on some platforms that combine
+		// commandlines... this handles extra .uprojects, but if you run with MyGame MyGame, we can't tell if
+		// the second MyGame is a map or not)
+		while (FPaths::GetExtension(Token) == FProjectDescriptor::GetExtension())
+		{
+			Token = FParse::Token(ParsedCmdLine, 0);
+			Token = Token.Trim();
+		}
 
 		if (bFirstTokenIsGameProjectFilePath || bFirstTokenIsGameProjectFileShortName)
 		{
@@ -1101,7 +1120,7 @@ int32 FEngineLoop::PreInit( const TCHAR* CmdLine )
 	// after SystemSettings.ini file loading so we get the right state,
 	// before ConsoleVariables.ini so the local developer can always override.
 	// before InitializeCVarsForActiveDeviceProfile() so the platform can override user settings
-	Scalability::LoadState((bHasEditorToken && !GEditorGameAgnosticIni.IsEmpty()) ? GEditorGameAgnosticIni : GGameUserSettingsIni);
+	Scalability::LoadState((bHasEditorToken && !GEditorSettingsIni.IsEmpty()) ? GEditorSettingsIni : GGameUserSettingsIni);
 
 	// Set all CVars which have been setup in the device profiles.
 	UDeviceProfileManager::InitializeCVarsForActiveDeviceProfile();
@@ -1157,6 +1176,9 @@ int32 FEngineLoop::PreInit( const TCHAR* CmdLine )
 		GIsEditor = true;
 #endif	//WITH_EDITOR
 		PRIVATE_GIsRunningCommandlet = true;
+
+		// Allow commandlet rendering based on command line switch (too early to let the commandlet itself override this).
+		PRIVATE_GAllowCommandletRendering = FParse::Param(FCommandLine::Get(), TEXT("AllowCommandletRendering"));
 
 		// We need to disregard the empty token as we try finding Token + "Commandlet" which would result in finding the
 		// UCommandlet class if Token is empty.
@@ -2479,6 +2501,38 @@ void FEngineLoop::ClearPendingCleanupObjects()
 
 #endif // WITH_ENGINE
 
+static void CheckForPrintTimesOverride()
+{
+	GPrintLogTimes = ELogTimes::None;
+
+	// Determine whether to override the default setting for including timestamps in the log.
+	FString LogTimes;
+	if (GConfig->GetString( TEXT( "LogFiles" ), TEXT( "LogTimes" ), LogTimes, GEngineIni ))
+	{
+		if (LogTimes == TEXT( "SinceStart" ))
+		{
+			GPrintLogTimes = ELogTimes::SinceGStartTime;
+		}
+		// Assume this is a bool for backward compatibility
+		else if (FCString::ToBool( *LogTimes ))
+		{
+			GPrintLogTimes = ELogTimes::UTC;
+		}
+	}
+
+	if (FParse::Param( FCommandLine::Get(), TEXT( "LOGTIMES" ) ))
+	{
+		GPrintLogTimes = ELogTimes::UTC;
+	}
+	else if (FParse::Param( FCommandLine::Get(), TEXT( "NOLOGTIMES" ) ))
+	{
+		GPrintLogTimes = ELogTimes::None;
+	}
+	else if (FParse::Param( FCommandLine::Get(), TEXT( "LOGTIMESINCESTART" ) ))
+	{
+		GPrintLogTimes = ELogTimes::SinceGStartTime;
+	}
+}
 
 /* FEngineLoop static interface
  *****************************************************************************/
@@ -2560,6 +2614,8 @@ bool FEngineLoop::AppInit( )
 	// init config system
 	FConfigCacheIni::InitializeConfigSystem();
 
+	CheckForPrintTimesOverride();
+
 	// Check whether the project or any of its plugins are missing or are out of date
 #if UE_EDITOR
 	if(!GIsBuildMachine && FPaths::IsProjectFilePathSet() && IPluginManager::Get().AreRequiredPluginsAvailable())
@@ -2568,7 +2624,7 @@ bool FEngineLoop::AppInit( )
 		if(CurrentProject != nullptr && CurrentProject->Modules.Num() > 0)
 		{
 			bool bNeedCompile = false;
-			GConfig->GetBool(TEXT("/Script/UnrealEd.EditorLoadingSavingSettings"), TEXT("bForceCompilationAtStartup"), bNeedCompile, GEditorUserSettingsIni);
+			GConfig->GetBool(TEXT("/Script/UnrealEd.EditorLoadingSavingSettings"), TEXT("bForceCompilationAtStartup"), bNeedCompile, GEditorPerProjectIni);
 
 			if(!bNeedCompile)
 			{
@@ -2720,36 +2776,6 @@ bool FEngineLoop::AppInit( )
 	UE_LOG(LogInit, Log, TEXT("Command line: %s"), FCommandLine::Get() );
 	UE_LOG(LogInit, Log, TEXT("Base directory: %s"), FPlatformProcess::BaseDir() );
 	//UE_LOG(LogInit, Log, TEXT("Character set: %s"), sizeof(TCHAR)==1 ? TEXT("ANSI") : TEXT("Unicode") );
-
-	GPrintLogTimes = ELogTimes::None;
-
-	// Determine whether to override the default setting for including timestamps in the log.
-	FString LogTimes;
-	if (GConfig->GetString(TEXT("LogFiles"), TEXT("LogTimes"), LogTimes, GEngineIni))
-	{
-		if (LogTimes == TEXT("SinceStart"))
-		{
-			GPrintLogTimes = ELogTimes::SinceGStartTime;
-		}
-		// Assume this is a bool for backward compatibility
-		else if (FCString::ToBool(*LogTimes))
-		{
-			GPrintLogTimes = ELogTimes::UTC;
-		}
-	}
-
-	if (FParse::Param(FCommandLine::Get(), TEXT("LOGTIMES")))
-	{
-		GPrintLogTimes = ELogTimes::UTC;
-	}
-	else if(FParse::Param(FCommandLine::Get(), TEXT("NOLOGTIMES")))
-	{
-		GPrintLogTimes = ELogTimes::None;
-	}
-	else if(FParse::Param(FCommandLine::Get(), TEXT("LOGTIMESINCESTART")))
-	{
-		GPrintLogTimes = ELogTimes::SinceGStartTime;
-	}
 
 	// if a logging build, clear out old log files
 #if !NO_LOGGING && !(UE_BUILD_SHIPPING || UE_BUILD_TEST)

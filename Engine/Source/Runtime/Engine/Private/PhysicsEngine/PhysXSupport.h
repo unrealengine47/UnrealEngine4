@@ -21,6 +21,11 @@
 #define PHYSX_MEMORY_STATS		0
 #endif
 
+// binary serialization requires 128 byte alignment
+#ifndef PHYSX_SERIALIZATION_ALIGNMENT
+#define PHYSX_SERIALIZATION_ALIGNMENT 128
+#endif
+
 #define PHYSX_MEMORY_STAT_ONLY (0)
 
 #if USE_SCENE_LOCK
@@ -78,10 +83,8 @@ private:
 	PxScene* PScene;
 };
 
-#define SCOPED_SCENE_TOKENPASTE_INNER(x,y) x##y
-#define SCOPED_SCENE_TOKENPASTE(x,y) SCOPED_SCENE_TOKENPASTE_INNER(x,y)
-#define SCOPED_SCENE_READ_LOCK( _scene ) FPhysXSceneReadLock SCOPED_SCENE_TOKENPASTE(_rlock,__LINE__)(_scene)
-#define SCOPED_SCENE_WRITE_LOCK( _scene ) FPhysXSceneWriteLock SCOPED_SCENE_TOKENPASTE(_wlock,__LINE__)(_scene)
+#define SCOPED_SCENE_READ_LOCK( _scene ) FPhysXSceneReadLock PREPROCESSOR_JOIN(_rlock,__LINE__)(_scene)
+#define SCOPED_SCENE_WRITE_LOCK( _scene ) FPhysXSceneWriteLock PREPROCESSOR_JOIN(_wlock,__LINE__)(_scene)
 
 #define SCENE_LOCK_READ( _scene )		{ SCOPE_CYCLE_COUNTER(STAT_PhysSceneReadLock); if((_scene) != NULL) { (_scene)->lockRead(); } }
 #define SCENE_UNLOCK_READ( _scene )		{ if((_scene) != NULL) { (_scene)->unlockRead(); } }
@@ -427,6 +430,8 @@ private:
 	PxCollection* SharedObjects;
 
 };
+
+ENGINE_API PxCollection* MakePhysXCollection(const TArray<UPhysicalMaterial*>& PhysicalMaterials, const TArray<UBodySetup*>& BodySetups, uint64 BaseId);
 
 /** Utility wrapper for a uint8 TArray for loading into PhysX. */
 class FPhysXInputStream : public PxInputStream
@@ -838,7 +843,8 @@ struct FShapeFilterData
 struct FShapeData
 {
 	FShapeData()
-		: SyncShapeFlags(0)
+		: CollisionEnabled(ECollisionEnabled::NoCollision)
+		, SyncShapeFlags(0)
 		, AsyncShapeFlags(0)
 		, SimpleShapeFlags(0)
 		, ComplexShapeFlags(0)

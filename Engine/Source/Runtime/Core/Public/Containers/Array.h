@@ -910,6 +910,42 @@ public:
 	}
 
 	/**
+	 * Finds element within the array starting from StartIndex and going backwards. Uses predicate to match element.
+	 *
+	 * @param Pred Predicate taking array element and returns true if element matches search criteria, false otherwise.
+	 * @param StartIndex Index of element from which to start searching.
+	 *
+	 * @returns Index of the found element. INDEX_NONE otherwise.
+	 */
+	template <typename Predicate>
+	int32 FindLastByPredicate(Predicate Pred, int32 StartIndex) const
+	{
+		const ElementType* RESTRICT End = GetData() + StartIndex;
+		for (const ElementType* RESTRICT Data = End, *RESTRICT DataStart = Data - StartIndex; Data != DataStart;)
+		{
+			--Data;
+			if (Pred(*Data))
+			{
+				return static_cast<int32>(Data - DataStart);
+			}
+		}
+		return INDEX_NONE;
+	}
+
+	/**
+	* Finds element within the array starting from the end. Uses predicate to match element.
+	*
+	* @param Pred Predicate taking array element and returns true if element matches search criteria, false otherwise.
+	*
+	* @returns Index of the found element. INDEX_NONE otherwise.
+	*/
+	template <typename Predicate>
+	int32 FindLastByPredicate(Predicate Pred) const
+	{
+		return FindLastByPredicate(Pred, ArrayNum);
+	}
+
+	/**
 	 * Finds element within the array that fulfills given predicate.
 	 *
 	 * @param MatchFunctorType A functor object with implemented
@@ -1743,7 +1779,23 @@ public:
 			return Index;
 		}
 
-	#endif
+		template <typename Arg0Type, typename Arg1Type, typename Arg2Type, typename Arg3Type, typename Arg4Type>
+		int32 Emplace(Arg0Type&& Arg0, Arg1Type&& Arg1, Arg2Type&& Arg2, Arg3Type&& Arg3, Arg4Type&& Arg4)
+		{
+			const int32 Index = AddUninitialized(1);
+			new(GetData() + Index) ElementType(Forward<Arg0Type>(Arg0), Forward<Arg1Type>(Arg1), Forward<Arg2Type>(Arg2), Forward<Arg3Type>(Arg3), Forward<Arg4Type>(Arg4));
+			return Index;
+		}
+
+		template <typename Arg0Type, typename Arg1Type, typename Arg2Type, typename Arg3Type, typename Arg4Type, typename Arg5Type>
+		int32 Emplace(Arg0Type&& Arg0, Arg1Type&& Arg1, Arg2Type&& Arg2, Arg3Type&& Arg3, Arg4Type&& Arg4, Arg5Type&& Arg5)
+		{
+			const int32 Index = AddUninitialized(1);
+			new(GetData() + Index) ElementType(Forward<Arg0Type>(Arg0), Forward<Arg1Type>(Arg1), Forward<Arg2Type>(Arg2), Forward<Arg3Type>(Arg3), Forward<Arg4Type>(Arg4), Forward<Arg5Type>(Arg5));
+			return Index;
+		}
+
+#endif
 
 	/**
 	 * Adds a new item to the end of the array, possibly reallocating the whole array to fit.
@@ -1764,21 +1816,36 @@ public:
 	FORCEINLINE int32 Add(const ElementType& Item) { CheckAddress(&Item); return Emplace(Item); }
 
 	/**
-	 * Adds a new item to the end of the array, possibly reallocating the whole
-	 * array to fit. The new item will be zeroed.
+	 * Adds new items to the end of the array, possibly reallocating the whole
+	 * array to fit. The new items will be zeroed.
 	 *
 	 * Caution, AddZeroed() will create elements without calling the
 	 * constructor and this is not appropriate for element types that require
 	 * a constructor to function properly.
 	 *
-	 * @param Item The item to add.
+	 * @param  Count  The number of new items to add.
 	 *
-	 * @return Index to the new item.
+	 * @return Index to the first of the new items.
 	 */
 	int32 AddZeroed(int32 Count = 1)
 	{
 		const int32 Index = AddUninitialized(Count);
 		FMemory::Memzero((uint8*)AllocatorInstance.GetAllocation() + Index*sizeof(ElementType), Count*sizeof(ElementType));
+		return Index;
+	}
+
+	/**
+	 * Adds new items to the end of the array, possibly reallocating the whole
+	 * array to fit. The new items will be default-constructed.
+	 *
+	 * @param  Count  The number of new items to add.
+	 *
+	 * @return Index to the first of the new items.
+	 */
+	int32 AddDefaulted(int32 Count = 1)
+	{
+		const int32 Index = AddUninitialized(Count);
+		DefaultConstructItems<ElementType>((uint8*)AllocatorInstance.GetAllocation() + Index * sizeof(ElementType), Count);
 		return Index;
 	}
 

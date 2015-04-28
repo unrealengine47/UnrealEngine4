@@ -186,9 +186,14 @@ namespace AutomationTool
 			{
 				EngineSourceDirectory = Path.Combine(UnrealBuildTool.Utils.GetExecutingAssemblyDirectory(), "..", "..", "..", "Engine", "Binaries");
 			}
+			Directory.SetCurrentDirectory(EngineSourceDirectory);
 
-			bool RetVal = false;
+			// Read the project descriptor, and find all the plugins available to this project
+			ProjectDescriptor Project = ProjectDescriptor.FromFile(RawProjectPath);
+			List<PluginInfo> AvailablePlugins = Plugins.ReadAvailablePlugins(RawProjectPath);
+
 			// check the target platforms for any differences in build settings or additional plugins
+			bool RetVal = false;
 			foreach (UnrealTargetPlatform TargetPlatformType in TargetPlatforms)
 			{
 				IUEBuildPlatform BuildPlat = UEBuildPlatform.GetBuildPlatform(TargetPlatformType, true);
@@ -198,40 +203,22 @@ namespace AutomationTool
 					break;
 				}
 
-
-				// find if there are any plugins
-				List<string> PluginList = new List<string>();
-				Directory.SetCurrentDirectory(EngineSourceDirectory);
-				// Use the project settings to update the plugin list for this target
-				PluginList = UProjectInfo.GetEnabledPlugins(RawProjectPath, PluginList, TargetPlatformType);
-				if (PluginList.Count > 0 && !RetVal)
+				// find if there are any plugins enabled or disabled which differ from the default
+				foreach(PluginInfo Plugin in AvailablePlugins)
 				{
-					foreach (var PluginName in PluginList)
+					if(UProjectInfo.IsPluginEnabledForProject(Plugin, Project, TargetPlatformType) != Plugin.Descriptor.bEnabledByDefault)
 					{
-						// check the plugin info for this plugin itself
-						foreach (var Plugin in Plugins.AllPlugins)
+						if(Plugin.Descriptor.Modules.Any(Module => Module.IsCompiledInConfiguration(TargetPlatformType, TargetRules.TargetType.Game)))
 						{
-							if (Plugin.Name == PluginName && !Plugin.bEnabledByDefault && !RetVal)
-							{
-								foreach (var Module in Plugin.Modules)
-								{
-									if (Module.Platforms.Count > 0 && Module.Platforms.Contains(TargetPlatformType) && !RetVal)
-									{
-										RetVal = true;
-										break;
-									}
-								}
-								break;
-							}
-						}
-						if (RetVal)
-						{
+							RetVal = true;
 							break;
 						}
 					}
 				}
-				Directory.SetCurrentDirectory(oldCWD);
 			}
+
+			// Change back to the original directory
+			Directory.SetCurrentDirectory(oldCWD);
 			return RetVal;
 		}
 
@@ -291,7 +278,7 @@ namespace AutomationTool
 				// should never ask for engine targets if we can't compile
 				if (String.IsNullOrEmpty(RawProjectPath))
 				{
-					throw new AutomationException("Cannot dtermine engine targets if we can't compile.");
+					throw new AutomationException("Cannot determine engine targets if we can't compile.");
 				}
 
 				Properties.bIsCodeBasedProject = Properties.bWasGenerated;

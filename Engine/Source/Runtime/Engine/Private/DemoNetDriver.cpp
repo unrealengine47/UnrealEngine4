@@ -96,32 +96,64 @@ enum ENetworkVersionHistory
 {
 	HISTORY_INITIAL				= 1,
 	HISTORY_SAVE_ABS_TIME_MS	= 2,			// We now save the abs demo time in ms for each frame (solves accumulation errors)
-	HISTORY_INCREASE_BUFFER		= 3				// Increased buffer size of packets, which invalidates old replays
+	HISTORY_INCREASE_BUFFER		= 3,			// Increased buffer size of packets, which invalidates old replays
+	HISTORY_SAVE_ENGINE_VERSION	= 4				// Now saving engine net version + InternalProtocolVersion
 };
 
 static const uint32 NETWORK_DEMO_MAGIC				= 0x2CF5A13D;
-static const uint32 NETWORK_DEMO_VERSION			= HISTORY_INCREASE_BUFFER;
+static const uint32 NETWORK_DEMO_VERSION			= HISTORY_SAVE_ENGINE_VERSION;
 
 static const uint32 NETWORK_DEMO_METADATA_MAGIC		= 0x3D06B24E;
 static const uint32 NETWORK_DEMO_METADATA_VERSION	= 0;
 
 struct FNetworkDemoHeader
 {
-	uint32	Magic;					// Magic to ensure we're opening the right file.
-	uint32	Version;				// Version number to detect version mismatches.
-	uint32	EngineNetVersion;		// Version of engine networking format
-	FString LevelName;				// Name of level loaded for demo
+	uint32	Magic;						// Magic to ensure we're opening the right file.
+	uint32	Version;					// Version number to detect version mismatches.
+	uint32	InternalProtocolVersion;	// Version of the engine internal network format
+	uint32	EngineNetVersion;			// Version of engine networking format
+	FString LevelName;					// Name of level loaded for demo
 	
 	FNetworkDemoHeader() : 
 		Magic( NETWORK_DEMO_MAGIC ), 
 		Version( NETWORK_DEMO_VERSION ),
+		InternalProtocolVersion( FNetworkVersion::InternalProtocolVersion ),
 		EngineNetVersion( GEngineNetVersion )
 	{}
 
 	friend FArchive& operator << ( FArchive& Ar, FNetworkDemoHeader& Header )
 	{
 		Ar << Header.Magic;
+
+		// Check magic value
+		if ( Header.Magic != NETWORK_DEMO_MAGIC )
+		{
+			UE_LOG( LogDemo, Error, TEXT( "Header.Magic != NETWORK_DEMO_MAGIC" ) );
+			Ar.SetError();
+			return Ar;
+		}
+
 		Ar << Header.Version;
+
+		// Check version
+		if ( Header.Version != NETWORK_DEMO_VERSION )
+		{
+			UE_LOG( LogDemo, Error, TEXT( "Header.Version != NETWORK_DEMO_VERSION" ) );
+			Ar.SetError();
+			return Ar;
+		}
+
+		// Check internal version
+		Ar << Header.InternalProtocolVersion;
+
+		if ( Header.InternalProtocolVersion != FNetworkVersion::InternalProtocolVersion )
+		{
+			UE_LOG( LogDemo, Error, TEXT( "Header.InternalProtocolVersion != FNetworkVersion::InternalProtocolVersion" ) );
+			Ar.SetError();
+			return Ar;
+		}
+
+		Ar << Header.EngineNetVersion;
 		Ar << Header.LevelName;
 
 		return Ar;
@@ -188,6 +220,8 @@ bool UDemoNetDriver::InitConnect( FNetworkNotify* InNotify, const FURL& ConnectU
 		return false;
 	}
 
+	GuidCache->SetIgnorePackageMismatchOverride( true );
+
 	// Playback, local machine is a client, and the demo stream acts "as if" it's the server.
 	ServerConnection = NewObject<UNetConnection>(GetTransientPackage(), UDemoNetConnection::StaticClass());
 	ServerConnection->InitConnection( this, USOCK_Pending, ConnectURL, 1000000 );
@@ -219,21 +253,11 @@ bool UDemoNetDriver::InitConnectInternal( FString& Error )
 
 	(*FileAr) << DemoHeader;
 
-	// Check magic value
-	if ( DemoHeader.Magic != NETWORK_DEMO_MAGIC )
+	if ( FileAr->IsError() )
 	{
 		Error = FString( TEXT( "Demo file is corrupt" ) );
 		UE_LOG( LogDemo, Error, TEXT( "UDemoNetDriver::InitConnect: %s" ), *Error );
 		GameInstance->HandleDemoPlaybackFailure( EDemoPlayFailure::Corrupt, Error );
-		return false;
-	}
-
-	// Check version
-	if ( DemoHeader.Version != NETWORK_DEMO_VERSION )
-	{
-		Error = FString( TEXT( "Demo file version is incorrect" ) );
-		UE_LOG( LogDemo, Error, TEXT( "UDemoNetDriver::InitConnect: %s" ), *Error );
-		GameInstance->HandleDemoPlaybackFailure( EDemoPlayFailure::InvalidVersion, Error );
 		return false;
 	}
 
@@ -349,6 +373,9 @@ bool UDemoNetDriver::InitListen( FNetworkNotify* InNotify, FURL& ListenURL, bool
 	{
 		return false;
 	}
+
+	GuidCache->SetIgnorePackageMismatchOverride( true );
+	GuidCache->SetShouldUseNetworkChecksum( true );
 
 	check( World != NULL );
 
@@ -724,7 +751,8 @@ static void SerializeGuidCache( TSharedPtr< class FNetGUIDCache > GuidCache, FAr
 		*CheckpointArchive << It.Key();
 		*CheckpointArchive << It.Value().OuterGUID;
 		*CheckpointArchive << PathName;
-		*CheckpointArchive << It.Value().PackageGuid;
+		*CheckpointArchive << It.Value().NetworkChecksum;
+		*CheckpointArchive << It.Value().PackageChecksum;
 
 		uint8 Flags = 0;
 		
@@ -1418,15 +1446,10 @@ void UDemoNetDriver::LoadCheckpoint()
 
 	// Save off the current spectator position
 	// Check for NULL, which can be the case if we haven't played any of the demo yet but want to fast forward (joining live game for example)
-	if ( SpectatorController != NULL && SpectatorController->GetSpectatorPawn() != NULL )
+	if ( SpectatorController != NULL )
 	{
-		bRestoreSpectatorPosition = true;
-
-		SpectatorLocation = SpectatorController->GetSpectatorPawn()->GetActorLocation();
-		SpectatorRotation = SpectatorController->GetControlRotation();//GetSpectatorPawn()->GetActorRotation();
-
 		// Save off the SpectatorController's GUID so that we know not to queue his bunches
-		AddNonQueuedActorForScrubbing(SpectatorController);
+		AddNonQueuedActorForScrubbing( SpectatorController );
 	}
 
 	PauseChannels( false );
@@ -1444,11 +1467,42 @@ void UDemoNetDriver::LoadCheckpoint()
 		{
 			AddNonQueuedActorForScrubbing(*It);
 		}
-
-		if ( !It->IsNetStartupActor() )
+		
+		if ( *It == SpectatorController )
 		{
-			GetWorld()->DestroyActor( *It, true );
+			continue;
 		}
+
+		if ( It->GetOwner() == SpectatorController )
+		{
+			continue;
+		}
+
+		if ( It->IsNetStartupActor() )
+		{
+			continue;
+		}
+
+		GetWorld()->DestroyActor( *It, true );
+	}
+
+	// Find the SpectatorController on the channels, and make sure shutting down the connection doesn't destroy this actor
+	for ( int32 i = ServerConnection->OpenChannels.Num() - 1; i >= 0; i-- )
+	{
+		UChannel* OpenChannel = ServerConnection->OpenChannels[i];
+		if ( OpenChannel != NULL )
+		{
+			UActorChannel* ActorChannel = Cast< UActorChannel >( OpenChannel );
+			if ( ActorChannel != NULL && ActorChannel->Actor == SpectatorController )
+			{
+				ActorChannel->Actor = NULL;
+			}
+		}
+	}
+
+	if ( ServerConnection->OwningActor == SpectatorController )
+	{
+		ServerConnection->OwningActor = NULL;
 	}
 #else
 	for ( int32 i = ServerConnection->OpenChannels.Num() - 1; i >= 0; i-- )
@@ -1465,8 +1519,6 @@ void UDemoNetDriver::LoadCheckpoint()
 	}
 #endif
 
-	SpectatorController = NULL;
-
 	ServerConnection->Close();
 	ServerConnection->CleanUp();
 
@@ -1479,8 +1531,24 @@ void UDemoNetDriver::LoadCheckpoint()
 	// Create fake control channel
 	ServerConnection->CreateChannel( CHTYPE_Control, 1 );
 
+	// Remember the spectator network guid, so we can persist the spectator player across the checkpoint
+	// (so the state and position persists)
+	const FNetworkGUID SpectatorGUID = GuidCache->NetGUIDLookup.FindRef( SpectatorController );
+
+	// Clean package map to prepare to restore it to the checkpoint state
 	GuidCache->ObjectLookup.Empty();
 	GuidCache->NetGUIDLookup.Empty();
+
+	// Restore the spectator controller packagemap entry (so we find it when we process the checkpoint)
+	if ( SpectatorGUID.IsValid() )
+	{
+		FNetGuidCacheObject& CacheObject = GuidCache->ObjectLookup.FindOrAdd( SpectatorGUID );
+
+		CacheObject.Object = SpectatorController;
+		check( CacheObject.Object != NULL );
+		CacheObject.bNoLoad = true;
+		GuidCache->NetGUIDLookup.Add( SpectatorController, SpectatorGUID );
+	}
 
 	if ( GotoCheckpointArchive->TotalSize() == 0 || GotoCheckpointArchive->TotalSize() == INDEX_NONE )
 	{
@@ -1518,7 +1586,8 @@ void UDemoNetDriver::LoadCheckpoint()
 
 		*GotoCheckpointArchive << CacheObject.OuterGUID;
 		*GotoCheckpointArchive << PathName;
-		*GotoCheckpointArchive << CacheObject.PackageGuid;
+		*GotoCheckpointArchive << CacheObject.NetworkChecksum;
+		*GotoCheckpointArchive << CacheObject.PackageChecksum;
 
 		CacheObject.PathName = FName( *PathName );
 
@@ -1529,7 +1598,6 @@ void UDemoNetDriver::LoadCheckpoint()
 		CacheObject.bIgnoreWhenMissing = ( Flags & ( 1 << 1 ) ) ? true : false;		
 
 		GuidCache->ObjectLookup.Add( Guid, CacheObject );
-		//GuidCache->GetObjectFromNetGUID( Guid, false );
 	}
 
 	uint32 SavedAbsTimeMS = 0;
@@ -1554,12 +1622,6 @@ void UDemoNetDriver::LoadCheckpoint()
 	GotoCheckpointSkipExtraTimeInMS = -1;
 	GotoCheckpointArchive			= NULL;
 	bDemoPlaybackDone				= false;
-
-	// Make sure we reset the bRestoreSpectatorPosition. If not, we didn't receive the spectator, which should be replicated in every frame
-	if ( bRestoreSpectatorPosition )
-	{
-		UE_LOG( LogDemo, Warning, TEXT( "UDemoNetConnection::LoadCheckpoint: Spectator wasn't restored." ) );
-	}
 }
 
 bool UDemoNetDriver::ShouldQueueBunchesForActorGUID(FNetworkGUID InGUID) const
@@ -1695,18 +1757,23 @@ void UDemoNetConnection::FlushNet( bool bIgnoreSimulation )
 
 void UDemoNetConnection::HandleClientPlayer( APlayerController* PC, UNetConnection* NetConnection )
 {
+	// If the spectator is the same, assume this is for scrubbing, and we are keeping the old one
+	// (so don't set the position, since we want to persist all that)
+	if ( GetDriver()->SpectatorController == PC )
+	{
+		PC->Role			= ROLE_AutonomousProxy;
+		PC->NetConnection	= NetConnection;
+		LastReceiveTime		= Driver->Time;
+		State				= USOCK_Open;
+		PlayerController	= PC;
+		OwningActor			= PC;
+		return;
+	}
+
 	Super::HandleClientPlayer( PC, NetConnection );
 
 	// Assume this is our special spectator controller
 	GetDriver()->SpectatorController = PC;
-
-	// Persist location and rotation from previous spectator
-	if ( GetDriver()->bRestoreSpectatorPosition )
-	{
-		GetDriver()->SpectatorController->SetInitialLocationAndRotation( GetDriver()->SpectatorLocation, GetDriver()->SpectatorRotation );
-		GetDriver()->bRestoreSpectatorPosition = false;
-		return;
-	}
 
 	for ( FActorIterator It( Driver->World ); It; ++It)
 	{

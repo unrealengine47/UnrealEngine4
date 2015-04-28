@@ -217,7 +217,7 @@ public:
 	/**
 	* Needs to be called after LockData()
 	*/
-	void UnlockData();
+	void UnlockData(uint32 SizeInBytes);
 
 	/** Returns the size of the buffer in pixels. */
 	uint32 GetSizeX() const;
@@ -243,6 +243,7 @@ public:
 			INC_DWORD_STAT_BY( STAT_SkeletalMeshMotionBlurSkinningMemory, ComputeMemorySize());
 			const int32 TileBufferSize = ComputeMemorySize();
 			FRHIResourceCreateInfo CreateInfo;
+			// BUF_Dynamic as it can be too large (e.g. 100 characters each 100 bones with 48 bytes per bone is about 1/2 MB) to do it as BUF_Volatile
 			BoneBuffer.VertexBufferRHI = RHICreateVertexBuffer( TileBufferSize, BUF_Dynamic | BUF_ShaderResource, CreateInfo );
 			BoneBuffer.VertexBufferSRV = RHICreateShaderResourceView( BoneBuffer.VertexBufferRHI, sizeof(FVector4), PF_A32B32G32R32F );
 		}
@@ -343,6 +344,12 @@ public:
 			}
 		}
 
+		void MaintainBoneDataStartIndex() const
+		{
+			OldBoneFrameNumber[0]++;
+			OldBoneFrameNumber[1]++;
+		}
+
 		/** Checks if we need to update the data for this frame */
 		bool IsOldBoneDataUpdateNeeded(uint32 InFrameNumber) const
 		{
@@ -377,8 +384,19 @@ public:
 			return BoneBuffer;
 		}
 
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+		FString GetDebugString(const FVertexFactory* VertexFactory, uint32 OldBoneDataIndex) const
+		{
+			return FString::Printf(TEXT("r.MotionBlurDebug: OldBoneDataIndex[%p] (%d:%d %d:%d), => %d"),
+				VertexFactory,
+				OldBoneFrameNumber[0], OldBoneDataStartIndex[0],
+				OldBoneFrameNumber[1], OldBoneDataStartIndex[1],
+				OldBoneDataIndex);
+		}
+#endif // !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+
 		mutable FCriticalSection OldBoneDataLock;
-	private:
+private:
 
 		// the following members can be stored in less bytes (after some adjustments)
 
@@ -423,6 +441,11 @@ public:
 	void SetOldBoneDataStartIndex(uint32 FrameNumber, uint32 Index) const
 	{
 		ShaderData.SetOldBoneData(FrameNumber, Index);
+	}
+
+	void MaintainBoneDataStartIndex() const
+	{
+		ShaderData.MaintainBoneDataStartIndex();
 	}
 
 	static bool SupportsTessellationShaders() { return true; }

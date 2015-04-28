@@ -147,6 +147,7 @@ namespace UnrealBuildTool
                 GCCPath = Which("g++");
                 ArPath = Which("ar");
                 RanlibPath = Which("ranlib");
+				StripPath = Which("strip");
 
 				// if clang is available, zero out gcc (@todo: support runtime switching?)
 				if (!String.IsNullOrEmpty(ClangPath))
@@ -171,6 +172,7 @@ namespace UnrealBuildTool
 				// ar and ranlib will be switched later to match the architecture
 				ArPath = "ar.exe";
 				RanlibPath = "ranlib.exe";
+				StripPath = "strip.exe";
 			}
 
 			if (!DetermineCompilerVersion())
@@ -262,6 +264,17 @@ namespace UnrealBuildTool
 			return RanlibPath;
 		}
 
+		/** Gets architecture-specific strip path */
+		private static string GetStripPath(string Architecture)
+		{
+			if (CrossCompiling())
+			{
+				return Path.Combine(Path.Combine(BaseLinuxPath, String.Format("bin/{0}-{1}", Architecture, StripPath)));
+			}
+
+			return StripPath;
+		}
+
 		static string GetCLArguments_Global(CPPEnvironment CompileEnvironment)
         {
             string Result = "";
@@ -326,6 +339,7 @@ namespace UnrealBuildTool
 				if (CompilerVersionGreaterOrEqual(3, 6, 0))
 				{
 					Result += " -Wno-unused-local-typedef";	// clang is being overly strict here? PhysX headers trigger this.
+					Result += " -Wno-inconsistent-missing-override";	// these have to be suppressed for UE 4.8, should be fixed later.
 				}
             }
 
@@ -336,6 +350,11 @@ namespace UnrealBuildTool
             Result += " -Wno-switch";
             Result += " -Wno-unknown-pragmas";			// Slate triggers this (with its optimize on/off pragmas)
 			Result += " -Wno-invalid-offsetof"; // needed to suppress warnings about using offsetof on non-POD types.
+
+			if (BuildConfiguration.bEnableShadowVariableWarning)
+			{
+				Result += " -Wshadow";
+			}
 
             //Result += " -DOPERATOR_NEW_INLINE=FORCENOINLINE";
 
@@ -469,6 +488,7 @@ namespace UnrealBuildTool
 			Result += " -Wl,-rpath=${ORIGIN}/..";	// for modules that are in sub-folders of the main Engine/Binary/Linux folder
 			// FIXME: really ugly temp solution. Modules need to be able to specify this
             Result += " -Wl,-rpath=${ORIGIN}/../../../Engine/Binaries/ThirdParty/ICU/icu4c-53_1/Linux/x86_64-unknown-linux-gnu";
+            Result += " -Wl,-rpath=${ORIGIN}/../../../Engine/Binaries/ThirdParty/LinuxNativeDialogs/Linux/x86_64-unknown-linux-gnu";
 
             if (CrossCompiling())
             {
@@ -546,6 +566,7 @@ namespace UnrealBuildTool
         static string GCCPath;
         static string ArPath;
         static string RanlibPath;
+		static string StripPath;
 
 		/** Version string of the current compiler, whether clang or gcc or whatever */
 		static string CompilerVersionString;
@@ -1109,6 +1130,18 @@ namespace UnrealBuildTool
 		public override UnrealTargetPlatform GetPlatform()
 		{
 			return UnrealTargetPlatform.Linux;
+		}
+
+		public override void StripSymbols(string SourceFileName, string TargetFileName)
+		{
+			File.Copy(SourceFileName, TargetFileName, true);
+
+			ProcessStartInfo StartInfo = new ProcessStartInfo();
+			StartInfo.FileName = GetStripPath(UEBuildPlatform.GetBuildPlatform(UnrealTargetPlatform.Linux).GetActiveArchitecture());
+			StartInfo.Arguments = TargetFileName;
+			StartInfo.UseShellExecute = false;
+			StartInfo.CreateNoWindow = true;
+			Utils.RunLocalProcessAndLogOutput(StartInfo);
 		}
 	}
 }

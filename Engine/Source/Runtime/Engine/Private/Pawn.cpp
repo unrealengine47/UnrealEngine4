@@ -373,9 +373,20 @@ void APawn::PawnClientRestart()
 void APawn::Destroyed()
 {
 	DetachFromControllerPendingDestroy();
-
 	GetWorld()->RemovePawn( this );
 	Super::Destroyed();
+}
+
+void APawn::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// Only do this once, to not be redundant with Destroyed().
+	if (EndPlayReason != EEndPlayReason::Destroyed)
+	{
+		DetachFromControllerPendingDestroy();
+		GetWorld()->RemovePawn( this );
+	}
+	
+	Super::EndPlay(EndPlayReason);
 }
 
 bool APawn::ShouldTakeDamage(float Damage, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) const
@@ -843,31 +854,34 @@ void APawn::ClientSetRotation( FRotator NewRotation )
 
 void APawn::FaceRotation(FRotator NewControlRotation, float DeltaTime)
 {
-	const FRotator CurrentRotation = GetActorRotation();
-
-	if (!bUseControllerRotationPitch)
+	// Only if we actually are going to use any component of rotation.
+	if (bUseControllerRotationPitch || bUseControllerRotationYaw || bUseControllerRotationRoll)
 	{
-		NewControlRotation.Pitch = CurrentRotation.Pitch;
-	}
+		const FRotator CurrentRotation = GetActorRotation();
 
-	if (!bUseControllerRotationYaw)
-	{
-		NewControlRotation.Yaw = CurrentRotation.Yaw;
-	}
+		if (!bUseControllerRotationPitch)
+		{
+			NewControlRotation.Pitch = CurrentRotation.Pitch;
+		}
 
-	if (!bUseControllerRotationRoll)
-	{
-		NewControlRotation.Roll = CurrentRotation.Roll;
-	}
+		if (!bUseControllerRotationYaw)
+		{
+			NewControlRotation.Yaw = CurrentRotation.Yaw;
+		}
 
-	SetActorRotation(NewControlRotation);
+		if (!bUseControllerRotationRoll)
+		{
+			NewControlRotation.Roll = CurrentRotation.Roll;
+		}
+
+		SetActorRotation(NewControlRotation);
+	}
 }
 
 void APawn::DetachFromControllerPendingDestroy()
 {
 	if ( Controller != NULL && Controller->GetPawn() == this )
 	{
-		AController* OldController = Controller;
 		Controller->PawnPendingDestroy(this);
 		if (Controller != NULL)
 		{
@@ -985,12 +999,13 @@ void APawn::PostNetReceiveLocationAndRotation()
 		ReplicatedMovement.Location.Z += 0.01f;
 
 		const FVector OldLocation = GetActorLocation();
+		const FQuat OldRotation = GetActorQuat();
 		SetActorLocationAndRotation(ReplicatedMovement.Location, ReplicatedMovement.Rotation, /*bSweep=*/ false);
 
 		INetworkPredictionInterface* PredictionInterface = Cast<INetworkPredictionInterface>(GetMovementComponent());
 		if (PredictionInterface)
 		{
-			PredictionInterface->SmoothCorrection(OldLocation);
+			PredictionInterface->SmoothCorrection(OldLocation, OldRotation);
 		}
 	}
 }

@@ -8,7 +8,7 @@
 
 
 class FString;
-template <typename FuncType> class TFunction;
+template <typename FuncType> class TFunctionRef;
 
 namespace EProcessResource
 {
@@ -423,8 +423,9 @@ struct CORE_API FGenericPlatformProcess
 	* Sleep thread until condition is satisfied.
 	*
 	* @param	Condition	Condition to evaluate.
+	* @param	SleepTime	Time to sleep
 	*/
-	static void ConditionalSleep(const TFunction<bool()>& Condition);
+	static void ConditionalSleep(const TFunctionRef<bool()>& Condition, float SleepTime = 0.0f);
 
 	/**
 	 * Creates a new event.

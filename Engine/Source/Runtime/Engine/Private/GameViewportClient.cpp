@@ -60,7 +60,10 @@ int32 UGameViewportClient::NumViewportsShowingCollision = 0;
 /** Those sound stat flags which are enabled on this viewport */
 FViewportClient::ESoundShowFlags::Type UGameViewportClient::SoundShowFlags = FViewportClient::ESoundShowFlags::Disabled;
 
-DEFINE_STAT(STAT_UIDrawingTime);
+/**
+ * UI Stats
+ */
+DECLARE_CYCLE_STAT(TEXT("UI Drawing Time"),STAT_UIDrawingTime,STATGROUP_UI);
 
 static TAutoConsoleVariable<int32> CVarSetBlackBordersEnabled(
 	TEXT("r.BlackBorders"),
@@ -993,6 +996,8 @@ void UGameViewportClient::Draw(FViewport* InViewport, FCanvas* SceneCanvas)
 		}
 	}
 
+	FinalizeViews(&ViewFamily, PlayerViewMap);
+
 	if (bReverbSettingsFound)
 	{
 		AudioDevice->SetReverbSettings( AudioVolume, ReverbSettings );
@@ -1300,11 +1305,13 @@ void UGameViewportClient::ProcessScreenShots(FViewport* InViewport)
 		}
 
 		bool bScreenshotSuccessful = false;
+		FIntVector Size(InViewport->GetSizeXY().X, InViewport->GetSizeXY().Y, 0);
 		if( bShowUI && FSlateApplication::IsInitialized() )
 		{
-			FIntVector Size;
 			TSharedRef<SWidget> WindowRef = WindowPtr.ToSharedRef();
 			bScreenshotSuccessful = FSlateApplication::Get().TakeScreenshot( WindowRef, Bitmap, Size);
+			GScreenshotResolutionX = Size.X;
+			GScreenshotResolutionY = Size.Y;
 		}
 		else
 		{
@@ -1315,7 +1322,7 @@ void UGameViewportClient::ProcessScreenShots(FViewport* InViewport)
 		{
 			if (ScreenshotCapturedDelegate.IsBound())
 			{
-				ScreenshotCapturedDelegate.Broadcast(InViewport->GetSizeXY().X, InViewport->GetSizeXY().Y, Bitmap);
+				ScreenshotCapturedDelegate.Broadcast(Size.X, Size.Y, Bitmap);
 			}
 			else
 			{
@@ -1329,7 +1336,7 @@ void UGameViewportClient::ProcessScreenShots(FViewport* InViewport)
 
 				if (PNGScreenshotCapturedDelegate.IsBound() && FPaths::GetExtension(ScreenShotName).ToLower() == TEXT("png"))
 				{
-					PNGScreenshotCapturedDelegate.Execute(InViewport->GetSizeXY().X, InViewport->GetSizeXY().Y, Bitmap, ScreenShotName);
+					PNGScreenshotCapturedDelegate.Execute(Size.X, Size.Y, Bitmap, ScreenShotName);
 				}
 				else
 				{
@@ -1347,7 +1354,7 @@ void UGameViewportClient::ProcessScreenShots(FViewport* InViewport)
 						ScreenShotName = FPaths::GetBaseFilename(ScreenShotName, false);
 						ScreenShotName += TEXT(".bmp");
 					}
-					FFileHelper::CreateBitmap(*ScreenShotName, InViewport->GetSizeXY().X, InViewport->GetSizeXY().Y, Bitmap.GetData(), &SourceRect, &IFileManager::Get(), NULL, bWriteAlpha);
+					FFileHelper::CreateBitmap(*ScreenShotName, Size.X, Size.Y, Bitmap.GetData(), &SourceRect, &IFileManager::Get(), NULL, bWriteAlpha);
 				}
 			}
 		}
@@ -2836,6 +2843,8 @@ bool UGameViewportClient::HandleScreenshotCommand( const TCHAR* Cmd, FOutputDevi
 
 		GScreenMessagesRestoreState = GAreScreenMessagesEnabled;
 		GAreScreenMessagesEnabled = false;
+		GScreenshotResolutionX = Viewport->GetSizeXY().X;
+		GScreenshotResolutionY = Viewport->GetSizeXY().Y;
 	}
 	return true;
 }

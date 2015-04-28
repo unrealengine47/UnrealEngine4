@@ -293,6 +293,9 @@ public:
 	/** Handler for foliage mesh instance count changes */
 	void OnInstanceCountUpdated(const UFoliageType* FoliageType);
 
+	/** Counts total number of instances in current level and across whole world */
+	void CalcTotalInstanceCount(int32& OutInstanceCountTotal, int32& OutInstanceCountCurrentLevel);
+
 	/** Whether any of the selected foliage types can be painted into level */
 	bool CanPaint(const ULevel* InLevel);
 		
@@ -323,16 +326,21 @@ public:
 	/** Replace the settings object for this static mesh with the one specified */
 	void ReplaceSettingsObject(UFoliageType* OldSettings, UFoliageType* NewSettings);
 
-	/** Save the settings object as an asset */
-	UFoliageType* SaveSettingsObject(UFoliageType* Settings);
+	/** Save the foliage type object. If it isn't an asset, will prompt the user for a location to save the new asset. */
+	UFoliageType* SaveFoliageTypeObject(UFoliageType* Settings);
 
 	/** Set/Clear selection for foliage instances of specific type  */
 	void SelectInstances(const UFoliageType* Settings, bool bSelect);
+
+	/** Find and select instances that don't have valid base or 'off-ground' */
+	void SelectInvalidInstances(const UFoliageType* Settings);
 
 	/** Add desired instances. Uses foliage settings to determine location/scale/rotation and whether instances should be ignored */
 	static void AddInstances(UWorld* InWorld, const TArray<FDesiredFoliageInstance>& DesiredInstances);
 
 	typedef TMap<FName, TMap<ULandscapeComponent*, TArray<uint8> > > LandscapeLayerCacheData;
+
+	FSimpleMulticastDelegate OnToolChanged;
 private:
 
 	/** Add instances inside the brush to match DesiredInstanceCount */

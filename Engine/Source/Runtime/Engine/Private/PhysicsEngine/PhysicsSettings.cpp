@@ -13,6 +13,8 @@ UPhysicsSettings::UPhysicsSettings(const FObjectInitializer& ObjectInitializer)
 	, RagdollAggregateThreshold(4)
 	, TriangleMeshTriangleMinAreaThreshold(5.0f)
 	, bEnableAsyncScene(false)
+	, bEnableShapeSharing(false)
+	, bEnablePCM(false)
 	, bWarnMissingLocks(true)
 	, bEnable2DPhysics(false)
 	, LockedAxis_DEPRECATED(ESettingsLockedAxis::Invalid)
@@ -27,6 +29,7 @@ UPhysicsSettings::UPhysicsSettings(const FObjectInitializer& ObjectInitializer)
 	, AsyncSceneSmoothingFactor(0.99f)
 	, InitialAverageFrameRate(1.f / 60.f)
 {
+	SectionName = TEXT("Physics");
 }
 
 void UPhysicsSettings::PostInitProperties()

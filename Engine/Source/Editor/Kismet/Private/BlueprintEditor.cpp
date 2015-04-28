@@ -20,7 +20,6 @@
 #include "UObjectToken.h"
 #include "Kismet/GameplayStatics.h"
 #include "Editor/Kismet/Public/FindInBlueprintManager.h"
-#include "Editor/BlueprintGraph/Public/K2ActionMenuBuilder.h"
 #include "BlueprintEditorCommands.h"
 #include "BlueprintEditor.h"
 #include "BlueprintEditorModule.h"
@@ -29,6 +28,7 @@
 #include "SDockTab.h"
 #include "EditorClassUtils.h"
 #include "IDocumentation.h"
+#include "BlueprintFunctionNodeSpawner.h"
 
 #include "SBlueprintEditorToolbar.h"
 #include "FindInBlueprints.h"
@@ -41,6 +41,8 @@
 #include "StructureEditorUtils.h"
 
 #include "ClassIconFinder.h"
+
+#include "IProjectManager.h"
 
 // Core kismet tabs
 #include "SGraphNode.h"
@@ -91,6 +93,9 @@
 #include "SNotificationList.h"
 #include "NotificationManager.h"
 #include "NativeCodeGenerationTool.h"
+#include "GeneralProjectSettings.h"
+#include "Engine/LevelStreaming.h"
+#include "Engine/LevelStreamingKismet.h"
 
 #define LOCTEXT_NAMESPACE "BlueprintEditor"
 
@@ -1259,12 +1264,6 @@ void FBlueprintEditor::OnChangeBreadCrumbGraph(class UEdGraph* InGraph)
 		OpenDocument(InGraph, FDocumentTracker::NavigatingCurrentDocument);
 	}
 }
-
-static auto CVarBlueprintExpertMode	= IConsoleManager::Get().RegisterConsoleVariableRef(
-	TEXT("Kismet.ExpertMode"),
-	FK2ActionMenuBuilder::bAllowUnsafeCommands,
-	*LOCTEXT("EnableExportMode_Desc", "Enable expert mode options, which will cause context menus to show additional nodes that are not verified to be safe/legal to use in the current context.").ToString()
-	);
 
 FBlueprintEditor::FBlueprintEditor()
 	: bSaveIntermediateBuildProducts(false)
@@ -5623,7 +5622,10 @@ FString FBlueprintEditor::GetDocLinkForSelectedNode()
 			FString DocLink = SelectedGraphNode->GetDocumentationLink();
 			FString DocExcerpt = SelectedGraphNode->GetDocumentationExcerptName();
 
-			DocumentationLink = FEditorClassUtils::GetDocumentationLinkFromExcerpt(DocLink, DocExcerpt);
+			if (!DocLink.IsEmpty() && !DocExcerpt.IsEmpty())
+			{
+				DocumentationLink = FEditorClassUtils::GetDocumentationLinkFromExcerpt(DocLink, DocExcerpt);
+			}
 		}
 	}
 
@@ -6113,15 +6115,9 @@ UEdGraph* FBlueprintEditor::CollapseSelectionToFunction(TSharedPtr<SGraphEditor>
 	TempListBuilder.OwnerOfTemporaries = NewObject<UEdGraph>(GetBlueprintObj());
 	TempListBuilder.OwnerOfTemporaries->SetFlags(RF_Transient);
 
-	// Use schema function to make 'spawn action'
-	FK2ActionMenuBuilder::AddSpawnInfoForFunction(FindField<UFunction>(GetBlueprintObj()->SkeletonGeneratedClass, DocumentName), false, FFunctionTargetInfo(), FMemberReference(), TEXT(""), K2Schema->AG_LevelReference, TempListBuilder);
-	// and execute it
-	if(TempListBuilder.GetNumActions() == 1)
-	{
-		TArray<UEdGraphPin*> DummyPins;
-		FGraphActionListBuilderBase::ActionGroup& Action = TempListBuilder.GetAction(0);
-		OutFunctionNode = Action.Actions[0]->PerformAction(FocusedGraphEd->GetCurrentGraph(), DummyPins, FVector2D::ZeroVector, false);
-	}
+	IBlueprintNodeBinder::FBindingSet Bindings;
+	OutFunctionNode = UBlueprintFunctionNodeSpawner::Create(FindField<UFunction>(GetBlueprintObj()->SkeletonGeneratedClass, DocumentName))->Invoke(SourceGraph, Bindings, FVector2D::ZeroVector);
+
 	check(OutFunctionNode);
 
 	CollapseNodesIntoGraph(OutFunctionNode, EntryNode, ResultNode, SourceGraph, NewGraph, InCollapsableNodes);
@@ -7340,9 +7336,6 @@ void FBlueprintEditor::UpdatePreviewActor(UBlueprint* InBlueprint, bool bInForce
 			{
 				PreviewBlueprint->SimpleConstructionScript->SetComponentEditorActorInstance(PreviewActor);
 			}
-
-			// Run the construction scripts again, otherwise the actor will appear as though it's had a script pass first, rather than the default properties as shown in the details panel
-			PreviewActor->RerunConstructionScripts();
 		}
 	}
 	else if ( PreviewActor )
@@ -7354,6 +7347,12 @@ void FBlueprintEditor::UpdatePreviewActor(UBlueprint* InBlueprint, bool bInForce
 	if ( InBlueprint != nullptr && InBlueprint->SimpleConstructionScript != nullptr )
 	{
 		InBlueprint->SimpleConstructionScript->EndEditorComponentConstruction();
+	}
+
+	// Update the tree to include any UCS-constructed components
+	if ( SCSEditor.IsValid() )
+	{
+		SCSEditor->UpdateTree();
 	}
 }
 
@@ -7401,37 +7400,19 @@ FReply FBlueprintEditor::OnSpawnGraphNodeByShortcut(FInputChord InChord, const F
 		return FReply::Handled();
 	}
 
-	FBlueprintPaletteListBuilder PaletteBuilder(GetBlueprintObj());
-	FBlueprintSpawnNodeCommands::Get().GetGraphActionByChord(InChord, PaletteBuilder, InGraph);
+	TArray<UEdGraphNode*> OutNodes;
+	FVector2D NodeSpawnPos = InPosition;
+	FBlueprintSpawnNodeCommands::Get().GetGraphActionByChord(InChord, InGraph, NodeSpawnPos, OutNodes);
 
 	TSet<const UEdGraphNode*> NodesToSelect;
-	FVector2D NodeSpawnPos = InPosition;
 
-	bool bPerformedAction = false;
-
-	for (int32 ActionIndex = 0; ActionIndex < PaletteBuilder.GetNumActions(); ++ActionIndex)
+	for (UEdGraphNode* CurrentNode : OutNodes)
 	{
-		FGraphActionListBuilderBase::ActionGroup& ActionSet = PaletteBuilder.GetAction(ActionIndex);
-		if ((ActionSet.Actions.Num() > 0) && ActionSet.Actions[0].IsValid())
-		{
-			int32 const OldNodeCount = Graph->Nodes.Num();
-
-			TArray<UEdGraphPin*> DummyPins;
-			ActionSet.PerformAction(Graph, DummyPins, NodeSpawnPos);
-
-			for (int32 NodeIndex = OldNodeCount; NodeIndex < Graph->Nodes.Num(); ++NodeIndex)
-			{
-				UEdGraphNode* SpawnedNode = Graph->Nodes[NodeIndex];
-				NodeSpawnPos.Y = FMath::Max(NodeSpawnPos.Y, SpawnedNode->NodePosY + UEdGraphSchema_K2::EstimateNodeHeight(SpawnedNode));
-				NodesToSelect.Add(SpawnedNode);
-			}
-
-			bPerformedAction = true;
-		}	
+		NodesToSelect.Add(CurrentNode);
 	}
 
 	// Do not change node selection if no actions were performed
-	if(bPerformedAction)
+	if(OutNodes.Num() > 0)
 	{
 		Graph->SelectNodeSet(NodesToSelect, /*bFromUI =*/true);
 	}

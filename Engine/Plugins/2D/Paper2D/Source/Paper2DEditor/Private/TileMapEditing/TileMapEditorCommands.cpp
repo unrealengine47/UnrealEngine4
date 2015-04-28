@@ -6,7 +6,7 @@
 //////////////////////////////////////////////////////////////////////////
 // FTileMapEditorCommands
 
-#define LOCTEXT_NAMESPACE ""
+#define LOCTEXT_NAMESPACE "TileMapEditor"
 
 void FTileMapEditorCommands::RegisterCommands()
 {
@@ -15,17 +15,24 @@ void FTileMapEditorCommands::RegisterCommands()
 	UI_COMMAND(SelectPaintTool, "Paint", "Paint", EUserInterfaceActionType::RadioButton, FInputChord(EKeys::B));
 	UI_COMMAND(SelectEraserTool, "Eraser", "Eraser", EUserInterfaceActionType::RadioButton, FInputChord(EKeys::E));
 	UI_COMMAND(SelectFillTool, "Fill", "Paint Bucket", EUserInterfaceActionType::RadioButton, FInputChord(EKeys::G));
+	UI_COMMAND(SelectEyeDropperTool, "Select", "Select already-painted tiles", EUserInterfaceActionType::RadioButton, FInputChord());
+	UI_COMMAND(SelectTerrainTool, "Terrain", "Terrain", EUserInterfaceActionType::RadioButton, FInputChord());
 
 	// Show toggles
 	UI_COMMAND(SetShowCollision, "Collision", "Toggles display of the simplified collision mesh of the static mesh, if one has been assigned.", EUserInterfaceActionType::ToggleButton, FInputChord(EKeys::C, EModifierKey::Alt));
 
 	UI_COMMAND(SetShowPivot, "Pivot", "Display the pivot location of the sprite.", EUserInterfaceActionType::ToggleButton, FInputChord());
 
+	UI_COMMAND(SetShowTileGrid, "Tile Grid", "Display the tile grid.", EUserInterfaceActionType::ToggleButton, FInputChord());
+	UI_COMMAND(SetShowLayerGrid, "Layer Grid", "Display the layer grid.", EUserInterfaceActionType::ToggleButton, FInputChord());
+
+	UI_COMMAND(SetShowTileMapStats, "Stats", "Display render and collision stats about the tile map.", EUserInterfaceActionType::ToggleButton, FInputChord());
+	
 	// Selection actions
-	UI_COMMAND(FlipSelectionHorizontally, "Flip selection horizontally", "Flips the selection horizontally", EUserInterfaceActionType::Button, FInputChord(EKeys::X));
-	UI_COMMAND(FlipSelectionVertically, "Flip selection vertically", "Flips the selection vertically", EUserInterfaceActionType::Button, FInputChord(EKeys::Y));
-	UI_COMMAND(RotateSelectionCW, "Rotate selection clockwise", "Rotates the selection clockwise", EUserInterfaceActionType::Button, FInputChord(EKeys::Z));
-	UI_COMMAND(RotateSelectionCCW, "Rotate selection counterclockwise", "Rotates the selection counterclockwise", EUserInterfaceActionType::Button, FInputChord(EKeys::Z, EModifierKey::Shift));
+	UI_COMMAND(FlipSelectionHorizontally, "Flip brush horizontally", "Flips the brush horizontally", EUserInterfaceActionType::Button, FInputChord(EKeys::X));
+	UI_COMMAND(FlipSelectionVertically, "Flip brush vertically", "Flips the brush vertically", EUserInterfaceActionType::Button, FInputChord(EKeys::Y));
+	UI_COMMAND(RotateSelectionCW, "Rotate brush clockwise", "Rotates the brush clockwise", EUserInterfaceActionType::Button, FInputChord(EKeys::Z));
+	UI_COMMAND(RotateSelectionCCW, "Rotate brush counterclockwise", "Rotates the brush counterclockwise", EUserInterfaceActionType::Button, FInputChord(EKeys::Z, EModifierKey::Shift));
 
 	// Layer actions
 	UI_COMMAND(AddNewLayerAbove, "Add new layer", "Add a new layer above the current layer", EUserInterfaceActionType::Button, FInputChord(EKeys::N, EModifierKey::Control | EModifierKey::Shift));

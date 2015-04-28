@@ -873,7 +873,7 @@ void FConsoleManager::LoadHistoryIfNeeded()
 	FConfigFile Ini;
 
 	FString ConfigPath = FPaths::GeneratedConfigDir() + TEXT("ConsoleHistory.ini");
-	ProcessIniContents(*ConfigPath, *ConfigPath, &Ini, false, false, false);
+	ProcessIniContents(*ConfigPath, *ConfigPath, &Ini, false, false);
 
 	const FString History = TEXT("History");
 
@@ -1480,6 +1480,13 @@ void FConsoleManager::Test()
 // These don't belong here, but they belong here more than they belong in launch engine loop.
 void CreateConsoleVariables()
 {
+	// this registeres to a reference, so we cannot use TAutoConsoleVariable
+	IConsoleManager::Get().RegisterConsoleVariableRef(TEXT("r.DumpingMovie"),
+		GIsDumpingMovie,
+		TEXT("Allows to dump each rendered frame to disk (slow fps, names MovieFrame..).\n")
+		TEXT("<=0:off (default), <0:remains on, >0:remains on for n frames (n is the number specified)"),
+		ECVF_Cheat);
+
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 
@@ -1551,13 +1558,6 @@ static TAutoConsoleVariable<int32> CVarLimitRenderingFeatures(
 	TEXT(" <=0:off, order is defined in code (can be documented here when we settled on an order)"),
 	ECVF_Cheat | ECVF_RenderThreadSafe);
 
-static TAutoConsoleVariable<int32> CVarDumpingMovie(
-	TEXT("r.DumpingMovie"),
-	GIsDumpingMovie,
-	TEXT("Allows to dump each rendered frame to disk (slow fps, names MovieFrame..).\n")
-	TEXT("<=0:off (default), <0:remains on, >0:remains on for n frames (n is the number specified)"),
-	ECVF_Cheat);
-
 #endif // !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 
 static TAutoConsoleVariable<int32> CVarUniformBufferPooling(
@@ -1617,7 +1617,7 @@ static TAutoConsoleVariable<int32> CVarMobileReduceLoadedMips(
 static TAutoConsoleVariable<int32> CVarSetClearSceneMethod(
 	TEXT("r.ClearSceneMethod"),
 	1,
-	TEXT("Select how scene rendertarget clears are handled\n")
+	TEXT("Select how the g-buffer is cleared in game mode (only affects deferred shading).\n")
 	TEXT(" 0: No clear\n")
 	TEXT(" 1: RHIClear (default)\n")
 	TEXT(" 2: Quad at max z"),
@@ -1730,10 +1730,11 @@ static TAutoConsoleVariable<int32> CVarDepthOfFieldQuality(
 
 static TAutoConsoleVariable<float> CVarScreenPercentage(
 	TEXT("r.ScreenPercentage"),
-	-1.0f,
-	TEXT("To render in lower resolution and upscale for better performance.\n")
+	100.0f,
+	TEXT("To render in lower resolution and upscale for better performance (combined up with the blenable post process setting).\n")
 	TEXT("70 is a good value for low aliasing and performance, can be verified with 'show TestImage'\n")
-	TEXT("in percent, >0 and <=100, <0 means the post process volume settings are used"),
+	TEXT("in percent, >0 and <=100, larger numbers are possible (supersampling) but the downsampling quality is improvable.")
+	TEXT("<0 is treated like 100."),
 	ECVF_Scalability | ECVF_Default);
 
 static TAutoConsoleVariable<int32> CVarMaterialQualityLevel(

@@ -379,7 +379,7 @@ private:
 	bool bIsLocked;
 
 	/** The list of FrontendFilters currently applied to the asset view */
-	TSharedPtr<AssetFilterCollectionType> FrontendFilters;
+	TSharedPtr<FAssetFilterCollectionType> FrontendFilters;
 
 	/** The text filter to use on the assets */
 	TSharedPtr< FFrontendFilter_Text > TextFilter;
@@ -398,6 +398,6 @@ private:
 
 public: 
 
-	/** The section of EditorUserSettings in which to save content browser settings */
+	/** The section of EditorPerProjectUserSettings in which to save content browser settings */
 	static const FString SettingsIniSection;
 };

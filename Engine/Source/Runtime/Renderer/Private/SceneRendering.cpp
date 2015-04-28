@@ -211,7 +211,7 @@ void FViewInfo::Init()
 	bIgnoreExistingQueries = false;
 	bDisableQuerySubmissions = false;
 	bDisableDistanceBasedFadeTransitions = false;	
-	LightingProfilesActiveInView = 0;
+	ShadingModelMaskInView = 0;
 	NumVisibleStaticMeshElements = 0;
 	PrecomputedVisibilityData = 0;
 
@@ -691,10 +691,10 @@ TUniformBufferRef<FViewUniformShaderParameters> FViewInfo::CreateUniformBuffer(
 	checkSlow(sizeof(ViewUniformShaderParameters.SkyIrradianceEnvironmentMap) == sizeof(FVector4) * 7);
 	SetupSkyIrradianceEnvironmentMapConstants((FVector4*)&ViewUniformShaderParameters.SkyIrradianceEnvironmentMap);
 
-	ViewUniformShaderParameters.ES2PreviewMode =
+	ViewUniformShaderParameters.MobilePreviewMode =
 		(GIsEditor &&
-		FeatureLevel == ERHIFeatureLevel::ES2 &&
-		GMaxRHIFeatureLevel > ERHIFeatureLevel::ES2) ? 1.0f : 0.0f;
+		(FeatureLevel == ERHIFeatureLevel::ES2 || FeatureLevel == ERHIFeatureLevel::ES3_1) &&
+		GMaxRHIFeatureLevel > ERHIFeatureLevel::ES3_1) ? 1.0f : 0.0f;
 
 	return TUniformBufferRef<FViewUniformShaderParameters>::CreateUniformBufferImmediate(ViewUniformShaderParameters, UniformBuffer_SingleFrame);
 }
@@ -1324,7 +1324,7 @@ static void RenderViewFamily_RenderThread(FRHICommandListImmediate& RHICmdList, 
 
 	for( int ViewExt = 0; ViewExt < SceneRenderer->ViewFamily.ViewExtensions.Num(); ViewExt++ )
 	{
-		SceneRenderer->ViewFamily.ViewExtensions[ViewExt]->PreRenderViewFamily_RenderThread(SceneRenderer->ViewFamily);
+		SceneRenderer->ViewFamily.ViewExtensions[ViewExt]->PreRenderViewFamily_RenderThread(RHICmdList, SceneRenderer->ViewFamily);
 		for( int ViewIndex = 0; ViewIndex < SceneRenderer->ViewFamily.Views.Num(); ViewIndex++ )
 		{
 			SceneRenderer->ViewFamily.ViewExtensions[ViewExt]->PreRenderView_RenderThread(SceneRenderer->Views[ViewIndex]);

@@ -127,9 +127,7 @@ void FMatinee::GenericTextEntryModeless(const FText& DialogText, const FText& De
 		TextEntryPopup,
 		FSlateApplication::Get().GetCursorPos(),
 		FPopupTransitionEffect(FPopupTransitionEffect::TypeInPopup)
-		);	
-
-	TextEntryPopup->FocusDefaultWidget();
+		);
 }
 
 void FMatinee::CloseEntryPopupWindow()
@@ -1051,7 +1049,7 @@ void FMatinee::OnViewHide3DTracks()
 {
 	bHide3DTrackView = !bHide3DTrackView;
 	// Save to ini when it changes.
-	GConfig->SetBool( TEXT("Matinee"), TEXT("Hide3DTracks"), bHide3DTrackView, GEditorUserSettingsIni );
+	GConfig->SetBool( TEXT("Matinee"), TEXT("Hide3DTracks"), bHide3DTrackView, GEditorPerProjectIni );
 }
 
 bool FMatinee::IsViewHide3DTracksToggled()
@@ -1065,7 +1063,7 @@ void FMatinee::OnViewZoomToScrubPos()
 	bZoomToScrubPos = !bZoomToScrubPos;
 	
 	// Save to ini when it changes.
-	GConfig->SetBool( TEXT("Matinee"), TEXT("ZoomToScrubPos"), bZoomToScrubPos, GEditorUserSettingsIni );
+	GConfig->SetBool( TEXT("Matinee"), TEXT("ZoomToScrubPos"), bZoomToScrubPos, GEditorPerProjectIni );
 }
 
 bool FMatinee::IsViewZoomToScrubPosToggled()
@@ -1076,7 +1074,7 @@ bool FMatinee::IsViewZoomToScrubPosToggled()
 void FMatinee::OnEnableEditingGrid()
 {
 	bEditingGridEnabled = !bEditingGridEnabled;
-	GConfig->SetBool( TEXT("Matinee"), TEXT("EnableEditingGrid"), bEditingGridEnabled, GEditorUserSettingsIni );
+	GConfig->SetBool( TEXT("Matinee"), TEXT("EnableEditingGrid"), bEditingGridEnabled, GEditorPerProjectIni );
 }
 
 bool FMatinee::IsEnableEditingGridToggled()
@@ -1088,7 +1086,7 @@ void FMatinee::OnSetEditingGrid( uint32 InGridSize )
 {
 	EditingGridSize = InGridSize;
 
-	GConfig->SetInt( TEXT("Matinee"), TEXT("EditingGridSize"), EditingGridSize, GEditorUserSettingsIni );
+	GConfig->SetInt( TEXT("Matinee"), TEXT("EditingGridSize"), EditingGridSize, GEditorPerProjectIni );
 }
 
 bool FMatinee::IsEditingGridChecked(uint32 InGridSize)
@@ -1099,7 +1097,7 @@ bool FMatinee::IsEditingGridChecked(uint32 InGridSize)
 void FMatinee::OnToggleEditingCrosshair()
 {
 	bEditingCrosshairEnabled = !bEditingCrosshairEnabled;
-	GConfig->SetBool( TEXT("Matinee"), TEXT("EditingCrosshair"), bEditingCrosshairEnabled, GEditorUserSettingsIni );
+	GConfig->SetBool( TEXT("Matinee"), TEXT("EditingCrosshair"), bEditingCrosshairEnabled, GEditorPerProjectIni );
 }
 
 bool FMatinee::IsEditingCrosshairToggled()
@@ -1112,7 +1110,7 @@ void FMatinee::OnToggleViewportFrameStats()
 	bViewportFrameStatsEnabled = !bViewportFrameStatsEnabled;
 
 	// Save to ini when it changes.
-	GConfig->SetBool( TEXT("Matinee"), TEXT("ViewportFrameStats"), bViewportFrameStatsEnabled, GEditorUserSettingsIni );
+	GConfig->SetBool( TEXT("Matinee"), TEXT("ViewportFrameStats"), bViewportFrameStatsEnabled, GEditorPerProjectIni );
 }
 
 bool FMatinee::IsViewportFrameStatsToggled()
@@ -1585,7 +1583,7 @@ void FMatinee::OnContextTrackExportAnimFBX()
 					// Export the Matinee information to a COLLADA document.
 					Exporter->CreateDocument();
 					Exporter->SetTrasformBaking(bBakeTransforms);
-					const bool bKeepHierarchy = GEditor->AccessEditorUserSettings().bKeepAttachHierarchy;
+					const bool bKeepHierarchy = GetDefault<UEditorPerProjectUserSettings>()->bKeepAttachHierarchy;
 					Exporter->SetKeepHierarchy(bKeepHierarchy);
 
 					// Export the anim sequences
@@ -1979,7 +1977,7 @@ void FMatinee::OnContextGroupExportAnimFBX()
 							// Export the Matinee information to an FBX document.
 							Exporter->CreateDocument();
 							Exporter->SetTrasformBaking(bBakeTransforms);
-							const bool bKeepHierarchy = GEditor->AccessEditorUserSettings().bKeepAttachHierarchy;
+							const bool bKeepHierarchy = GetDefault<UEditorPerProjectUserSettings>()->bKeepAttachHierarchy;
 							Exporter->SetKeepHierarchy(bKeepHierarchy);
 
 							// Export the animation sequences in the group by sampling the skeletal mesh over the
@@ -2901,8 +2899,6 @@ void FMatinee::OnContextSaveAsCameraAnimation()
 		FSlateApplication::Get().GetCursorPos(),
 		FPopupTransitionEffect( FPopupTransitionEffect::TypeInPopup )
 		);
-
-	TextEntry->FocusDefaultWidget();
 }
 
 /**
@@ -3012,7 +3008,7 @@ void FMatinee::OnContextMoveMarkerToEndOfSelectedTrack()
 void FMatinee::OnToggleKeyframeBarSelection()
 {
 	bAllowKeyframeBarSelection = !bAllowKeyframeBarSelection;
-	GConfig->SetBool( TEXT("Matinee"), TEXT("AllowKeyframeBarSelection"), bAllowKeyframeBarSelection, GEditorUserSettingsIni );
+	GConfig->SetBool( TEXT("Matinee"), TEXT("AllowKeyframeBarSelection"), bAllowKeyframeBarSelection, GEditorPerProjectIni );
 }
 
 /**
@@ -3029,7 +3025,7 @@ bool FMatinee::IsKeyframeBarSelectionToggled()
 void FMatinee::OnToggleKeyframeTextSelection()
 {
 	bAllowKeyframeTextSelection = !bAllowKeyframeTextSelection;
-	GConfig->SetBool( TEXT("Matinee"), TEXT("AllowKeyframeTextSelection"), bAllowKeyframeTextSelection, GEditorUserSettingsIni );
+	GConfig->SetBool( TEXT("Matinee"), TEXT("AllowKeyframeTextSelection"), bAllowKeyframeTextSelection, GEditorPerProjectIni );
 }
 
 bool FMatinee::IsKeyframeTextSelectionToggled()
@@ -3851,7 +3847,7 @@ void FMatinee::OnMenuExport()
 				// Export the Matinee information to an FBX file
 				Exporter->CreateDocument();
 				Exporter->SetTrasformBaking(bBakeTransforms);
-				const bool bKeepHierarchy = GEditor->AccessEditorUserSettings().bKeepAttachHierarchy;
+				const bool bKeepHierarchy = GetDefault<UEditorPerProjectUserSettings>()->bKeepAttachHierarchy;
 				Exporter->SetKeepHierarchy(bKeepHierarchy);
 
 				const bool bSelectedOnly = false;
@@ -4236,7 +4232,8 @@ bool FMatinee::IsBakeTransformsToggled()
  */
 void FMatinee::OnToggleKeepHierarchy()
 {
-	GEditor->AccessEditorUserSettings().bKeepAttachHierarchy = !GEditor->AccessEditorUserSettings().bKeepAttachHierarchy;
+	auto* Settings = GetMutableDefault<UEditorPerProjectUserSettings>();
+	Settings->bKeepAttachHierarchy = !Settings->bKeepAttachHierarchy;
 }
 
 /**
@@ -4244,7 +4241,7 @@ void FMatinee::OnToggleKeepHierarchy()
  */
 bool FMatinee::IsKeepHierarchyToggled()
 {
-	return GEditor->AccessEditorUserSettings().bKeepAttachHierarchy;
+	return GetDefault<UEditorPerProjectUserSettings>()->bKeepAttachHierarchy;
 }
 
 
@@ -4258,7 +4255,7 @@ void FMatinee::OnToggleInvertPan()
 {
 	bInvertPan = !bInvertPan;
 
-	GConfig->SetBool(TEXT("Matinee"), TEXT("InterpEdPanInvert"), bInvertPan, GEditorUserSettingsIni);
+	GConfig->SetBool(TEXT("Matinee"), TEXT("InterpEdPanInvert"), bInvertPan, GEditorPerProjectIni);
 }
 
 bool FMatinee::IsInvertPanToggled()
@@ -4932,7 +4929,7 @@ void FMatinee::OnChangeSnapSize( TSharedPtr< FString > SelectedString, ESelectIn
 	SnapSelectionIndex = NewSelection;
 
 	// Save selected snap mode to INI.
-	GConfig->SetInt(TEXT("Matinee"), TEXT("SelectedSnapMode"), NewSelection, GEditorUserSettingsIni );
+	GConfig->SetInt(TEXT("Matinee"), TEXT("SelectedSnapMode"), NewSelection, GEditorPerProjectIni );
 
 	// Snap time to frames right now if we need to
 	SetSnapTimeToFrames( bSnapTimeToFrames );
@@ -4965,7 +4962,7 @@ void FMatinee::OnChangeInitialInterpMode( TSharedPtr<FString> ItemSelected, ESel
 	InitialInterpMode = ( EInterpCurveMode )NewSelection;
 
 	// Save selected mode to user's preference file
-	GConfig->SetInt( TEXT( "Matinee" ), TEXT( "InitialInterpMode2" ), NewSelection, GEditorUserSettingsIni );
+	GConfig->SetInt( TEXT( "Matinee" ), TEXT( "InitialInterpMode2" ), NewSelection, GEditorPerProjectIni );
 }
 
 

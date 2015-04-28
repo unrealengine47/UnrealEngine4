@@ -13,6 +13,7 @@
 #include "SDockTab.h"
 
 #include "CookerSettings.h"
+#include "Runtime/Engine/Classes/Engine/DeveloperSettings.h"
 #include "Runtime/Engine/Classes/Engine/RendererSettings.h"
 #include "Runtime/Engine/Classes/Engine/UserInterfaceSettings.h"
 #include "Runtime/Engine/Classes/Sound/AudioSettings.h"
@@ -22,10 +23,22 @@
 #include "Editor/UnrealEd/Public/Settings/EditorProjectSettings.h"
 
 #include "AISystem.h"
+#include "GameFramework/InputSettings.h"
+#include "AI/Navigation/RecastNavMesh.h"
+#include "Engine/NetworkSettings.h"
+#include "PhysicsEngine/PhysicsSettings.h"
 
 #define LOCTEXT_NAMESPACE "FProjectSettingsViewerModule"
 
 static const FName ProjectSettingsTabName("ProjectSettings");
+
+/** Holds auto discovered settings information so that they can be unloaded automatically when refreshing. */
+struct FRegisteredSettings
+{
+	FName ContainerName;
+	FName CategoryName;
+	FName SectionName;
+};
 
 
 /**
@@ -67,7 +80,6 @@ public:
 		{
 			RegisterEngineSettings(*SettingsModule);
 			RegisterProjectSettings(*SettingsModule);
-			RegisterEditorSettings(*SettingsModule);
 
 			SettingsModule->RegisterViewer("Project", *this);
 		}
@@ -82,7 +94,7 @@ public:
 		FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(ProjectSettingsTabName);
 		UnregisterSettings();
 	}
-
+	
 	virtual bool SupportsDynamicReloading() override
 	{
 		return true;
@@ -102,20 +114,6 @@ protected:
 			LOCTEXT("GeneralEngineSettingsName", "General Settings"),
 			LOCTEXT("ProjectGeneralSettingsDescription", "General options and defaults for the game engine."),
 			GetMutableDefault<UEngine>()
-		);
-
-		// audio settings
-		SettingsModule.RegisterSettings("Project", "Engine", "Audio",
-			LOCTEXT("EngineAudioSettingsName", "Audio"),
-			LOCTEXT("ProjectAudioSettingsDescription", "Audio settings."),
-			GetMutableDefault<UAudioSettings>()
-		);
-
-		// collision settings
-		SettingsModule.RegisterSettings("Project", "Engine", "Collision",
-			LOCTEXT("ProjectCollisionSettingsName", "Collision"),
-			LOCTEXT("ProjectCollisionSettingsDescription", "Set up and modify collision settings."),
-			GetMutableDefault<UCollisionProfile>()
 		);
 
 		// command console settings
@@ -162,56 +160,6 @@ protected:
 			LOCTEXT("CrowdManagerSettingsDescription", "Settings for the AI Crowd Manager."),
 			GetMutableDefault<UCrowdManager>()
 			);
-
-		// Physics settings
-		SettingsModule.RegisterSettings("Project", "Engine", "Animation",
-			LOCTEXT("EngineAnimationSettingsName", "Animation"),
-			LOCTEXT("ProjectAnimationSettingsDescription", "Default animation settings."),
-			GetMutableDefault<UAnimationSettings>()
-		);
-
-		/*
-		// network settings
-		SettingsModule.RegisterSettings("Project", "Engine", "NetworkManager",
-			LOCTEXT("GameNetworkManagerSettingsName", "Network Manager"),
-			LOCTEXT("GameNetworkManagerSettingsDescription", "Game Network Manager settings."),
-			GetMutableDefault<UGameNetworkManagerSettings>()
-		);*/
-
-		// network settings
-		SettingsModule.RegisterSettings("Project", "Engine", "Network",
-			LOCTEXT("NetworkSettingsName", "Network"),
-			LOCTEXT("NetworkSettingsDescription", "Network settings."),
-			GetMutableDefault<UNetworkSettings>()
-		);
-
-		// Physics settings
-		SettingsModule.RegisterSettings("Project", "Engine", "Physics",
-			LOCTEXT("EnginePhysicsSettingsName", "Physics"),
-			LOCTEXT("ProjectPhysicsSettingsDescription", "Default physics settings."),
-			GetMutableDefault<UPhysicsSettings>()
-		);
-
-		// Rendering settings
-		SettingsModule.RegisterSettings("Project", "Engine", "Rendering",
-			LOCTEXT("EngineRenderingSettingsName", "Rendering"),
-			LOCTEXT("ProjectRenderingSettingsDescription", "Rendering settings."),
-			GetMutableDefault<URendererSettings>()
-		);
-
-		// UI settings
-		SettingsModule.RegisterSettings("Project", "Engine", "UI",
-			LOCTEXT("EngineUISettingsName", "User Interface"),
-			LOCTEXT("ProjectUISettingsDescription", "User Interface settings that control Slate and UMG."),
-			GetMutableDefault<UUserInterfaceSettings>()
-		);
-
-		// Cooker settings
-		SettingsModule.RegisterSettings("Project", "Engine", "Cooker",
-			LOCTEXT("CookerSettingsName", "Cooker"),
-			LOCTEXT("CookerSettingsDescription", "Various cooker settings."),
-			GetMutableDefault<UCookerSettings>()
-			);
 	}
 
 	/**
@@ -256,36 +204,6 @@ protected:
 			LOCTEXT("MovieSettingsDescription", "Movie player settings"),
 			GetMutableDefault<UMoviePlayerSettings>()
 		);
-/*
-		// game session
-		SettingsModule.RegisterSettings("Project", "Project", "GameSession",
-			LOCTEXT("GameSessionettingsName", "Game Session"),
-			LOCTEXT("GameSessionSettingsDescription", "Game Session settings."),
-			GetMutableDefault<UGameSessionSettings>()
-		);
-
-		// head-up display
-		SettingsModule.RegisterSettings("Project", "Project", "HUD",
-			LOCTEXT("HudSettingsName", "HUD"),
-			LOCTEXT("HudSettingsDescription", "Head-up display (HUD) settings."),
-			GetMutableDefault<UHudSettings>()
-		);*/
-	}
-
-
-	/**
-	 * Registers Editor settings.
-	 *
-	 * @param SettingsModule A reference to the settings module.
-	 */
-	void RegisterEditorSettings( ISettingsModule& SettingsModule )
-	{
-		// Appearance settings
-		SettingsModule.RegisterSettings("Project", "Editor", "Appearance",
-			LOCTEXT("AppearanceSettingsName", "Appearance"),
-			LOCTEXT("AppearanceSettingsDescription", "Settings pertaining to the appearance of the editor"),
-			GetMutableDefault<UEditorProjectAppearanceSettings>()
-		);
 	}
 
 	/** Unregisters all settings. */
@@ -296,6 +214,7 @@ protected:
 		if (SettingsModule != nullptr)
 		{
 			SettingsModule->UnregisterViewer("Project");
+
 			// engine settings
 			SettingsModule->UnregisterSettings("Project", "Engine", "General");
 			SettingsModule->UnregisterSettings("Project", "Engine", "CrowdManager");
@@ -305,7 +224,6 @@ protected:
 			SettingsModule->UnregisterSettings("Project", "Engine", "Collision");
 			SettingsModule->UnregisterSettings("Project", "Engine", "Physics");
 			SettingsModule->UnregisterSettings("Project", "Engine", "Rendering");
-//			SettingsModule->UnregisterSettings("Project", "Engine", "NetworkManager");
 
 			// project settings
 			SettingsModule->UnregisterSettings("Project", "Project", "General");
@@ -316,9 +234,6 @@ protected:
 
 			// Editor settings
 			SettingsModule->UnregisterSettings("Editor", "Editor", "Appearance");
-
-//			SettingsModule->UnregisterSettings("Project", "Project", "GameSession");
-//			SettingsModule->UnregisterSettings("Project", "Project", "HUD");
 		}
 	}
 

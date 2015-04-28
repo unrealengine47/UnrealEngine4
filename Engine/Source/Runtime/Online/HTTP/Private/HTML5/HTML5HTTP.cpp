@@ -39,22 +39,7 @@ FString FHTML5HttpRequest::GetURL()
 void FHTML5HttpRequest::SetURL(const FString& InURL)
 {
 	UE_LOG(LogHttp, Verbose, TEXT("FHTML5HttpRequest::SetURL() - %s"), *InURL);
-
-	URL = InURL.Replace(TEXT("%"), TEXT("%25"));
-	URL = URL.Replace(TEXT(" "), TEXT("%20"));
-	URL = URL.Replace(TEXT("\""), TEXT("%22"));
-	URL = URL.Replace(TEXT("<"), TEXT("%3C"));
-	URL = URL.Replace(TEXT(">"), TEXT("%3E"));
-
-	URL = URL.Replace(TEXT("["), TEXT("%5B"));
-	URL = URL.Replace(TEXT("]"), TEXT("%5D"));
-	URL = URL.Replace(TEXT("\\"), TEXT("%5C"));
-	URL = URL.Replace(TEXT("^"), TEXT("%5E"));
-
-	URL = URL.Replace(TEXT("`"), TEXT("%60"));
-	URL = URL.Replace(TEXT("{"), TEXT("%7B"));
-	URL = URL.Replace(TEXT("}"), TEXT("%7D"));
-	URL = URL.Replace(TEXT("|"), TEXT("%7C"));
+	URL = InURL; 
 }
 
 
@@ -321,7 +306,7 @@ bool FHTML5HttpRequest::StartRequest()
 	TArray<FString> AllHeaders = GetAllHeaders();
 
 	// Create a String which emscripten can understand. 
-	FString Headers = FString::Join(AllHeaders, TEXT("%"));
+	FString RequestHeaders = FString::Join(AllHeaders, TEXT("%"));
 	
 	// set up verb (note that Verb is expected to be uppercase only)
 	if (Verb == TEXT("POST"))
@@ -331,7 +316,7 @@ bool FHTML5HttpRequest::StartRequest()
 		check(!GetHeader("Content-Type").IsEmpty() || IsURLEncoded(RequestPayload));
 
 #if PLATFORM_HTML5_BROWSER
-		UE_MakeHTTPDataRequest(this, TCHAR_TO_ANSI(*URL), "POST", (char*)RequestPayload.GetData(), RequestPayload.Num(),TCHAR_TO_ANSI(*Headers), 0, StaticReceiveCallback, StaticErrorCallback, StaticProgressCallback);
+		UE_MakeHTTPDataRequest(this, TCHAR_TO_ANSI(*URL), "POST", (char*)RequestPayload.GetData(), RequestPayload.Num(),TCHAR_TO_ANSI(*RequestHeaders), 0, StaticReceiveCallback, StaticErrorCallback, StaticProgressCallback);
 #else
 		return false;
 #endif
@@ -350,7 +335,7 @@ bool FHTML5HttpRequest::StartRequest()
 	else if (Verb == TEXT("GET"))
 	{
 #if PLATFORM_HTML5_BROWSER
-		UE_MakeHTTPDataRequest(this, TCHAR_TO_ANSI(*URL), "GET", NULL, 0,TCHAR_TO_ANSI(*Headers), 1, StaticReceiveCallback, StaticErrorCallback, StaticProgressCallback);
+		UE_MakeHTTPDataRequest(this, TCHAR_TO_ANSI(*URL), "GET", NULL, 0,TCHAR_TO_ANSI(*RequestHeaders), 1, StaticReceiveCallback, StaticErrorCallback, StaticProgressCallback);
 #else
 		return false;
 #endif

@@ -162,6 +162,11 @@ FBlueprintActionUiSpec const& UBlueprintNodeSpawner::PrimeDefaultUiSpec(UEdGraph
 		NodeTemplate = bTemplateNodeFetched ? NodeTemplate : GetTemplateNode(TargetGraph);
 		if (NodeTemplate != nullptr)
 		{
+			if (NodeClass == UK2Node_IfThenElse::StaticClass())
+			{
+				bool bIsAvail = true;
+				bIsAvail = false;
+			}
 			MenuSignature.Keywords = NodeTemplate->GetKeywords();
 		}
 		// if a target graph was provided, then we've done all we can to spawn a
@@ -169,7 +174,7 @@ FBlueprintActionUiSpec const& UBlueprintNodeSpawner::PrimeDefaultUiSpec(UEdGraph
 		if (MenuSignature.Keywords.IsEmpty() && (TargetGraph != nullptr))
 		{
 			// want to set it to something so we won't end up back in this condition
-			MenuSignature.Keywords = TEXT(" ");
+			MenuSignature.Keywords = FText::FromString(TEXT(" "));
 		}
 		bTemplateNodeFetched = true;
 	}
@@ -191,6 +196,29 @@ FBlueprintActionUiSpec const& UBlueprintNodeSpawner::PrimeDefaultUiSpec(UEdGraph
 		{
 			// want to set it to something so we won't end up back in this condition
 			MenuSignature.IconName = TEXT("GraphEditor.Default_16x");
+		}
+		bTemplateNodeFetched = true;
+	}
+
+	//--------------------------------------
+	// Verify Documentation Link
+	//--------------------------------------
+
+	if (MenuSignature.DocExcerptTag.IsEmpty())
+	{
+		NodeTemplate = bTemplateNodeFetched ? NodeTemplate : GetTemplateNode(TargetGraph);
+		if (NodeTemplate != nullptr)
+		{
+			MenuSignature.DocLink = NodeTemplate->GetDocumentationLink();
+			MenuSignature.DocExcerptTag = NodeTemplate->GetDocumentationExcerptName();
+		}
+
+		// if a target graph was provided, then we've done all we can to spawn a
+		// template node... we have to default to something
+		if (MenuSignature.DocExcerptTag.IsEmpty() && (TargetGraph != nullptr))
+		{
+			// want to set it to something so we won't end up back in this condition
+			MenuSignature.DocExcerptTag = TEXT(" ");
 		}
 		bTemplateNodeFetched = true;
 	}

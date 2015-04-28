@@ -50,6 +50,7 @@
 	#include "Editor/UnrealEd/Classes/ThumbnailRendering/WorldThumbnailInfo.h"
 	#include "SlateBasics.h"
 	#include "Editor/Kismet/Public/FindInBlueprintManager.h"
+	#include "Editor/UnrealEd/Classes/Editor/UnrealEdTypes.h"
 #endif
 
 #include "MallocProfiler.h"
@@ -103,7 +104,11 @@ FWorldDelegates::FWorldCleanupEvent FWorldDelegates::OnWorldCleanup;
 FWorldDelegates::FWorldEvent FWorldDelegates::OnPreWorldFinishDestroy;
 FWorldDelegates::FOnLevelChanged FWorldDelegates::LevelAddedToWorld;
 FWorldDelegates::FOnLevelChanged FWorldDelegates::LevelRemovedFromWorld;
+FWorldDelegates::FLevelOffsetEvent FWorldDelegates::PostApplyLevelOffset;
 FWorldDelegates::FWorldGetAssetTags FWorldDelegates::GetAssetTags;
+#if WITH_EDITOR
+FWorldDelegates::FRefreshLevelScriptActionsEvent FWorldDelegates::RefreshLevelScriptActions;
+#endif // WITH_EDITOR
 
 UWorld::UWorld( const FObjectInitializer& ObjectInitializer )
 :	UObject(ObjectInitializer)
@@ -122,6 +127,7 @@ UWorld::UWorld( const FObjectInitializer& ObjectInitializer )
 	TimerManager = new FTimerManager();
 #if WITH_EDITOR
 	bBroadcastSelectionChange = true; //Ed Only
+	EditorViews.SetNum(ELevelViewportType::LVT_MAX);
 #endif // WITH_EDITOR
 
 	FWorldDelegates::OnPostWorldCreation.Broadcast(this);
@@ -141,10 +147,38 @@ void UWorld::Serialize( FArchive& Ar )
 
 	Ar << PersistentLevel;
 
-	Ar << EditorViews[0];
-	Ar << EditorViews[1];
-	Ar << EditorViews[2];
-	Ar << EditorViews[3];
+	if (Ar.UE4Ver() < VER_UE4_ADD_EDITOR_VIEWS)
+	{
+#if WITH_EDITOR
+		EditorViews.SetNum(4);
+#endif
+		for (int32 i = 0; i < 4; ++i)
+		{
+			FLevelViewportInfo TempViewportInfo;
+			Ar << TempViewportInfo;
+#if WITH_EDITOR
+			if (Ar.IsLoading())
+			{
+				EditorViews[i] = TempViewportInfo;
+			}
+#endif
+		}
+	}
+#if WITH_EDITOR
+	if ( Ar.IsLoading() )
+	{
+		for (FLevelViewportInfo& ViewportInfo : EditorViews)
+		{
+			ViewportInfo.CamUpdated = true;
+
+			if ( ViewportInfo.CamOrthoZoom == 0.f )
+			{
+				ViewportInfo.CamOrthoZoom = DEFAULT_ORTHOZOOM;
+			}
+		}
+		EditorViews.SetNum(ELevelViewportType::LVT_MAX);
+	}
+#endif
 
 	if (Ar.UE4Ver() < VER_UE4_REMOVE_SAVEGAMESUMMARY)
 	{
@@ -292,6 +326,13 @@ bool UWorld::Rename(const TCHAR* InName, UObject* NewOuter, ERenameFlags Flags)
 			}
 			else
 			{
+				// The level blueprint must be named the same as the level/world.
+				// If there is already something there with that name, rename it to something else.
+				if (UObject* ExistingObject = StaticFindObject(nullptr, LevelScriptBlueprint->GetOuter(), InName))
+				{
+					ExistingObject->Rename(nullptr, nullptr, REN_DoNotDirty | REN_DontCreateRedirectors | REN_ForceNoResetLoaders | REN_NonTransactional);
+				}
+
 				// This is a normal rename. Use LevelScriptBlueprint->GetOuter() instead of NULL to make sure the generated top level objects are moved appropriately
 				if ( !LevelScriptBlueprint->Rename(InName, LevelScriptBlueprint->GetOuter(), Flags) )
 				{
@@ -1507,6 +1548,14 @@ void UWorld::NotifyOfBlueprintDebuggingAssociation(class UBlueprint* Blueprint, 
 	{
 		BlueprintObjectsBeingDebugged.Remove(Key);
 	}
+#endif	//#if WITH_EDITOR
+}
+
+void UWorld::BroadcastLevelsChanged()
+{
+	LevelsChangedEvent.Broadcast();
+#if WITH_EDITOR
+	FWorldDelegates::RefreshLevelScriptActions.Broadcast(this);
 #endif	//#if WITH_EDITOR
 }
 
@@ -5447,8 +5496,6 @@ void UWorld::ChangeFeatureLevel(ERHIFeatureLevel::Type InFeatureLevel)
         FScopedSlowTask SlowTask(100.f, NSLOCTEXT("Engine", "ChangingPreviewRenderingLevelMessage", "Changing Preview Rendering Level"));
         SlowTask.MakeDialog();
         {
-            FlushRenderingCommands();
-
             SlowTask.EnterProgressFrame(10.0f);
             // Give all scene components the opportunity to prepare for pending feature level change.
             for (TObjectIterator<USceneComponent> It; It; ++It)
@@ -5462,6 +5509,7 @@ void UWorld::ChangeFeatureLevel(ERHIFeatureLevel::Type InFeatureLevel)
 
             SlowTask.EnterProgressFrame(10.0f);
             FGlobalComponentReregisterContext RecreateComponents;
+            FlushRenderingCommands();
 
             // Decrement refcount on old feature level
             UMaterialInterface::SetGlobalRequiredFeatureLevel(InFeatureLevel, true);
@@ -5506,10 +5554,6 @@ void UWorld::ChangeFeatureLevel(ERHIFeatureLevel::Type InFeatureLevel)
 
             SlowTask.EnterProgressFrame(10.0f);
             TriggerStreamingDataRebuild();
-
-            SlowTask.EnterProgressFrame(10.0f);
-            FOutputDeviceNull Ar;
-            RecompileShaders(TEXT("CHANGED"), Ar);
         }
 	}
 }

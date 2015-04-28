@@ -17,12 +17,13 @@
 
 #include "../Src/Kernel/OVR_Math.h"
 #include "../Src/Kernel/OVR_Threads.h"
-#include "../Src/OVR_CAPI.h"
 #include "../Src/Kernel/OVR_Color.h"
 #include "../Src/Kernel/OVR_Timer.h"
 
 #include "OVR.h"
 #include "VrApi.h"
+#include "VrApi_Helpers.h"
+#include "VrApi_Android.h"
 
 #include <GLES2/gl2.h>
 
@@ -95,7 +96,7 @@ public:
     virtual void ModifyShowFlags(FEngineShowFlags& ShowFlags) override;
     virtual void SetupView(FSceneViewFamily& InViewFamily, FSceneView& InView) override;
     virtual void PreRenderView_RenderThread(FSceneView& InView) override;
-	virtual void PreRenderViewFamily_RenderThread(FSceneViewFamily& InViewFamily) override;
+	virtual void PreRenderViewFamily_RenderThread(FRHICommandListImmediate& RHICmdList, FSceneViewFamily& InViewFamily) override;
 
 	/** Positional tracking control methods */
 	virtual bool IsPositionalTrackingEnabled() const override;
@@ -128,7 +129,7 @@ public:
 	class FGearVRBridge : public FRHICustomPresent
 	{
 	public:
-		FGearVRBridge(FGearVR* plugin, uint32 RenderTargetWidth, uint32 RenderTargetHeight, float FOV );
+		FGearVRBridge(FGearVR* plugin, uint32 RenderTargetWidth, uint32 RenderTargetHeight, float FOV, int32 MinimumVsyncs);
 
 		// Returns true if it is initialized and used.
 		bool IsInitialized() const { return bInitialized; }
@@ -153,7 +154,7 @@ public:
 
 	public:
 		bool				bFirstTime;
-		TimeWarpParms		SwapParms;
+		ovrTimeWarpParms	SwapParms;
 
 	private:
 		FGearVR*			Plugin;
@@ -164,12 +165,14 @@ public:
 
 		uint32				RenderTargetWidth;
 		uint32				RenderTargetHeight;
+		int32				MinimumVsyncs;
 		float				FOV;
 	};
 
 	TRefCountPtr<FGearVRBridge> pGearVRBridge;
 
 	void ShutdownRendering();
+	void StartOVRGlobalMenu();
 
 private:
 	FGearVR* getThis() { return this; }
@@ -351,6 +354,9 @@ private: // data
 	/** Interpupillary distance, in meters (user configurable) */
 	float InterpupillaryDistance;
 
+	/** Vector defining center eye offset for head neck model in meters */
+	FVector HeadModel;
+
 	/** World units (UU) to Meters scale.  Read from the level, and used to transform positional tracking data */
 	float WorldToMetersScale;
 	/** Whether world-to-meters scale is overriden or not. */
@@ -366,6 +372,9 @@ private: // data
 	/** The width and height of the stereo render target */
 	int32 RenderTargetWidth;
 	int32 RenderTargetHeight;
+
+	/** Clamp warpswap to once every N vsyncs.  1 = 60Hz, 2 = 30Hz, etc. */
+	int32 MinimumVsyncs;
 
 	/** Motion prediction (in seconds). 0 - no prediction */
 	double MotionPredictionInSeconds;
@@ -417,7 +426,6 @@ private: // data
 	ovrModeParms			VrModeParms;
 
 	ovrHmdInfo				HmdInfo;
-	ovrSensorDesc			SensorDesc;
 
 	FIntPoint				EyeViewportSize; // size of the viewport (for one eye). At the moment it is a half of RT.
 	

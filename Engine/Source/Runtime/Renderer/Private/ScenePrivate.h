@@ -313,13 +313,19 @@ class FPrimitiveFadingState
 {
 public:
 	FPrimitiveFadingState()
-		: FrameNumber(0)
+		: FadeTimeScaleBias(ForceInitToZero)
+		, FrameNumber(0)
 		, EndTime(0.0f)
-		, FadeTimeScaleBias(0.0f,0.0f)
 		, bIsVisible(false)
 		, bValid(false)
 	{
 	}
+
+	/** Scale and bias to use on time to calculate fade opacity */
+	FVector2D FadeTimeScaleBias;
+
+	/** The uniform buffer for the fade parameters */
+	FDistanceCullFadeUniformBufferRef UniformBuffer;
 
 	/** Frame number when last updated */
 	uint32 FrameNumber;
@@ -327,12 +333,6 @@ public:
 	/** Time when fade will be finished. */
 	float EndTime;
 	
-	/** Scale and bias to use on time to calculate fade opacity */
-	FVector2D FadeTimeScaleBias;
-
-	/** The uniform buffer for the fade parameters */
-	FDistanceCullFadeUniformBufferRef UniformBuffer;
-
 	/** Currently visible? */
 	bool bIsVisible;
 
@@ -552,7 +552,7 @@ public:
 	}
 
 	// @param SampleCount 0 or 1 for no TemporalAA 
-	void SetupTemporalAA(uint32 SampleCount)
+	void SetupTemporalAA(uint32 SampleCount, const FSceneViewFamily& Family)
 	{
 		if(!SampleCount)
 		{
@@ -561,7 +561,7 @@ public:
 
 		TemporalAASampleCount = FMath::Min(SampleCount, (uint32)255);
 		
-		if( !GRenderingRealtimeClock.GetGamePaused() )
+		if (!Family.bWorldIsPaused)
 		{
 			TemporalAASampleIndex++;
 		}
@@ -731,9 +731,18 @@ public:
 	}
 
 	// Note: OnStartPostProcessing() needs to be called each frame for each view
-	virtual UMaterialInstanceDynamic* GetReusableMID(class UMaterialInterface* ParentMaterial) override
+	virtual UMaterialInstanceDynamic* GetReusableMID(class UMaterialInterface* InParentMaterial) override
 	{		
 		check(IsInGameThread());
+		check(InParentMaterial);
+
+		auto ParentAsMaterialInstance = Cast<UMaterialInstanceDynamic>(InParentMaterial);
+
+		// fixup MID parents as this is not allowed, take the next MIC or Material.
+		UMaterialInterface* ParentMaterial = ParentAsMaterialInstance ? ParentAsMaterialInstance->Parent : InParentMaterial;
+
+		// this is not allowed and would cause an error later in the code
+		check(!ParentMaterial->IsA(UMaterialInstanceDynamic::StaticClass()));
 
 		if(MIDUsedCount < (uint32)MIDPool.Num())
 		{
@@ -983,7 +992,7 @@ class FDistanceFieldSceneData
 {
 public:
 
-	FDistanceFieldSceneData();
+	FDistanceFieldSceneData(EShaderPlatform ShaderPlatform);
 	~FDistanceFieldSceneData();
 
 	void AddPrimitive(FPrimitiveSceneInfo* InPrimitive);
@@ -1025,11 +1034,13 @@ public:
 
 	/** Pending operations on the object buffers to be processed next frame. */
 	TArray<FPrimitiveSceneInfo*> PendingAddOperations;
-	TArray<FPrimitiveSceneInfo*> PendingUpdateOperations;
+	TSet<FPrimitiveSceneInfo*> PendingUpdateOperations;
 	TArray<FPrimitiveRemoveInfo> PendingRemoveOperations;
 
 	/** Used to detect atlas reallocations, since objects store UVs into the atlas and need to be updated when it changes. */
 	int32 AtlasGeneration;
+
+	bool bTrackPrimitives;
 };
 
 /** Stores data for an allocation in the FIndirectLightingCache. */

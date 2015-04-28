@@ -248,7 +248,7 @@ FGameplayAbilitySpecHandle UAbilitySystemComponent::GiveAbility(FGameplayAbility
 	}
 	
 	OnGiveAbility(OwnedSpec);
-	ActivatableAbilities.MarkArrayDirty();
+	MarkAbilitySpecDirty(OwnedSpec);
 
 	return OwnedSpec.Handle;
 }
@@ -401,7 +401,16 @@ void UAbilitySystemComponent::OnGiveAbility(FGameplayAbilitySpec& Spec)
 		}
 	}
 
-	Spec.Ability->OnGiveAbility(AbilityActorInfo.Get(), Spec);
+	// If there's already a primary instance, it should be the one to receive the OnGiveAbility call
+	UGameplayAbility* PrimaryInstance = Spec.GetPrimaryInstance();
+	if (PrimaryInstance)
+	{
+		PrimaryInstance->OnGiveAbility(AbilityActorInfo.Get(), Spec);
+	}
+	else
+	{
+		Spec.Ability->OnGiveAbility(AbilityActorInfo.Get(), Spec);
+	}
 }
 
 void UAbilitySystemComponent::OnRemoveAbility(FGameplayAbilitySpec& Spec)
@@ -617,6 +626,9 @@ void UAbilitySystemComponent::NotifyAbilityEnded(FGameplayAbilitySpecHandle Hand
 
 	check(Ability);
 	ENetRole OwnerRole = GetOwnerRole();
+
+	// Broadcast that the ability ended
+	AbilityEndedCallbacks.Broadcast(Ability);
 
 	// If AnimatingAbility ended, clear the pointer
 	if (LocalAnimMontageInfo.AnimatingAbility == Ability)
@@ -1488,6 +1500,12 @@ void UAbilitySystemComponent::ClientActivateAbilitySucceedWithEventData_Implemen
 
 		// The spec will now be active, and we need to keep track on the client as well.  Since we cannot call TryActivateAbility, which will increment ActiveCount on the server, we have to do this here.
 		++Spec->ActiveCount;
+
+		if (PredictionKey.bIsServerInitiated)
+		{
+			// We have an active server key, set our key equal to it
+			Spec->ActivationInfo.ServerSetActivationPredictionKey(PredictionKey);
+		}
 		
 		if (AbilityToActivate->GetInstancingPolicy() == EGameplayAbilityInstancingPolicy::InstancedPerExecution)
 		{
@@ -1521,7 +1539,8 @@ bool UAbilitySystemComponent::TriggerAbilityFromGameplayEvent(FGameplayAbilitySp
 		return false;
 	}
 
-	const UGameplayAbility* Ability = Spec->Ability;
+	const UGameplayAbility* InstancedAbility = Spec->GetPrimaryInstance();
+	const UGameplayAbility* Ability = InstancedAbility ? InstancedAbility : Spec->Ability;
 	if (!ensure(Ability))
 	{
 		return false;
@@ -1725,14 +1744,14 @@ void UAbilitySystemComponent::BindToInputComponent(UInputComponent* InputCompone
 	// Pressed event
 	{
 		FInputActionBinding AB(ConfirmBindName, IE_Pressed);
-		AB.ActionDelegate.GetDelegateForManualSet().BindUObject(this, &UAbilitySystemComponent::InputConfirm);
+		AB.ActionDelegate.GetDelegateForManualSet().BindUObject(this, &UAbilitySystemComponent::LocalInputConfirm);
 		InputComponent->AddActionBinding(AB);
 	}
 
 	// 
 	{
 		FInputActionBinding AB(CancelBindName, IE_Pressed);
-		AB.ActionDelegate.GetDelegateForManualSet().BindUObject(this, &UAbilitySystemComponent::InputCancel);
+		AB.ActionDelegate.GetDelegateForManualSet().BindUObject(this, &UAbilitySystemComponent::LocalInputCancel);
 		InputComponent->AddActionBinding(AB);
 	}
 }
@@ -1752,14 +1771,14 @@ void UAbilitySystemComponent::BindAbilityActivationToInputComponent(UInputCompon
 		// Pressed event
 		{
 			FInputActionBinding AB(FName(*BindStr), IE_Pressed);
-			AB.ActionDelegate.GetDelegateForManualSet().BindUObject(this, &UAbilitySystemComponent::AbilityInputPressed, idx);
+			AB.ActionDelegate.GetDelegateForManualSet().BindUObject(this, &UAbilitySystemComponent::AbilityLocalInputPressed, idx);
 			InputComponent->AddActionBinding(AB);
 		}
 
 		// Released event
 		{
 			FInputActionBinding AB(FName(*BindStr), IE_Released);
-			AB.ActionDelegate.GetDelegateForManualSet().BindUObject(this, &UAbilitySystemComponent::AbilityInputReleased, idx);
+			AB.ActionDelegate.GetDelegateForManualSet().BindUObject(this, &UAbilitySystemComponent::AbilityLocalInputReleased, idx);
 			InputComponent->AddActionBinding(AB);
 		}
 	}
@@ -1768,14 +1787,14 @@ void UAbilitySystemComponent::BindAbilityActivationToInputComponent(UInputCompon
 	if (BindInfo.ConfirmTargetCommand.IsEmpty() == false)
 	{
 		FInputActionBinding AB(FName(*BindInfo.ConfirmTargetCommand), IE_Pressed);
-		AB.ActionDelegate.GetDelegateForManualSet().BindUObject(this, &UAbilitySystemComponent::InputConfirm);
+		AB.ActionDelegate.GetDelegateForManualSet().BindUObject(this, &UAbilitySystemComponent::LocalInputConfirm);
 		InputComponent->AddActionBinding(AB);
 	}
 	
 	if (BindInfo.CancelTargetCommand.IsEmpty() == false)
 	{
 		FInputActionBinding AB(FName(*BindInfo.CancelTargetCommand), IE_Pressed);
-		AB.ActionDelegate.GetDelegateForManualSet().BindUObject(this, &UAbilitySystemComponent::InputCancel);
+		AB.ActionDelegate.GetDelegateForManualSet().BindUObject(this, &UAbilitySystemComponent::LocalInputCancel);
 		InputComponent->AddActionBinding(AB);
 	}
 
@@ -1789,18 +1808,18 @@ void UAbilitySystemComponent::BindAbilityActivationToInputComponent(UInputCompon
 	}
 }
 
-void UAbilitySystemComponent::AbilityInputPressed(int32 InputID)
+void UAbilitySystemComponent::AbilityLocalInputPressed(int32 InputID)
 {
 	// Consume the input if this InputID is overloaded with GenericConfirm/Cancel and the GenericConfim/Cancel callback is bound
 	if (IsGenericConfirmInputBound(InputID))
 	{
-		InputConfirm();
+		LocalInputConfirm();
 		return;
 	}
 
 	if (IsGenericCancelInputBound(InputID))
 	{
-		InputCancel();
+		LocalInputCancel();
 		return;
 	}
 
@@ -1836,7 +1855,7 @@ void UAbilitySystemComponent::AbilityInputPressed(int32 InputID)
 	}
 }
 
-void UAbilitySystemComponent::AbilityInputReleased(int32 InputID)
+void UAbilitySystemComponent::AbilityLocalInputReleased(int32 InputID)
 {
 	ABILITYLIST_SCOPE_LOCK();
 	for (FGameplayAbilitySpec& Spec : ActivatableAbilities.Items)
@@ -1930,17 +1949,17 @@ void UAbilitySystemComponent::AbilitySpecInputReleased(FGameplayAbilitySpec& Spe
 	}
 }
 
-void UAbilitySystemComponent::InputConfirm()
+void UAbilitySystemComponent::LocalInputConfirm()
 {
-	FAbilityConfirmOrCancel Temp = ConfirmCallbacks;
-	ConfirmCallbacks.Clear();
+	FAbilityConfirmOrCancel Temp = GenericLocalConfirmCallbacks;
+	GenericLocalConfirmCallbacks.Clear();
 	Temp.Broadcast();
 }
 
-void UAbilitySystemComponent::InputCancel()
+void UAbilitySystemComponent::LocalInputCancel()
 {	
-	FAbilityConfirmOrCancel Temp = CancelCallbacks;
-	CancelCallbacks.Clear();
+	FAbilityConfirmOrCancel Temp = GenericLocalCancelCallbacks;
+	GenericLocalCancelCallbacks.Clear();
 	Temp.Broadcast();
 }
 
@@ -2541,21 +2560,21 @@ void UAbilitySystemComponent::ClientSetReplicatedEvent_Implementation(EAbilityGe
 
 // -------
 
-void UAbilitySystemComponent::ServerSetReplicatedTargetData_Implementation(FGameplayAbilitySpecHandle AbilityHandle, FPredictionKey AbilityOriginalPredictionKey, FGameplayAbilityTargetDataHandle ReplicatedTargetData, FGameplayTag ApplicationTag, FPredictionKey CurrentPredictionKey)
+void UAbilitySystemComponent::ServerSetReplicatedTargetData_Implementation(FGameplayAbilitySpecHandle AbilityHandle, FPredictionKey AbilityOriginalPredictionKey, FGameplayAbilityTargetDataHandle ReplicatedTargetDataHandle, FGameplayTag ApplicationTag, FPredictionKey CurrentPredictionKey)
 {
 	FScopedPredictionWindow ScopedPrediction(this, CurrentPredictionKey);
 
 	// Always adds to cache to store the new data
 	FAbilityReplicatedDataCache& ReplicatedData = AbilityTargetDataMap.FindOrAdd(FGameplayAbilitySpecHandleAndPredictionKey(AbilityHandle, AbilityOriginalPredictionKey));
 
-	ReplicatedData.TargetData = ReplicatedTargetData;
+	ReplicatedData.TargetData = ReplicatedTargetDataHandle;
 	ReplicatedData.ApplicationTag = ApplicationTag;
 	ReplicatedData.bTargetConfirmed = true;
 	ReplicatedData.bTargetCancelled = false;
 	ReplicatedData.TargetSetDelegate.Broadcast(ReplicatedData.TargetData, ReplicatedData.ApplicationTag);
 }
 
-bool UAbilitySystemComponent::ServerSetReplicatedTargetData_Validate(FGameplayAbilitySpecHandle AbilityHandle, FPredictionKey AbilityOriginalPredictionKey, FGameplayAbilityTargetDataHandle ReplicatedTargetData, FGameplayTag ApplicationTag, FPredictionKey CurrentPredictionKey)
+bool UAbilitySystemComponent::ServerSetReplicatedTargetData_Validate(FGameplayAbilitySpecHandle AbilityHandle, FPredictionKey AbilityOriginalPredictionKey, FGameplayAbilityTargetDataHandle ReplicatedTargetDataHandle, FGameplayTag ApplicationTag, FPredictionKey CurrentPredictionKey)
 {
 	return true;
 }

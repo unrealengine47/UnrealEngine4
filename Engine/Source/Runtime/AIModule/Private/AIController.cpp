@@ -438,7 +438,7 @@ void AAIController::Possess(APawn* InPawn)
 {
 	Super::Possess(InPawn);
 
-	if (!GetPawn())
+	if (GetPawn() == nullptr || InPawn == nullptr)
 	{
 		return;
 	}
@@ -755,6 +755,11 @@ EPathFollowingStatus::Type AAIController::GetMoveStatus() const
 bool AAIController::HasPartialPath() const
 {
 	return (PathFollowingComponent != NULL) && (PathFollowingComponent->HasPartialPath());
+}
+
+bool AAIController::IsFollowingAPath() const
+{
+	return (PathFollowingComponent != nullptr) && PathFollowingComponent->HasValidPath();
 }
 
 FVector AAIController::GetImmediateMoveDestination() const

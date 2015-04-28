@@ -8,6 +8,7 @@
 #define __ShadowRendering_H__
 
 #include "ShaderParameterUtils.h"
+#include "SceneCore.h"
 
 // Forward declarations.
 class FProjectedShadowInfo;
@@ -368,6 +369,7 @@ public:
 		const FMeshBatch& Mesh,
 		int32 BatchElementIndex,
 		bool bBackFace,
+		float DitheredLODTransitionValue,
 		const ElementDataType& ElementData,
 		const ContextDataType PolicyContext
 		) const;

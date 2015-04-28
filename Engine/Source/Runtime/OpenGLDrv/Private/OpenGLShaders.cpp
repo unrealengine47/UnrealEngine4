@@ -1915,8 +1915,6 @@ static void BindShaderStage(FOpenGLLinkedProgramConfiguration::ShaderInfo& Shade
 		
 			if(!bInterpolatorMatches)
 			{
-				FString PrevSource = GetShaderStageSource<TOpenGLStage1>(PrevStage);
-				
 				if(InputErrors.Num() == 0)
 				{
 					FOpenGLCodeHeader Header;
@@ -2067,12 +2065,12 @@ FBoundShaderStateRHIRef FOpenGLDynamicRHI::RHICreateBoundShaderState(
 	{
 		check(VertexDeclarationRHI);
 		
-		DYNAMIC_CAST_OPENGLRESOURCE(VertexDeclaration,VertexDeclaration);
-		DYNAMIC_CAST_OPENGLRESOURCE(VertexShader,VertexShader);
-		DYNAMIC_CAST_OPENGLRESOURCE(PixelShader,PixelShader);
-		DYNAMIC_CAST_OPENGLRESOURCE(HullShader,HullShader);
-		DYNAMIC_CAST_OPENGLRESOURCE(DomainShader,DomainShader);
-		DYNAMIC_CAST_OPENGLRESOURCE(GeometryShader,GeometryShader);
+		FOpenGLVertexDeclaration* VertexDeclaration = ResourceCast(VertexDeclarationRHI);
+		FOpenGLVertexShader* VertexShader = ResourceCast(VertexShaderRHI);
+		FOpenGLPixelShader* PixelShader = ResourceCast(PixelShaderRHI);
+		FOpenGLHullShader* HullShader = ResourceCast(HullShaderRHI);
+		FOpenGLDomainShader* DomainShader = ResourceCast(DomainShaderRHI);
+		FOpenGLGeometryShader* GeometryShader = ResourceCast(GeometryShaderRHI);
 
 		FOpenGLLinkedProgramConfiguration Config;
 
@@ -2432,12 +2430,12 @@ FOpenGLBoundShaderState::FOpenGLBoundShaderState(
 	:	CacheLink(InVertexDeclarationRHI, InVertexShaderRHI, InPixelShaderRHI,
 		InHullShaderRHI, InDomainShaderRHI,	InGeometryShaderRHI, this)
 {
-	DYNAMIC_CAST_OPENGLRESOURCE(VertexDeclaration,InVertexDeclaration);
-	DYNAMIC_CAST_OPENGLRESOURCE(VertexShader,InVertexShader);
-	DYNAMIC_CAST_OPENGLRESOURCE(PixelShader,InPixelShader);
-	DYNAMIC_CAST_OPENGLRESOURCE(HullShader,InHullShader);
-	DYNAMIC_CAST_OPENGLRESOURCE(DomainShader,InDomainShader);
-	DYNAMIC_CAST_OPENGLRESOURCE(GeometryShader,InGeometryShader);
+	FOpenGLVertexDeclaration* InVertexDeclaration = FOpenGLDynamicRHI::ResourceCast(InVertexDeclarationRHI);
+	FOpenGLVertexShader* InVertexShader = FOpenGLDynamicRHI::ResourceCast(InVertexShaderRHI);
+	FOpenGLPixelShader* InPixelShader = FOpenGLDynamicRHI::ResourceCast(InPixelShaderRHI);
+	FOpenGLHullShader* InHullShader = FOpenGLDynamicRHI::ResourceCast(InHullShaderRHI);
+	FOpenGLDomainShader* InDomainShader = FOpenGLDynamicRHI::ResourceCast(InDomainShaderRHI);
+	FOpenGLGeometryShader* InGeometryShader = FOpenGLDynamicRHI::ResourceCast(InGeometryShaderRHI);
 
 	VertexDeclaration = InVertexDeclaration;
 	VertexShader = InVertexShader;
@@ -2498,7 +2496,7 @@ bool FOpenGLComputeShader::NeedsUAVStage(int32 UAVStageIndex)
 void FOpenGLDynamicRHI::BindPendingComputeShaderState(FOpenGLContextState& ContextState, FComputeShaderRHIParamRef ComputeShaderRHI)
 {
 	VERIFY_GL_SCOPE();
-	DYNAMIC_CAST_OPENGLRESOURCE(ComputeShader,ComputeShader);
+	FOpenGLComputeShader* ComputeShader = ResourceCast(ComputeShaderRHI);
 	bool ForceUniformBindingUpdate = false;
 
 	GLuint PendingProgram = ComputeShader->LinkedProgram->Program;

@@ -50,7 +50,7 @@ void FStatsMemoryDumpCommand::InternalRun()
 		for( const auto& Meta : MetadataMessages )
 		{
 			FName LongName = Meta.NameAndInfo.GetRawName();
-			const FString Desc = FStatNameAndInfo::GetDescriptionFrom( LongName );
+			const FString Desc = FStatNameAndInfo::GetShortNameFrom( LongName ).GetPlainNameString();
 			const bool bContainsUObject = Desc.Contains( TEXT( "//" ) );
 			if( bContainsUObject )
 			{
@@ -358,12 +358,14 @@ void FStatsMemoryDumpCommand::ProcessMemoryOperations( const TMap<int64, FStatPa
 	PreviousSeconds -= NumSecondsBetweenLogs;
 	for( int32 FrameIndex = 0; FrameIndex < Frames.Num(); ++FrameIndex )
 	{
-		const double CurrentSeconds = FPlatformTime::Seconds();
-		if( CurrentSeconds > PreviousSeconds + NumSecondsBetweenLogs )
-		{
-			UE_LOG( LogStats, Warning, TEXT( "Processing frame %i/%i" ), FrameIndex+1, Frames.Num() );
-			PreviousSeconds = CurrentSeconds;
-		}
+        {
+            const double CurrentSeconds = FPlatformTime::Seconds();
+            if( CurrentSeconds > PreviousSeconds + NumSecondsBetweenLogs )
+            {
+                UE_LOG( LogStats, Warning, TEXT( "Processing frame %i/%i" ), FrameIndex+1, Frames.Num() );
+                PreviousSeconds = CurrentSeconds;
+            }
+        }
 
 		const int64 TargetFrame = Frames[FrameIndex];
 		const int64 Diff = TargetFrame - FirstFrame;
@@ -372,13 +374,15 @@ void FStatsMemoryDumpCommand::ProcessMemoryOperations( const TMap<int64, FStatPa
 		bool bAtLeastOnePacket = false;
 		for( int32 PacketIndex = 0; PacketIndex < Frame.Packets.Num(); PacketIndex++ )
 		{
-			const double CurrentSeconds = FPlatformTime::Seconds();
-			if( CurrentSeconds > PreviousSeconds + NumSecondsBetweenLogs )
-			{
-				UE_LOG( LogStats, Log, TEXT( "Processing packet %i/%i" ), PacketIndex, Frame.Packets.Num() );
-				PreviousSeconds = CurrentSeconds;
-				bAtLeastOnePacket = true;
-			}
+            {
+                const double CurrentSeconds = FPlatformTime::Seconds();
+                if( CurrentSeconds > PreviousSeconds + NumSecondsBetweenLogs )
+                {
+                    UE_LOG( LogStats, Log, TEXT( "Processing packet %i/%i" ), PacketIndex, Frame.Packets.Num() );
+                    PreviousSeconds = CurrentSeconds;
+                    bAtLeastOnePacket = true;
+                }
+            }
 
 			const FStatPacket& StatPacket = *Frame.Packets[PacketIndex];
 			const FName& ThreadFName = StatsThreadStats.Threads.FindChecked( StatPacket.ThreadId );
@@ -860,7 +864,7 @@ void FStatsMemoryDumpCommand::ProcessingUObjectAllocations( const TMap<uint64, F
 				const bool bValid = UObjectNames.Contains( LongName );
 				if( bValid )
 				{
-					const FString ObjectName = FStatNameAndInfo::GetDescriptionFrom( LongName );
+					const FString ObjectName = FStatNameAndInfo::GetShortNameFrom( LongName ).GetPlainNameString();
 					UObjectClass = *ObjectName.Left( ObjectName.Find( TEXT( "//" ) ) );;
 					UObjectCallstackToClassMapping.Add( Alloc.EncodedCallstack, UObjectClass );
 					break;

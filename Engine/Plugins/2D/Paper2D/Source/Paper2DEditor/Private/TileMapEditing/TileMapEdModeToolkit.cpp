@@ -3,10 +3,11 @@
 #include "Paper2DEditorPrivatePCH.h"
 #include "EdModeTileMap.h"
 #include "TileMapEdModeToolkit.h"
-#include "../TileSetEditor.h"
+#include "TileSetEditor/TileSetSelectorViewport.h"
 #include "SContentReference.h"
 #include "TileMapEditorCommands.h"
 #include "Engine/Selection.h"
+#include "SAssetDropTarget.h"
 
 #define LOCTEXT_NAMESPACE "Paper2D"
 
@@ -81,7 +82,12 @@ void FTileMapEdModeToolkit::Init(const TSharedPtr<IToolkitHost>& InitToolkitHost
 		// The palette widget
 		+SOverlay::Slot()
 		[
-			TileSetPalette.ToSharedRef()
+			SNew(SAssetDropTarget)
+			.OnIsAssetAcceptableForDrop(this, &FTileMapEdModeToolkit::OnAssetDraggedOver)
+			.OnAssetDropped(this, &FTileMapEdModeToolkit::OnChangeTileSet)
+			[
+				TileSetPalette.ToSharedRef()
+			]
 		]
 		// The no tile set selected warning text/button
 		+SOverlay::Slot()
@@ -221,6 +227,18 @@ void FTileMapEdModeToolkit::BindCommands()
 		FExecuteAction::CreateSP(this, &FTileMapEdModeToolkit::OnSelectTool, ETileMapEditorTool::PaintBucket),
 		FCanExecuteAction(),
 		FIsActionChecked::CreateSP(this, &FTileMapEdModeToolkit::IsToolSelected, ETileMapEditorTool::PaintBucket) );
+	ToolkitCommands->MapAction(
+		Commands.SelectEyeDropperTool,
+		FExecuteAction::CreateSP(this, &FTileMapEdModeToolkit::OnSelectTool, ETileMapEditorTool::EyeDropper),
+		FCanExecuteAction(),
+		FIsActionChecked::CreateSP(this, &FTileMapEdModeToolkit::IsToolSelected, ETileMapEditorTool::EyeDropper),
+		FIsActionButtonVisible::CreateSP(this, &FTileMapEdModeToolkit::IsToolSelected, ETileMapEditorTool::EyeDropper));
+	ToolkitCommands->MapAction(
+		Commands.SelectTerrainTool,
+		FExecuteAction::CreateSP(this, &FTileMapEdModeToolkit::OnSelectTool, ETileMapEditorTool::TerrainBrush),
+		FCanExecuteAction(),
+		FIsActionChecked::CreateSP(this, &FTileMapEdModeToolkit::IsToolSelected, ETileMapEditorTool::TerrainBrush),
+		FIsActionButtonVisible::CreateSP(this, &FTileMapEdModeToolkit::DoesSelectedTileSetHaveTerrains));
 
 	// Selection actions
 	ToolkitCommands->MapAction(
@@ -251,13 +269,23 @@ bool FTileMapEdModeToolkit::IsToolSelected(ETileMapEditorTool::Type QueryTool) c
 	return (TileMapEditor->GetActiveTool() == QueryTool);
 }
 
+bool FTileMapEdModeToolkit::DoesSelectedTileSetHaveTerrains() const
+{
+	if (UPaperTileSet* CurrentTileSet = CurrentTileSetPtr.Get())
+	{
+		return CurrentTileSet->GetNumTerrains() > 0;
+	}
+	else
+	{
+		return false;
+	}
+}
+
 TSharedRef<SWidget> FTileMapEdModeToolkit::BuildToolBar() const
 {
 	const FTileMapEditorCommands& Commands = FTileMapEditorCommands::Get();
 
-	
-	//@TODO: Add icons for these commands and force this toolbar to use small icons mode
-	FToolBarBuilder SelectionFlipToolsToolbar(ToolkitCommands, FMultiBoxCustomization::None);
+	FToolBarBuilder SelectionFlipToolsToolbar(ToolkitCommands, FMultiBoxCustomization::None, TSharedPtr<FExtender>(), Orient_Horizontal, /*bForceSmallIcons=*/ true);
 	{
 		SelectionFlipToolsToolbar.AddToolBarButton(Commands.FlipSelectionHorizontally, NAME_None, LOCTEXT("FlipHorizontalShortLabel", "|X"));
 		SelectionFlipToolsToolbar.AddToolBarButton(Commands.FlipSelectionVertically, NAME_None, LOCTEXT("FlipVerticalShortLabel", "|Y"));
@@ -267,9 +295,15 @@ TSharedRef<SWidget> FTileMapEdModeToolkit::BuildToolBar() const
 
 	FToolBarBuilder ToolsToolbar(ToolkitCommands, FMultiBoxCustomization::None);
 	{
+		ToolsToolbar.AddToolBarButton(Commands.SelectEyeDropperTool);
 		ToolsToolbar.AddToolBarButton(Commands.SelectPaintTool);
 		ToolsToolbar.AddToolBarButton(Commands.SelectEraserTool);
 		ToolsToolbar.AddToolBarButton(Commands.SelectFillTool);
+		ToolsToolbar.AddToolBarButton(Commands.SelectTerrainTool);
+
+		//@TODO: TileMapTerrain: Ugly styling
+		FUIAction DummyAction;
+		ToolsToolbar.AddComboButton(DummyAction, FOnGetContent::CreateSP(this, &FTileMapEdModeToolkit::GenerateTerrainMenu));
 	}
 
 	return
@@ -278,7 +312,8 @@ TSharedRef<SWidget> FTileMapEdModeToolkit::BuildToolBar() const
 		+SHorizontalBox::Slot()
 		.FillWidth(1.f)
 		.HAlign(HAlign_Left)
-		.Padding(4.0f, 0.0f)
+		.VAlign(VAlign_Center)
+		.Padding(0.0f, 0.0f)
 		[
 			SNew(SBorder)
 			.Padding(0)
@@ -304,6 +339,39 @@ TSharedRef<SWidget> FTileMapEdModeToolkit::BuildToolBar() const
 		];
 }
 
+TSharedRef<SWidget> FTileMapEdModeToolkit::GenerateTerrainMenu()
+{
+	FMenuBuilder TerrainMenu(/*bInShouldCloseWindowAfterMenuSelection=*/ true, ToolkitCommands);
+
+	if (UPaperTileSet* TileSet = CurrentTileSetPtr.Get())
+	{
+		const FText MenuHeading = FText::Format(LOCTEXT("TerrainMenu", "Terrain types for {0}"), FText::AsCultureInvariant(TileSet->GetName()));
+		TerrainMenu.BeginSection(NAME_None, MenuHeading);
+
+		for (int32 TerrainIndex = 0; TerrainIndex < TileSet->GetNumTerrains(); ++TerrainIndex)
+		{
+			FPaperTileSetTerrain TerrainInfo = TileSet->GetTerrain(TerrainIndex);
+
+			const FText TerrainName = FText::AsCultureInvariant(TerrainInfo.TerrainName);
+			const FText TerrainLabel = FText::Format(LOCTEXT("TerrainLabel", "Terrain '{0}'"), TerrainName);
+			const FText TerrainTooltip = FText::Format(LOCTEXT("TerrainTooltip", "Change the active terrain brush type to '{0}'"), TerrainName);
+			FUIAction TerrainSwitchAction(FExecuteAction::CreateSP(this, &FTileMapEdModeToolkit::SetTerrainBrush, TerrainIndex));
+
+			TerrainMenu.AddMenuEntry(TerrainLabel, TerrainTooltip, FSlateIcon(), TerrainSwitchAction);
+		}
+
+		TerrainMenu.EndSection();
+	}
+
+	return TerrainMenu.MakeWidget();
+}
+
+void FTileMapEdModeToolkit::SetTerrainBrush(int32 NewTerrainTypeIndex)
+{
+	//@TODO: TileMapTerrain: Do something here...
+	UE_LOG(LogInit, Warning, TEXT("Set terrain brush to %d"), NewTerrainTypeIndex);
+}
+
 EVisibility FTileMapEdModeToolkit::GetTileSetPaletteCornerTextVisibility() const
 {
 	return (GetCurrentTileSet() != nullptr) ? EVisibility::Collapsed : EVisibility::Visible;
@@ -314,6 +382,11 @@ FReply FTileMapEdModeToolkit::ClickedOnTileSetPaletteCornerText()
 	TileSetAssetReferenceWidget->OpenAssetPickerMenu();
 
 	return FReply::Handled();
+}
+
+bool FTileMapEdModeToolkit::OnAssetDraggedOver(const UObject* InObject) const
+{
+	return Cast<UPaperTileSet>(InObject) != nullptr;
 }
 
 //////////////////////////////////////////////////////////////////////////

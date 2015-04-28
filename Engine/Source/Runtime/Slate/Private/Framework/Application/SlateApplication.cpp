@@ -1356,7 +1356,7 @@ void FSlateApplication::Tick()
 	}
 
 	const bool bNeedsSyntheticMouseMouse = SynthesizeMouseMovePending > 0;
-	if (bNeedsSyntheticMouseMouse)
+	if (bNeedsSyntheticMouseMouse && (!GIsGameThreadIdInitialized || GGameThreadId == FPlatformTLS::GetCurrentThreadId())) // IsInGameThread actually includes 2 threads (main and slate loading) 
 	{
 		// Force a mouse move event to make sure all widgets know whether there is a mouse cursor hovering over them
 		SynthesizeMouseMove();
@@ -1592,6 +1592,7 @@ TSharedRef< FGenericWindow > FSlateApplication::MakeWindow( TSharedRef<SWindow> 
 	Definition->AcceptsInput = InSlateWindow->AcceptsInput();
 	Definition->ActivateWhenFirstShown = InSlateWindow->ActivateWhenFirstShown();
 
+	Definition->HasCloseButton = InSlateWindow->HasCloseBox();
 	Definition->SupportsMinimize = InSlateWindow->HasMinimizeBox();
 	Definition->SupportsMaximize = InSlateWindow->HasMaximizeBox();
 
@@ -2228,23 +2229,27 @@ FModifierKeysState FSlateApplication::GetModifierKeys() const
 
 void FSlateApplication::OnShutdown()
 {
+	CloseAllWindowsImmediately();
+}
+
+void FSlateApplication::CloseAllWindowsImmediately()
+{
 	// Clean up our tooltip window
-	TSharedPtr< SWindow > PinnedToolTipWindow( ToolTipWindow.Pin() );
-	if( PinnedToolTipWindow.IsValid() )
+	TSharedPtr< SWindow > PinnedToolTipWindow(ToolTipWindow.Pin());
+	if (PinnedToolTipWindow.IsValid())
 	{
 		PinnedToolTipWindow->RequestDestroyWindow();
 		ToolTipWindow.Reset();
 	}
 
-	for( int32 WindowIndex = 0; WindowIndex < SlateWindows.Num(); ++WindowIndex )
+	for (int32 WindowIndex = 0; WindowIndex < SlateWindows.Num(); ++WindowIndex)
 	{
 		// Destroy all top level windows.  This will also request that all children of each window be destroyed
-		RequestDestroyWindow( SlateWindows[WindowIndex] );
+		RequestDestroyWindow(SlateWindows[WindowIndex]);
 	}
 
 	DestroyWindowsImmediately();
 }
-
 
 void FSlateApplication::DestroyWindowsImmediately()
 {

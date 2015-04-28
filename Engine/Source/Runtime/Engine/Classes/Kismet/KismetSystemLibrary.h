@@ -79,7 +79,13 @@ class ENGINE_API UKismetSystemLibrary : public UBlueprintFunctionLibrary
 	UFUNCTION(BlueprintPure, Category = "Utilities")
 	static bool IsValidClass(UClass* Class);
 
-	// Returns the display name (or actor label), for displaying to end users.  Note:  In editor builds, this is the actor label.  In non-editor builds, this is the actual object name.  This function should not be used to uniquely identify actors!
+	// Returns the actual object name.
+	UFUNCTION(BlueprintPure, Category = "Utilities")
+	static FString GetObjectName(const UObject* Object);
+
+	// Returns the display name (or actor label), for displaying as a debugging aid.
+	// Note: In editor builds, this is the actor label.  In non-editor builds, this is the actual object name.  This function should not be used to uniquely identify actors!
+	// It is not localized and should not be used for display to an end user of a game.
 	UFUNCTION(BlueprintPure, Category="Utilities")
 	static FString GetDisplayName(const UObject* Object);
 
@@ -670,7 +676,7 @@ class ENGINE_API UKismetSystemLibrary : public UBlueprintFunctionLibrary
 	 * @param TraceChannel	The channel to trace
 	 * @param bTraceComplex	True to test against complex collision, false to test against simplified collision.
 	 * @param OutHit		Properties of the trace hit.
-	 * @return				True if there was a hit, false otherwise.
+	 * @return				True if there was a blocking hit, false otherwise.
 	 */
 	UFUNCTION(BlueprintCallable, Category="Collision", meta=(bIgnoreSelf="true", WorldContext="WorldContextObject", AutoCreateRefTerm="ActorsToIgnore", DisplayName = "MultiLineTraceByChannel", Keywords="raycast"))
 	static bool LineTraceMulti_NEW(UObject* WorldContextObject, const FVector Start, const FVector End, ETraceTypeQuery TraceChannel, bool bTraceComplex, const TArray<AActor*>& ActorsToIgnore, EDrawDebugTrace::Type DrawDebugType, TArray<FHitResult>& OutHits, bool bIgnoreSelf);
@@ -701,7 +707,7 @@ class ENGINE_API UKismetSystemLibrary : public UBlueprintFunctionLibrary
 	 * @param TraceChannel	
 	 * @param bTraceComplex	True to test against complex collision, false to test against simplified collision.
 	 * @param OutHits		A list of hits, sorted along the trace from start to finish.  The blocking hit will be the last hit, if there was one.
-	 * @return				True if there was a hit, false otherwise.
+	 * @return				True if there was a blocking hit, false otherwise.
 	 */
 	UFUNCTION(BlueprintCallable, Category="Collision", meta=(bIgnoreSelf="true", WorldContext="WorldContextObject", AutoCreateRefTerm="ActorsToIgnore", DisplayName = "MultiSphereTraceByChannel", Keywords="sweep"))
 	static bool SphereTraceMulti_NEW(UObject* WorldContextObject, const FVector Start, const FVector End, float Radius, ETraceTypeQuery TraceChannel, bool bTraceComplex, const TArray<AActor*>& ActorsToIgnore, EDrawDebugTrace::Type DrawDebugType, TArray<FHitResult>& OutHits, bool bIgnoreSelf);
@@ -733,7 +739,7 @@ class ENGINE_API UKismetSystemLibrary : public UBlueprintFunctionLibrary
 	* @param TraceChannel
 	* @param bTraceComplex	True to test against complex collision, false to test against simplified collision.
 	* @param OutHits		A list of hits, sorted along the trace from start to finish. The blocking hit will be the last hit, if there was one.
-	* @return				True if there was a hit, false otherwise.
+	* @return				True if there was a blocking hit, false otherwise.
 	*/
 	UFUNCTION(BlueprintCallable, Category = "Collision", meta = (bIgnoreSelf = "true", HidePin = "WorldContextObject", DefaultToSelf = "WorldContextObject", AutoCreateRefTerm = "ActorsToIgnore", DisplayName = "MultiBoxTraceByChannel", Keywords="sweep"))
 	static bool BoxTraceMulti(UObject* WorldContextObject, const FVector Start, const FVector End, FVector HalfSize, const FRotator Orientation, ETraceTypeQuery TraceChannel, bool bTraceComplex, const TArray<AActor*>& ActorsToIgnore, EDrawDebugTrace::Type DrawDebugType, TArray<FHitResult>& OutHits, bool bIgnoreSelf);
@@ -768,7 +774,7 @@ class ENGINE_API UKismetSystemLibrary : public UBlueprintFunctionLibrary
 	 * @param TraceChannel	
 	 * @param bTraceComplex	True to test against complex collision, false to test against simplified collision.
 	 * @param OutHits		A list of hits, sorted along the trace from start to finish.  The blocking hit will be the last hit, if there was one.
-	 * @return				True if there was a hit, false otherwise.
+	 * @return				True if there was a blocking hit, false otherwise.
 	 */
 	UFUNCTION(BlueprintCallable, Category="Collision", meta=(bIgnoreSelf="true", WorldContext="WorldContextObject", AutoCreateRefTerm="ActorsToIgnore", DisplayName = "MultiCapsuleTraceByChannel", Keywords="sweep"))
 	static bool CapsuleTraceMulti_NEW(UObject* WorldContextObject, const FVector Start, const FVector End, float Radius, float HalfHeight, ETraceTypeQuery TraceChannel, bool bTraceComplex, const TArray<AActor*>& ActorsToIgnore, EDrawDebugTrace::Type DrawDebugType, TArray<FHitResult>& OutHits, bool bIgnoreSelf);
@@ -1266,9 +1272,22 @@ class ENGINE_API UKismetSystemLibrary : public UBlueprintFunctionLibrary
 	/**
 	 * Allows or inhibits screensaver
 	 * @param	bAllowScreenSaver		If false, don't allow screensaver if possible, otherwise allow default behavior
-	*/
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Utilities|Platform")
 	static void ControlScreensaver(bool bAllowScreenSaver);
+
+	/**
+	 * Allows or inhibits system default handling of volume up and volume down buttons (Android only)
+	 * @param	bEnabled				If true, allow Android to handle volume up and down events
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Utilities|Platform")
+	static void SetVolumeButtonsHandledBySystem(bool bEnabled);
+
+	/**
+	 * Returns true if system default handling of volume up and volume down buttons enabled (Android only)
+	 */
+	UFUNCTION(BlueprintPure, Category = "Utilities|Platform")
+	static bool GetVolumeButtonsHandledBySystem();
 
 	/**
 	 * Sets the state of the transition message rendered by the viewport. (The blue text displayed when the game is paused and so forth.)

@@ -98,11 +98,11 @@ void FLinuxWindow::Initialize( FLinuxApplication* const Application, const TShar
 		{
 			WindowStyle |= SDL_WINDOW_SKIP_TASKBAR;
 		}
-	}
 
-	if ( Definition->HasSizingFrame )
-	{
-		WindowStyle |= SDL_WINDOW_RESIZABLE;
+		if (Definition->IsRegularWindow && Definition->HasSizingFrame)
+		{
+			WindowStyle |= SDL_WINDOW_RESIZABLE;
+		}
 	}
 
 	// Does this combination tell us that this is a tooltip window? Need to pass information to
@@ -585,11 +585,11 @@ void FLinuxWindow::GetNativeBordersSize(int32& OutLeftBorderWidth, int32& OutTop
 void FLinuxWindow::CacheNativeProperties()
 {
 	// cache border sizes
-	SDL_Rect Borders;
-	if (SDL_GetWindowBordersSize(HWnd, &Borders) == 0)
+	int Top, Left;
+	if (SDL_GetWindowBordersSize(HWnd, &Top, &Left, nullptr, nullptr) == 0)
 	{
-		LeftBorderWidth = Borders.x;
-		TopBorderHeight = Borders.y;
+		LeftBorderWidth = Left;
+		TopBorderHeight = Top;
 	}
 
 	bValidNativePropertiesCache = true;

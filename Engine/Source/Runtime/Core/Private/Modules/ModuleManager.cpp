@@ -177,6 +177,19 @@ bool FindNewestModuleFile(TArray<FString>& FilesToSearch, const FDateTime& Newer
 	return bFound;
 }
 
+void FModuleManager::AddModuleToModulesList(const FName InModuleName, TSharedRef<FModuleManager::FModuleInfo>& InModuleInfo)
+{
+	{
+		FWriteScopeLock Lock(&ModulesCriticalSection);
+
+		// Update hash table
+		Modules.Add(InModuleName, InModuleInfo);
+	}
+
+	// List of known modules has changed.  Fire callbacks.
+	FModuleManager::Get().ModulesChangedEvent.Broadcast(InModuleName, EModuleChangeReason::PluginDirectoryChanged);
+}
+
 void FModuleManager::AddModule(const FName InModuleName)
 {
 	// Do we already know about this module?  If not, we'll create information for this module now.
@@ -198,11 +211,7 @@ void FModuleManager::AddModule(const FName InModuleName)
 
 		~FAtExit()
 		{
-			// Update hash table
-			FModuleManager::Get().Modules.Add(ModuleName, ModuleInfo);
-
-			// List of known modules has changed.  Fire callbacks.
-			FModuleManager::Get().ModulesChangedEvent.Broadcast(ModuleName, EModuleChangeReason::PluginDirectoryChanged);
+			FModuleManager::Get().AddModuleToModulesList(ModuleName, ModuleInfo);
 		}
 
 		FName ModuleName;
@@ -305,6 +314,14 @@ TSharedPtr<IModuleInterface> FModuleManager::LoadModuleChecked( const FName InMo
 TSharedPtr<IModuleInterface> FModuleManager::LoadModuleWithFailureReason(const FName InModuleName, EModuleLoadResult& OutFailureReason, bool bWasReloaded /*=false*/)
 {
 	DECLARE_SCOPE_CYCLE_COUNTER(TEXT("Module Load"), STAT_ModuleLoad, STATGROUP_LoadTime);
+
+#if	STATS
+	// This is fine here, we only load a handful of modules.
+	static FString Module = TEXT( "Module" );
+	const FString LongName = Module / InModuleName.GetPlainNameString();
+	const TStatId StatId = FDynamicStats::CreateStatId<FStatGroup_STATGROUP_UObjects>( LongName );
+	FScopeCycleCounter CycleCounter( StatId );
+#endif // STATS
 
 	TSharedPtr<IModuleInterface> LoadedModule;
 	OutFailureReason = EModuleLoadResult::Success;

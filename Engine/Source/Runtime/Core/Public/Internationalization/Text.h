@@ -4,6 +4,8 @@
 #include "Internationalization/CulturePointer.h"
 #include "Templates/SharedPointer.h"
 #include "UObject/NameTypes.h"
+#include "TextLocalizationManager.h"
+#include "Optional.h"
 
 struct FTimespan;
 struct FDateTime;
@@ -114,6 +116,18 @@ struct CORE_API FNumberFormattingOptions
 	FNumberFormattingOptions& SetMaximumFractionalDigits( int32 InValue ){ MaximumFractionalDigits = InValue; return *this; }
 
 	friend FArchive& operator<<(FArchive& Ar, FNumberFormattingOptions& Value);
+
+	/** Get the hash code to use for the given formatting options */
+	friend uint32 GetTypeHash( const FNumberFormattingOptions& Key );
+
+	/** Check to see if our formatting options match the other formatting options */
+	bool IsIdentical( const FNumberFormattingOptions& Other ) const;
+
+	/** Get the default number formatting options with grouping enabled */
+	static const FNumberFormattingOptions& DefaultWithGrouping();
+
+	/** Get the default number formatting options with grouping disabled */
+	static const FNumberFormattingOptions& DefaultNoGrouping();
 };
 
 class FCulture;
@@ -358,7 +372,7 @@ private:
 
 private:
 	/** The visible display string for this FText */
-	TSharedRef<FString, ESPMode::ThreadSafe> DisplayString;
+	FTextDisplayStringRef DisplayString;
 
 	/** The FText's history, to allow it to rebuild under a new culture */
 	TSharedPtr<class FTextHistory, ESPMode::ThreadSafe> History;
@@ -381,6 +395,7 @@ public:
 	static const FText UnEscapedCloseBraceOutsideOfArgumentBlock;
 	static const FText SerializationFailureError;
 
+	friend class FTextFormatHelper;
 	friend class FTextSnapshot;
 	friend class FTextInspector;
 	friend class FInternationalization;
@@ -392,10 +407,6 @@ public:
 	friend class FTextHistory_ArgumentDataFormat;
 	friend class FTextHistory_OrderedFormat;
 	friend class FScopedTextIdentityPreserver;
-
-#if !UE_ENABLE_ICU
-	friend class FLegacyTextHelper;
-#endif
 };
 
 /** A snapshot of an FText at a point in time that can be used to detect changes in the FText, including live-culture changes */
@@ -414,7 +425,7 @@ public:
 
 private:
 	/** A pointer to the visible display string for the FText we took a snapshot of (used for an efficient pointer compare) */
-	TSharedPtr<FString, ESPMode::ThreadSafe> DisplayStringPtr;
+	FTextDisplayStringPtr DisplayStringPtr;
 
 	/** Revision index of the history of the FText we took a snapshot of, or INDEX_NONE if there was no history */
 	int32 HistoryRevision;
@@ -431,11 +442,11 @@ private:
 
 public:
 	static bool ShouldGatherForLocalization(const FText& Text);
-	static const FString* GetNamespace(const FText& Text);
-	static const FString* GetKey(const FText& Text);
+	static TOptional<FString> GetNamespace(const FText& Text);
+	static TOptional<FString> GetKey(const FText& Text);
 	static const FString* GetSourceString(const FText& Text);
 	static const FString& GetDisplayString(const FText& Text);
-	static const TSharedRef<FString, ESPMode::ThreadSafe> GetSharedDisplayString(const FText& Text);
+	static const FTextDisplayStringRef GetSharedDisplayString(const FText& Text);
 	static int32 GetFlags(const FText& Text);
 };
 
@@ -582,8 +593,9 @@ public:
 	~FScopedTextIdentityPreserver();
 
 private:
-	TSharedPtr< FString, ESPMode::ThreadSafe > Namespace;
-	TSharedPtr< FString, ESPMode::ThreadSafe > Key;
+	bool HadFoundNamespaceAndKey;
+	FString Namespace;
+	FString Key;
 	int32 Flags;
 	FText& TextToPersist;
 };

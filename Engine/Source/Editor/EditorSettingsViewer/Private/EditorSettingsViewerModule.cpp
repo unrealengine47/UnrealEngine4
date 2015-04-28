@@ -142,7 +142,7 @@ protected:
 		SettingsModule.RegisterSettings("Editor", "General", "UserSettings",
 			LOCTEXT("UserSettingsName", "Miscellaneous"),
 			LOCTEXT("UserSettingsDescription", "Customize the behavior, look and feel of the editor."),
-			&GEditor->AccessEditorUserSettings()
+			GetMutableDefault<UEditorPerProjectUserSettings>()
 		);
 
 		// experimental features
@@ -172,21 +172,6 @@ protected:
 			LOCTEXT("LevelEditorViewportSettingsName", "Viewports"),
 			LOCTEXT("LevelEditorViewportSettingsDescription", "Configure the look and feel of the Level Editor view ports."),
 			GetMutableDefault<ULevelEditorViewportSettings>()
-		);
-
-		// view port settings
-		SettingsModule.RegisterSettings("Editor", "LevelEditor", "2D",
-			LOCTEXT("LevelEditor2DSettingsName", "2D"),
-			LOCTEXT("LevelEditor2DSettingsDescription", "Configure the settings for the 2D Level Editor."),
-			GetMutableDefault<ULevelEditor2DSettings>()
-		);
-
-
-		// miscellaneous settings
-		SettingsModule.RegisterSettings("Editor", "LevelEditor", "Misc",
-			LOCTEXT("LevelEditorMiscSettingsName", "Miscellaneous"),
-			LOCTEXT("LevelEditorMiscSettingsDescription", "Configure miscellaneous settings for the Level Editor."),
-			GetMutableDefault<ULevelEditorMiscSettings>()
 		);
 	}
 

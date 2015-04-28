@@ -416,6 +416,9 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = Ability, DisplayName = "OnEndAbility")
 	void K2_OnEndAbility();
 
+	/** Check if the ability can be ended */
+	bool IsEndAbilityValid(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo) const;
+
 	/** Native function, called if an ability ends normally or abnormally. If bReplicate is set to true, try to replicate the ending to the client/server */
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility);
 
@@ -564,7 +567,7 @@ public:
 	/** Returns true if this ability can be canceled */
 	virtual bool CanBeCanceled() const;
 
-	/** Sets rather the ability should ignore cancel requests. Only valid on instanced abilities */
+	/** Sets whether the ability should ignore cancel requests. Only valid on instanced abilities */
 	UFUNCTION(BlueprintCallable, Category=Ability)
 	virtual void SetCanBeCanceled(bool bCanBeCanceled);
 
@@ -578,7 +581,7 @@ public:
 	bool IsSupportedForNetworking() const override;
 
 	/** Returns the gameplay effect used to determine cooldown */
-	class UGameplayEffect* GetCooldownGameplayEffect() const;
+	virtual class UGameplayEffect* GetCooldownGameplayEffect() const;
 
 	/** Returns the gameplay effect used to apply cost */
 	class UGameplayEffect* GetCostGameplayEffect() const;
@@ -589,7 +592,7 @@ public:
 	/** Applies CooldownGameplayEffect to the target */
 	virtual void ApplyCooldown(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const;
 
-	/** Checks cost. returns true if we can pay for the abilty. False if not */
+	/** Checks cost. returns true if we can pay for the ability. False if not */
 	virtual bool CheckCost(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, OUT FGameplayTagContainer* OptionalRelevantTags = nullptr) const;
 
 	/** Applies the ability's cost to the target */
@@ -730,7 +733,7 @@ protected:
 	FGameplayAbilityTargetingLocationInfo MakeTargetLocationInfoFromOwnerActor();
 
 	UFUNCTION(BlueprintPure, Category = Ability, meta = (HidePin = "WorldContextObject", DefaultToSelf = "WorldContextObject"))
-	FGameplayAbilityTargetingLocationInfo MakeTargetLocationInfoFromOwnerSkeletalMeshComponent(FName SocketName) const;
+	FGameplayAbilityTargetingLocationInfo MakeTargetLocationInfoFromOwnerSkeletalMeshComponent(FName SocketName);
 
 	// ----------------------------------------------------------------------------------------------------------------
 	//

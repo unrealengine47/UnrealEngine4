@@ -19,7 +19,6 @@
 #include "Editor/UnrealEd/Public/Kismet2/DebuggerCommands.h"
 #include "Editor/SceneOutliner/Public/SceneOutliner.h"
 #include "Editor/Layers/Public/LayersModule.h"
-#include "Editor/Levels/Public/LevelsModule.h"
 #include "Editor/WorldBrowser/Public/WorldBrowserModule.h"
 #include "Editor/ClassViewer/Public/ClassViewerModule.h"
 #include "Toolkits/IToolkit.h"
@@ -37,6 +36,7 @@
 #include "SDockTab.h"
 #include "SActorDetails.h"
 #include "ScopedTransaction.h"
+#include "GameFramework/WorldSettings.h"
 
 
 static const FName LevelEditorBuildAndSubmitTab("LevelEditorBuildAndSubmit");
@@ -266,7 +266,7 @@ SLevelEditor::~SLevelEditor()
 	LevelEditorModule.OnNotificationBarChanged().RemoveAll( this );
 	
 	GetMutableDefault<UEditorExperimentalSettings>()->OnSettingChanged().RemoveAll( this );
-	GEditor->AccessEditorUserSettings().OnUserSettingChanged().RemoveAll( this );
+	GetMutableDefault<UEditorPerProjectUserSettings>()->OnUserSettingChanged().RemoveAll( this );
 	FEditorModeRegistry::Get().OnRegisteredModesChanged().RemoveAll( this );
 
 	FEditorDelegates::MapChange.RemoveAll(this);
@@ -513,9 +513,9 @@ TSharedRef<FTabManager> SLevelEditor::GetTabManager() const
 
 TSharedRef<SDockTab> SLevelEditor::SummonDetailsPanel( FName TabIdentifier )
 {
-	TSharedPtr<SActorDetails> ActorDetails;
+	TSharedRef<SActorDetails> ActorDetails = SNew(SActorDetails, TabIdentifier, LevelEditorCommands);
 
-	FText Label = NSLOCTEXT( "LevelEditor", "DetailsTabTitle", "Details" );
+	const FText Label = NSLOCTEXT( "LevelEditor", "DetailsTabTitle", "Details" );
 
 	TSharedRef<SDockTab> DocTab = SNew(SDockTab)
 		.Icon( FEditorStyle::GetBrush( "LevelEditor.Tabs.Details" ) )
@@ -525,7 +525,7 @@ TSharedRef<SDockTab> SLevelEditor::SummonDetailsPanel( FName TabIdentifier )
 			SNew( SBox )
 			.AddMetaData<FTutorialMetaData>(FTutorialMetaData(TEXT("ActorDetails"), TEXT("LevelEditorSelectionDetails")))
 			[
-				SAssignNew( ActorDetails, SActorDetails, TabIdentifier )
+				ActorDetails
 			]
 		];
 
@@ -667,36 +667,17 @@ TSharedRef<SDockTab> SLevelEditor::SpawnLevelEditorTab( const FSpawnTabArgs& Arg
 					]
 				];
 	}
-	else if( TabIdentifier == WorldBrowserHierarchyTab || TabIdentifier == TEXT("LevelEditorLevelBrowser") )
+	else if( TabIdentifier == WorldBrowserHierarchyTab )
 	{
-		if (FParse::Param(FCommandLine::Get(), TEXT("oldlevels")))
-		{
-			FLevelsModule& LevelsModule = FModuleManager::LoadModuleChecked<FLevelsModule>( "Levels" );
-			return SNew( SDockTab )
-				.Icon( FEditorStyle::GetBrush( "LevelEditor.Tabs.Levels" ) )
-				.Label( NSLOCTEXT("LevelEditor", "LevelsTabTitle", "Levels") )
-				[
-					SNew(SBorder)
-					.Padding( 0 )
-					.BorderImage( FEditorStyle::GetBrush("ToolPanel.GroupBorder") )
-					[
-						LevelsModule.CreateLevelBrowser()
-					]
-				];
-		}
-		else
-		{
-			FWorldBrowserModule& WorldBrowserModule = FModuleManager::LoadModuleChecked<FWorldBrowserModule>( "WorldBrowser" );
-			return SNew( SDockTab )
-				.Icon( FEditorStyle::GetBrush( "LevelEditor.Tabs.WorldBrowser" ) )
-				.Label( NSLOCTEXT("LevelEditor", "WorldBrowserHierarchyTabTitle", "Levels") )
-				[
-					WorldBrowserModule.CreateWorldBrowserHierarchy()
-				];
-		}
-				
+		FWorldBrowserModule& WorldBrowserModule = FModuleManager::LoadModuleChecked<FWorldBrowserModule>( "WorldBrowser" );
+		return SNew( SDockTab )
+			.Icon( FEditorStyle::GetBrush( "LevelEditor.Tabs.WorldBrowser" ) )
+			.Label( NSLOCTEXT("LevelEditor", "WorldBrowserHierarchyTabTitle", "Levels") )
+			[
+				WorldBrowserModule.CreateWorldBrowserHierarchy()
+			];
 	}
-	else if( TabIdentifier == WorldBrowserDetailsTab && !FParse::Param(FCommandLine::Get(), TEXT("oldlevels")) )
+	else if( TabIdentifier == WorldBrowserDetailsTab )
 	{
 		FWorldBrowserModule& WorldBrowserModule = FModuleManager::LoadModuleChecked<FWorldBrowserModule>( "WorldBrowser" );
 		return SNew( SDockTab )
@@ -706,7 +687,7 @@ TSharedRef<SDockTab> SLevelEditor::SpawnLevelEditorTab( const FSpawnTabArgs& Arg
 				WorldBrowserModule.CreateWorldBrowserDetails()
 			];
 	}
-	else if( TabIdentifier == WorldBrowserCompositionTab && !FParse::Param(FCommandLine::Get(), TEXT("oldlevels")) )
+	else if( TabIdentifier == WorldBrowserCompositionTab )
 	{
 		FWorldBrowserModule& WorldBrowserModule = FModuleManager::LoadModuleChecked<FWorldBrowserModule>( "WorldBrowser" );
 		return SNew( SDockTab )
@@ -1019,16 +1000,6 @@ TSharedRef<SWidget> SLevelEditor::RestoreContentArea( const TSharedRef<SDockTab>
 				.SetIcon( LayersIcon );
 		}
 		
-		if (FParse::Param(FCommandLine::Get(), TEXT("oldlevels")))
-		{
-			const FSlateIcon LevelsIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.Tabs.Levels");
-			LevelEditorTabManager->RegisterTabSpawner( "LevelEditorLevelBrowser", FOnSpawnTab::CreateSP<SLevelEditor, FName, FString>(this, &SLevelEditor::SpawnLevelEditorTab, FName("LevelEditorLevelBrowser"), FString()) )
-				.SetDisplayName(NSLOCTEXT("LevelEditorTabs", "LevelEditorLevelBrowser", "Levels"))
-				.SetTooltipText(NSLOCTEXT("LevelEditorTabs", "LevelEditorLevelBrowserTooltipText", "Open the Levels tab. Use this to manage the levels in the current project."))
-				.SetGroup( MenuStructure.GetLevelEditorCategory() )
-				.SetIcon( LevelsIcon );
-		}
-		else
 		{
 			LevelEditorTabManager->RegisterTabSpawner( WorldBrowserHierarchyTab, FOnSpawnTab::CreateSP<SLevelEditor, FName, FString>(this, &SLevelEditor::SpawnLevelEditorTab, WorldBrowserHierarchyTab, FString()) )
 				.SetDisplayName(NSLOCTEXT("LevelEditorTabs", "WorldBrowserHierarchy", "Levels"))

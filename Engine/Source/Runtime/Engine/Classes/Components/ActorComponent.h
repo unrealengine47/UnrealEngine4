@@ -142,6 +142,13 @@ private:
 
 	friend class FActorComponentInstanceData;
 
+public:
+	UPROPERTY()
+	EComponentCreationMethod CreationMethod;
+
+	AActor* Owner;
+
+private:
 	UPROPERTY()
 	TArray<FSimpleMemberReference> UCSModifiedProperties;
 
@@ -157,9 +164,6 @@ public:
 	bool HasBeenCreated() const { return bHasBeenCreated; }
 	bool HasBeenInitialized() const { return bHasBeenInitialized; }
 	bool HasBegunPlay() const { return bHasBegunPlay; }
-
-	UPROPERTY()
-	EComponentCreationMethod CreationMethod;
 
 	bool IsCreatedByConstructionScript() const;
 
@@ -633,3 +637,12 @@ private:
 
 #endif
 };
+
+//////////////////////////////////////////////////////////////////////////
+// UActorComponent inlines
+
+FORCEINLINE_DEBUGGABLE class AActor* UActorComponent::GetOwner() const
+{
+	checkSlow(Owner == GetTypedOuter<AActor>()); // verify cached value is correct
+	return Owner;
+}

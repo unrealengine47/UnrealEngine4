@@ -7,9 +7,6 @@
 #include "OpenGLDrvPrivate.h"
 #include "RenderCore.h"
 
-// Ignore functions from RHIMethods.h when parsing documentation; Doxygen's preprocessor can't parse the declaration, so spews warnings for the definitions.
-#if !UE_BUILD_DOCS
-
 void FOpenGLDynamicRHI::RHIBeginOcclusionQueryBatch()
 {
 }
@@ -36,7 +33,7 @@ void FOpenGLDynamicRHI::RHIBeginRenderQuery(FRenderQueryRHIParamRef QueryRHI)
 {
 	VERIFY_GL_SCOPE();
 
-	DYNAMIC_CAST_OPENGLRESOURCE(RenderQuery,Query);
+	FOpenGLRenderQuery* Query = ResourceCast(QueryRHI);
 	Query->bResultIsCached = false;
 	if(Query->QueryType == RQT_Occlusion)
 	{
@@ -69,7 +66,7 @@ void FOpenGLDynamicRHI::RHIEndRenderQuery(FRenderQueryRHIParamRef QueryRHI)
 {
 	VERIFY_GL_SCOPE();
 
-	DYNAMIC_CAST_OPENGLRESOURCE(RenderQuery,Query);
+	FOpenGLRenderQuery* Query = ResourceCast(QueryRHI);
 
 	if (Query)
 	{
@@ -101,7 +98,7 @@ bool FOpenGLDynamicRHI::RHIGetRenderQueryResult(FRenderQueryRHIParamRef QueryRHI
 	check(IsInRenderingThread());
 	VERIFY_GL_SCOPE();
 
-	DYNAMIC_CAST_OPENGLRESOURCE(RenderQuery,Query);
+	FOpenGLRenderQuery* Query = ResourceCast(QueryRHI);
 
 	if (!Query)
 	{
@@ -204,7 +201,7 @@ bool FOpenGLDynamicRHI::RHIGetRenderQueryResult(FRenderQueryRHIParamRef QueryRHI
 	return bSuccess;
 }
 
-#endif
+
 
 extern void OnQueryCreation( FOpenGLRenderQuery* Query );
 extern void OnQueryDeletion( FOpenGLRenderQuery* Query );

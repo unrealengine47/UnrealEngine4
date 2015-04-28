@@ -1,4 +1,4 @@
-// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
+﻿// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	KismetCompilerVMBackend.cpp
@@ -13,6 +13,7 @@
 #include "Editor/UnrealEd/Public/Kismet2/StructureEditorUtils.h"
 #include "Editor/UnrealEd/Public/Kismet2/KismetEditorUtilities.h"
 #include "Editor/UnrealEd/Public/Kismet2/KismetDebugUtilities.h"
+#include "Engine/UserDefinedStruct.h"
 
 //////////////////////////////////////////////////////////////////////////
 // FScriptBytecodeWriter
@@ -375,8 +376,8 @@ public:
 				Writer << EX_TextConst;
 				
 				EmitStringLiteral(FTextInspector::GetSourceString(Term->TextLiteral)? *FTextInspector::GetSourceString(Term->TextLiteral) : TEXT(""));
-				EmitStringLiteral(FTextInspector::GetKey(Term->TextLiteral)? *FTextInspector::GetKey(Term->TextLiteral) : TEXT(""));
-				EmitStringLiteral(FTextInspector::GetNamespace(Term->TextLiteral)? *FTextInspector::GetNamespace(Term->TextLiteral) : TEXT(""));
+				EmitStringLiteral(FTextInspector::GetKey(Term->TextLiteral).Get(TEXT("")));
+				EmitStringLiteral(FTextInspector::GetNamespace(Term->TextLiteral).Get(TEXT("")));
 			}
 			else if (CoerceProperty->IsA(UFloatProperty::StaticClass()))
 			{
@@ -714,10 +715,6 @@ public:
 
 				if ((FunctionToCall->FirstPropertyToInit == nullptr) && (FunctionToCall->PostConstructLink == nullptr))
 				{
-					FEventGraphFastCallPair& Pair = *new (CompilerContext.NewClass->FastCallPairs) FEventGraphFastCallPair();
-					Pair.FunctionToPatch = FunctionContext.Function;
-					Pair.EventGraphCallOffset = OffsetWithinUbergraph;
-
 					FunctionContext.Function->EventGraphFunction = FunctionToCall;
 					FunctionContext.Function->EventGraphCallOffset = OffsetWithinUbergraph;
 				}

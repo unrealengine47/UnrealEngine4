@@ -335,20 +335,35 @@ UProperty::UProperty(const FObjectInitializer& ObjectInitializer)
 , ArrayDim(1)
 {
 }
+
+UProperty::UProperty(ECppProperty, int32 InOffset, uint64 InFlags)
+	: UField(FObjectInitializer::Get())
+	, ArrayDim(1)
+	, PropertyFlags(InFlags)
+	, Offset_Internal(InOffset)
+{
+	Init();
+}
+
 UProperty::UProperty(const FObjectInitializer& ObjectInitializer, ECppProperty, int32 InOffset, uint64 InFlags )
 : UField(ObjectInitializer)	
 , ArrayDim(1)
 , PropertyFlags(InFlags)
 , Offset_Internal(InOffset)
 {
+	Init();
+}
+
+void UProperty::Init()
+{
 	// properties created in C++ should always be marked RF_Transient so that when the package containing
 	// this property is saved, it doesn't try to save this UProperty into the ExportMap
-	SetFlags(RF_Transient|RF_Native);
+	SetFlags(RF_Transient | RF_Native);
 #if !WITH_EDITORONLY_DATA
 	//@todo.COOKER/PACKAGER: Until we have a cooker/packager step, this can fire when WITH_EDITORONLY_DATA is not defined!
-//	checkSlow(!HasAnyPropertyFlags(CPF_EditorOnly));
+	//	checkSlow(!HasAnyPropertyFlags(CPF_EditorOnly));
 #endif // WITH_EDITORONLY_DATA
-	checkSlow(GetOuterUField()->HasAllFlags(RF_Native|RF_Transient));
+	checkSlow(GetOuterUField()->HasAllFlags(RF_Native | RF_Transient));
 
 	GetOuterUField()->AddCppProperty(this);
 }
@@ -671,6 +686,11 @@ int32 UProperty::SetupOffset()
 {
 	Offset_Internal = Align((GetOuter()->GetClass()->ClassCastFlags & CASTCLASS_UStruct) ? ((UStruct*)GetOuter())->GetPropertiesSize() : 0, GetMinAlignment());
 	return Offset_Internal + GetSize();
+}
+
+void UProperty::SetOffset_Internal(int32 NewOffset)
+{
+	Offset_Internal = NewOffset;
 }
 
 bool UProperty::SameType(const UProperty* Other) const
@@ -1154,6 +1174,17 @@ const TCHAR* UProperty::ImportSingleProperty( const TCHAR* Str, void* DestData, 
 	}
 	return Str;
 }
+
+/**
+ * Returns the hash value for an element of this property.
+ */
+uint32 UProperty::GetValueTypeHash(const void* Src) const
+{
+	check(PropertyFlags & CPF_HasGetValueTypeHash); // make sure the type is hashable
+	check(Src);
+	return GetValueTypeHashInternal(Src);
+}
+
 
 IMPLEMENT_CORE_INTRINSIC_CLASS(UProperty, UField,
 	{

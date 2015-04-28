@@ -62,9 +62,6 @@ namespace UnrealBuildTool
 		/** True if this action is allowed to be run on a remote machine when a distributed build system is being used, such as XGE */
 		public bool bCanExecuteRemotely = false;
 
-		/** True if this action is using the Visual C++ compiler.  Some build systems may be able to optimize for this case. */
-		public bool bIsVCCompiler = false;
-
 		/** True if this action is using the GCC compiler.  Some build systems may be able to optimize for this case. */
 		public bool bIsGCCCompiler = false;
 
@@ -813,7 +810,7 @@ namespace UnrealBuildTool
 					// Scan this file for included headers that may be out of date.  Note that it's OK if we break out early because we found
 					// the action to be outdated.  For outdated actions, we kick off a separate include scan in a background thread later on to
 					// catch all of the other includes and form an exhaustive set.
-					var BuildPlatform = UEBuildPlatform.GetBuildPlatform( Target.GetTargetInfo().Platform );
+					var BuildPlatform = UEBuildPlatform.GetBuildPlatform( Target.Platform );
 					foreach (FileItem PrerequisiteItem in RootAction.PrerequisiteItems)
 					{
 						// @todo ubtmake: Make sure we are catching RC files here too.  Anything that the toolchain would have tried it on.  Logic should match the CACHING stuff below

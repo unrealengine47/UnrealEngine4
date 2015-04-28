@@ -10,6 +10,7 @@
 #include "Engine/EngineTypes.h"
 
 class FOutBunch;
+class FInBunch;
 
 class FRepChangedParent
 {
@@ -261,8 +262,7 @@ public:
 		UActorChannel *		OwningChannel,
 		UProperty *			Property, 
 		FOutBunch &			Bunch, 
-		int32				ArrayIndex, 
-		int32 &				LastArrayIndex, 
+		uint32				ArrayIndex, 
 		bool &				bContentBlockWritten ) const;
 
 	bool ReplicateProperties( 
@@ -272,7 +272,6 @@ public:
 		UActorChannel *				OwningChannel,
 		FOutBunch &					Writer, 
 		const FReplicationFlags &	RepFlags,
-		int32 &						LastIndex, 
 		bool &						bContentBlockWritten ) const;
 
 	void SendProperties( 
@@ -283,7 +282,6 @@ public:
 		UActorChannel *				OwningChannel,
 		FOutBunch &					Writer, 
 		TArray< uint16 >	 &		Changed, 
-		int32 &						LastIndex, 
 		bool &						bContentBlockWritten ) const;
 
 	ENGINE_API void InitFromObjectClass( UClass * InObjectClass );
@@ -317,6 +315,9 @@ public:
 
 	// Serializes all replicated properties of a UObject in or out of an archive (depending on what type of archive it is)
 	ENGINE_API void SerializeObjectReplicatedProperties(UObject* Object, FArchive & Ar) const;
+
+	void WriteNetworkChecksum( FOutBunch& Bunch );
+	bool ReadNetworkChecksum( FInBunch& Bunch );
 
 private:
 	void RebuildConditionalProperties( FRepState * RESTRICT	RepState, const FRepChangedPropertyTracker& ChangedTracker, const FReplicationFlags& RepFlags ) const;

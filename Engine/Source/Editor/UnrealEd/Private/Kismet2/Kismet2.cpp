@@ -37,6 +37,10 @@
 #include "Editor/UnrealEd/Public/PackageTools.h"
 #include "NotificationManager.h"
 #include "SNotificationList.h" // for FNotificationInfo
+#include "Engine/BlueprintGeneratedClass.h"
+#include "Engine/SimpleConstructionScript.h"
+#include "Engine/SCS_Node.h"
+#include "GeneralProjectSettings.h"
 
 DECLARE_CYCLE_STAT(TEXT("Compile Blueprint"), EKismetCompilerStats_CompileBlueprint, STATGROUP_KismetCompiler);
 DECLARE_CYCLE_STAT(TEXT("Broadcast Precompile"), EKismetCompilerStats_BroadcastPrecompile, STATGROUP_KismetCompiler);
@@ -411,13 +415,17 @@ UBlueprint* FKismetEditorUtilities::CreateBlueprint(UClass* ParentClass, UObject
 		{
 			check( UCSGraph->Nodes.Num() > 0 );
 			UK2Node_FunctionEntry* UCSEntry = CastChecked<UK2Node_FunctionEntry>(UCSGraph->Nodes[0]);
-			UK2Node_CallParentFunction* ParentCallNodeTemplate = NewObject<UK2Node_CallParentFunction>();
-			ParentCallNodeTemplate->FunctionReference.SetExternalMember(K2Schema->FN_UserConstructionScript, NewBP->ParentClass);
-			UK2Node_CallParentFunction* ParentCallNode = FEdGraphSchemaAction_K2NewNode::SpawnNodeFromTemplate<UK2Node_CallParentFunction>(UCSGraph, ParentCallNodeTemplate, FVector2D(200, 0));
+			FGraphNodeCreator<UK2Node_CallParentFunction> FunctionNodeCreator(*UCSGraph);
+			UK2Node_CallParentFunction* ParentFunctionNode = FunctionNodeCreator.CreateNode();
+			ParentFunctionNode->FunctionReference.SetExternalMember(K2Schema->FN_UserConstructionScript, NewBP->ParentClass);
+			ParentFunctionNode->NodePosX = 200;
+			ParentFunctionNode->NodePosY = 0;
+			ParentFunctionNode->AllocateDefaultPins();
+			FunctionNodeCreator.Finalize();
 
 			// Wire up the new node
 			UEdGraphPin* ExecPin = UCSEntry->FindPin(K2Schema->PN_Then);
-			UEdGraphPin* SuperPin = ParentCallNode->FindPin(K2Schema->PN_Execute);
+			UEdGraphPin* SuperPin = ParentFunctionNode->FindPin(K2Schema->PN_Execute);
 			ExecPin->MakeLinkTo(SuperPin);
 		}
 
@@ -744,9 +752,7 @@ void FKismetEditorUtilities::CompileBlueprint(UBlueprint* BlueprintObj, bool bIs
 	ReinstanceHelper->UpdateBytecodeReferences();
 
 	const bool bIsInterface = FBlueprintEditorUtils::IsInterfaceBlueprint(BlueprintObj);
-	static const FBoolConfigValueHelper FirstCompileChildrenThenReinstance(TEXT("Kismet"), TEXT("bFirstCompileChildrenThenReinstance"), GEngineIni);
-	const bool bLetReinstancerRefreshDependBP = !bIsRegeneratingOnLoad && (OldClass != NULL)
-		&& FirstCompileChildrenThenReinstance && !bIsInterface;
+	const bool bLetReinstancerRefreshDependBP = !bIsRegeneratingOnLoad && (OldClass != NULL) && !bIsInterface;
 	if (bLetReinstancerRefreshDependBP)
 	{
 		BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_RefreshDependentBlueprints);
@@ -916,6 +922,18 @@ void FKismetEditorUtilities::RecompileBlueprintBytecode(UBlueprint* BlueprintObj
 	if (BlueprintPackage != NULL)
 	{
 		BlueprintPackage->SetDirtyFlag(bStartedWithUnsavedChanges);
+	}
+
+	if (!BlueprintObj->bIsRegeneratingOnLoad)
+	{
+		BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_NotifyBlueprintChanged);
+
+		BlueprintObj->BroadcastCompiled();
+
+		if (GEditor)
+		{
+			GEditor->BroadcastBlueprintCompiled();
+		}
 	}
 }
 

@@ -34,6 +34,10 @@ class UCookCommandlet
 	bool bUnversioned;
 	/** Generate manifests for building streaming install packages */
 	bool bGenerateStreamingInstallManifests;
+	/** Error if we access engine content (useful for dlc) */
+	bool bErrorOnEngineContentUse;
+	/** Use historical serialization system for generating package dependencies (use for historical reasons only this method has been depricated, only affects cooked manifests) */
+	bool bUseSerializationForGeneratingPackageDependencies;
 	/** All commandline tokens */
 	TArray<FString> Tokens;
 	/** All commandline switches */

@@ -8,7 +8,7 @@
 //////////////////////////////////////////////////////////////////////////
 // FSpriteGeometryEditMode
 
-class FSpriteGeometryEditMode : public FEdMode//, public ISpriteSelectionContext
+class FSpriteGeometryEditMode : public FEdMode
 {
 public:
 	static const FEditorModeID EM_SpriteGeometry;
@@ -41,22 +41,17 @@ public:
 	// Changes the geometry being edited (clears the selection set in the process)
 	void SetGeometryBeingEdited(FSpriteGeometryCollection* NewGeometryBeingEdited, bool bInAllowCircles, bool bInAllowSubtractivePolygons);
 
-// 	// Dummy implementation of ISpriteSelectionContext; users of this mode should provide their own and register via SetEditorContext
-// 	virtual FVector2D SelectedItemConvertWorldSpaceDeltaToLocalSpace(const FVector& WorldSpaceDelta) const override;
-// 	virtual FVector2D WorldSpaceToTextureSpace(const FVector& SourcePoint) const override;
-// 	virtual FVector TextureSpaceToWorldSpace(const FVector2D& SourcePoint) const override;
-// 	virtual float SelectedItemGetUnitsPerPixel() const override;
-// 	virtual void BeginTransaction(const FText& SessionName) override;
-// 	virtual void MarkTransactionAsDirty() override;
-// 	virtual void EndTransaction() override;
-// 	virtual void InvalidateViewportAndHitProxies() override;
-// 	// End of ISpriteSelectionContext interface
-// 
 	void BindCommands(TSharedPtr<FUICommandList> InCommandList);
 
 	FVector2D GetMarqueeStartPos() const { return MarqueeStartPos; }
 	FVector2D GetMarqueeEndPos() const { return MarqueeEndPos; }
 	bool ProcessMarquee(FViewport* Viewport, FKey Key, EInputEvent Event, bool bMarqueeStartModifierPressed);
+
+	// Returns true if the specified socket is selected
+	bool IsSocketSelected(FName SocketName) const;
+
+	static void DrawGeometryStats(FViewport& InViewport, FSceneView& View, FCanvas& Canvas, const FSpriteGeometryCollection& Geometry, bool bIsRenderGeometry, int32& YPos);
+	static void DrawCollisionStats(FViewport& InViewport, FSceneView& View, FCanvas& Canvas, class UBodySetup* BodySetup, int32& YPos);
 
 protected:
 	FBox2D BoundsForNewShapes;

@@ -102,6 +102,7 @@ UEditorLoadingSavingSettings::UEditorLoadingSavingSettings( const FObjectInitial
 	: Super(ObjectInitializer)
 	, bEnableSourceControlCompatabilityCheck(true)
 	, bMonitorContentDirectories(false)
+	, AutoReimportThreshold(3.f)
 	, bAutoCreateAssets(true)
 	, bAutoDeleteAssets(true)
 	, bDetectChangesOnRestart(true)
@@ -204,7 +205,7 @@ void UEditorLoadingSavingSettings::CheckSourceControlCompatability()
 			if (SettingsModule != nullptr)
 			{
 				// Ensure that the advanced properties are visible
-				GConfig->SetBool(TEXT("DetailCategoriesAdvanced"), TEXT("EditorLoadingSavingSettings.AutoReimport"), true, GEditorUserSettingsIni);
+				GConfig->SetBool(TEXT("DetailCategoriesAdvanced"), TEXT("EditorLoadingSavingSettings.AutoReimport"), true, GEditorPerProjectIni);
 				SettingsModule->ShowViewer("Editor", "General", "LoadingSaving");
 			}
 		});
@@ -296,7 +297,8 @@ bool FAutoReimportDirectoryConfig::ParseSourceDirectoryAndMountPoint(FString& So
 
 UEditorMiscSettings::UEditorMiscSettings( const FObjectInitializer& ObjectInitializer )
 	: Super(ObjectInitializer)
-{ }
+{
+}
 
 
 /* ULevelEditorMiscSettings interface
@@ -306,6 +308,8 @@ ULevelEditorMiscSettings::ULevelEditorMiscSettings( const FObjectInitializer& Ob
 	: Super(ObjectInitializer)
 {
 	bAutoApplyLightingEnable = true;
+	SectionName = TEXT("Misc");
+	CategoryName = TEXT("LevelEditor");
 }
 
 
@@ -343,15 +347,6 @@ ULevelEditorPlaySettings::ULevelEditorPlaySettings( const FObjectInitializer& Ob
 	RunUnderOneProcess = true;
 	RouteGamepadToSecondWindow = false;
 }
-
-/* ULevelEditor2DSettings 
-*****************************************************************************/
-
-ULevelEditor2DSettings::ULevelEditor2DSettings(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
-{
-}
-
 
 /* ULevelEditorViewportSettings interface
  *****************************************************************************/

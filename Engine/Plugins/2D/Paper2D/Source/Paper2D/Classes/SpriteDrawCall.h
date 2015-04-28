@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "PaperSprite.h"
 #include "SpriteDrawCall.generated.h"
 
 //
@@ -15,7 +16,7 @@ public:
 	FVector Destination;
 
 	UPROPERTY(Category=Sprite, EditAnywhere)
-	UTexture2D* BaseTexture;
+	UTexture* BaseTexture;
 
 	FAdditionalSpriteTextureArray AdditionalTextures;
 

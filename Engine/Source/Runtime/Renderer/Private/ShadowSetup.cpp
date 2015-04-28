@@ -777,17 +777,21 @@ void FProjectedShadowInfo::AddSubjectPrimitive(FPrimitiveSceneInfo* PrimitiveSce
 						// The old LOD will continue to be drawn even though a different LOD would be chosen by distance.
 						else
 						{
-							int8 LODToRender = 0;
+							FLODMask LODToRender;
 							int32 ForcedLODLevel = (CurrentView.Family->EngineShowFlags.LOD) ? GetCVarForceLOD() : 0;
 
 							// Add the primitive's static mesh elements to the draw lists.
 							if ( bReflectiveShadowmap) 
 							{
-								LODToRender = -CHAR_MAX;
+								int8 LODToRenderScan = -CHAR_MAX;
 								// Force the lowest detail LOD Level in reflective shadow maps.
 								for (int32 Index = 0; Index < PrimitiveSceneInfo->StaticMeshes.Num(); Index++)
 								{
-									LODToRender = FMath::Max<int8>(PrimitiveSceneInfo->StaticMeshes[Index].LODIndex, LODToRender);
+									LODToRenderScan = FMath::Max<int8>(PrimitiveSceneInfo->StaticMeshes[Index].LODIndex, LODToRenderScan);
+								}
+								if (LODToRenderScan != -CHAR_MAX)
+								{
+									LODToRender.SetLOD(LODToRenderScan);
 								}
 							}
 							else
@@ -801,7 +805,7 @@ void FProjectedShadowInfo::AddSubjectPrimitive(FPrimitiveSceneInfo* PrimitiveSce
 							for (int32 MeshIndex = 0; MeshIndex < PrimitiveSceneInfo->StaticMeshes.Num(); MeshIndex++)
 							{
 								const FStaticMesh& StaticMesh = PrimitiveSceneInfo->StaticMeshes[MeshIndex];
-								if (StaticMesh.CastShadow && StaticMesh.LODIndex == LODToRender)
+								if (StaticMesh.CastShadow && LODToRender.ContainsLOD(StaticMesh.LODIndex))
 								{
 									if (bWholeSceneDirectionalShadow)
 									{
@@ -1309,6 +1313,8 @@ void FDeferredShadingSceneRenderer::CreatePerObjectProjectedShadow(
 		const float ScreenRadius = View.ShadowViewMatrices.ScreenScale *
 			OriginalBounds.SphereRadius /
 			FMath::Max(ScreenPosition.W,1.0f);
+		// Early catch for invalid CalculateShadowFadeAlpha()
+		checkf(ScreenRadius >= 0.0f, TEXT("View.ShadowViewMatrices.ScreenScale %f, OriginalBounds.SphereRadius %f, ScreenPosition.W %f"), View.ShadowViewMatrices.ScreenScale, OriginalBounds.SphereRadius, ScreenPosition.W);
 
 		const float ScreenPercent = FMath::Max(
 			1.0f / 2.0f * View.ShadowViewMatrices.ProjectionScale.X,
@@ -1943,7 +1949,6 @@ inline void FSceneRenderer::GatherShadowsForPrimitiveInner(
 					continue;
 				}
 
-				FPrimitiveSceneProxy* PrimitiveProxy = PrimitiveSceneInfoCompact.Proxy;
 				FLightSceneProxy* RESTRICT LightProxy = ProjectedShadowInfo->GetLightSceneInfo().Proxy;
 
 				const FVector LightDirection = LightProxy->GetDirection();

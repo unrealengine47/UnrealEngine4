@@ -267,6 +267,7 @@ struct CORE_API FGenericPlatformMisc
 	 */
 	static FString GetUniqueDeviceId();
 
+	// @TODO yrx 2015-02-24 Remove
 	/** Submits a crash report to a central server (release builds only) */
 	static void SubmitErrorReport( const TCHAR* InErrorHist, EErrorReportMode::Type InMode );
 
@@ -411,11 +412,6 @@ public:
 	FORCEINLINE static void EndNamedEvent()
 	{
 	}
-
-	/**
-	 * @return the executable's command line
-	 */
-	static const TCHAR* GetNativeCommandLine();
 
 	/** 
 	 *	Set the value for the given section and key in the platform specific key->value store
@@ -758,6 +754,20 @@ public:
 	{
 		return PLATFORM_HAS_TOUCH_MAIN_SCREEN;
 	}
+
+	/*
+	 * Returns whether the volume buttons are handled by the system
+	 */
+	static bool GetVolumeButtonsHandledBySystem()
+	{
+		return true;
+	}
+
+	/*
+	 * Set whether the volume buttons are handled by the system
+	 */
+	static void SetVolumeButtonsHandledBySystem(bool enabled)
+	{}
 
 	/** @return Memory representing a true type or open type font provided by the platform as a default font for unreal to consume; empty array if the default font failed to load. */
 	static TArray<uint8> GetSystemFontBytes();

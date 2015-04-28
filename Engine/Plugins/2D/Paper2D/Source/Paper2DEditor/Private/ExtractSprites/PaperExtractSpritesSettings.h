@@ -33,9 +33,9 @@ public:
 	UPROPERTY(Category = Settings, EditAnywhere)
 	FLinearColor OutlineColor;
 
-	// Tint the texture to help increase outline visibility
+	// Apply a tint to the texture in the viewport to improve outline visibility in this editor
 	UPROPERTY(Category = Settings, EditAnywhere)
-	FLinearColor TextureTint;
+	FLinearColor ViewportTextureTint;
 
 	// The viewport background color
 	UPROPERTY(Category = Settings, EditAnywhere, meta=(HideAlphaChannel))
@@ -47,6 +47,13 @@ public:
 	UPROPERTY()
 	bool bGridMode;
 
+	// The name of the sprite that will be created. {0} will get replaced by the sprite number.
+	UPROPERTY(Category = Naming, EditAnywhere)
+	FString NamingTemplate;
+
+	// The number to start naming with
+	UPROPERTY(Category = Naming, EditAnywhere)
+	int32 NamingStartIndex;
 
 	UPaperExtractSpritesSettings(const FObjectInitializer& ObjectInitializer);
 
@@ -62,14 +69,6 @@ class UPaperExtractSpriteGridSettings : public UObject
 
 	//////////////////////////////////////////////////////////////////////////
 	// Grid mode
-
-	// The name of the sprite that will be created. {0} will get replaced by the sprite number.
-	UPROPERTY(Category = Naming, EditAnywhere)
-	FString NamingTemplate;
-
-	// The number to start naming with
-	UPROPERTY(Category = Naming, EditAnywhere)
-	int32 NamingStartIndex;
 
 	// The width of each sprite in grid mode
 	UPROPERTY(Category = Grid, EditAnywhere, meta = (UIMin = 1, ClampMin = 1))
@@ -103,5 +102,5 @@ class UPaperExtractSpriteGridSettings : public UObject
 	UPROPERTY(Category = Grid, EditAnywhere, meta = (UIMin = 0, ClampMin = 0))
 	int32 SpacingY;
 
-	UPaperExtractSpriteGridSettings(const FObjectInitializer& ObjectInitializer);
+	UPaperExtractSpriteGridSettings(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 };

@@ -115,9 +115,9 @@ public:
 		ShadowParameters.SetVertexShader(RHICmdList, this, View, ShadowInfo, MaterialRenderProxy);
 	}
 
-	void SetMesh(FRHICommandList& RHICmdList, const FVertexFactory* VertexFactory,const FSceneView& View,const FPrimitiveSceneProxy* Proxy,const FMeshBatchElement& BatchElement)
+	void SetMesh(FRHICommandList& RHICmdList, const FVertexFactory* VertexFactory,const FSceneView& View,const FPrimitiveSceneProxy* Proxy,const FMeshBatchElement& BatchElement, float DitheredLODTransitionValue)
 	{
-		FMeshMaterialShader::SetMesh(RHICmdList, GetVertexShader(),VertexFactory,View,Proxy,BatchElement);
+		FMeshMaterialShader::SetMesh(RHICmdList, GetVertexShader(),VertexFactory,View,Proxy,BatchElement,DitheredLODTransitionValue);
 	}
 
 private:
@@ -167,8 +167,8 @@ public:
 		else
 		{
 			return (Material->IsSpecialEngineMaterial()
-						// Masked and WPO materials need their shaders but cannot be used with a position only stream.
-						|| ((Material->IsMasked() || Material->MaterialMayModifyMeshPosition()) && !bUsePositionOnlyStream))
+					// Masked and WPO materials need their shaders but cannot be used with a position only stream.
+					|| ((!Material->WritesEveryPixel() || Material->MaterialMayModifyMeshPosition()) && !bUsePositionOnlyStream))
 					// Only compile one pass point light shaders for feature levels >= SM4
 					&& (ShaderMode != VertexShadowDepth_OnePassPointLight || IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM4))
 					// Only compile position-only shaders for vertex factories that support it.
@@ -469,9 +469,9 @@ public:
 		}
 	}
 
-	void SetMesh(FRHICommandList& RHICmdList, const FVertexFactory* VertexFactory,const FSceneView& View,const FPrimitiveSceneProxy* Proxy,const FMeshBatchElement& BatchElement)
+	void SetMesh(FRHICommandList& RHICmdList, const FVertexFactory* VertexFactory,const FSceneView& View,const FPrimitiveSceneProxy* Proxy,const FMeshBatchElement& BatchElement,float DitheredLODTransitionValue)
 	{
-		FMeshMaterialShader::SetMesh(RHICmdList, GetPixelShader(),VertexFactory,View,Proxy,BatchElement);
+		FMeshMaterialShader::SetMesh(RHICmdList, GetPixelShader(),VertexFactory,View,Proxy,BatchElement,DitheredLODTransitionValue);
 	}
 
 	virtual bool Serialize(FArchive& Ar) override
@@ -524,7 +524,7 @@ public:
 		{
 			return (Material->IsSpecialEngineMaterial()
 				// Only compile for masked or lit translucent materials
-				|| Material->IsMasked())
+				|| !Material->WritesEveryPixel())
 				&& ShaderMode == PixelShadowDepth_NonPerspectiveCorrect
 				// Don't render ShadowDepth for translucent unlit materials
 				&& (!IsTranslucentBlendMode(Material->GetBlendMode()) && Material->GetShadingModel() != MSM_Unlit)
@@ -545,7 +545,7 @@ public:
 			//Note: This logic needs to stay in sync with OverrideWithDefaultMaterialForShadowDepth!
 			return (Material->IsSpecialEngineMaterial()
 					// Only compile for masked or lit translucent materials
-					|| Material->IsMasked()
+					|| !Material->WritesEveryPixel()
 					|| (Material->MaterialMayModifyMeshPosition() && Material->IsUsedWithInstancedStaticMeshes())
 					// Perspective correct rendering needs a pixel shader and WPO materials can't be overridden with default material.
 					|| (ShaderMode == PixelShadowDepth_PerspectiveCorrect && Material->MaterialMayModifyMeshPosition()))
@@ -686,7 +686,7 @@ void OverrideWithDefaultMaterialForShadowDepth(
 	ERHIFeatureLevel::Type InFeatureLevel)
 {
 	// Override with the default material when possible.
-	if (!InOutMaterialResource->IsMasked() &&						// Don't override masked materials.
+	if (InOutMaterialResource->WritesEveryPixel() &&						// Don't override masked materials.
 		!InOutMaterialResource->MaterialModifiesMeshPosition_RenderThread() &&	// Don't override materials using world position offset.
 		!bReflectiveShadowmap)										// Don't override when rendering reflective shadow maps.
 	{
@@ -704,7 +704,7 @@ void OverrideWithDefaultMaterialForShadowDepth(
 -----------------------------------------------------------------------------*/
 
 template <bool bRenderingReflectiveShadowMaps>
-void FShadowDepthDrawingPolicy<bRenderingReflectiveShadowMaps>::UpdateElementState(FShadowStaticMeshElement& State, ERHIFeatureLevel::Type FeatureLevel)
+void FShadowDepthDrawingPolicy<bRenderingReflectiveShadowMaps>::UpdateElementState(FShadowStaticMeshElement& State, ERHIFeatureLevel::Type InFeatureLevel)
 {
 	// can be optimized
 	*this = FShadowDepthDrawingPolicy(
@@ -712,7 +712,7 @@ void FShadowDepthDrawingPolicy<bRenderingReflectiveShadowMaps>::UpdateElementSta
 		bDirectionalLight,
 		bOnePassPointLightShadow,
 		bPreShadow,
-		FeatureLevel,
+		InFeatureLevel,
 		State.Mesh->VertexFactory,
 		State.RenderProxy,
 		State.bIsTwoSided,
@@ -765,7 +765,7 @@ FShadowDepthDrawingPolicy<bRenderingReflectiveShadowMaps>::FShadowDepthDrawingPo
 
 	bUsePositionOnlyVS = !bRenderingReflectiveShadowMaps
 		&& VertexFactory->SupportsPositionOnlyStream()
-		&& !MaterialResource->IsMasked()
+		&& MaterialResource->WritesEveryPixel()
 		&& !MaterialResource->MaterialModifiesMeshPosition_RenderThread();
 
 	// Vertex related shaders
@@ -840,7 +840,7 @@ FShadowDepthDrawingPolicy<bRenderingReflectiveShadowMaps>::FShadowDepthDrawingPo
 	}
 
 	// Pixel shaders
-	if (!MaterialResource->IsMasked() && !bUsePerspectiveCorrectShadowDepths && !bRenderingReflectiveShadowMaps && VertexFactory->SupportsNullPixelShader())
+	if (MaterialResource->WritesEveryPixel() && !bUsePerspectiveCorrectShadowDepths && !bRenderingReflectiveShadowMaps && VertexFactory->SupportsNullPixelShader())
 	{
 		// No pixel shader necessary.
 		PixelShader = NULL;
@@ -946,6 +946,7 @@ void FShadowDepthDrawingPolicy<bRenderingReflectiveShadowMaps>::SetMeshRenderSta
 	const FMeshBatch& Mesh,
 	int32 BatchElementIndex,
 	bool bBackFace,
+	float DitheredLODTransitionValue,
 	const ElementDataType& ElementData,
 	const ContextDataType PolicyContext
 	) const
@@ -954,12 +955,12 @@ void FShadowDepthDrawingPolicy<bRenderingReflectiveShadowMaps>::SetMeshRenderSta
 
 	EmitMeshDrawEvents(RHICmdList, PrimitiveSceneProxy, Mesh);
 
-	VertexShader->SetMesh(RHICmdList, VertexFactory,View,PrimitiveSceneProxy,BatchElement);
+	VertexShader->SetMesh(RHICmdList, VertexFactory,View,PrimitiveSceneProxy,BatchElement,DitheredLODTransitionValue);
 
 	if( HullShader && DomainShader )
 	{
-		HullShader->SetMesh(RHICmdList, VertexFactory,View,PrimitiveSceneProxy,BatchElement);
-		DomainShader->SetMesh(RHICmdList, VertexFactory,View,PrimitiveSceneProxy,BatchElement);
+		HullShader->SetMesh(RHICmdList, VertexFactory,View,PrimitiveSceneProxy,BatchElement,DitheredLODTransitionValue);
+		DomainShader->SetMesh(RHICmdList, VertexFactory,View,PrimitiveSceneProxy,BatchElement,DitheredLODTransitionValue);
 	}
 	if (GeometryShader)
 	{
@@ -967,7 +968,7 @@ void FShadowDepthDrawingPolicy<bRenderingReflectiveShadowMaps>::SetMeshRenderSta
 	}
 	if (PixelShader)
 	{
-		PixelShader->SetMesh(RHICmdList, VertexFactory,View,PrimitiveSceneProxy,BatchElement);
+		PixelShader->SetMesh(RHICmdList, VertexFactory,View,PrimitiveSceneProxy,BatchElement,DitheredLODTransitionValue);
 	}
 	// Not calling FMeshDrawingPolicy::SetMeshRenderState as SetSharedState sets the rasterizer state
 }
@@ -1002,7 +1003,7 @@ void FShadowDepthDrawingPolicyFactory::AddStaticMesh(FScene* Scene,FStaticMesh* 
 		const EBlendMode BlendMode = Material->GetBlendMode();
 		const EMaterialShadingModel ShadingModel = Material->GetShadingModel();
 
-		const bool bLightPropagationVolume = UseLightPropagationVolumeRT(Scene->GetFeatureLevel());
+		const bool bLightPropagationVolume = UseLightPropagationVolumeRT(FeatureLevel);
 		const bool bTwoSided  = Material->IsTwoSided() || StaticMesh->PrimitiveSceneInfo->Proxy->CastsShadowAsTwoSided();
 		const bool bLitOpaque = !IsTranslucentBlendMode(BlendMode) && ShadingModel != MSM_Unlit;
 		if(bLightPropagationVolume && (bLitOpaque || Material->ShouldInjectEmissiveIntoLPV()))
@@ -1018,18 +1019,18 @@ void FShadowDepthDrawingPolicyFactory::AddStaticMesh(FScene* Scene,FStaticMesh* 
 						true,
 						false,
 						false,
-						Scene->GetFeatureLevel(),
+						FeatureLevel,
 						StaticMesh->VertexFactory,
 						MaterialRenderProxy,
 						bTwoSided,
 						StaticMesh->ReverseCulling),
-					Scene->GetFeatureLevel()
+					FeatureLevel
 					);
 			}
 		}
 		if ( bLitOpaque )
 		{
-			OverrideWithDefaultMaterialForShadowDepth(MaterialRenderProxy, Material, false, Scene->GetFeatureLevel()); 
+			OverrideWithDefaultMaterialForShadowDepth(MaterialRenderProxy, Material, false, FeatureLevel); 
 
 			// Add the static mesh to the shadow's subject draw list.
 			Scene->WholeSceneShadowDepthDrawList.AddMesh(
@@ -1040,12 +1041,12 @@ void FShadowDepthDrawingPolicyFactory::AddStaticMesh(FScene* Scene,FStaticMesh* 
 					true,
 					false,
 					false,
-					Scene->GetFeatureLevel(),
+					FeatureLevel,
 					StaticMesh->VertexFactory,
 					MaterialRenderProxy,
 					bTwoSided,
 					StaticMesh->ReverseCulling),
-				Scene->GetFeatureLevel()
+				FeatureLevel
 				);
 		}
 	}
@@ -1103,7 +1104,7 @@ bool FShadowDepthDrawingPolicyFactory::DrawDynamicMesh(
 				DrawingPolicy.SetSharedState(RHICmdList, &View, PolicyContext);
 				for (int32 BatchElementIndex = 0, Num = Mesh.Elements.Num(); BatchElementIndex < Num; BatchElementIndex++)
 				{
-					DrawingPolicy.SetMeshRenderState(RHICmdList, View,PrimitiveSceneProxy,Mesh,BatchElementIndex,bBackFace,FMeshDrawingPolicy::ElementDataType(),PolicyContext);
+					DrawingPolicy.SetMeshRenderState(RHICmdList, View,PrimitiveSceneProxy,Mesh,BatchElementIndex,bBackFace,Mesh.DitheredLODTransitionAlpha,FMeshDrawingPolicy::ElementDataType(),PolicyContext);
 					DrawingPolicy.DrawMesh(RHICmdList, Mesh,BatchElementIndex);
 				}
 			}
@@ -1125,7 +1126,7 @@ bool FShadowDepthDrawingPolicyFactory::DrawDynamicMesh(
 				DrawingPolicy.SetSharedState(RHICmdList, &View, PolicyContext);
 				for (int32 BatchElementIndex = 0; BatchElementIndex < Mesh.Elements.Num(); BatchElementIndex++)
 				{
-					DrawingPolicy.SetMeshRenderState(RHICmdList, View,PrimitiveSceneProxy,Mesh,BatchElementIndex,bBackFace,FMeshDrawingPolicy::ElementDataType(),PolicyContext);
+					DrawingPolicy.SetMeshRenderState(RHICmdList, View,PrimitiveSceneProxy,Mesh,BatchElementIndex,bBackFace,Mesh.DitheredLODTransitionAlpha,FMeshDrawingPolicy::ElementDataType(),PolicyContext);
 					DrawingPolicy.DrawMesh(RHICmdList, Mesh,BatchElementIndex);
 				}
 			}
@@ -1279,6 +1280,7 @@ void DrawMeshElements(FRHICommandList& RHICmdList, FShadowDepthDrawingPolicy<bRe
 	checkSlow(CompareDrawingPolicy(DebugPolicy, SharedDrawingPolicy) == 0);
 #endif
 
+	float DitherValue = View.GetDitheredLODTransitionValue(*Mesh);
 	// Render only those batch elements that match the current LOD
 	uint64 BatchElementMask = Mesh->Elements.Num() == 1 ? 1 : View.StaticMeshBatchVisibility[Mesh->Id];
 	int32 BatchElementIndex = 0;
@@ -1286,7 +1288,7 @@ void DrawMeshElements(FRHICommandList& RHICmdList, FShadowDepthDrawingPolicy<bRe
 	{
 		if(BatchElementMask & 1)
 		{
-			SharedDrawingPolicy.SetMeshRenderState(RHICmdList, View, Mesh->PrimitiveSceneInfo->Proxy, *Mesh, BatchElementIndex, false, FMeshDrawingPolicy::ElementDataType(),PolicyContext);
+			SharedDrawingPolicy.SetMeshRenderState(RHICmdList, View, Mesh->PrimitiveSceneInfo->Proxy, *Mesh, BatchElementIndex, false, DitherValue, FMeshDrawingPolicy::ElementDataType(),PolicyContext);
 			SharedDrawingPolicy.DrawMesh(RHICmdList, *Mesh, BatchElementIndex);
 			INC_DWORD_STAT(STAT_ShadowDynamicPathDrawCalls);
 		}
@@ -1829,12 +1831,14 @@ void FProjectedShadowInfo::RenderProjection(FRHICommandListImmediate& RHICmdList
 
 	// Find the shadow's view relevance.
 	const FVisibleLightViewInfo& VisibleLightViewInfo = View->VisibleLightInfos[LightSceneInfo->Id];
-	FPrimitiveViewRelevance ViewRelevance = VisibleLightViewInfo.ProjectedShadowViewRelevanceMap[ShadowId];
-
-	// Don't render shadows for subjects which aren't view relevant.
-	if (ViewRelevance.bShadowRelevance == false)
 	{
-		return;
+		FPrimitiveViewRelevance ViewRelevance = VisibleLightViewInfo.ProjectedShadowViewRelevanceMap[ShadowId];
+
+		// Don't render shadows for subjects which aren't view relevant.
+		if (ViewRelevance.bShadowRelevance == false)
+		{
+			return;
+		}
 	}
 
 	if (CascadeSettings.bRayTracedDistanceField)
@@ -1854,22 +1858,22 @@ void FProjectedShadowInfo::RenderProjection(FRHICommandListImmediate& RHICmdList
 		const FVector PreShadowToPreViewTranslation(View->ViewMatrices.PreViewTranslation - PreShadowTranslation);
 
 		// fill out the frustum vertices (this is only needed in the non-whole scene case)
-		for(uint32 Z = 0;Z < 2;Z++)
+		for(uint32 vZ = 0;vZ < 2;vZ++)
 		{
-			for(uint32 Y = 0;Y < 2;Y++)
+			for(uint32 vY = 0;vY < 2;vY++)
 			{
-				for(uint32 X = 0;X < 2;X++)
+				for(uint32 vX = 0;vX < 2;vX++)
 				{
 					const FVector4 UnprojectedVertex = InvReceiverMatrix.TransformFVector4(
 						FVector4(
-							(X ? -1.0f : 1.0f),
-							(Y ? -1.0f : 1.0f),
-							(Z ?  0.0f : 1.0f),
+							(vX ? -1.0f : 1.0f),
+							(vY ? -1.0f : 1.0f),
+							(vZ ?  0.0f : 1.0f),
 							1.0f
 							)
 						);
 					const FVector ProjectedVertex = UnprojectedVertex / UnprojectedVertex.W + PreShadowToPreViewTranslation;
-					FrustumVertices[GetCubeVertexIndex(X,Y,Z)] = FVector4(ProjectedVertex, 0);
+					FrustumVertices[GetCubeVertexIndex(vX,vY,vZ)] = FVector4(ProjectedVertex, 0);
 				}
 			}
 		}
@@ -1913,9 +1917,6 @@ void FProjectedShadowInfo::RenderProjection(FRHICommandListImmediate& RHICmdList
 			TopDistance > DistanceThreshold && 
 			BottomDistance > DistanceThreshold;
 	}
-
-	// Find the projection shaders.
-	TShaderMapRef<FShadowProjectionVS> VertexShader(View->ShaderMap);
 
 	// Depth test wo/ writes, no color writing.
 	RHICmdList.SetDepthStencilState(TStaticDepthStencilState<false, CF_DepthNearOrEqual>::GetRHI());
@@ -1969,6 +1970,7 @@ void FProjectedShadowInfo::RenderProjection(FRHICommandListImmediate& RHICmdList
 
 						if (View->StaticMeshVisibilityMap[StaticMesh.Id])
 						{
+							float DitherValue = View->GetDitheredLODTransitionValue(StaticMesh);
 							FDepthDrawingPolicyFactory::DrawStaticMesh(
 								RHICmdList, 
 								*View,
@@ -1976,6 +1978,7 @@ void FProjectedShadowInfo::RenderProjection(FRHICommandListImmediate& RHICmdList
 								StaticMesh,
 								StaticMesh.Elements.Num() == 1 ? 1 : View->StaticMeshBatchVisibility[StaticMesh.Id],
 								true,
+								DitherValue,
 								ReceiverPrimitiveSceneInfo->Proxy,
 								StaticMesh.BatchHitProxyId
 								);
@@ -2662,10 +2665,10 @@ bool FDeferredShadingSceneRenderer::RenderOnePassPointLightShadows(FRHICommandLi
 				SCOPED_DRAW_EVENT(RHICmdList, ShadowDepthsFromOpaquePointLight);
 
 				bool bPerformClear = true;
-				auto SetShadowRenderTargets = [this, &bPerformClear, ProjectedShadowInfo](FRHICommandList& RHICmdList)
+				auto SetShadowRenderTargets = [this, &bPerformClear, ProjectedShadowInfo](FRHICommandList& InRHICmdList)
 				{
-					GSceneRenderTargets.BeginRenderingCubeShadowDepth(RHICmdList, ProjectedShadowInfo->ResolutionX);
-					ProjectedShadowInfo->ClearDepth(RHICmdList, this, bPerformClear);
+					GSceneRenderTargets.BeginRenderingCubeShadowDepth(InRHICmdList, ProjectedShadowInfo->ResolutionX);
+					ProjectedShadowInfo->ClearDepth(InRHICmdList, this, bPerformClear);
 				};
 
 				ProjectedShadowInfo->bAllocated = true;
@@ -3075,10 +3078,10 @@ bool FDeferredShadingSceneRenderer::RenderReflectiveShadowMaps(FRHICommandListIm
 				FLightPropagationVolume* LightPropagationVolume = ViewState->GetLightPropagationVolume();
 
 				check(LightPropagationVolume);
-				auto SetShadowRenderTargets = [this, LightPropagationVolume, ProjectedShadowInfo](FRHICommandList& RHICmdList)
+				auto SetShadowRenderTargets = [this, LightPropagationVolume, ProjectedShadowInfo](FRHICommandList& InRHICmdList)
 				{
-					GSceneRenderTargets.BeginRenderingReflectiveShadowMap(RHICmdList, LightPropagationVolume);
-					ProjectedShadowInfo->ClearDepth(RHICmdList, this, false);
+					GSceneRenderTargets.BeginRenderingReflectiveShadowMap(InRHICmdList, LightPropagationVolume);
+					ProjectedShadowInfo->ClearDepth(InRHICmdList, this, false);
 				};
 				SetShadowRenderTargets(RHICmdList);  // run it now, maybe run it later for parallel command lists				
 
@@ -3252,9 +3255,9 @@ bool FDeferredShadingSceneRenderer::RenderProjectedShadows(FRHICommandListImmedi
 			SCOPED_DRAW_EVENT(RHICmdList, ShadowDepthsFromOpaqueProjected);
 
 			bool bPerformClear = true;
-			auto SetShadowRenderTargets = [&bPerformClear](FRHICommandList& RHICmdList)
+			auto SetShadowRenderTargets = [&bPerformClear](FRHICommandList& InRHICmdList)
 			{
-				GSceneRenderTargets.BeginRenderingShadowDepth(RHICmdList, bPerformClear);
+				GSceneRenderTargets.BeginRenderingShadowDepth(InRHICmdList, bPerformClear);
 			};
 
 			SetShadowRenderTargets(RHICmdList);  // run it now, maybe run it later for parallel command lists
@@ -3417,10 +3420,10 @@ bool FDeferredShadingSceneRenderer::RenderCachedPreshadows(FRHICommandListImmedi
 					
 					//
 					bool bPerformClear = true;;
-					auto SetShadowRenderTargets = [this, &bPerformClear, ProjectedShadowInfo](FRHICommandList& RHICmdList)
+					auto SetShadowRenderTargets = [this, &bPerformClear, ProjectedShadowInfo](FRHICommandList& InRHICmdList)
 					{
-						SetRenderTarget(RHICmdList, FTextureRHIRef(), GSceneRenderTargets.PreShadowCacheDepthZ->GetRenderTargetItem().TargetableTexture);
-						ProjectedShadowInfo->ClearDepth(RHICmdList, this, bPerformClear);
+						SetRenderTarget(InRHICmdList, FTextureRHIRef(), GSceneRenderTargets.PreShadowCacheDepthZ->GetRenderTargetItem().TargetableTexture);
+						ProjectedShadowInfo->ClearDepth(InRHICmdList, this, bPerformClear);
 					};					
 					SetShadowRenderTargets(RHICmdList); // run it now, maybe run it later for parallel command lists
 					bPerformClear = false;
@@ -3530,9 +3533,9 @@ bool FForwardShadingSceneRenderer::RenderShadowDepthMap(FRHICommandListImmediate
 		SCOPED_DRAW_EVENT(RHICmdList, ShadowDepthsFromOpaqueForward);
 
 		bool bFirst = true;
-		auto SetShadowRenderTargets = [&bFirst](FRHICommandList& RHICmdList)
+		auto SetShadowRenderTargets = [&bFirst](FRHICommandList& InRHICmdList)
 		{
-			GSceneRenderTargets.BeginRenderingShadowDepth(RHICmdList, bFirst);
+			GSceneRenderTargets.BeginRenderingShadowDepth(InRHICmdList, bFirst);
 		};
 
 		SetShadowRenderTargets(RHICmdList);  // run it now, maybe run it later for parallel command lists

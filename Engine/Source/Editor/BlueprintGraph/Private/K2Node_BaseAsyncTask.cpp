@@ -5,7 +5,6 @@
 
 #include "CompilerResultsLog.h"
 #include "KismetCompiler.h"
-#include "K2ActionMenuBuilder.h"
 #include "BlueprintNodeSpawner.h"
 #include "BlueprintActionDatabaseRegistrar.h"
 
@@ -46,28 +45,6 @@ bool UK2Node_BaseAsyncTask::IsCompatibleWithGraph(const UEdGraph* TargetGraph) c
 		bIsCompatible = true;
 	}
 	return bIsCompatible && Super::IsCompatibleWithGraph(TargetGraph);
-}
-
-void UK2Node_BaseAsyncTask::GetMenuEntries(FGraphContextMenuBuilder& ContextMenuBuilder) const
-{
-	const UEdGraphSchema_K2* K2Schema = GetDefault<UEdGraphSchema_K2>();
-	EGraphType GraphType = K2Schema->GetGraphType(ContextMenuBuilder.CurrentGraph);
-	const bool bAllowLatentFuncs = (GraphType == GT_Ubergraph || GraphType == GT_Macro);
-
-	if (bAllowLatentFuncs)
-{
-		UK2Node_BaseAsyncTask* NodeTemplate = NewObject<UK2Node_BaseAsyncTask>(ContextMenuBuilder.OwnerOfTemporaries, GetClass());
-		CreateDefaultMenuEntry(NodeTemplate, ContextMenuBuilder);
-	}
-}
-
-TSharedPtr<FEdGraphSchemaAction_K2NewNode> UK2Node_BaseAsyncTask::CreateDefaultMenuEntry(UK2Node_BaseAsyncTask* NodeTemplate, FGraphContextMenuBuilder& ContextMenuBuilder) const
-{
-	TSharedPtr<FEdGraphSchemaAction_K2NewNode> NodeAction = FK2ActionMenuBuilder::AddNewNodeAction(ContextMenuBuilder, NodeTemplate->GetMenuCategory().ToString(), NodeTemplate->GetNodeTitle(ENodeTitleType::ListView), NodeTemplate->GetTooltipText().ToString(), 0, NodeTemplate->GetKeywords());
-	
-	NodeAction->NodeTemplate = NodeTemplate;
-
-	return NodeAction;
 }
 
 void UK2Node_BaseAsyncTask::AllocateDefaultPins()
@@ -357,23 +334,24 @@ void UK2Node_BaseAsyncTask::ExpandNode(class FKismetCompilerContext& CompilerCon
 	BreakAllNodeLinks();
 }
 
-bool UK2Node_BaseAsyncTask::HasExternalBlueprintDependencies(TArray<class UStruct*>* OptionalOutput) const
+bool UK2Node_BaseAsyncTask::HasExternalDependencies(TArray<class UStruct*>* OptionalOutput) const
 {
 	const UBlueprint* SourceBlueprint = GetBlueprint();
 
-	const bool bProxyFactoryResult = (ProxyFactoryClass != NULL) && (ProxyFactoryClass->ClassGeneratedBy != NULL) && (ProxyFactoryClass->ClassGeneratedBy != SourceBlueprint);
+	const bool bProxyFactoryResult = (ProxyFactoryClass != NULL) && (ProxyFactoryClass->ClassGeneratedBy != SourceBlueprint);
 	if (bProxyFactoryResult && OptionalOutput)
 	{
-		OptionalOutput->Add(ProxyFactoryClass);
+		OptionalOutput->AddUnique(ProxyFactoryClass);
 	}
 
-	const bool bProxyResult = (ProxyClass != NULL) && (ProxyClass->ClassGeneratedBy != NULL) && (ProxyClass->ClassGeneratedBy != SourceBlueprint);
+	const bool bProxyResult = (ProxyClass != NULL) && (ProxyClass->ClassGeneratedBy != SourceBlueprint);
 	if (bProxyResult && OptionalOutput)
 	{
-		OptionalOutput->Add(ProxyClass);
+		OptionalOutput->AddUnique(ProxyClass);
 	}
 
-	return bProxyFactoryResult || bProxyResult || Super::HasExternalBlueprintDependencies(OptionalOutput);
+	const bool bSuperResult = Super::HasExternalDependencies(OptionalOutput);
+	return bProxyFactoryResult || bProxyResult || bSuperResult;
 }
 
 FName UK2Node_BaseAsyncTask::GetCornerIcon() const

@@ -10,11 +10,51 @@
 #include "SRowEditor.h"
 #include "Engine/DataTable.h"
 #include "Json.h"
+#include "Engine/UserDefinedStruct.h"
  
 #define LOCTEXT_NAMESPACE "DataTableEditor"
 
-const FName FDataTableEditor::DataTableTabId( TEXT( "DataTableEditor_DataTable" ) );
-const FName FDataTableEditor::RowEditorTabId(TEXT("DataTableEditor_RowEditor"));
+const FName FDataTableEditor::DataTableTabId("DataTableEditor_DataTable");
+const FName FDataTableEditor::RowEditorTabId("DataTableEditor_RowEditor");
+const FName FDataTableEditor::RowNameColumnId("RowName");
+
+class SDataTableListViewRow : public SMultiColumnTableRow<FDataTableEditorRowListViewDataPtr>
+{
+public:
+	SLATE_BEGIN_ARGS(SDataTableListViewRow) {}
+		/** The widget that owns the tree.  We'll only keep a weak reference to it. */
+		SLATE_ARGUMENT(TSharedPtr<FDataTableEditor>, DataTableEditor)
+		/** The list item for this row */
+		SLATE_ARGUMENT(FDataTableEditorRowListViewDataPtr, Item)
+	SLATE_END_ARGS()
+
+	/** Construct function for this widget */
+	void Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTableView)
+	{
+		DataTableEditor = InArgs._DataTableEditor;
+		Item = InArgs._Item;
+		SMultiColumnTableRow<FDataTableEditorRowListViewDataPtr>::Construct(
+			FSuperRowType::FArguments()
+				.Style(FEditorStyle::Get(), "DataTableEditor.CellListViewRow"), 
+			InOwnerTableView
+			);
+	}
+
+	/** Overridden from SMultiColumnTableRow.  Generates a widget for this column of the list view. */
+	virtual TSharedRef<SWidget> GenerateWidgetForColumn(const FName& ColumnName) override
+	{
+		TSharedPtr<FDataTableEditor> DataTableEditorPtr = DataTableEditor.Pin();
+		return (DataTableEditorPtr.IsValid())
+			? DataTableEditorPtr->MakeCellWidget(Item, IndexInList, ColumnName)
+			: SNullWidget::NullWidget;
+	}
+
+private:
+	/** Weak reference to the data table editor that owns our list */
+	TWeakPtr<FDataTableEditor> DataTableEditor;
+	/** The item associated with this row of data */
+	FDataTableEditorRowListViewDataPtr Item;
+};
 
 void FDataTableEditor::RegisterTabSpawners(const TSharedRef<class FTabManager>& TabManager)
 {
@@ -41,9 +81,32 @@ FDataTableEditor::FDataTableEditor()
 
 FDataTableEditor::~FDataTableEditor()
 {
-	if (DataTable.IsValid())
+	GEditor->UnregisterForUndo(this);
+
+	const UDataTable* Table = GetDataTable();
+	if (Table)
 	{
 		SaveLayoutData();
+	}
+}
+
+void FDataTableEditor::PostUndo(bool bSuccess)
+{
+	HandleUndoRedo();
+}
+
+void FDataTableEditor::PostRedo(bool bSuccess)
+{
+	HandleUndoRedo();
+}
+
+void FDataTableEditor::HandleUndoRedo()
+{
+	const UDataTable* Table = GetDataTable();
+	if (Table)
+	{
+		HandlePostChange();
+		CallbackOnDataTableUndoRedo.ExecuteIfBound();
 	}
 }
 
@@ -53,10 +116,10 @@ void FDataTableEditor::PreChange(const class UUserDefinedStruct* Struct, FStruct
 
 void FDataTableEditor::PostChange(const class UUserDefinedStruct* Struct, FStructureEditorUtils::EStructureEditorChangeInfo Info)
 {
-	if (Struct && DataTable.IsValid() && (DataTable->RowStruct == Struct))
+	const UDataTable* Table = GetDataTable();
+	if (Struct && Table && (Table->RowStruct == Struct))
 	{
-		CachedDataTable.Empty();
-		ReloadVisibleData();
+		HandlePostChange();
 	}
 }
 
@@ -66,12 +129,25 @@ void FDataTableEditor::PreChange(const UDataTable* Changed, FDataTableEditorUtil
 
 void FDataTableEditor::PostChange(const UDataTable* Changed, FDataTableEditorUtils::EDataTableChangeInfo Info)
 {
-	FStringAssetReference::InvalidateTag(); // Should be removed after UE-5615 is fixed
-	if (Changed == DataTable.Get())
+	const UDataTable* Table = GetDataTable();
+	if (Changed == Table)
 	{
-		CachedDataTable.Empty();
-		ReloadVisibleData();
+		HandlePostChange();
 	}
+}
+
+const UDataTable* FDataTableEditor::GetDataTable() const
+{
+	return Cast<const UDataTable>(GetEditingObject());
+}
+
+void FDataTableEditor::HandlePostChange()
+{
+	// We need to cache and restore the selection here as RefreshCachedDataTable will re-create the list view items
+	const FName CachedSelection = HighlightedRowName;
+	HighlightedRowName = NAME_None;
+	RefreshCachedDataTable();
+	RestoreCachedSelection(CachedSelection, true/*bUpdateEvenIfValid*/);
 }
 
 void FDataTableEditor::InitDataTableEditor( const EToolkitMode::Type Mode, const TSharedPtr< class IToolkitHost >& InitToolkitHost, UDataTable* Table )
@@ -99,6 +175,9 @@ void FDataTableEditor::InitDataTableEditor( const EToolkitMode::Type Mode, const
 	FDataTableEditorModule& DataTableEditorModule = FModuleManager::LoadModuleChecked<FDataTableEditorModule>( "DataTableEditor" );
 	AddMenuExtender(DataTableEditorModule.GetMenuExtensibilityManager()->GetAllExtenders(GetToolkitCommands(), GetEditingObjects()));
 
+	// Support undo/redo
+	GEditor->RegisterForUndo(this);
+
 	// @todo toolkit world centric editing
 	/*// Setup our tool's layout
 	if( IsWorldCentricAssetEditor() )
@@ -120,19 +199,17 @@ FText FDataTableEditor::GetBaseToolkitName() const
 	return LOCTEXT( "AppLabel", "DataTable Editor" );
 }
 
-
 FString FDataTableEditor::GetWorldCentricTabPrefix() const
 {
 	return LOCTEXT("WorldCentricTabPrefix", "DataTable ").ToString();
 }
-
 
 FLinearColor FDataTableEditor::GetWorldCentricTabColorScale() const
 {
 	return FLinearColor( 0.0f, 0.0f, 0.2f, 0.5f );
 }
 
-FSlateColor FDataTableEditor::GetRowColor(FName RowName) const
+FSlateColor FDataTableEditor::GetRowTextColor(FName RowName) const
 {
 	if (RowName == HighlightedRowName)
 	{
@@ -141,18 +218,12 @@ FSlateColor FDataTableEditor::GetRowColor(FName RowName) const
 	return FSlateColor::UseForeground();
 }
 
-FReply FDataTableEditor::OnRowClicked(const FGeometry&, const FPointerEvent&, FName RowName)
+FOptionalSize FDataTableEditor::GetRowNameColumnWidth() const
 {
-	if (HighlightedRowName != RowName)
-	{
-		SetHighlightedRow(RowName);
-		CallbackOnRowHighlighted.ExecuteIfBound(HighlightedRowName);
-	}
-
-	return FReply::Handled();
+	return FOptionalSize(RowNameColumnWidth);
 }
 
-float FDataTableEditor::GetColumnWidth(const int32 ColumnIndex)
+float FDataTableEditor::GetColumnWidth(const int32 ColumnIndex) const
 {
 	if (ColumnWidths.IsValidIndex(ColumnIndex))
 	{
@@ -187,7 +258,7 @@ void FDataTableEditor::OnColumnResized(const float NewWidth, const int32 ColumnI
 				LayoutColumnWidths = LayoutData->GetObjectField(TEXT("ColumnWidths"));
 			}
 
-			const FString& ColumnName = CachedRawColumnNames[ColumnIndex];
+			const FString& ColumnName = AvailableColumns[ColumnIndex]->ColumnId.ToString();
 			LayoutColumnWidths->SetNumberField(ColumnName, NewWidth);
 		}
 	}
@@ -197,12 +268,13 @@ void FDataTableEditor::LoadLayoutData()
 {
 	LayoutData.Reset();
 
-	if (!DataTable.IsValid())
+	const UDataTable* Table = GetDataTable();
+	if (!Table)
 	{
 		return;
 	}
 
-	const FString LayoutDataFilename = FPaths::GameSavedDir() / TEXT("AssetData") / TEXT("DataTableEditorLayout") / DataTable->GetName() + TEXT(".json");
+	const FString LayoutDataFilename = FPaths::GameSavedDir() / TEXT("AssetData") / TEXT("DataTableEditorLayout") / Table->GetName() + TEXT(".json");
 
 	FString JsonText;
 	if (FFileHelper::LoadFileToString(JsonText, *LayoutDataFilename))
@@ -214,12 +286,13 @@ void FDataTableEditor::LoadLayoutData()
 
 void FDataTableEditor::SaveLayoutData()
 {
-	if (!DataTable.IsValid() || !LayoutData.IsValid())
+	const UDataTable* Table = GetDataTable();
+	if (!Table || !LayoutData.IsValid())
 	{
 		return;
 	}
 
-	const FString LayoutDataFilename = FPaths::GameSavedDir() / TEXT("AssetData") / TEXT("DataTableEditorLayout") / DataTable->GetName() + TEXT(".json");
+	const FString LayoutDataFilename = FPaths::GameSavedDir() / TEXT("AssetData") / TEXT("DataTableEditorLayout") / Table->GetName() + TEXT(".json");
 
 	FString JsonText;
 	TSharedRef< TJsonWriter< TCHAR, TPrettyJsonPrintPolicy<TCHAR> > > JsonWriter = TJsonWriterFactory< TCHAR, TPrettyJsonPrintPolicy<TCHAR> >::Create(&JsonText);
@@ -229,192 +302,228 @@ void FDataTableEditor::SaveLayoutData()
 	}
 }
 
-TSharedRef<SWidget> FDataTableEditor::CreateGridPanel()
+TSharedRef<ITableRow> FDataTableEditor::MakeRowNameWidget(FDataTableEditorRowListViewDataPtr InRowDataPtr, const TSharedRef<STableViewBase>& OwnerTable)
 {
-	TSharedRef<SVerticalBox> VerticalBox = SNew(SVerticalBox);
+	return
+		SNew(STableRow<FDataTableEditorRowListViewDataPtr>, OwnerTable)
+		.Style(FEditorStyle::Get(), "DataTableEditor.NameListViewRow")
+		[
+			SNew(SBox)
+			.Padding(FMargin(4, 2, 4, 2))
+			[
+				SNew(STextBlock)
+				.ColorAndOpacity(this, &FDataTableEditor::GetRowTextColor, InRowDataPtr->RowId)
+				.Text(InRowDataPtr->DisplayName)
+				.HighlightText(this, &FDataTableEditor::GetFilterText)
+			]
+		];
+}
 
-	if (DataTable.IsValid())
+TSharedRef<ITableRow> FDataTableEditor::MakeRowWidget(FDataTableEditorRowListViewDataPtr InRowDataPtr, const TSharedRef<STableViewBase>& OwnerTable)
+{
+	return
+		SNew(SDataTableListViewRow, OwnerTable)
+		.DataTableEditor(SharedThis(this))
+		.Item(InRowDataPtr);
+}
+
+TSharedRef<SWidget> FDataTableEditor::MakeCellWidget(FDataTableEditorRowListViewDataPtr InRowDataPtr, const int32 InRowIndex, const FName& InColumnId)
+{
+	int32 ColumnIndex = 0;
+	for (; ColumnIndex < AvailableColumns.Num(); ++ColumnIndex)
 	{
-		if (CachedDataTable.Num() == 0)
+		const FDataTableEditorColumnHeaderDataPtr& ColumnData = AvailableColumns[ColumnIndex];
+		if (ColumnData->ColumnId == InColumnId)
 		{
-			CachedDataTable = DataTable->GetTableData();
-			check(CachedDataTable.Num() > 0); // There should always be at least the column titles row
-
-			CachedRawColumnNames = DataTable->GetUniqueColumnTitles();
-
-			RowsVisibility.SetNum(CachedDataTable.Num());
-			for (bool& RowVisibility : RowsVisibility)
-			{
-				RowVisibility = true;
-			}
-
-			ColumnWidths.SetNum(CachedRawColumnNames.Num());
-			
-			// Load the persistent column widths from the layout data
-			{
-				const TSharedPtr<FJsonObject>* LayoutColumnWidths = nullptr;
-				if (LayoutData.IsValid() && LayoutData->TryGetObjectField(TEXT("ColumnWidths"), LayoutColumnWidths))
-				{
-					for(int32 ColumnIndex = 0; ColumnIndex < CachedRawColumnNames.Num(); ++ColumnIndex)
-					{
-						const FString& ColumnName = CachedRawColumnNames[ColumnIndex];
-
-						double LayoutColumnWidth = 0.0f;
-						if ((*LayoutColumnWidths)->TryGetNumberField(ColumnName, LayoutColumnWidth))
-						{
-							FColumnWidth& ColumnWidth = ColumnWidths[ColumnIndex];
-							ColumnWidth.bIsAutoSized = false;
-							ColumnWidth.CurrentWidth = static_cast<float>(LayoutColumnWidth);
-						}
-					}
-				}
-			}
+			break;
 		}
+	}
 
-		check(CachedDataTable.Num() > 0 && CachedDataTable.Num() == RowsVisibility.Num());
-		check(CachedDataTable.Num() > 0 && CachedDataTable[0].Num() == ColumnWidths.Num());
-		check(CachedRawColumnNames.Num() > 0 && CachedRawColumnNames.Num() == ColumnWidths.Num());
+	// Valid column ID?
+	if (AvailableColumns.IsValidIndex(ColumnIndex))
+	{
+		return SNew(SBox)
+			.Padding(FMargin(4, 2, 4, 2))
+			[
+				SNew(STextBlock)
+				.TextStyle(FEditorStyle::Get(), "DataTableEditor.CellText")
+				.ColorAndOpacity(this, &FDataTableEditor::GetRowTextColor, InRowDataPtr->RowId)
+				.Text(InRowDataPtr->CellData[ColumnIndex])
+				.HighlightText(this, &FDataTableEditor::GetFilterText)
+				.ToolTipText(FText::Format(LOCTEXT("ColumnRowNameFmt", "{0}: {1}"), AvailableColumns[ColumnIndex]->DisplayName, InRowDataPtr->CellData[ColumnIndex]))
+			];
+	}
 
-		int32 VisibleRowIndex = 0;
-		TArray<FString>& ColumnTitles = CachedDataTable[0];
-		for(int32 RowIndex = 0; RowIndex < CachedDataTable.Num(); ++RowIndex)
+	return SNullWidget::NullWidget;
+}
+
+void FDataTableEditor::OnRowNamesListViewScrolled(double InScrollOffset)
+{
+	// Synchronize the list views
+	CellsListView->SetScrollOffset(InScrollOffset);
+}
+
+void FDataTableEditor::OnCellsListViewScrolled(double InScrollOffset)
+{
+	// Synchronize the list views
+	RowNamesListView->SetScrollOffset(InScrollOffset);
+}
+
+void FDataTableEditor::OnRowSelectionChanged(FDataTableEditorRowListViewDataPtr InNewSelection, ESelectInfo::Type InSelectInfo)
+{
+	const bool bSelectionChanged = !InNewSelection.IsValid() || InNewSelection->RowId != HighlightedRowName;
+	const FName NewRowName = (InNewSelection.IsValid()) ? InNewSelection->RowId : NAME_None;
+
+	SetHighlightedRow(NewRowName);
+
+	if (bSelectionChanged)
+	{
+		CallbackOnRowHighlighted.ExecuteIfBound(HighlightedRowName);
+	}
+}
+
+FText FDataTableEditor::GetFilterText() const
+{
+	return ActiveFilterText;
+}
+
+void FDataTableEditor::OnFilterTextChanged(const FText& InFilterText)
+{
+	ActiveFilterText = InFilterText;
+	UpdateVisibleRows();
+}
+
+void FDataTableEditor::RefreshCachedDataTable()
+{
+	const UDataTable* Table = GetDataTable();
+	FDataTableEditorUtils::CacheDataTableForEditing(Table, AvailableColumns, AvailableRows);
+
+	// Update the desired width of the row names column
+	// This prevents it growing or shrinking as you scroll the list view
+	{
+		TSharedRef<FSlateFontMeasure> FontMeasure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
+		const FTextBlockStyle& CellTextStyle = FEditorStyle::GetWidgetStyle<FTextBlockStyle>("DataTableEditor.CellText");
+		static const float CellPadding = 10.0f;
+		
+		RowNameColumnWidth = 10.0f;
+		for (const FDataTableEditorRowListViewDataPtr& RowData : AvailableRows)
 		{
-			if (RowsVisibility[RowIndex])
+			const float RowNameWidth = FontMeasure->Measure(RowData->DisplayName, CellTextStyle.Font).X + CellPadding;
+			RowNameColumnWidth = FMath::Max(RowNameColumnWidth, RowNameWidth);
+		}
+	}
+
+	// Setup the default auto-sized columns
+	ColumnWidths.SetNum(AvailableColumns.Num());
+	for (int32 ColumnIndex = 0; ColumnIndex < AvailableColumns.Num(); ++ColumnIndex)
+	{
+		const FDataTableEditorColumnHeaderDataPtr& ColumnData = AvailableColumns[ColumnIndex];
+		FColumnWidth& ColumnWidth = ColumnWidths[ColumnIndex];
+		ColumnWidth.CurrentWidth = FMath::Clamp(ColumnData->DesiredColumnWidth, 10.0f, 400.0f); // Clamp auto-sized columns to a reasonable limit
+	}
+
+	// Load the persistent column widths from the layout data
+	{
+		const TSharedPtr<FJsonObject>* LayoutColumnWidths = nullptr;
+		if (LayoutData.IsValid() && LayoutData->TryGetObjectField(TEXT("ColumnWidths"), LayoutColumnWidths))
+		{
+			for(int32 ColumnIndex = 0; ColumnIndex < AvailableColumns.Num(); ++ColumnIndex)
 			{
-				const bool bIsHeader = (RowIndex == 0);
-				const FLinearColor RowColor = (VisibleRowIndex % 2 == 0) ? FLinearColor::Gray : FLinearColor::Black;
+				const FDataTableEditorColumnHeaderDataPtr& ColumnData = AvailableColumns[ColumnIndex];
 
-				TArray<FString>& Row = CachedDataTable[RowIndex];
-				FName RowName(*Row[0]);
-				TAttribute<FSlateColor> ForegroundColor = bIsHeader
-					? FSlateColor::UseForeground()
-					: TAttribute<FSlateColor>::Create(
-					TAttribute<FSlateColor>::FGetter::CreateSP(this, &FDataTableEditor::GetRowColor, RowName));
-
-				auto RowClickCallback = bIsHeader
-					? FPointerEventHandler()
-					: FPointerEventHandler::CreateSP(this, &FDataTableEditor::OnRowClicked, RowName);
-
-				const float SplitterHandleSize = 2.0f;
-				TSharedRef<SSplitter> RowSplitter = SNew(SSplitter)
-					.PhysicalSplitterHandleSize(SplitterHandleSize)
-					.HitDetectionSplitterHandleSize(4.0f);
-
-				VerticalBox->AddSlot()
-				[
-					RowSplitter
-				];
-
-				float ColumnDesiredWidth = 0.0f;
-				for(int32 ColumnIndex = 0; ColumnIndex < Row.Num(); ++ColumnIndex)
+				double LayoutColumnWidth = 0.0f;
+				if ((*LayoutColumnWidths)->TryGetNumberField(ColumnData->ColumnId.ToString(), LayoutColumnWidth))
 				{
-					TSharedPtr<SWidget> ColumnEntryWidget;
-
-					RowSplitter->AddSlot()
-					.Value(TAttribute<float>::Create(TAttribute<float>::FGetter::CreateSP(this, &FDataTableEditor::GetColumnWidth, ColumnIndex)))
-					.OnSlotResized(SSplitter::FOnSlotResized::CreateSP(this, &FDataTableEditor::OnColumnResized, ColumnIndex))
-					.SizeRule(SSplitter::ManualSize)
-					[
-						SAssignNew(ColumnEntryWidget, SBorder)
-						.Padding(2.0f)
-						.BorderImage(FEditorStyle::GetBrush("ToolPanel.GroupBorder"))
-						.BorderBackgroundColor(RowColor)
-						.ForegroundColor(ForegroundColor)
-						.OnMouseButtonDown(RowClickCallback)
-						[
-							SNew(STextBlock)
-							.Text(FText::FromString(Row[ColumnIndex]))
-							.ToolTipText(bIsHeader 
-							?	(FText::Format(LOCTEXT("ColumnHeaderNameFmt", "Column '{0}'"), FText::FromString(ColumnTitles[ColumnIndex]))) 
-							:	(FText::Format(LOCTEXT("ColumnRowNameFmt", "{0}: {1}"), FText::FromString(ColumnTitles[ColumnIndex]), FText::FromString(Row[ColumnIndex]))))
-						]
-					];
-
 					FColumnWidth& ColumnWidth = ColumnWidths[ColumnIndex];
-					if (ColumnWidth.bIsAutoSized)
-					{
-						ColumnEntryWidget->SlatePrepass(1.0f);
-						ColumnWidth.CurrentWidth = FMath::Max(ColumnWidth.CurrentWidth, ColumnEntryWidget->GetDesiredSize().X + SplitterHandleSize);
-					}
+					ColumnWidth.bIsAutoSized = false;
+					ColumnWidth.CurrentWidth = static_cast<float>(LayoutColumnWidth);
 				}
-
-				// Dummy splitter slot to allow the last column to be resized
-				RowSplitter->AddSlot()
-				.Value(TAttribute<float>::Create(TAttribute<float>::FGetter::CreateSP(this, &FDataTableEditor::GetColumnWidth, static_cast<int32>(INDEX_NONE))))
-				.OnSlotResized(SSplitter::FOnSlotResized::CreateSP(this, &FDataTableEditor::OnColumnResized, static_cast<int32>(INDEX_NONE)))
-				.SizeRule(SSplitter::ManualSize)
-				[
-					SNullWidget::NullWidget
-				];
-
-				++VisibleRowIndex;
-			}
-		}
-
-		// Update the currently selected row to try and ensure it's valid
-		if (HighlightedRowName.IsNone() || !DataTable->RowMap.Contains(HighlightedRowName))
-		{
-			if (CachedDataTable.Num() > 2)
-			{
-				// 1 is the first row in the table
-				// 0 is the name column
-				SetHighlightedRow(*CachedDataTable[1][0]);
-			}
-			else
-			{
-				SetHighlightedRow(NAME_None);
 			}
 		}
 	}
 
-	return VerticalBox;
+	ColumnNamesHeaderRow->ClearColumns();
+	for (int32 ColumnIndex = 0; ColumnIndex < AvailableColumns.Num(); ++ColumnIndex)
+	{
+		const FDataTableEditorColumnHeaderDataPtr& ColumnData = AvailableColumns[ColumnIndex];
+
+		ColumnNamesHeaderRow->AddColumn(
+			SHeaderRow::Column(ColumnData->ColumnId)
+			.DefaultLabel(ColumnData->DisplayName)
+			.ManualWidth(TAttribute<float>::Create(TAttribute<float>::FGetter::CreateSP(this, &FDataTableEditor::GetColumnWidth, ColumnIndex)))
+			.OnWidthChanged(this, &FDataTableEditor::OnColumnResized, ColumnIndex)
+			);
+	}
+
+	UpdateVisibleRows();
 }
 
-void FDataTableEditor::OnSearchTextChanged(const FText& SearchText)
+void FDataTableEditor::UpdateVisibleRows()
 {
-	FString SearchFor = SearchText.ToString();
-	if (!SearchFor.IsEmpty())
+	if (ActiveFilterText.IsEmptyOrWhitespace())
 	{
-		check(CachedDataTable.Num() == RowsVisibility.Num());
+		VisibleRows = AvailableRows;
+	}
+	else
+	{
+		VisibleRows.Empty(AvailableRows.Num());
 
-		// starting from index 1, because 0 is header
-		for (int32 RowIdx = 1; RowIdx < CachedDataTable.Num(); ++RowIdx)
+		const FString& ActiveFilterString = ActiveFilterText.ToString();
+		for (const FDataTableEditorRowListViewDataPtr& RowData : AvailableRows)
 		{
-			RowsVisibility[RowIdx] = false;
+			bool bPassesFilter = false;
 
-			for (int32 i = 0; i < CachedDataTable[RowIdx].Num(); ++i)
+			if (RowData->DisplayName.ToString().Contains(ActiveFilterString))
 			{
-				if (SearchFor.Len() <= CachedDataTable[RowIdx][i].Len())
+				bPassesFilter = true;
+			}
+			else
+			{
+				for (const FText& CellText : RowData->CellData)
 				{
-					if (CachedDataTable[RowIdx][i].Contains(SearchFor))
+					if (CellText.ToString().Contains(ActiveFilterString))
 					{
-						RowsVisibility[RowIdx] = true;
+						bPassesFilter = true;
 						break;
 					}
 				}
 			}
-		}
-	}
-	else
-	{
-		for (int32 RowIdx = 0; RowIdx < RowsVisibility.Num(); ++RowIdx)
-		{
-			RowsVisibility[RowIdx] = true;
+
+			if (bPassesFilter)
+			{
+				VisibleRows.Add(RowData);
+			}
 		}
 	}
 
-	ReloadVisibleData();
+	RowNamesListView->RequestListRefresh();
+	CellsListView->RequestListRefresh();
+
+	RestoreCachedSelection(HighlightedRowName);
 }
 
-void FDataTableEditor::ReloadVisibleData()
+void FDataTableEditor::RestoreCachedSelection(const FName InCachedSelection, const bool bUpdateEvenIfValid)
 {
-	if (ScrollBoxWidget.IsValid())
+	// Validate the requested selection to see if it matches a known row
+	bool bSelectedRowIsValid = false;
+	if (!InCachedSelection.IsNone())
 	{
-		ScrollBoxWidget->ClearChildren();
-		ScrollBoxWidget->AddSlot()
-			[
-				CreateGridPanel()
-			];
+		bSelectedRowIsValid = VisibleRows.ContainsByPredicate([&InCachedSelection](const FDataTableEditorRowListViewDataPtr& RowData) -> bool
+		{
+			return RowData->RowId == InCachedSelection;
+		});
+	}
+
+	// Apply the new selection (if required)
+	if (!bSelectedRowIsValid)
+	{
+		SetHighlightedRow((VisibleRows.Num() > 1) ? VisibleRows[0]->RowId : NAME_None);
+		CallbackOnRowHighlighted.ExecuteIfBound(HighlightedRowName);
+	}
+	else if (bUpdateEvenIfValid)
+	{
+		SetHighlightedRow(InCachedSelection);
+		CallbackOnRowHighlighted.ExecuteIfBound(HighlightedRowName);
 	}
 }
 
@@ -422,22 +531,64 @@ TSharedRef<SVerticalBox> FDataTableEditor::CreateContentBox()
 {
 	TSharedRef<SScrollBar> HorizontalScrollBar = SNew(SScrollBar)
 		.Orientation(Orient_Horizontal)
-		.Thickness(FVector2D(5, 5));
+		.Thickness(FVector2D(8.0f, 8.0f));
 
 	TSharedRef<SScrollBar> VerticalScrollBar = SNew(SScrollBar)
 		.Orientation(Orient_Vertical)
-		.Thickness(FVector2D(5, 5));
+		.Thickness(FVector2D(8.0f, 8.0f));
+
+	TSharedRef<SHeaderRow> RowNamesHeaderRow = SNew(SHeaderRow);
+	RowNamesHeaderRow->AddColumn(
+		SHeaderRow::Column(RowNameColumnId)
+		.DefaultLabel(FText::GetEmpty())
+		);
+
+	ColumnNamesHeaderRow = SNew(SHeaderRow);
+
+	RowNamesListView = SNew(SListView<FDataTableEditorRowListViewDataPtr>)
+		.ListItemsSource(&VisibleRows)
+		.HeaderRow(RowNamesHeaderRow)
+		.OnGenerateRow(this, &FDataTableEditor::MakeRowNameWidget)
+		.OnListViewScrolled(this, &FDataTableEditor::OnRowNamesListViewScrolled)
+		.OnSelectionChanged(this, &FDataTableEditor::OnRowSelectionChanged)
+		.ScrollbarVisibility(EVisibility::Collapsed)
+		.ConsumeMouseWheel(EConsumeMouseWheel::Always)
+		.SelectionMode(ESelectionMode::Single)
+		.AllowOverscroll(EAllowOverscroll::No);
+
+	CellsListView = SNew(SListView<FDataTableEditorRowListViewDataPtr>)
+		.ListItemsSource(&VisibleRows)
+		.HeaderRow(ColumnNamesHeaderRow)
+		.OnGenerateRow(this, &FDataTableEditor::MakeRowWidget)
+		.OnListViewScrolled(this, &FDataTableEditor::OnCellsListViewScrolled)
+		.OnSelectionChanged(this, &FDataTableEditor::OnRowSelectionChanged)
+		.ExternalScrollbar(VerticalScrollBar)
+		.ConsumeMouseWheel(EConsumeMouseWheel::Always)
+		.SelectionMode(ESelectionMode::Single)
+		.AllowOverscroll(EAllowOverscroll::No);
+
+	RefreshCachedDataTable();
 
 	return SNew(SVerticalBox)
 		+SVerticalBox::Slot()
 		.AutoHeight()
 		[
-			SAssignNew(SearchBox, SSearchBox)
-			.OnTextChanged(this, &FDataTableEditor::OnSearchTextChanged)
+			SNew(SSearchBox)
+			.InitialText(this, &FDataTableEditor::GetFilterText)
+			.OnTextChanged(this, &FDataTableEditor::OnFilterTextChanged)
 		]
 		+SVerticalBox::Slot()
 		[
 			SNew(SHorizontalBox)
+			+SHorizontalBox::Slot()
+			.AutoWidth()
+			[
+				SNew(SBox)
+				.WidthOverride(this, &FDataTableEditor::GetRowNameColumnWidth)
+				[
+					RowNamesListView.ToSharedRef()
+				]
+			]
 			+SHorizontalBox::Slot()
 			[
 				SNew(SScrollBox)
@@ -445,14 +596,7 @@ TSharedRef<SVerticalBox> FDataTableEditor::CreateContentBox()
 				.ExternalScrollbar(HorizontalScrollBar)
 				+SScrollBox::Slot()
 				[
-					SAssignNew(ScrollBoxWidget, SScrollBox)
-					.Orientation(Orient_Vertical)
-					.ExternalScrollbar(VerticalScrollBar)
-					.ConsumeMouseWheel(EConsumeMouseWheel::Always) // Always consume the mouse wheel events to prevent the outer scroll box from scrolling
-					+SScrollBox::Slot()
-					[
-						CreateGridPanel()
-					]
+					CellsListView.ToSharedRef()
 				]
 			]
 			+SHorizontalBox::Slot()
@@ -464,15 +608,37 @@ TSharedRef<SVerticalBox> FDataTableEditor::CreateContentBox()
 		+SVerticalBox::Slot()
 		.AutoHeight()
 		[
-			HorizontalScrollBar
+			SNew(SHorizontalBox)
+			+SHorizontalBox::Slot()
+			.AutoWidth()
+			[
+				SNew(SBox)
+				.WidthOverride(this, &FDataTableEditor::GetRowNameColumnWidth)
+				[
+					SNullWidget::NullWidget
+				]
+			]
+			+SHorizontalBox::Slot()
+			[
+				HorizontalScrollBar
+			]
 		];
 }
 
 TSharedRef<SWidget> FDataTableEditor::CreateRowEditorBox()
 {
-	auto RowEditor = SNew(SRowEditor, DataTable.Get());
+	UDataTable* Table = Cast<UDataTable>(GetEditingObject());
+
+	// Support undo/redo
+	if (Table)
+	{
+		Table->SetFlags(RF_Transactional);
+	}
+
+	auto RowEditor = SNew(SRowEditor, Table);
 	RowEditor->RowSelectedCallback.BindSP(this, &FDataTableEditor::SetHighlightedRow);
 	CallbackOnRowHighlighted.BindSP(RowEditor, &SRowEditor::SelectRow);
+	CallbackOnDataTableUndoRedo.BindSP(RowEditor, &SRowEditor::HandleUndoRedo);
 	return RowEditor;
 }
 
@@ -501,32 +667,68 @@ TSharedRef<SDockTab> FDataTableEditor::SpawnTab_DataTable( const FSpawnTabArgs& 
 {
 	check( Args.GetTabId().TabType == DataTableTabId );
 
-	DataTable = Cast<UDataTable>(GetEditingObject());
+	UDataTable* Table = Cast<UDataTable>(GetEditingObject());
+
+	// Support undo/redo
+	if (Table)
+	{
+		Table->SetFlags(RF_Transactional);
+	}
 
 	LoadLayoutData();
-
-	TSharedRef<SVerticalBox> ContentBox = CreateContentBox();
-
-	GridPanelOwner = 
-		SNew(SBorder)
-		.Padding(2)
-		.BorderImage( FEditorStyle::GetBrush( "ToolPanel.GroupBorder" ) )
-		[
-			ContentBox
-		];
 
 	return SNew(SDockTab)
 		.Icon( FEditorStyle::GetBrush("DataTableEditor.Tabs.Properties") )
 		.Label( LOCTEXT("DataTableTitle", "Data Table") )
 		.TabColorScale( GetTabColorScale() )
 		[
-			GridPanelOwner.ToSharedRef()
+			SNew(SBorder)
+			.Padding(2)
+			.BorderImage( FEditorStyle::GetBrush( "ToolPanel.GroupBorder" ) )
+			[
+				CreateContentBox()
+			]
 		];
 }
 
 void FDataTableEditor::SetHighlightedRow(FName Name)
 {
-	HighlightedRowName = Name;
+	if (Name == HighlightedRowName)
+	{
+		return;
+	}
+
+	if (Name.IsNone())
+	{
+		HighlightedRowName = NAME_None;
+
+		// Synchronize the list views
+		RowNamesListView->ClearSelection();
+		CellsListView->ClearSelection();
+	}
+	else
+	{
+		HighlightedRowName = Name;
+
+		FDataTableEditorRowListViewDataPtr* NewSelectionPtr = VisibleRows.FindByPredicate([&Name](const FDataTableEditorRowListViewDataPtr& RowData) -> bool
+		{
+			return RowData->RowId == Name;
+		});
+
+		// Synchronize the list views
+		if (NewSelectionPtr)
+		{
+			RowNamesListView->SetSelection(*NewSelectionPtr);
+			CellsListView->SetSelection(*NewSelectionPtr);
+
+			CellsListView->RequestScrollIntoView(*NewSelectionPtr);
+		}
+		else
+		{
+			RowNamesListView->ClearSelection();
+			CellsListView->ClearSelection();
+		}
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

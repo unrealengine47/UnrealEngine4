@@ -1,9 +1,7 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
-
-#include "ClassMaps.h"
-
 #pragma once
+#include "ClassMaps.h"
 
 extern class FCompilerMetadataManager GScriptHelper;
 
@@ -75,6 +73,8 @@ public:
 	EArrayType::Type    ArrayType;
 	uint64              PropertyFlags;
 	ERefQualifier::Type RefQualifier; // This is needed because of legacy stuff - FString mangles the flags for reasons that have become lost in time but we need this info for testing for invalid replicated function signatures.
+
+	TSharedPtr<FPropertyBase> MapKeyProp;
 
 	/**
 	 * A mask of EPropertyHeaderExportFlags which are used for modifying how this property is exported to the native class header
@@ -794,6 +794,14 @@ public:
 		}
 		TokenType = TOKEN_Const;
 	}
+	void SetConstChar(TCHAR InChar)
+	{
+		//@TODO: Treating this like a string for now, nothing consumes it
+		(FPropertyBase&)*this = FPropertyBase(CPT_String);
+		String[0] = InChar;
+		String[1] = 0;
+		TokenType = TOKEN_Const;
+	}
 	//!!struct constants
 
 	// Getters.
@@ -881,6 +889,8 @@ struct FFuncInfo
 	bool		bSealedEvent;
 	/** Delegate macro line in header. */
 	int32		MacroLine;
+	/** Position in file where this function was declared. Points to first char of function name. */
+	int32 InputPos;
 	//@}
 
 	/** Constructor. */
@@ -896,6 +906,7 @@ struct FFuncInfo
 		, RPCResponseId(0)
 		, bSealedEvent(false)
 		, MacroLine(-1)
+		, InputPos(-1)
 	{}
 
 	FFuncInfo(const FFuncInfo& Other)
@@ -908,6 +919,7 @@ struct FFuncInfo
 		, RPCId(Other.RPCId)
 		, RPCResponseId(Other.RPCResponseId)
 		, MacroLine(Other.MacroLine)
+		, InputPos(Other.InputPos)
 	{
 		Function.Clone(Other.Function);
 		if (FunctionReference)

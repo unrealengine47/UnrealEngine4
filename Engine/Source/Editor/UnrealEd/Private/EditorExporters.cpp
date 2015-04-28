@@ -38,6 +38,7 @@
 #include "EngineUtils.h"
 #include "DeviceProfiles/DeviceProfileManager.h"
 #include "TileRendering.h"
+#include "Engine/TextureLODSettings.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogEditorExporters, Log, All);
 
@@ -897,6 +898,14 @@ public:
 		if (MaterialInterface)
 		{
 			return MaterialInterface->IsTwoSided();
+		}
+		return false;
+	}
+	virtual bool IsDitheredLODTransition() const  override
+	{ 
+		if (MaterialInterface)
+		{
+			return MaterialInterface->IsDitheredLODTransition();
 		}
 		return false;
 	}
@@ -2455,12 +2464,12 @@ UExportTextContainer::UExportTextContainer(const FObjectInitializer& ObjectIniti
 -----------------------------------------------------------------------------*/
 namespace MaterialExportUtils
 {
-	void RenderMaterialTile(UWorld* InWorld, FMaterialRenderProxy* InMaterialProxy, UTextureRenderTarget2D* InRenderTarget)
+	void RenderMaterialTile(UWorld* InWorld, FMaterialRenderProxy* InMaterialProxy, UTextureRenderTarget2D* InRenderTarget, bool bFrontView)
 	{
 		float CurrentRealTime = 0.f;
 		float CurrentWorldTime = 0.f;
 		float DeltaWorldTime = 0.f;
-
+	
 		if (InWorld)
 		{
 			CurrentRealTime = InWorld->GetRealTimeSeconds();
@@ -2484,13 +2493,25 @@ namespace MaterialExportUtils
 
 		FIntPoint ViewSize = RenderTargetResource->GetSizeXY();
 		FIntRect ViewRect(FIntPoint(0, 0), ViewSize);
-		// YZ - Front view
+		// By default render tile in top view
 		FMatrix ViewMatrix = FMatrix(
-						FPlane(1, 0, 0, 0),
-						FPlane(0, 0, -1, 0),
-						FPlane(0, 1, 0, 0),
-						FPlane(0, 0, 0, 1));
-					
+					FPlane(1, 0, 0, 0),
+					FPlane(0, -1, 0, 0),
+					FPlane(0, 0, -1, 0),
+					FPlane(0, 0, 0, 1));
+		FQuat Rotation = FQuat::Identity;
+
+		if (bFrontView)
+		{
+			ViewMatrix = FMatrix(
+					FPlane(1, 0, 0, 0),
+					FPlane(0, 0, -1, 0),
+					FPlane(0, 1, 0, 0),
+					FPlane(0, 0, 0, 1));
+			// Tile mesh was created on XY plane
+			Rotation = FRotator(0.0f, 0.0f, 90.0f).Quaternion();
+		}
+						
 		// make a temporary view
 		FSceneViewInitOptions ViewInitOptions;
 		ViewInitOptions.ViewFamily = ViewFamily;
@@ -2503,21 +2524,19 @@ namespace MaterialExportUtils
 				
 		FSceneView* View = new FSceneView(ViewInitOptions);
 						
-		ENQUEUE_UNIQUE_RENDER_COMMAND_FOURPARAMETER(
+		ENQUEUE_UNIQUE_RENDER_COMMAND_FIVEPARAMETER(
 			RenderMaterialTileCommand,
 			FSceneView*, InView, View,
 			FMaterialRenderProxy*, InProxy, InMaterialProxy,
 			const FRenderTarget*, InRenderTarget, RenderTargetResource,
 			FIntPoint, InSize, ViewSize,
+			FQuat, InRotation, Rotation,
 			{
 				::SetRenderTarget(RHICmdList, InRenderTarget->GetRenderTargetTexture(), FTextureRHIRef());
 				FIntRect ViewportRect = FIntRect(FIntPoint::ZeroValue, InSize);
 				RHICmdList.SetViewport(ViewportRect.Min.X, ViewportRect.Min.Y, 0.0f, ViewportRect.Max.X, ViewportRect.Max.Y, 1.0f);
-				
-				// We want to render material into tile that has vertices on YZ plane
-				// By default tile mesh created on XY plane, so rotate it
-				FQuat Rotation = FRotator(0.f, 0.f, 90).Quaternion();
-				FTileRenderer::DrawRotatedTile(RHICmdList, *InView, InProxy, false, Rotation, 0.f, 0.f, InSize.X, InSize.Y,  0.f, 0.f, 1.f, 1.f);
+		
+				FTileRenderer::DrawRotatedTile(RHICmdList, *InView, InProxy, false, InRotation, 0.f, 0.f, InSize.X, InSize.Y,  0.f, 0.f, 1.f, 1.f);
 			});
 
 		FlushRenderingCommands();
@@ -2546,15 +2565,16 @@ namespace MaterialExportUtils
 			OutBMP.Add(UniformValue);
 			return true;
 		}
-
+	
 		check(InRenderTarget);
-		
-		RenderMaterialTile(InWorld, MaterialProxy, InRenderTarget);
-		
+
 		bool bNormalmap = (InMaterialProperty == MP_Normal);
+
+		RenderMaterialTile(InWorld, MaterialProxy, InRenderTarget, !bNormalmap);
+					
 		FReadSurfaceDataFlags ReadPixelFlags(bNormalmap ? RCM_SNorm : RCM_UNorm);
 		ReadPixelFlags.SetLinearToGamma(false);
-		
+
 		FTextureRenderTargetResource* RTResource = InRenderTarget->GameThread_GetRenderTargetResource();
 		return RTResource->ReadPixels(OutBMP, ReadPixelFlags);
 	}

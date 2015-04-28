@@ -3,6 +3,41 @@
 #include "Paper2DPrivatePCH.h"
 #include "SpriteEditorOnlyTypes.h"
 #include "ComponentReregisterContext.h"
+#include "PhysicsEngine/BoxElem.h"
+#include "PhysicsEngine/BodySetup.h"
+#include "PaperTileMap.h"
+#include "PaperTileLayer.h"
+#include "PaperTileMapComponent.h"
+
+// Handles the rotation and flipping of collision geometry from a tile
+// 0,5,6,3 are clockwise rotations of a regular tile
+// 4,7,2,1 are clockwise rotations of a horizontally flipped tile
+const static FTransform TilePermutationTransforms[8] =
+{
+	// 000 - normal
+	FTransform::Identity,
+
+	// 001 - diagonal
+	FTransform(FRotator(  90.0f, 0.0f, 0.0f), FVector::ZeroVector, -PaperAxisX.GetAbs() + PaperAxisY.GetAbs() + PaperAxisZ.GetAbs()),
+
+	// 010 - flip Y
+	FTransform(FRotator(-180.0f, 0.0f, 0.0f), FVector::ZeroVector, -PaperAxisX.GetAbs() + PaperAxisY.GetAbs() + PaperAxisZ.GetAbs()),
+
+	// 011 - diagonal then flip Y (rotate 270 clockwise)
+	FTransform(FRotator(  90.0f, 0.0f, 0.0f)),
+
+	// 100 - flip X
+	FTransform(FRotator::ZeroRotator, FVector::ZeroVector, -PaperAxisX.GetAbs() + PaperAxisY.GetAbs() + PaperAxisZ.GetAbs()),
+
+	// 101 - diagonal then flip X (clockwise 90)
+	FTransform(FRotator( -90.0f, 0.0f, 0.0f)),
+
+	// 110 - flip X and flip Y (rotate 180 either way)
+	FTransform(FRotator(-180.0f, 0.0f, 0.0f)),
+
+	// 111 - diagonal then flip X and Y
+	FTransform(FRotator(-90.0f, 0.0f, 0.0f), FVector::ZeroVector, -PaperAxisX.GetAbs() + PaperAxisY.GetAbs() + PaperAxisZ.GetAbs()),
+};
 
 //////////////////////////////////////////////////////////////////////////
 // FTileMapLayerReregisterContext
@@ -60,25 +95,39 @@ public:
 		ZOffsetAmount = InZOffset;
 	}
 
-	void SetCellOffset(const FVector2D& NewOffset)
+	void SetCellOffset(const FVector2D& NewOffset, const FTransform& NewTransform)
 	{
 		CurrentCellOffset = NewOffset;
+		MyTransform = NewTransform;
 	}
 
 protected:
 	// FSpriteGeometryCollisionBuilderBase interface
 	virtual FVector2D ConvertTextureSpaceToPivotSpace(const FVector2D& Input) const override
 	{
-		return FVector2D(CurrentCellOffset.X + Input.X, CurrentCellOffset.Y - Input.Y);
+		const FVector LocalPos3D = (Input.X * PaperAxisX) - (Input.Y * PaperAxisY);
+		const FVector RotatedLocalPos3D = MyTransform.TransformPosition(LocalPos3D);
+
+		const float OutputX = CurrentCellOffset.X + FVector::DotProduct(RotatedLocalPos3D, PaperAxisX);
+		const float OutputY = CurrentCellOffset.Y + FVector::DotProduct(RotatedLocalPos3D, PaperAxisY);
+
+		return FVector2D(OutputX, OutputY);
 	}
 
 	virtual FVector2D ConvertTextureSpaceToPivotSpaceNoTranslation(const FVector2D& Input) const override
 	{
-		return Input;
+		const FVector LocalPos3D = (Input.X * PaperAxisX) + (Input.Y * PaperAxisY);
+		const FVector RotatedLocalPos3D = MyTransform.TransformVector(LocalPos3D);
+
+		const float OutputX = FVector::DotProduct(RotatedLocalPos3D, PaperAxisX);
+		const float OutputY = FVector::DotProduct(RotatedLocalPos3D, PaperAxisY);
+
+		return FVector2D(OutputX, OutputY);
 	}
 	// End of FSpriteGeometryCollisionBuilderBase
 
 protected:
+	FTransform MyTransform;
 	UPaperTileLayer* MySprite;
 	FVector2D CurrentCellOffset;
 };
@@ -88,6 +137,7 @@ protected:
 
 UPaperTileLayer::UPaperTileLayer(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
+	, LayerColor(FLinearColor::White)
 {
 	LayerWidth = 4;
 	LayerHeight = 4;
@@ -144,8 +194,6 @@ void UPaperTileLayer::ReallocateAndCopyMap()
 			AllocatedCells[DstIndex] = SavedDesignedMap[SrcIndex];
 		}
 	}
-
-//	BakeMap();
 }
 
 #if WITH_EDITOR
@@ -177,6 +225,11 @@ void UPaperTileLayer::PostEditChangeProperty(struct FPropertyChangedEvent& Prope
 UPaperTileMap* UPaperTileLayer::GetTileMap() const
 {
 	return CastChecked<UPaperTileMap>(GetOuter());
+}
+
+int32 UPaperTileLayer::GetLayerIndex() const
+{
+	return GetTileMap()->TileLayers.Find(const_cast<UPaperTileLayer*>(this));
 }
 
 FPaperTileInfo UPaperTileLayer::GetCell(int32 X, int32 Y) const
@@ -224,15 +277,27 @@ void UPaperTileLayer::AugmentBodySetup(UBodySetup* ShapeBodySetup)
 			{
 				if (const FPaperTileMetadata* CellMetadata = CellInfo.TileSet->GetTileMetadata(CellInfo.GetTileIndex()))
 				{
-					//@TODO: Add support for flipped/mirrored/rotated tiles here (and inside FPaperTileLayerToBodySetupBuilder::ConvertTextureSpaceToPivotSpace(NoTranslation))
+					const int32 Flags = CellInfo.GetFlagsAsIndex();
+
+					const FTransform& LocalTransform = TilePermutationTransforms[Flags];
 					const FVector2D CellOffset(TileWidth * CellX, TileHeight * -CellY);
-					CollisionBuilder.SetCellOffset(CellOffset);
+					CollisionBuilder.SetCellOffset(CellOffset, LocalTransform);
 
 					CollisionBuilder.ProcessGeometry(CellMetadata->CollisionData);
 				}
 			}
 		}
 	}
+}
+
+FLinearColor UPaperTileLayer::GetLayerColor() const
+{
+	return LayerColor;
+}
+
+void UPaperTileLayer::SetLayerColor(FLinearColor NewColor)
+{
+	LayerColor = NewColor;
 }
 
 void UPaperTileLayer::ConvertToTileSetPerCell()
@@ -246,4 +311,20 @@ void UPaperTileLayer::ConvertToTileSetPerCell()
 		Info->TileSet = TileSet_DEPRECATED;
 		Info->PackedTileIndex = AllocatedGrid_DEPRECATED[Index];
 	}
+}
+
+bool UPaperTileLayer::UsesTileSet(UPaperTileSet* TileSet) const
+{
+	for (const FPaperTileInfo& TileInfo : AllocatedCells)
+	{
+		if (TileInfo.TileSet == TileSet)
+		{
+			if (TileInfo.IsValid())
+			{
+				return true;
+			}
+		}
+	}
+
+	return false;
 }

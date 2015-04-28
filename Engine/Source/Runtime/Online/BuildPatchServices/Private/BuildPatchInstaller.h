@@ -57,6 +57,9 @@ private:
 	// A flag to store if we are performing a repair
 	bool bIsRepairing;
 
+	// A flag to store if we should only be staging, and not moving to install location
+	bool bShouldStageOnly;
+
 	// A flag storing whether the process was a success
 	bool bSuccess;
 
@@ -105,8 +108,9 @@ public:
 	 * @param InstallDirectory		The directory where the build will be installed
 	 * @param StagingDirectory		The directory for storing the intermediate files
 	 * @param InstallationInfoRef	Reference to the module's installation info that keeps record of locally installed apps for use as chunk sources
+	 * @param ShouldStageOnly		Whether the installer should only stage the required files, and skip moving them to the install directory
 	 */
-	FBuildPatchInstaller( FBuildPatchBoolManifestDelegate OnCompleteDelegate, FBuildPatchAppManifestPtr CurrentManifest, FBuildPatchAppManifestRef InstallManifest, const FString& InstallDirectory, const FString& StagingDirectory, FBuildPatchInstallationInfo& InstallationInfoRef );
+	FBuildPatchInstaller(FBuildPatchBoolManifestDelegate OnCompleteDelegate, FBuildPatchAppManifestPtr CurrentManifest, FBuildPatchAppManifestRef InstallManifest, const FString& InstallDirectory, const FString& StagingDirectory, FBuildPatchInstallationInfo& InstallationInfoRef, bool ShouldStageOnly);
 
 	/**
 	 * Default Destructor, will delete the allocated Thread
@@ -122,6 +126,7 @@ public:
 	virtual bool IsComplete() override;
 	virtual bool IsCanceled() override;
 	virtual bool IsPaused() override;
+	virtual bool IsResumable() override;
 	virtual bool HasError() override;
 	//@todo this is deprecated and shouldn't be used anymore [6/4/2014 justin.sargent]
 	virtual FText GetPercentageText() override;
@@ -130,7 +135,7 @@ public:
 	virtual double GetDownloadSpeed() const override;
 	virtual int64 GetInitialDownloadSize() const override;
 	virtual int64 GetTotalDownloaded() const override;
-	virtual FText GetStatusText() override;
+	virtual FText GetStatusText(bool ShortError = false) override;
 	virtual float GetUpdateProgress() override;
 	virtual FBuildInstallStats GetBuildStatistics() override;
 	virtual FText GetErrorText() override;
@@ -227,13 +232,6 @@ private:
 	 * @param Percent	The current process percentage
 	 */
 	void UpdateVerificationProgress( float Percent );
-
-	/**
-	 * Setup file attributes
-	 * @param FilePath		The path to the file to apply attributes on
-	 * @param FileManifest	The manifest for the file
-	 */
-	void SetupFileAttributes( const FString& FilePath, const FFileManifestData& FileManifest );
 
 	/**
 	 * Delete empty directories from an installation

@@ -327,7 +327,7 @@ namespace AutomationTool
 
 				DeleteFile(UBTManifest);
 
-				RunUBT(CmdEnv, UBTExecutable: UBTExecutable, Project: ProjectName, Target: TargetName, Platform: TargetPlatform.ToString(), Config: Config, AdditionalArgs: "-generatemanifest" + AddArgs, EnvVars: EnvVars);
+				RunUBT(CmdEnv, UBTExecutable: UBTExecutable, Project: ProjectName, Target: TargetName, Platform: TargetPlatform.ToString(), Config: Config, AdditionalArgs: AddArgs +  " -generatemanifest" , EnvVars: EnvVars);
 
 				PrepareManifest(UBTManifest, false);
 			}
@@ -915,7 +915,10 @@ namespace AutomationTool
 
 								ToolElement.SetAttribute("Params", Element.Attributes["Params"].Value);
 								ToolElement.SetAttribute("Path", Element.Attributes["Path"].Value);
-								ToolElement.SetAttribute("VCCompiler", Element.Attributes["VCCompiler"].Value);
+								if(Element.HasAttribute("VCCompiler"))
+								{
+									ToolElement.SetAttribute("VCCompiler", Element.Attributes["VCCompiler"].Value);
+								}
 								ToolElement.SetAttribute("SkipIfProjectFailed", Element.Attributes["SkipIfProjectFailed"].Value);
 								if (Element.HasAttribute("AutoReserveMemory"))
 								{
