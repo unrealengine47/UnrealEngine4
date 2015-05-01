@@ -3,7 +3,6 @@
 #include "Paper2DEditorPrivatePCH.h"
 #include "EdModeTileMap.h"
 #include "TileMapEdModeToolkit.h"
-#include "LevelEditor.h"
 #include "Toolkits/ToolkitManager.h"
 #include "../PaperEditorCommands.h"
 #include "ScopedTransaction.h"
@@ -88,7 +87,9 @@ struct FHorizontalSpan
 		// Go left
 		for (int32 TestX = X0 - 1; TestX >= 0; --TestX)
 		{
-			if ((Layer->GetCell(TestX, Y) == RequiredInk) && !Reach(Layer, Reachability, TestX, Y))
+			const FPaperTileInfo ExistingCell = Layer->GetCell(TestX, Y);
+			const bool bCellMatches = (ExistingCell == RequiredInk) || (!ExistingCell.IsValid() && !RequiredInk.IsValid());
+			if (bCellMatches && !Reach(Layer, Reachability, TestX, Y))
 			{
 				X0 = TestX;
 			}
@@ -101,7 +102,9 @@ struct FHorizontalSpan
 		// Go right
 		for (int32 TestX = X1 + 1; TestX < Layer->LayerWidth; ++TestX)
 		{
-			if ((Layer->GetCell(TestX, Y) == RequiredInk) && !Reach(Layer, Reachability, TestX, Y))
+			const FPaperTileInfo ExistingCell = Layer->GetCell(TestX, Y);
+			const bool bCellMatches = (ExistingCell == RequiredInk) || (!ExistingCell.IsValid() && !RequiredInk.IsValid());
+			if (bCellMatches && !Reach(Layer, Reachability, TestX, Y))
 			{
 				X1 = TestX;
 			}
@@ -162,6 +165,9 @@ void FEdModeTileMap::Enter()
 	CursorPreviewComponent = NewObject<UPaperTileMapComponent>();
 	CursorPreviewComponent->TileMap->InitializeNewEmptyTileMap();
 	CursorPreviewComponent->TranslucencySortPriority = 99999;
+	CursorPreviewComponent->bShowPerTileGridWhenSelected = false;
+	CursorPreviewComponent->bShowPerLayerGridWhenSelected = false;
+	CursorPreviewComponent->bShowOutlineWhenUnselected = false;
 	CursorPreviewComponent->UpdateBounds();
 	CursorPreviewComponent->AddToRoot();
 	CursorPreviewComponent->RegisterComponentWithWorld(World);
@@ -344,6 +350,7 @@ bool FEdModeTileMap::InputKey(FEditorViewportClient* InViewportClient, FViewport
 		else if (bWasPainting && !bIsPainting)
 		{
 			// Stopping painting
+			InViewportClient->Viewport->SetPreCaptureMousePosFromSlateCursor();
 		}
 
 		const FViewportCursorLocation Ray = CalculateViewRay(InViewportClient, InViewport);
@@ -356,48 +363,6 @@ bool FEdModeTileMap::InputKey(FEditorViewportClient* InViewportClient, FViewport
 			bAnyPaintAbleActorsUnderCursor = UseActiveToolAtLocation(Ray);
 		}
 		bWasPainting = bIsPainting;
-
-		// Also absorb other mouse buttons, and Ctrl/Alt/Shift events that occur while we're painting as these would cause
-		// the editor viewport to start panning/dollying the camera
-		{
-			const bool bIsOtherMouseButtonEvent = ( InKey == EKeys::MiddleMouseButton || InKey == EKeys::RightMouseButton );
-			const bool bCtrlButtonEvent = (InKey == EKeys::LeftControl || InKey == EKeys::RightControl);
-			const bool bShiftButtonEvent = (InKey == EKeys::LeftShift || InKey == EKeys::RightShift);
-			const bool bAltButtonEvent = (InKey == EKeys::LeftAlt || InKey == EKeys::RightAlt);
-			if( bIsPainting && ( bIsOtherMouseButtonEvent || bShiftButtonEvent || bAltButtonEvent ) )
-			{
-				bHandled = true;
-			}
-
-			if (bCtrlButtonEvent && !bIsPainting)
-			{
-				bHandled = false;
-			}
-			else if (bIsCtrlDown)
-			{
-				//default to assuming this is a paint command
-				bHandled = true;
-
-				// If no other button was pressed && if a first press and we click OFF of an actor and we will let this pass through so multi-select can attempt to handle it 
-				if ((!(bShiftButtonEvent || bAltButtonEvent || bIsOtherMouseButtonEvent)) && ((InKey == EKeys::LeftMouseButton) && ((InEvent == IE_Pressed) || (InEvent == IE_Released)) && (!bAnyPaintAbleActorsUnderCursor)))
-				{
-					bHandled = false;
-					bIsPainting = false;
-				}
-
-				// Allow Ctrl+B to pass through so we can support the finding of a selected static mesh in the content browser.
-				if ( !(bShiftButtonEvent || bAltButtonEvent || bIsOtherMouseButtonEvent) && ( (InKey == EKeys::B) && (InEvent == IE_Pressed) ) )
-				{
-					bHandled = false;
-				}
-
-				// If we are not painting, we will let the CTRL-Z and CTRL-Y key presses through to support undo/redo.
-				if (!bIsPainting && ((InKey == EKeys::Z) || (InKey == EKeys::Y)))
-				{
-					bHandled = false;
-				}
-			}
-		}
 	}
 
 	if (!bHandled)
@@ -448,75 +413,25 @@ void FEdModeTileMap::Render(const FSceneView* View, FViewport* Viewport, FPrimit
 				CursorRange = LastEyeDropperBounds;
 			}
 
-			switch (TileMap->ProjectionMode)
+
+			TArray<FVector> TilePolygon;
+			TilePolygon.Empty(6);
+			for (int32 CY = CursorRange.Min.Y; CY < CursorRange.Max.Y; ++CY)
 			{
-			case ETileMapProjectionMode::Orthogonal:
-			case ETileMapProjectionMode::IsometricDiamond:
-			default:
+				for (int32 CX = CursorRange.Min.X; CX < CursorRange.Max.X; ++CX)
 				{
-					const FVector TL(ComponentToWorld.TransformPosition(TileMap->GetTilePositionInLocalSpace(CursorRange.Min.X, CursorRange.Min.Y, LastCursorTileZ)));
-					const FVector TR(ComponentToWorld.TransformPosition(TileMap->GetTilePositionInLocalSpace(CursorRange.Max.X, CursorRange.Min.Y, LastCursorTileZ)));
-					const FVector BL(ComponentToWorld.TransformPosition(TileMap->GetTilePositionInLocalSpace(CursorRange.Min.X, CursorRange.Max.Y, LastCursorTileZ)));
-					const FVector BR(ComponentToWorld.TransformPosition(TileMap->GetTilePositionInLocalSpace(CursorRange.Max.X, CursorRange.Max.Y, LastCursorTileZ)));
+					TilePolygon.Reset();
+					TileMap->GetTilePolygon(CX, CY, LastCursorTileZ, /*out*/ TilePolygon);
 
-					PDI->DrawLine(TL, TR, CursorWireColor, SDPG_Foreground, 0.0f, DepthBias);
-					PDI->DrawLine(TR, BR, CursorWireColor, SDPG_Foreground, 0.0f, DepthBias);
-					PDI->DrawLine(BR, BL, CursorWireColor, SDPG_Foreground, 0.0f, DepthBias);
-					PDI->DrawLine(BL, TL, CursorWireColor, SDPG_Foreground, 0.0f, DepthBias);
+					FVector LastPositionWS = ComponentToWorld.TransformPosition(TilePolygon[TilePolygon.Num()-1]);
+					for (int32 VertexIndex = 0; VertexIndex < TilePolygon.Num(); ++VertexIndex)
+					{
+						const FVector ThisPositionWS = ComponentToWorld.TransformPosition(TilePolygon[VertexIndex]);
+						PDI->DrawLine(LastPositionWS, ThisPositionWS, CursorWireColor, SDPG_Foreground, 0.0f, DepthBias);
+						LastPositionWS = ThisPositionWS;
+					}
 				}
-				break;
-
-			case ETileMapProjectionMode::IsometricStaggered:
-				{
-					const float UnrealUnitsPerPixel = TileMap->GetUnrealUnitsPerPixel();
-					const float TileWidthInUU = TileMap->TileWidth * UnrealUnitsPerPixel;
-					const float TileHeightInUU = TileMap->TileHeight * UnrealUnitsPerPixel;
-
-					const FVector RecenterOffset = PaperAxisX*TileWidthInUU*0.5f;
-					const FVector LSTM = TileMap->GetTilePositionInLocalSpace(CursorRange.Min.X, CursorRange.Min.Y, LastCursorTileZ) + RecenterOffset;
-
-					const FVector TL(ComponentToWorld.TransformPosition(LSTM));
-					const FVector TR(ComponentToWorld.TransformPosition(LSTM + PaperAxisX*TileWidthInUU*0.5f - PaperAxisY*TileHeightInUU*0.5f));
-					const FVector BL(ComponentToWorld.TransformPosition(LSTM - PaperAxisX*TileWidthInUU*0.5f - PaperAxisY*TileHeightInUU*0.5f));
-					const FVector BR(ComponentToWorld.TransformPosition(LSTM - PaperAxisY*TileHeightInUU*1.0f));
-
-					PDI->DrawLine(TL, TR, CursorWireColor, SDPG_Foreground, 0.0f, DepthBias);
-					PDI->DrawLine(TR, BR, CursorWireColor, SDPG_Foreground, 0.0f, DepthBias);
-					PDI->DrawLine(BR, BL, CursorWireColor, SDPG_Foreground, 0.0f, DepthBias);
-					PDI->DrawLine(BL, TL, CursorWireColor, SDPG_Foreground, 0.0f, DepthBias);
-				}
-				break;
-
-			case ETileMapProjectionMode::HexagonalStaggered:
-				{
-					const float UnrealUnitsPerPixel = TileMap->GetUnrealUnitsPerPixel();
-					const float TileWidthInUU = TileMap->TileWidth * UnrealUnitsPerPixel;
-					const float TileHeightInUU = TileMap->TileHeight * UnrealUnitsPerPixel;
-
-					const FVector RecenterOffset = PaperAxisX*TileWidthInUU*0.5f;
-					const FVector LSTM = TileMap->GetTilePositionInLocalSpace(CursorRange.Min.X, CursorRange.Min.Y, LastCursorTileZ) + RecenterOffset;
-
-					const float HexSideLengthInUU = TileMap->HexSideLength * UnrealUnitsPerPixel;
-
-					const FVector Top(ComponentToWorld.TransformPosition(LSTM - PaperAxisY*HexSideLengthInUU));
-
-					const FVector RightTop(ComponentToWorld.TransformPosition(LSTM + PaperAxisX*TileWidthInUU*0.5f - PaperAxisY*TileHeightInUU*0.5f));
-					const FVector LeftTop(ComponentToWorld.TransformPosition(LSTM - PaperAxisX*TileWidthInUU*0.5f - PaperAxisY*TileHeightInUU*0.5f));
-
-					const FVector RightBottom(ComponentToWorld.TransformPosition(LSTM + PaperAxisX*TileWidthInUU*0.5f - PaperAxisY*(TileHeightInUU*0.5f + HexSideLengthInUU)));
-					const FVector LeftBottom(ComponentToWorld.TransformPosition(LSTM - PaperAxisX*TileWidthInUU*0.5f - PaperAxisY*(TileHeightInUU*0.5f + HexSideLengthInUU)));
-
-					const FVector Bottom(ComponentToWorld.TransformPosition(LSTM - PaperAxisY*TileHeightInUU*1.0f));
-
-					PDI->DrawLine(Top, RightTop, CursorWireColor, SDPG_Foreground, 0.0f, DepthBias);
-					PDI->DrawLine(RightTop, RightBottom, CursorWireColor, SDPG_Foreground, 0.0f, DepthBias);
-					PDI->DrawLine(RightBottom, Bottom, CursorWireColor, SDPG_Foreground, 0.0f, DepthBias);
-					PDI->DrawLine(Bottom, LeftBottom, CursorWireColor, SDPG_Foreground, 0.0f, DepthBias);
-					PDI->DrawLine(LeftBottom, LeftTop, CursorWireColor, SDPG_Foreground, 0.0f, DepthBias);
-					PDI->DrawLine(LeftTop, Top, CursorWireColor, SDPG_Foreground, 0.0f, DepthBias);
-				}
-				break;
-			};
+			}
 		}
 	}
 }
@@ -1022,7 +937,10 @@ bool FEdModeTileMap::FloodFillTiles(const FViewportCursorLocation& Ray)
 				for (int32 X = Span.X0; X <= Span.X1; ++X)
 				{
 					// If it is the right color and not already visited, create a span there
-					if ((TargetLayer->GetCell(X, Y) == RequiredInk) && !FHorizontalSpan::Reach(TargetLayer, TileReachability, X, Y))
+					FPaperTileInfo ExistingCell = TargetLayer->GetCell(X, Y);
+					const bool bCellMatches = (ExistingCell == RequiredInk) || (!ExistingCell.IsValid() && !RequiredInk.IsValid());
+
+					if (bCellMatches && !FHorizontalSpan::Reach(TargetLayer, TileReachability, X, Y))
 					{
 						FHorizontalSpan& NewSpan = *(new (OutstandingSpans) FHorizontalSpan(X, Y));
 						NewSpan.GrowSpan(RequiredInk, TargetLayer, TileReachability);
@@ -1504,7 +1422,7 @@ void FEdModeTileMap::SetActiveTool(ETileMapEditorTool::Type NewTool)
 ETileMapEditorTool::Type FEdModeTileMap::GetActiveTool() const
 {
 	// Force the eyedropper active when Shift is held (or if it was held when painting started, even if it was released later)
-	const bool bHoldingShift = FSlateApplication::Get().GetModifierKeys().IsShiftDown();
+	const bool bHoldingShift = !bIsPainting && FSlateApplication::Get().GetModifierKeys().IsShiftDown();
 	const bool bWasHoldingShift = bIsPainting && bWasHoldingSelectWhenPaintingStarted;
 	
 	return (bHoldingShift || bWasHoldingShift) ? ETileMapEditorTool::EyeDropper : ActiveTool;

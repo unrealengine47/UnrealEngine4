@@ -2,7 +2,7 @@
 #include "UnrealEd.h"
 #include "FoliageType_InstancedStaticMesh.h"
 #include "FoliageEdMode.h"
-#include "FoliageEditActions.h"
+#include "FoliagePaletteCommands.h"
 #include "SFoliagePalette.h"
 #include "FoliageTypePaintingCustomization.h"
 #include "FoliagePaletteItem.h"
@@ -15,97 +15,110 @@
 #include "Editor/UnrealEd/Public/AssetSelection.h"
 #include "Editor/PropertyEditor/Public/IDetailsView.h"
 #include "Editor/PropertyEditor/Public/PropertyEditorModule.h"
+#include "Editor/UnrealEd/Public/AssetSelection.h"
+#include "Editor/UnrealEd/Public/ScopedTransaction.h"
+
 #include "Engine/StaticMesh.h"
 
 #include "SScaleBox.h"
 #include "SWidgetSwitcher.h"
-#include "SExpandableArea.h"
+#include "SSearchBox.h"
 
 #define LOCTEXT_NAMESPACE "FoliageEd_Mode"
 
+////////////////////////////////////////////////
+// SFoliageDragDropHandler
+////////////////////////////////////////////////
+
+/** Drag-drop zone for adding foliage types to the palette */
+class SFoliageDragDropHandler : public SCompoundWidget
+{
+public:
+	SLATE_BEGIN_ARGS(SFoliageDragDropHandler) {}
+		SLATE_DEFAULT_SLOT(FArguments, Content)
+		SLATE_EVENT(FOnDrop, OnDrop)
+	SLATE_END_ARGS()
+
+	void Construct(const FArguments& InArgs)
+	{
+		bIsDragOn = false;
+		OnDropDelegate = InArgs._OnDrop;
+
+		this->ChildSlot
+			[
+				SNew(SBorder)
+				.BorderImage(FEditorStyle::GetBrush("WhiteBrush"))
+				.BorderBackgroundColor(this, &SFoliageDragDropHandler::GetBackgroundColor)
+				.Padding(FMargin(30))
+				[
+					InArgs._Content.Widget
+				]
+			];
+	}
+
+	FReply OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override
+	{
+		bIsDragOn = false;
+		if (OnDropDelegate.IsBound())
+		{
+			return OnDropDelegate.Execute(MyGeometry, DragDropEvent);
+		}
+		
+		return FReply::Handled();
+	}
+
+	virtual void OnDragEnter(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override
+	{
+		bIsDragOn = true;
+	}
+
+	virtual void OnDragLeave(const FDragDropEvent& DragDropEvent) override
+	{
+		bIsDragOn = false;
+	}
+
+private:
+	FSlateColor GetBackgroundColor() const
+	{
+		return bIsDragOn ? FLinearColor(1.0f, 0.6f, 0.1f, 0.9f) : FLinearColor(0.1f, 0.1f, 0.1f, 0.9f);
+	}
+
+private:
+	FOnDrop OnDropDelegate;
+	bool bIsDragOn;
+};
+
+////////////////////////////////////////////////
+// SFoliagePalette
+////////////////////////////////////////////////
 void SFoliagePalette::Construct(const FArguments& InArgs)
 {
-	FoliageEditMode = InArgs._FoliageEdMode;
+	bItemsNeedRebuild = false;
+	bIsActiveTimerRegistered = false;
 
-	//@todo: Save these as config options
-	bShowTooltips = true;
-	ActiveViewMode = EPaletteViewMode::Thumbnail;
+	FoliageEditMode = InArgs._FoliageEdMode;
 
 	FoliageEditMode->OnToolChanged.AddSP(this, &SFoliagePalette::HandleOnToolChanged);
 
+	FFoliagePaletteCommands::Register();
+	UICommandList = MakeShareable(new FUICommandList);
 	BindCommands();
+
+	TypeFilter = MakeShareable(new FoliageTypeTextFilter(
+		FoliageTypeTextFilter::FItemToStringArray::CreateSP(this, &SFoliagePalette::GetPaletteItemFilterString)));
 
 	FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
 	FDetailsViewArgs Args(false, false, false, FDetailsViewArgs::HideNameArea, true);
 	Args.bShowActorLabel = false;
 	DetailsWidget = PropertyModule.CreateDetailView(Args);
+	DetailsWidget->SetVisibility(FoliageEditMode->UISettings.GetShowPaletteItemDetails() ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed);
 
 	// We want to use our own customization for UFoliageType
 	DetailsWidget->RegisterInstancedCustomPropertyLayout(UFoliageType::StaticClass(), 
 		FOnGetDetailCustomizationInstance::CreateStatic(&FFoliageTypePaintingCustomization::MakeInstance, FoliageEditMode)
 		);
 
-	FMargin StandardPadding(6.f, 3.f);
 	const FText BlankText = LOCTEXT("Blank", "");
-
-	// Tile View Widget
-	static const float TileSize = 64.f;
-	SAssignNew(TileViewWidget, SFoliageTypeTileView)
-		.ListItemsSource(&FoliageEditMode->GetFoliageMeshList())
-		.SelectionMode(ESelectionMode::Multi)
-		.OnGenerateTile(this, &SFoliagePalette::GenerateTile)
-		.OnContextMenuOpening(this, &SFoliagePalette::ConstructFoliageTypeContextMenu)
-		.OnSelectionChanged(this, &SFoliagePalette::OnSelectionChanged)
-		.ItemHeight(TileSize)
-		.ItemWidth(TileSize)
-		.ItemAlignment(EListItemAlignment::LeftAligned)
-		.ClearSelectionOnClick(true)
-		.OnMouseButtonDoubleClick(this, &SFoliagePalette::OnItemDoubleClicked);
-
-	// Tree View Widget
-	SAssignNew(TreeViewWidget, SFoliageTypeTreeView)
-	.TreeItemsSource(&FoliageEditMode->GetFoliageMeshList())
-	.SelectionMode(ESelectionMode::Multi)
-	.OnGenerateRow(this, &SFoliagePalette::TreeViewGenerateRow)
-	.OnGetChildren(this, &SFoliagePalette::TreeViewGetChildren)
-	.OnContextMenuOpening(this, &SFoliagePalette::ConstructFoliageTypeContextMenu)
-	.OnSelectionChanged(this, &SFoliagePalette::OnSelectionChanged)
-	.OnMouseButtonDoubleClick(this, &SFoliagePalette::OnItemDoubleClicked)
-	.HeaderRow
-	(
-		// Toggle Active
-		SAssignNew(TreeViewHeaderRow, SHeaderRow)
-		+ SHeaderRow::Column(FoliagePaletteTreeColumns::ColumnID_ToggleActive)
-		[
-			SNew(SCheckBox)
-			.IsChecked(this, &SFoliagePalette::GetState_AllMeshes)
-			.OnCheckStateChanged(this, &SFoliagePalette::OnCheckStateChanged_AllMeshes)
-		]
-		.DefaultLabel(BlankText)
-		.HeaderContentPadding(FMargin(0, 1, 0, 1))
-		.HAlignHeader(HAlign_Center)
-		.HAlignCell(HAlign_Center)
-		.FixedWidth(24)
-
-		// Type
-		+ SHeaderRow::Column(FoliagePaletteTreeColumns::ColumnID_Type)
-		.HeaderContentPadding(FMargin(10, 1, 0, 1))
-		.SortMode(this, &SFoliagePalette::GetMeshColumnSortMode)
-		.OnSort(this, &SFoliagePalette::OnMeshesColumnSortModeChanged)
-		.DefaultLabel(this, &SFoliagePalette::GetMeshesHeaderText)
-
-		// Instance Count
-		+ SHeaderRow::Column(FoliagePaletteTreeColumns::ColumnID_InstanceCount)
-		.HeaderContentPadding(FMargin(10, 1, 0, 1))
-		.DefaultLabel(LOCTEXT("InstanceCount", "Count"))
-		.DefaultTooltip(this, &SFoliagePalette::GetTotalInstanceCountTooltipText)
-		.FixedWidth(60.f)
-
-		// Save Asset
-		+ SHeaderRow::Column(FoliagePaletteTreeColumns::ColumnID_Save)
-		.FixedWidth(24.0f)
-		.DefaultLabel(BlankText)
-	);
 
 	ChildSlot
 	[
@@ -158,9 +171,20 @@ void SFoliagePalette::Construct(const FArguments& InArgs)
 				]
 
 				+ SHorizontalBox::Slot()
-				.HAlign(HAlign_Right)
+				.HAlign(HAlign_Fill)
+				.VAlign(VAlign_Center)
+				.Padding(6.f, 0.f)
 				[
-					// View Options
+					SNew(SSearchBox)
+					.HintText(LOCTEXT("SearchFoliagePaletteHint", "Search Foliage"))
+					.OnTextChanged(this, &SFoliagePalette::OnSearchTextChanged)
+				]
+
+				// View Options
+				+ SHorizontalBox::Slot()
+				.HAlign(HAlign_Right)
+				.AutoWidth()
+				[
 					SNew( SComboButton )
 					.ContentPadding(0)
 					.ForegroundColor( FSlateColor::UseForeground() )
@@ -172,7 +196,6 @@ void SFoliagePalette::Construct(const FArguments& InArgs)
 						.Image( FEditorStyle::GetBrush("GenericViewButton") )
 					]
 				]
-				
 			]
 		]
 
@@ -185,102 +208,108 @@ void SFoliagePalette::Construct(const FArguments& InArgs)
 			+ SSplitter::Slot()
 			.Value(0.6f)
 			[
-				SNew(SVerticalBox)
+				SNew(SOverlay)
 
-				+ SVerticalBox::Slot()
-				.AutoHeight()
-				.Padding(StandardPadding)
+				+ SOverlay::Slot()
 				[
-					SNew(SBox)
-					.Visibility(this, &SFoliagePalette::GetDropFoliageHintVisibility)
-					.Padding(FMargin(15, 0))
-					.MinDesiredHeight(30)
+					SNew(SVerticalBox)
+
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(FMargin(6.f, 3.f))
+					[
+						SNew(SBox)
+						.Visibility(this, &SFoliagePalette::GetDropFoliageHintVisibility)
+						.Padding(FMargin(15, 0))
+						.MinDesiredHeight(30)
+						[
+							SNew(SScaleBox)
+							.Stretch(EStretch::ScaleToFit)
+							[
+								SNew(STextBlock)
+								.Text(LOCTEXT("Foliage_DropStatic", "+ Drop Foliage Here"))
+								.ToolTipText(LOCTEXT("Foliage_DropStatic_ToolTip", "Drag and drop foliage types or static meshes from the Content Browser to add them to the palette"))
+							]
+						]
+					]
+
+					+ SVerticalBox::Slot()
+					[
+						CreatePaletteViews()
+					]
+				
+					+ SVerticalBox::Slot()
+					.Padding(FMargin(0.f))
+					.VAlign(VAlign_Bottom)
+					.AutoHeight()
+					[
+						SNew(SHorizontalBox)
+						
+						// Selected type name area
+						+ SHorizontalBox::Slot()
+						.Padding(FMargin(3.f))
+						.VAlign(VAlign_Bottom)
+						//.AutoWidth()
+						[
+							SNew(STextBlock)
+							.Text(this, &SFoliagePalette::GetDetailsNameAreaText)
+						]
+
+						// Show/Hide Details
+						+ SHorizontalBox::Slot()
+						.HAlign(HAlign_Right)
+						.AutoWidth()
+						[
+							SNew(SButton)
+							.ToolTipText(this, &SFoliagePalette::GetShowHideDetailsTooltipText)
+							.ForegroundColor(FSlateColor::UseForeground())
+							.ButtonStyle(FEditorStyle::Get(), "ToggleButton")
+							.OnClicked(this, &SFoliagePalette::OnShowHideDetailsClicked)
+							.ContentPadding(FMargin(2.f))
+							.Content()
+							[
+								SNew(SHorizontalBox)
+
+								// Details icon
+								+SHorizontalBox::Slot()
+								.AutoWidth()
+								.HAlign(HAlign_Center)
+								.VAlign(VAlign_Center)
+								[
+									SNew(SImage)
+									.Image(FEditorStyle::GetBrush("LevelEditor.Tabs.Details"))
+								]
+
+								// Arrow
+								+ SHorizontalBox::Slot()
+								.Padding(FMargin(3.f, 0.f))
+								.AutoWidth()
+								.HAlign(HAlign_Center)
+								.VAlign(VAlign_Center)
+								[
+									SNew(SImage)
+									.Image(this, &SFoliagePalette::GetShowHideDetailsImage)
+								]
+							]
+						]
+					]
+				]
+				
+				// Foliage Mesh Drop Zone
+				+ SOverlay::Slot()
+				.HAlign(HAlign_Fill)
+				.VAlign(VAlign_Fill)
+				[
+					SNew(SFoliageDragDropHandler)
+					.Visibility(this, &SFoliagePalette::GetFoliageDropTargetVisibility)
+					.OnDrop(this, &SFoliagePalette::HandleFoliageDropped)
 					[
 						SNew(SScaleBox)
 						.Stretch(EStretch::ScaleToFit)
 						[
 							SNew(STextBlock)
-							.Text(LOCTEXT("Foliage_DropStatic", "+ Drop Foliage Here"))
-							.ToolTipText(LOCTEXT("Foliage_DropStatic_ToolTip", "Drag and drop foliage types or static meshes from the Content Browser to add them to the palette"))
-						]
-					]
-				]
-
-				+ SVerticalBox::Slot()
-				[
-					SAssignNew(WidgetSwitcher, SWidgetSwitcher)
-
-					+ SWidgetSwitcher::Slot()
-					[
-						// Thumbnail View
-						SNew(SScrollBorder, TileViewWidget.ToSharedRef())
-						.Content()
-						[
-							TileViewWidget.ToSharedRef()
-						]
-					]
-
-					+ SWidgetSwitcher::Slot()
-					[
-						// Tree View
-						SNew(SScrollBorder, TreeViewWidget.ToSharedRef())
-						.Style(&FEditorStyle::Get().GetWidgetStyle<FScrollBorderStyle>("FoliageEditMode.TreeView.ScrollBorder"))
-						.Content()
-						[
-							TreeViewWidget.ToSharedRef()
-						]
-					]
-				]
-				
-				+ SVerticalBox::Slot()
-				.Padding(FMargin(0.f))
-				.VAlign(VAlign_Bottom)
-				.AutoHeight()
-				[
-					SNew(SHorizontalBox)
-					
-					// Selected type name area
-					+ SHorizontalBox::Slot()
-					.Padding(FMargin(3.f))
-					.VAlign(VAlign_Bottom)
-					.AutoWidth()
-					[
-						SNew(STextBlock)
-						.Text(this, &SFoliagePalette::GetDetailsNameAreaText)
-					]
-
-					// Show/Hide Details
-					+ SHorizontalBox::Slot()
-					.HAlign(HAlign_Right)
-					[
-						SNew(SButton)
-						.ToolTipText(this, &SFoliagePalette::GetShowHideDetailsTooltipText)
-						.ForegroundColor(FSlateColor::UseForeground())
-						.ButtonStyle(FEditorStyle::Get(), "ToggleButton")
-						.OnClicked(this, &SFoliagePalette::OnShowHideDetailsClicked)
-						.ContentPadding(FMargin(2.f))
-						.Content()
-						[
-							SNew(SHorizontalBox)
-
-							+SHorizontalBox::Slot()
-							.AutoWidth()
-							.HAlign(HAlign_Center)
-							.VAlign(VAlign_Center)
-							[
-								SNew(SImage)
-								.Image(FEditorStyle::GetBrush("LevelEditor.Tabs.Details"))
-							]
-
-							+ SHorizontalBox::Slot()
-							.Padding(FMargin(3.f, 0.f))
-							.AutoWidth()
-							.HAlign(HAlign_Center)
-							.VAlign(VAlign_Center)
-							[
-								SNew(SImage)
-								.Image(this, &SFoliagePalette::GetShowHideDetailsImage)
-							]
+							.Text(LOCTEXT("Foliage_AddFoliageMesh", "+ Foliage Type"))
+							.ShadowOffset(FVector2D(1.f, 1.f))
 						]
 					]
 				]
@@ -293,19 +322,58 @@ void SFoliagePalette::Construct(const FArguments& InArgs)
 			]
 		]
 	];
+
+	UpdatePalette(true);
 }
 
-void SFoliagePalette::Refresh()
+FReply SFoliagePalette::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)
 {
-	TreeViewWidget->RequestTreeRefresh();
-	TileViewWidget->RequestListRefresh();
+	if (UICommandList->ProcessCommandBindings(InKeyEvent))
+	{
+		return FReply::Handled();
+	}
+
+	return SCompoundWidget::OnKeyDown(MyGeometry, InKeyEvent);
+}
+
+void SFoliagePalette::UpdatePalette(bool bRebuildItems)
+{
+	bItemsNeedRebuild |= bRebuildItems;
+
+	if (!bIsActiveTimerRegistered)
+	{
+		bIsActiveTimerRegistered = true;
+		RegisterActiveTimer(0.f, FWidgetActiveTimerDelegate::CreateSP(this, &SFoliagePalette::UpdatePaletteItems));
+	}
+}
+
+void SFoliagePalette::UpdateThumbnailForType(UFoliageType* FoliageType)
+{
+	// Recreate the palette item for the given foliage type
+	for (auto& Item : PaletteItems)
+	{
+		if (Item->GetFoliageType() == FoliageType)
+		{
+			const bool bItemIsSelected = GetActiveViewWidget()->IsItemSelected(Item);
+
+			Item = MakeShareable(new FFoliagePaletteItemModel(Item->GetTypeUIInfo(), SharedThis(this), FoliageEditMode));
+			if (bItemIsSelected)
+			{
+				GetActiveViewWidget()->SetItemSelection(Item, true);
+			}
+
+			UpdatePalette();
+			break;
+		}
+	}
 }
 
 bool SFoliagePalette::AnySelectedTileHovered() const
 {
 	for (auto& TypeInfo : GetActiveViewWidget()->GetSelectedItems())
 	{
-		if (TileViewWidget->WidgetFromItem(TypeInfo)->AsWidget()->IsHovered())
+		TSharedPtr<ITableRow> Tile = TileViewWidget->WidgetFromItem(TypeInfo);
+		if (Tile.IsValid() && Tile->AsWidget()->IsHovered())
 		{
 			return true;
 		}
@@ -317,31 +385,38 @@ bool SFoliagePalette::AnySelectedTileHovered() const
 void SFoliagePalette::ActivateAllSelectedTypes(bool bActivate) const
 {
 	// Apply the new check state to all of the selected types
-	for (FFoliageMeshUIInfoPtr& TypeInfo : GetActiveViewWidget()->GetSelectedItems())
+	for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
 	{
-		if (TypeInfo->Settings->IsSelected != bActivate)
-		{
-			TypeInfo->Settings->Modify();
-			TypeInfo->Settings->IsSelected = bActivate;
-		}
+		PaletteItem->SetTypeActiveInPalette(bActivate);
 	}
 }
 
 void SFoliagePalette::BindCommands()
 {
-	UICommandList = MakeShareable(new FUICommandList);
-	const FFoliageEditCommands& Commands = FFoliageEditCommands::Get();
+	const FFoliagePaletteCommands& Commands = FFoliagePaletteCommands::Get();
 
 	// Context menu commands
 	UICommandList->MapAction(
+		Commands.ActivateFoliageType,
+		FExecuteAction::CreateSP(this, &SFoliagePalette::OnActivateFoliageTypes),
+		FCanExecuteAction(),
+		FIsActionChecked(),
+		FIsActionButtonVisible::CreateSP(this, &SFoliagePalette::OnCanActivateFoliageTypes));
+
+	UICommandList->MapAction(
+		Commands.DeactivateFoliageType,
+		FExecuteAction::CreateSP(this, &SFoliagePalette::OnDeactivateFoliageTypes),
+		FCanExecuteAction(),
+		FIsActionChecked(),
+		FIsActionButtonVisible::CreateSP(this, &SFoliagePalette::OnCanDeactivateFoliageTypes));
+
+	UICommandList->MapAction(
 		Commands.RemoveFoliageType,
-		FExecuteAction::CreateSP(this, &SFoliagePalette::OnRemoveFoliageType),
-		FCanExecuteAction());
+		FExecuteAction::CreateSP(this, &SFoliagePalette::OnRemoveFoliageType));
 
 	UICommandList->MapAction(
 		Commands.ShowFoliageTypeInCB,
-		FExecuteAction::CreateSP(this, &SFoliagePalette::OnShowFoliageTypeInCB),
-		FCanExecuteAction());
+		FExecuteAction::CreateSP(this, &SFoliagePalette::OnShowFoliageTypeInCB));
 
 	UICommandList->MapAction(
 		Commands.SelectAllInstances,
@@ -359,6 +434,18 @@ void SFoliagePalette::BindCommands()
 		FCanExecuteAction::CreateSP(this, &SFoliagePalette::CanSelectInstances));
 }
 
+void SFoliagePalette::RefreshActivePaletteViewWidget()
+{
+	if (FoliageEditMode->UISettings.GetActivePaletteViewMode() == EFoliagePaletteViewMode::Thumbnail)
+	{
+		TileViewWidget->RequestListRefresh();
+	}
+	else
+	{
+		TreeViewWidget->RequestTreeRefresh();
+	}
+}
+
 void SFoliagePalette::AddFoliageType(const FAssetData& AssetData)
 {
 	if (AddFoliageTypeCombo.IsValid())
@@ -370,11 +457,110 @@ void SFoliagePalette::AddFoliageType(const FAssetData& AssetData)
 	UObject* Asset = AssetData.GetAsset();
 	GWarn->EndSlowTask();
 
-	UFoliageType* FoliageType = FoliageEditMode->AddFoliageAsset(Asset);
-	if (FoliageType)
-	{
-		Refresh();
-	}
+	FoliageEditMode->AddFoliageAsset(Asset);
+}
+
+TSharedRef<SWidgetSwitcher> SFoliagePalette::CreatePaletteViews()
+{
+	const FText BlankText = LOCTEXT("Blank", "");
+
+	// Tile View Widget
+	SAssignNew(TileViewWidget, SFoliageTypeTileView)
+		.ListItemsSource(&FilteredItems)
+		.SelectionMode(ESelectionMode::Multi)
+		.OnGenerateTile(this, &SFoliagePalette::GenerateTile)
+		.OnContextMenuOpening(this, &SFoliagePalette::ConstructFoliageTypeContextMenu)
+		.OnSelectionChanged(this, &SFoliagePalette::OnSelectionChanged)
+		.ItemHeight(this, &SFoliagePalette::GetScaledThumbnailSize)
+		.ItemWidth(this, &SFoliagePalette::GetScaledThumbnailSize)
+		.ItemAlignment(EListItemAlignment::LeftAligned)
+		.ClearSelectionOnClick(true)
+		.OnMouseButtonDoubleClick(this, &SFoliagePalette::OnItemDoubleClicked);
+
+	// Tree View Widget
+	SAssignNew(TreeViewWidget, SFoliageTypeTreeView)
+	.TreeItemsSource(&FilteredItems)
+	.SelectionMode(ESelectionMode::Multi)
+	.OnGenerateRow(this, &SFoliagePalette::TreeViewGenerateRow)
+	.OnGetChildren(this, &SFoliagePalette::TreeViewGetChildren)
+	.OnContextMenuOpening(this, &SFoliagePalette::ConstructFoliageTypeContextMenu)
+	.OnSelectionChanged(this, &SFoliagePalette::OnSelectionChanged)
+	.OnMouseButtonDoubleClick(this, &SFoliagePalette::OnItemDoubleClicked)
+	.HeaderRow
+	(
+		// Toggle Active
+		SAssignNew(TreeViewHeaderRow, SHeaderRow)
+		+ SHeaderRow::Column(FoliagePaletteTreeColumns::ColumnID_ToggleActive)
+		[
+			SNew(SCheckBox)
+			.IsChecked(this, &SFoliagePalette::GetState_AllMeshes)
+			.OnCheckStateChanged(this, &SFoliagePalette::OnCheckStateChanged_AllMeshes)
+		]
+		.DefaultLabel(BlankText)
+		.HeaderContentPadding(FMargin(0, 1, 0, 1))
+		.HAlignHeader(HAlign_Center)
+		.HAlignCell(HAlign_Center)
+		.FixedWidth(24)
+
+		// Type
+		+ SHeaderRow::Column(FoliagePaletteTreeColumns::ColumnID_Type)
+		.HeaderContentPadding(FMargin(10, 1, 0, 1))
+		.SortMode(this, &SFoliagePalette::GetMeshColumnSortMode)
+		.OnSort(this, &SFoliagePalette::OnMeshesColumnSortModeChanged)
+		.DefaultLabel(this, &SFoliagePalette::GetMeshesHeaderText)
+		.FillWidth(5.f)
+
+		// Instance Count
+		+ SHeaderRow::Column(FoliagePaletteTreeColumns::ColumnID_InstanceCount)
+		.HeaderContentPadding(FMargin(10, 1, 0, 1))
+		.DefaultLabel(LOCTEXT("InstanceCount", "Count"))
+		.DefaultTooltip(this, &SFoliagePalette::GetTotalInstanceCountTooltipText)
+		.FillWidth(2.f)
+
+		// Save Asset
+		+ SHeaderRow::Column(FoliagePaletteTreeColumns::ColumnID_Save)
+		.FixedWidth(24.0f)
+		.DefaultLabel(BlankText)
+	);
+
+	// View Mode Switcher
+	SAssignNew(WidgetSwitcher, SWidgetSwitcher);
+
+	// Thumbnail View
+	WidgetSwitcher->AddSlot(EFoliagePaletteViewMode::Thumbnail)
+	[
+		SNew(SScrollBorder, TileViewWidget.ToSharedRef())
+		.Content()
+		[
+			TileViewWidget.ToSharedRef()
+		]
+	];
+
+	// Tree View
+	WidgetSwitcher->AddSlot(EFoliagePaletteViewMode::Tree)
+	[
+		SNew(SScrollBorder, TreeViewWidget.ToSharedRef())
+		.Style(&FEditorStyle::Get().GetWidgetStyle<FScrollBorderStyle>("FoliageEditMode.TreeView.ScrollBorder"))
+		.Content()
+		[
+			TreeViewWidget.ToSharedRef()
+		]
+	];
+
+	WidgetSwitcher->SetActiveWidgetIndex(FoliageEditMode->UISettings.GetActivePaletteViewMode());
+
+	return WidgetSwitcher.ToSharedRef();
+}
+
+void SFoliagePalette::GetPaletteItemFilterString(FFoliagePaletteItemModelPtr PaletteItemModel, TArray<FString>& OutArray) const
+{
+	OutArray.Add(PaletteItemModel->GetFoliageTypeDisplayNameText().ToString());
+}
+
+void SFoliagePalette::OnSearchTextChanged(const FText& InFilterText)
+{
+	TypeFilter->SetRawFilterText(InFilterText);
+	UpdatePalette();
 }
 
 TSharedRef<SWidget> SFoliagePalette::GetAddFoliageTypePicker()
@@ -393,16 +579,17 @@ TSharedRef<SWidget> SFoliagePalette::GetAddFoliageTypePicker()
 
 void SFoliagePalette::HandleOnToolChanged()
 {
-	RefreshMeshDetailsWidget();
+	RefreshDetailsWidget();
 }
 
-void SFoliagePalette::SetViewMode(EPaletteViewMode::Type NewViewMode)
+void SFoliagePalette::SetViewMode(EFoliagePaletteViewMode::Type NewViewMode)
 {
+	EFoliagePaletteViewMode::Type ActiveViewMode = FoliageEditMode->UISettings.GetActivePaletteViewMode();
 	if (ActiveViewMode != NewViewMode)
 	{
 		switch (NewViewMode)
 		{
-		case EPaletteViewMode::Thumbnail:
+		case EFoliagePaletteViewMode::Thumbnail:
 			// Set the tile selection to be the current tree selections
 			TileViewWidget->ClearSelection();
 			for (auto& TypeInfo : TreeViewWidget->GetSelectedItems())
@@ -411,7 +598,7 @@ void SFoliagePalette::SetViewMode(EPaletteViewMode::Type NewViewMode)
 			}
 			break;
 			
-		case EPaletteViewMode::Tree:
+		case EFoliagePaletteViewMode::Tree:
 			// Set the tree selection to be the current tile selection
 			TreeViewWidget->ClearSelection();
 			for (auto& TypeInfo : TileViewWidget->GetSelectedItems())
@@ -421,39 +608,47 @@ void SFoliagePalette::SetViewMode(EPaletteViewMode::Type NewViewMode)
 			break;
 		}
 
-		ActiveViewMode = NewViewMode;
-		WidgetSwitcher->SetActiveWidgetIndex(ActiveViewMode);
+		FoliageEditMode->UISettings.SetActivePaletteViewMode(NewViewMode);
+		WidgetSwitcher->SetActiveWidgetIndex(NewViewMode);
+		
+		RefreshActivePaletteViewWidget();
 	}
 }
 
-bool SFoliagePalette::IsActiveViewMode(EPaletteViewMode::Type ViewMode) const
+bool SFoliagePalette::IsActiveViewMode(EFoliagePaletteViewMode::Type ViewMode) const
 {
-	return ActiveViewMode == ViewMode;
+	return FoliageEditMode->UISettings.GetActivePaletteViewMode() == ViewMode;
 }
 
 void SFoliagePalette::ToggleShowTooltips()
 {
-	bShowTooltips = !bShowTooltips;
+	const bool bCurrentlyShowingTooltips = FoliageEditMode->UISettings.GetShowPaletteItemTooltips();
+	FoliageEditMode->UISettings.SetShowPaletteItemTooltips(!bCurrentlyShowingTooltips);
 }
 
 bool SFoliagePalette::ShouldShowTooltips() const
 {
-	return bShowTooltips;
+	return FoliageEditMode->UISettings.GetShowPaletteItemTooltips();
 }
 
-void SFoliagePalette::OnSelectionChanged(FFoliageMeshUIInfoPtr Item, ESelectInfo::Type SelectInfo)
+FText SFoliagePalette::GetSearchText() const
 {
-	RefreshMeshDetailsWidget();
+	return TypeFilter->GetRawFilterText();
 }
 
-void SFoliagePalette::OnItemDoubleClicked(FFoliageMeshUIInfoPtr Item) const
+void SFoliagePalette::OnSelectionChanged(FFoliagePaletteItemModelPtr Item, ESelectInfo::Type SelectInfo)
 {
-	Item->Settings->IsSelected = !Item->Settings->IsSelected;
+	RefreshDetailsWidget();
+}
+
+void SFoliagePalette::OnItemDoubleClicked(FFoliagePaletteItemModelPtr Item) const
+{
+	Item->SetTypeActiveInPalette(!Item->IsActive());
 }
 
 TSharedRef<SWidget> SFoliagePalette::GetViewOptionsMenuContent()
 {	
-	const FFoliageEditCommands& Commands = FFoliageEditCommands::Get();
+	const FFoliagePaletteCommands& Commands = FFoliagePaletteCommands::Get();
 	FMenuBuilder MenuBuilder(true, UICommandList);
 
 	MenuBuilder.BeginSection("FoliagePaletteViewMode", LOCTEXT("ViewModeHeading", "Palette View Mode"));
@@ -463,26 +658,26 @@ TSharedRef<SWidget> SFoliagePalette::GetViewOptionsMenuContent()
 			LOCTEXT("ThumbnailView_ToolTip", "Display thumbnails for each foliage type in the palette."),
 			FSlateIcon(),
 			FUIAction(
-				FExecuteAction::CreateSP(this, &SFoliagePalette::SetViewMode, EPaletteViewMode::Thumbnail),
+				FExecuteAction::CreateSP(this, &SFoliagePalette::SetViewMode, EFoliagePaletteViewMode::Thumbnail),
 				FCanExecuteAction(),
-				FIsActionChecked::CreateSP(this, &SFoliagePalette::IsActiveViewMode, EPaletteViewMode::Thumbnail)
-			),
+				FIsActionChecked::CreateSP(this, &SFoliagePalette::IsActiveViewMode, EFoliagePaletteViewMode::Thumbnail)
+				),
 			NAME_None,
 			EUserInterfaceActionType::RadioButton
-		);
+			);
 
 		MenuBuilder.AddMenuEntry(
 			LOCTEXT("ListView", "List"),
 			LOCTEXT("ListView_ToolTip", "Display foliage types in the palette as a list."),
 			FSlateIcon(),
 			FUIAction(
-				FExecuteAction::CreateSP(this, &SFoliagePalette::SetViewMode, EPaletteViewMode::Tree),
+				FExecuteAction::CreateSP(this, &SFoliagePalette::SetViewMode, EFoliagePaletteViewMode::Tree),
 				FCanExecuteAction(),
-				FIsActionChecked::CreateSP(this, &SFoliagePalette::IsActiveViewMode, EPaletteViewMode::Tree)
-			),
+				FIsActionChecked::CreateSP(this, &SFoliagePalette::IsActiveViewMode, EFoliagePaletteViewMode::Tree)
+				),
 			NAME_None,
 			EUserInterfaceActionType::RadioButton
-		);
+			);
 	}
 	MenuBuilder.EndSection();
 
@@ -496,26 +691,37 @@ TSharedRef<SWidget> SFoliagePalette::GetViewOptionsMenuContent()
 				FExecuteAction::CreateSP(this, &SFoliagePalette::ToggleShowTooltips),
 				FCanExecuteAction(),
 				FIsActionChecked::CreateSP(this, &SFoliagePalette::ShouldShowTooltips)
-			),
+				),
 			NAME_None,
 			EUserInterfaceActionType::ToggleButton
-		);
+			);
 
-		// Tile size slider
-		// Hide inactive types
+		MenuBuilder.AddWidget(
+			SNew(SSlider)
+				.ToolTipText( LOCTEXT("ThumbnailScaleToolTip", "Adjust the size of thumbnails.") )
+				.Value( this, &SFoliagePalette::GetThumbnailScale)
+				.OnValueChanged( this, &SFoliagePalette::SetThumbnailScale)
+				.IsEnabled( this, &SFoliagePalette::GetThumbnailScaleSliderEnabled)
+				.OnMouseCaptureEnd(this, &SFoliagePalette::RefreshActivePaletteViewWidget),
+			LOCTEXT("ThumbnailScaleLabel", "Scale"),
+			/*bNoIndent=*/true
+			);
+
+		//@todo: Hide inactive types
 	}
 	MenuBuilder.EndSection();
 
 	return MenuBuilder.MakeWidget();
 }
 
-TSharedPtr<SListView<FFoliageMeshUIInfoPtr>> SFoliagePalette::GetActiveViewWidget() const
+TSharedPtr<SListView<FFoliagePaletteItemModelPtr>> SFoliagePalette::GetActiveViewWidget() const
 {
-	if (ActiveViewMode == EPaletteViewMode::Thumbnail)
+	const EFoliagePaletteViewMode::Type ActiveViewMode = FoliageEditMode->UISettings.GetActivePaletteViewMode();
+	if (ActiveViewMode == EFoliagePaletteViewMode::Thumbnail)
 	{
 		return TileViewWidget;
 	}
-	else if (ActiveViewMode == EPaletteViewMode::Tree)
+	else if (ActiveViewMode == EFoliagePaletteViewMode::Tree)
 	{
 		return TreeViewWidget;
 	}
@@ -528,16 +734,52 @@ EVisibility SFoliagePalette::GetDropFoliageHintVisibility() const
 	return FoliageEditMode->GetFoliageMeshList().Num() == 0 ? EVisibility::Visible : EVisibility::Collapsed;
 }
 
+EVisibility SFoliagePalette::GetFoliageDropTargetVisibility() const
+{
+	if (FSlateApplication::Get().IsDragDropping())
+	{
+		TArray<FAssetData> DraggedAssets = AssetUtil::ExtractAssetDataFromDrag(FSlateApplication::Get().GetDragDroppingContent());
+		for (const FAssetData& AssetData : DraggedAssets)
+		{
+			if (AssetData.IsValid() && (AssetData.GetClass()->IsChildOf(UStaticMesh::StaticClass()) || AssetData.GetClass()->IsChildOf(UFoliageType::StaticClass())))
+			{
+				return EVisibility::Visible;
+			}
+		}
+	}
+
+	return EVisibility::Hidden;
+}
+
+FReply SFoliagePalette::HandleFoliageDropped(const FGeometry& DropZoneGeometry, const FDragDropEvent& DragDropEvent)
+{
+	TArray<FAssetData> DroppedAssetData = AssetUtil::ExtractAssetDataFromDrag(DragDropEvent);
+	if (DroppedAssetData.Num() > 0)
+	{
+		// Treat the entire drop as a transaction (in case multiples types are being added)
+		const FScopedTransaction Transaction(NSLOCTEXT("UnrealEd", "FoliageMode_DragDropTypesTransaction", "Drag-drop Foliage"));
+
+		for (auto& AssetData : DroppedAssetData)
+		{
+			AddFoliageType(AssetData);
+		}
+	}
+
+	return FReply::Handled();
+}
+
 //	CONTEXT MENU
 
 TSharedPtr<SWidget> SFoliagePalette::ConstructFoliageTypeContextMenu()
 {
-	const FFoliageEditCommands& Commands = FFoliageEditCommands::Get();
+	const FFoliagePaletteCommands& Commands = FFoliagePaletteCommands::Get();
 	FMenuBuilder MenuBuilder(true, UICommandList);
 
-	if (GetActiveViewWidget()->GetSelectedItems().Num() > 0)
+	auto SelectedItems = GetActiveViewWidget()->GetSelectedItems();
+	if (SelectedItems.Num() > 0)
 	{
-		if (AreAnyNonAssetTypesSelected())
+		const bool bShowSaveAsOption = SelectedItems.Num() == 1 && !SelectedItems[0]->GetFoliageType()->IsAsset();
+		if (bShowSaveAsOption)
 		{
 			MenuBuilder.BeginSection("StaticMeshFoliageTypeOptions", LOCTEXT("StaticMeshFoliageTypeOptionsHeader", "Static Mesh"));
 			{
@@ -546,17 +788,34 @@ TSharedPtr<SWidget> SFoliagePalette::ConstructFoliageTypeContextMenu()
 					LOCTEXT("SaveAsFoliageType_ToolTip", "Creates a Foliage Type asset with these settings that can be reused in other levels."),
 					FSlateIcon(FEditorStyle::GetStyleSetName(), "Level.SaveIcon16x"),
 					FUIAction(
-						FExecuteAction::CreateSP(this, &SFoliagePalette::OnSaveSelectedAsFoliageType),
-						FCanExecuteAction::CreateSP(this, &SFoliagePalette::OnCanSaveSelectedAsFoliageType)
-					),
+						FExecuteAction::CreateSP(this, &SFoliagePalette::OnSaveSelected)
+						),
 					NAME_None
-				);
+					);
 			}
 			MenuBuilder.EndSection();
 		}
 
 		MenuBuilder.BeginSection("FoliageTypeOptions", LOCTEXT("FoliageTypeOptionsHeader", "Foliage Type"));
 		{
+			if (!bShowSaveAsOption)
+			{
+				MenuBuilder.AddMenuEntry(
+					LOCTEXT("SaveSelectedFoliageTypes", "Save"),
+					LOCTEXT("SaveSelectedFoliageTypes_ToolTip", "Saves any changes to the selected foliage type asset(s)."),
+					FSlateIcon(FEditorStyle::GetStyleSetName(), "Level.SaveIcon16x"),
+					FUIAction(
+						FExecuteAction::CreateSP(this, &SFoliagePalette::OnSaveSelected),
+						FCanExecuteAction::CreateSP(this, &SFoliagePalette::OnCanSaveAnySelectedAssets)
+						),
+					NAME_None
+					);
+			}
+
+			MenuBuilder.AddMenuEntry(Commands.ActivateFoliageType);
+
+			MenuBuilder.AddMenuEntry(Commands.DeactivateFoliageType);
+
 			MenuBuilder.AddMenuEntry(Commands.RemoveFoliageType);
 
 			MenuBuilder.AddSubMenu(
@@ -580,39 +839,88 @@ TSharedPtr<SWidget> SFoliagePalette::ConstructFoliageTypeContextMenu()
 	return MenuBuilder.MakeWidget();
 }
 
-void SFoliagePalette::OnSaveSelectedAsFoliageType()
+void SFoliagePalette::OnSaveSelected()
 {
-	for (FFoliageMeshUIInfoPtr& TypeInfo : GetActiveViewWidget()->GetSelectedItems())
+	for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
 	{
-		UFoliageType* SavedSettings = FoliageEditMode->SaveFoliageTypeObject(TypeInfo->Settings);
-		if (SavedSettings)
+		UFoliageType* FoliageType = PaletteItem->GetFoliageType();
+		if (!FoliageType->IsAsset() || FoliageType->GetOutermost()->IsDirty())
 		{
-			TypeInfo->Settings = SavedSettings;
+			UFoliageType* SavedFoliageType = FoliageEditMode->SaveFoliageTypeObject(FoliageType);
+			if (SavedFoliageType)
+			{
+				FoliageType = SavedFoliageType;
+			}
 		}
 	}
 }
 
-bool SFoliagePalette::OnCanSaveSelectedAsFoliageType() const
+bool SFoliagePalette::OnCanSaveAnySelectedAssets() const
 {
-	for (FFoliageMeshUIInfoPtr& TypeInfo : GetActiveViewWidget()->GetSelectedItems())
+	// We can save if at least one of the selected items is a dirty asset
+	for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
 	{
-		if (TypeInfo->Settings->IsAsset())
+		UFoliageType* FoliageType = PaletteItem->GetFoliageType();
+		if (FoliageType->IsAsset() && FoliageType->GetOutermost()->IsDirty())
 		{
-			// At least one selected type is an asset
-			return false;
+			return true;
 		}
 	}
 
-	return true;
+	return false;
 }
 
 bool SFoliagePalette::AreAnyNonAssetTypesSelected() const
 {
-	for (FFoliageMeshUIInfoPtr& TypeInfo : GetActiveViewWidget()->GetSelectedItems())
+	for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
 	{
-		if (!TypeInfo->Settings->IsAsset())
+		if (!PaletteItem->GetFoliageType()->IsAsset())
 		{
 			// At least one selected type isn't an asset
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void SFoliagePalette::OnActivateFoliageTypes()
+{
+	for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
+	{
+		PaletteItem->SetTypeActiveInPalette(true);
+	}
+}
+
+bool SFoliagePalette::OnCanActivateFoliageTypes() const
+{
+	// At least one selected item must be inactive
+	for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
+	{
+		if (!PaletteItem->IsActive())
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void SFoliagePalette::OnDeactivateFoliageTypes()
+{
+	for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
+	{
+		PaletteItem->SetTypeActiveInPalette(false);
+	}
+}
+
+bool SFoliagePalette::OnCanDeactivateFoliageTypes() const
+{
+	// At least one selected item must be active
+	for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
+	{
+		if (PaletteItem->IsActive())
+		{
 			return true;
 		}
 	}
@@ -645,15 +953,15 @@ void SFoliagePalette::OnReplaceFoliageTypeSelected(const FAssetData& AssetData)
 {
 	FSlateApplication::Get().DismissAllMenus();
 
-	UFoliageType* NewSettings = Cast<UFoliageType>(AssetData.GetAsset());
-	if (GetActiveViewWidget()->GetSelectedItems().Num() && NewSettings)
+	UFoliageType* NewFoliageType = Cast<UFoliageType>(AssetData.GetAsset());
+	if (GetActiveViewWidget()->GetSelectedItems().Num() && NewFoliageType)
 	{
-		for (FFoliageMeshUIInfoPtr& TypeInfo : GetActiveViewWidget()->GetSelectedItems())
+		for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
 		{
-			UFoliageType* OldSettings = TypeInfo->Settings;
-			if (OldSettings != NewSettings)
+			UFoliageType* OldFoliageType = PaletteItem->GetFoliageType();
+			if (OldFoliageType != NewFoliageType)
 			{
-				FoliageEditMode->ReplaceSettingsObject(OldSettings, NewSettings);
+				FoliageEditMode->ReplaceSettingsObject(OldFoliageType, NewFoliageType);
 			}
 		}
 	}
@@ -663,10 +971,10 @@ void SFoliagePalette::OnRemoveFoliageType()
 {
 	int32 NumInstances = 0;
 	TArray<UFoliageType*> FoliageTypeList;
-	for (FFoliageMeshUIInfoPtr& TypeInfo : GetActiveViewWidget()->GetSelectedItems())
+	for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
 	{
-		NumInstances += TypeInfo->InstanceCountTotal;
-		FoliageTypeList.Add(TypeInfo->Settings);
+		NumInstances += PaletteItem->GetTypeUIInfo()->InstanceCountTotal;
+		FoliageTypeList.Add(PaletteItem->GetFoliageType());
 	}
 
 	bool bProceed = true;
@@ -685,9 +993,9 @@ void SFoliagePalette::OnRemoveFoliageType()
 void SFoliagePalette::OnShowFoliageTypeInCB()
 {
 	TArray<UObject*> SelectedAssets;
-	for (FFoliageMeshUIInfoPtr& TypeInfo : GetActiveViewWidget()->GetSelectedItems())
+	for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
 	{
-		UFoliageType* FoliageType = TypeInfo->Settings;
+		UFoliageType* FoliageType = PaletteItem->GetFoliageType();
 		if (FoliageType->IsAsset())
 		{
 			SelectedAssets.Add(FoliageType);
@@ -706,27 +1014,27 @@ void SFoliagePalette::OnShowFoliageTypeInCB()
 
 void SFoliagePalette::OnSelectAllInstances()
 {
-	for (FFoliageMeshUIInfoPtr& TypeInfo : GetActiveViewWidget()->GetSelectedItems())
+	for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
 	{
-		UFoliageType* FoliageType = TypeInfo->Settings;
+		UFoliageType* FoliageType = PaletteItem->GetFoliageType();
 		FoliageEditMode->SelectInstances(FoliageType, true);
 	}
 }
 
 void SFoliagePalette::OnDeselectAllInstances()
 {
-	for (FFoliageMeshUIInfoPtr& TypeInfo : GetActiveViewWidget()->GetSelectedItems())
+	for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
 	{
-		UFoliageType* FoliageType = TypeInfo->Settings;
+		UFoliageType* FoliageType = PaletteItem->GetFoliageType();
 		FoliageEditMode->SelectInstances(FoliageType, false);
 	}
 }
 
 void SFoliagePalette::OnSelectInvalidInstances()
 {
-	for (FFoliageMeshUIInfoPtr& TypeInfo : GetActiveViewWidget()->GetSelectedItems())
+	for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
 	{
-		const UFoliageType* FoliageType = TypeInfo->Settings;
+		UFoliageType* FoliageType = PaletteItem->GetFoliageType();
 		FoliageEditMode->SelectInvalidInstances(FoliageType);
 	}
 }
@@ -738,21 +1046,40 @@ bool SFoliagePalette::CanSelectInstances() const
 
 // THUMBNAIL VIEW
 
-TSharedRef<ITableRow> SFoliagePalette::GenerateTile(FFoliageMeshUIInfoPtr Item, const TSharedRef<STableViewBase>& OwnerTable)
+TSharedRef<ITableRow> SFoliagePalette::GenerateTile(FFoliagePaletteItemModelPtr Item, const TSharedRef<STableViewBase>& OwnerTable)
 {
-	TSharedPtr<FFoliagePaletteItemModel> ItemModel = MakeShareable(new FFoliagePaletteItemModel(Item, SharedThis(this), FoliageEditMode));
-	return SNew(SFoliagePaletteItemTile, OwnerTable, ItemModel);
+	return SNew(SFoliagePaletteItemTile, OwnerTable, Item);
+}
+
+float SFoliagePalette::GetScaledThumbnailSize() const
+{
+	const FInt32Interval& SizeRange = FoliagePaletteConstants::ThumbnailSizeRange;
+	return SizeRange.Min + SizeRange.Size() * FoliageEditMode->UISettings.GetPaletteThumbnailScale();
+}
+
+float SFoliagePalette::GetThumbnailScale() const
+{
+	return FoliageEditMode->UISettings.GetPaletteThumbnailScale();
+}
+
+void SFoliagePalette::SetThumbnailScale(float InScale)
+{
+	FoliageEditMode->UISettings.SetPaletteThumbnailScale(InScale);
+}
+
+bool SFoliagePalette::GetThumbnailScaleSliderEnabled() const
+{
+	return FoliageEditMode->UISettings.GetActivePaletteViewMode() == EFoliagePaletteViewMode::Thumbnail;
 }
 
 // TREE VIEW
 
-TSharedRef<ITableRow> SFoliagePalette::TreeViewGenerateRow(FFoliageMeshUIInfoPtr Item, const TSharedRef<STableViewBase>& OwnerTable)
+TSharedRef<ITableRow> SFoliagePalette::TreeViewGenerateRow(FFoliagePaletteItemModelPtr Item, const TSharedRef<STableViewBase>& OwnerTable)
 {
-	TSharedPtr<FFoliagePaletteItemModel> ItemModel = MakeShareable(new FFoliagePaletteItemModel(Item, SharedThis(this), FoliageEditMode));
-	return SNew(SFoliagePaletteItemRow, OwnerTable, ItemModel);
+	return SNew(SFoliagePaletteItemRow, OwnerTable, Item);
 }
 
-void SFoliagePalette::TreeViewGetChildren(FFoliageMeshUIInfoPtr Item, TArray<FFoliageMeshUIInfoPtr>& OutChildren)
+void SFoliagePalette::TreeViewGetChildren(FFoliagePaletteItemModelPtr Item, TArray<FFoliagePaletteItemModelPtr>& OutChildren)
 {
 	//OutChildren = Item->GetChildren();
 }
@@ -762,9 +1089,9 @@ ECheckBoxState SFoliagePalette::GetState_AllMeshes() const
 	bool bHasChecked = false;
 	bool bHasUnchecked = false;
 
-	for (const FFoliageMeshUIInfoPtr& TypeInfo : FoliageEditMode->GetFoliageMeshList())
+	for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
 	{
-		if (TypeInfo->Settings->IsSelected)
+		if (PaletteItem->IsActive())
 		{
 			bHasChecked = true;
 		}
@@ -784,9 +1111,10 @@ ECheckBoxState SFoliagePalette::GetState_AllMeshes() const
 
 void SFoliagePalette::OnCheckStateChanged_AllMeshes(ECheckBoxState InState)
 {
-	for (const FFoliageMeshUIInfoPtr& TypeInfo : FoliageEditMode->GetFoliageMeshList())
+	const bool bActivate = InState == ECheckBoxState::Checked;
+	for (FFoliagePaletteItemModelPtr& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
 	{
-		TypeInfo->Settings->IsSelected = (InState == ECheckBoxState::Checked);
+		PaletteItem->SetTypeActiveInPalette(bActivate);
 	}
 }
 
@@ -819,13 +1147,13 @@ FText SFoliagePalette::GetTotalInstanceCountTooltipText() const
 
 //	DETAILS VIEW
 
-void SFoliagePalette::RefreshMeshDetailsWidget()
+void SFoliagePalette::RefreshDetailsWidget()
 {
 	TArray<UObject*> SelectedFoliageTypes;
 
-	for (const auto& Info : GetActiveViewWidget()->GetSelectedItems())
+	for (const auto& PaletteItem : GetActiveViewWidget()->GetSelectedItems())
 	{
-		SelectedFoliageTypes.Add(Info->Settings);
+		SelectedFoliageTypes.Add(PaletteItem->GetFoliageType());
 	}
 
 	const bool bForceRefresh = true;
@@ -836,11 +1164,11 @@ FText SFoliagePalette::GetDetailsNameAreaText() const
 {
 	FText OutText;
 
-	auto SelectedTypes = GetActiveViewWidget()->GetSelectedItems();
-	if (SelectedTypes.Num() == 1)
+	auto SelectedItems = GetActiveViewWidget()->GetSelectedItems();
+	if (SelectedItems.Num() == 1)
 	{
 		FName DisplayName;
-		UFoliageType* SelectedType = SelectedTypes[0]->Settings;
+		UFoliageType* SelectedType = SelectedItems[0]->GetFoliageType();
 		if (SelectedType->IsAsset())
 		{
 			DisplayName = SelectedType->GetFName();
@@ -851,9 +1179,9 @@ FText SFoliagePalette::GetDetailsNameAreaText() const
 		}
 		OutText = FText::FromName(DisplayName);
 	}
-	else if (SelectedTypes.Num() > 1)
+	else if (SelectedItems.Num() > 1)
 	{
-		OutText = FText::Format(LOCTEXT("DetailsNameAreaText_Multiple", "{0} Types Selected"), FText::AsNumber(SelectedTypes.Num()));
+		OutText = FText::Format(LOCTEXT("DetailsNameAreaText_Multiple", "{0} Types Selected"), FText::AsNumber(SelectedItems.Num()));
 	}
 
 	return OutText;
@@ -875,8 +1203,61 @@ FReply SFoliagePalette::OnShowHideDetailsClicked() const
 {
 	const bool bDetailsCurrentlyVisible = DetailsWidget->GetVisibility() != EVisibility::Collapsed;
 	DetailsWidget->SetVisibility(bDetailsCurrentlyVisible ? EVisibility::Collapsed : EVisibility::SelfHitTestInvisible);
+	FoliageEditMode->UISettings.SetShowPaletteItemDetails(!bDetailsCurrentlyVisible);
 
 	return FReply::Handled();
+}
+
+EActiveTimerReturnType SFoliagePalette::UpdatePaletteItems(double InCurrentTime, float InDeltaTime)
+{
+	if (bItemsNeedRebuild)
+	{
+		bItemsNeedRebuild = false;
+
+		// Cache the currently selected items
+		auto ActiveViewWidget = GetActiveViewWidget();
+		TArray<FFoliagePaletteItemModelPtr> PreviouslySelectedItems = ActiveViewWidget->GetSelectedItems();
+		
+		ActiveViewWidget->ClearSelection();
+
+		// Rebuild the list of palette items
+		const auto& AllTypesList = FoliageEditMode->GetFoliageMeshList();
+		PaletteItems.Empty(AllTypesList.Num());
+		for (const FFoliageMeshUIInfoPtr& TypeInfo : AllTypesList)
+		{
+			PaletteItems.Add(MakeShareable(new FFoliagePaletteItemModel(TypeInfo, SharedThis(this), FoliageEditMode)));
+		}
+
+		// Restore the selection
+		for (auto& PrevSelectedItem : PreviouslySelectedItems)
+		{
+			// See if there's a new item for the previously selected item's foliage type
+			for (auto& Item : PaletteItems)
+			{
+				if (PrevSelectedItem->GetFoliageType() == Item->GetFoliageType())
+				{
+					ActiveViewWidget->SetItemSelection(Item, true);
+					break;
+				}
+			}
+		}
+	}
+
+	// Update the filtered items
+	FilteredItems.Empty();
+	for (auto& Item : PaletteItems)
+	{
+		if (TypeFilter->PassesFilter(Item))
+		{
+			FilteredItems.Add(Item);
+		}
+	}
+
+	// Refresh the appropriate view
+	RefreshActivePaletteViewWidget();
+
+	bIsActiveTimerRegistered = false;
+	return EActiveTimerReturnType::Stop;
 }
 
 #undef LOCTEXT_NAMESPACE

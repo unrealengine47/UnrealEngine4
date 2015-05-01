@@ -136,6 +136,11 @@ private:
 	/** Indicates that BeginPlay has been called, but EndPlay has not yet */
 	uint32 bHasBegunPlay:1;
 
+#if WITH_EDITOR
+	/** During undo/redo it isn't safe to cache owner */
+	uint32 bCanUseCachedOwner:1;
+#endif
+
 	/** Tracks whether the component has been added to one of the world's end of frame update lists */
 	uint32 MarkedForEndOfFrameUpdateState:2;
 	friend struct FMarkComponentEndOfFrameUpdateState;
@@ -146,9 +151,9 @@ public:
 	UPROPERTY()
 	EComponentCreationMethod CreationMethod;
 
-	AActor* Owner;
-
 private:
+	mutable AActor* Owner;
+
 	UPROPERTY()
 	TArray<FSimpleMemberReference> UCSModifiedProperties;
 
@@ -272,7 +277,7 @@ private:
 	void ExecuteRegisterEvents();
 
 	/* Utility function for each of the PostEditChange variations to call for the same behavior */
-	void ConsolidatedPostEditChange();
+	void ConsolidatedPostEditChange(const FPropertyChangedEvent& PropertyChangedEvent);
 protected:
 
 	friend class FComponentReregisterContextBase;
@@ -287,6 +292,12 @@ protected:
 	 * Called when a component is unregistered. Called after DestroyRenderState_Concurrent and DestroyPhysicsState are called.
 	 */
 	virtual void OnUnregister();
+
+	/** Return true if CreateRenderState() should be called */
+	virtual bool ShouldCreateRenderState() const 
+	{
+		return false;
+	}
 
 	/** Used to create any rendering thread information for this component
 	*
@@ -480,6 +491,9 @@ public:
 	/** return true if this component requires end of frame updates to happen from the game thread. */
 	virtual bool RequiresGameThreadEndOfFrameUpdates() const;
 
+	/** return true if this component requires end of frame recreates to happen from the game thread. */
+	virtual bool RequiresGameThreadEndOfFrameRecreate() const;
+
 	/** Recreate the render state right away. Generally you always want to call MarkRenderStateDirty instead. 
 	*
 	* **Caution**, this is called concurrently on multiple threads (but never the same component concurrently)
@@ -555,6 +569,7 @@ public:
 	virtual void PreEditChange(UProperty* PropertyThatWillChange) override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 	virtual void PostEditChangeChainProperty( FPropertyChangedChainEvent& PropertyChangedEvent ) override;
+	virtual void PreEditUndo() override;
 	virtual void PostEditUndo() override;
 #endif // WITH_EDITOR
 	// End UObject interface.
@@ -643,6 +658,19 @@ private:
 
 FORCEINLINE_DEBUGGABLE class AActor* UActorComponent::GetOwner() const
 {
+#if WITH_EDITOR
+	// During undo/redo the cached owner is unreliable so just used GetTypedOuter
+	if (bCanUseCachedOwner)
+	{
+		checkSlow(Owner == GetTypedOuter<AActor>()); // verify cached value is correct
+		return Owner;
+	}
+	else
+	{
+		return GetTypedOuter<AActor>();
+	}
+#else
 	checkSlow(Owner == GetTypedOuter<AActor>()); // verify cached value is correct
 	return Owner;
+#endif
 }

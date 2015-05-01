@@ -13,9 +13,21 @@
 //////////////////////////////////////////////////////////////////////////
 // FTileSetDetailsCustomization
 
+FTileSetDetailsCustomization::FTileSetDetailsCustomization(bool bInIsEmbedded)
+	: bIsEmbeddedInTileSetEditor(bInIsEmbedded)
+	, SelectedSingleTileIndex(INDEX_NONE)
+	, MyDetailLayout(nullptr)
+{
+}
+
 TSharedRef<IDetailCustomization> FTileSetDetailsCustomization::MakeInstance()
 {
-	return MakeShareable(new FTileSetDetailsCustomization);
+	return MakeShareable(new FTileSetDetailsCustomization(/*bIsEmbedded=*/ false));
+}
+
+TSharedRef<FTileSetDetailsCustomization> FTileSetDetailsCustomization::MakeEmbeddedInstance()
+{
+	return MakeShareable(new FTileSetDetailsCustomization(/*bIsEmbedded=*/ true));
 }
 
 void FTileSetDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& DetailLayout)
@@ -54,28 +66,43 @@ void FTileSetDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& Detail
 	);
 
 
-	// Add all of the properties from the inline tilemap
-// 	if ((TileComponent != nullptr) && (TileComponent->OwnsTileMap()))
-// 	{
-// 		TArray<UObject*> ListOfTileMaps;
-// 		ListOfTileMaps.Add(TileMap);
-// 
-// 		for (TFieldIterator<UProperty> PropIt(UPaperTileMap::StaticClass()); PropIt; ++PropIt)
-// 		{
-// 			UProperty* TestProperty = *PropIt;
-// 
-// 			if (TestProperty->HasAnyPropertyFlags(CPF_Edit))
-// 			{
-// 				FName CategoryName(*TestProperty->GetMetaData(TEXT("Category")));
-// 				IDetailCategoryBuilder& Category = DetailLayout.EditCategory(CategoryName);
-// 
-// 				if (IDetailPropertyRow* ExternalRow = Category.AddExternalProperty(ListOfTileMaps, TestProperty->GetFName()))
-// 				{
-// 					ExternalRow->Visibility(InternalInstanceVis);
-// 				}
-// 			}
-// 		}
-// 	}
+	if (bIsEmbeddedInTileSetEditor)
+	{
+		// Hide the array to start with
+		const FName MetadataArrayName = UPaperTileSet::GetPerTilePropertyName();
+		TSharedPtr<IPropertyHandle> PerTileArrayProperty = DetailLayout.GetProperty(MetadataArrayName);
+		DetailLayout.HideProperty(PerTileArrayProperty);
+
+		if (SelectedSingleTileIndex != INDEX_NONE)
+		{
+			// Customize for the single tile being edited
+			IDetailCategoryBuilder& SingleTileCategory = DetailLayout.EditCategory("SingleTileEditor", FText::GetEmpty());
+			
+			TSharedPtr<IPropertyHandle> OneTileEntry = PerTileArrayProperty->GetChildHandle(SelectedSingleTileIndex);
+			SingleTileCategory.AddProperty(OneTileEntry)
+				.ShouldAutoExpand(true);
+
+
+			// Add a display of the tile index being edited to the header
+			const FText TileIndexHeaderText = FText::Format(LOCTEXT("SingleTileSectionHeader", "Editing Tile #{0}"), FText::AsNumber(SelectedSingleTileIndex));
+			SingleTileCategory.HeaderContent
+			(
+				SNew(SBox)
+				.HAlign(HAlign_Right)
+				[
+					SNew(SHorizontalBox)
+					+SHorizontalBox::Slot()
+					.Padding(FMargin(5.0f, 0.0f))
+					.AutoWidth()
+					[
+						SNew(STextBlock)
+						.Font(FEditorStyle::GetFontStyle("TinyText"))
+						.Text(TileIndexHeaderText)
+					]
+				]
+			);
+		}
+	}
 }
 
 FText FTileSetDetailsCustomization::GetCellDimensionHeaderText() const
@@ -103,7 +130,7 @@ FText FTileSetDetailsCustomization::GetCellDimensionHeaderText() const
 		{
 			const FText TextNumTilesX = FText::AsNumber(NumTilesX, &FNumberFormattingOptions::DefaultNoGrouping());
 			const FText TextNumTilesY = FText::AsNumber(NumTilesY, &FNumberFormattingOptions::DefaultNoGrouping());
-			Result = FText::Format(LOCTEXT("CellDimensions", "{0} x {0} tiles"), TextNumTilesX, TextNumTilesY);
+			Result = FText::Format(LOCTEXT("CellDimensions", "{0} x {1} tiles"), TextNumTilesX, TextNumTilesY);
 		}
 	}
 
@@ -121,6 +148,18 @@ FSlateColor FTileSetDetailsCustomization::GetCellDimensionHeaderColor() const
 	}
 
 	return FSlateColor::UseForeground();
+}
+
+void FTileSetDetailsCustomization::OnTileIndexChanged(int32 NewIndex, int32 OldIndex)
+{
+	SelectedSingleTileIndex = NewIndex;
+	if (NewIndex != OldIndex)
+	{
+		if (MyDetailLayout != nullptr)
+		{
+			MyDetailLayout->ForceRefreshDetails();
+		}
+	}
 }
 
 //////////////////////////////////////////////////////////////////////////

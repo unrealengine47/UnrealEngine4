@@ -96,6 +96,9 @@ public:
 		/** Whether to clear keyboard focus when pressing enter to commit changes */
 		SLATE_ATTRIBUTE(bool, ClearKeyboardFocusOnCommit)
 
+		/** Delegate to call before a context menu is opened. User returns the menu content or null to the disable context menu */
+		SLATE_EVENT(FOnContextMenuOpening, OnContextMenuOpening)
+
 		/** Called whenever the horizontal scrollbar is moved by the user */
 		SLATE_EVENT(FOnUserScrolled, OnHScrollBarUserScrolled)
 
@@ -124,6 +127,12 @@ public:
 	void SetText(const TAttribute< FText >& InText);
 
 	/**
+	 * Returns the plain text string without richtext formatting
+	 * @return  Text string
+	 */
+	const FText GetPlainText() const;
+
+	/**
 	 * Sets the text that appears when there is no text in the text box
 	 */
 	void SetHintText(const TAttribute< FText >& InHintText);
@@ -143,6 +152,9 @@ public:
 
 	/** Move the cursor to the given location in the document (will also scroll to this point) */
 	void GoTo(const FTextLocation& NewLocation);
+
+	/** Move the cursor specified location */
+	void GoTo(ETextLocation NewLocation);
 
 	/** Scroll to the given location in the document (without moving the cursor) */
 	void ScrollTo(const FTextLocation& NewLocation);
@@ -682,6 +694,9 @@ private:
 
 	/** A list commands to execute if a user presses the corresponding keybinding in the text box */
 	TSharedRef< FUICommandList > UICommandList;
+
+	/** Delegate to call before a context menu is opened */
+	FOnContextMenuOpening OnContextMenuOpening;
 
 	/** Called whenever the text is changed interactively by the user */
 	FOnTextChanged OnTextChanged;

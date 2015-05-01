@@ -4,6 +4,7 @@
 
 class SToolTip;
 class SFoliagePalette;
+class UFoliageType;
 
 class FEdModeFoliage;
 struct FFoliageMeshUIInfo;
@@ -25,9 +26,11 @@ public:
 	FFoliagePaletteItemModel(FFoliageMeshUIInfoPtr InTypeInfo, TSharedRef<SFoliagePalette> InFoliagePalette, FEdModeFoliage* InFoliageEditMode);
 
 	/** @return The foliage palette that contains the item */
-	const TSharedPtr<SFoliagePalette>& GetFoliagePalette() const;
+	TSharedPtr<SFoliagePalette> GetFoliagePalette() const;
 
-	const class UFoliageType* GetFoliageType() const;
+	FFoliageMeshUIInfoPtr GetTypeUIInfo() const;
+	UFoliageType* GetFoliageType() const;
+	const struct FFoliageUISettings& GetFoliageUISettings() const;
 
 	/** @return The thumbnail widget for this item */
 	TSharedRef<SWidget> GetThumbnailWidget() const;
@@ -42,10 +45,19 @@ public:
 	TSharedRef<class SButton> CreateSaveAssetButton(TAttribute<EVisibility> InVisibility = TAttribute<EVisibility>());
 
 	/** Gets the name to display of the foliage type object as text */
-	FText GetFoliageTypeNameText() const;
+	FText GetFoliageTypeDisplayNameText() const;
 
-	/** Gets the number of instances of this foliage type exist in the level */
-	FText GetInstanceCountText() const;
+	/** Gets the current search filter text */
+	FText GetPaletteSearchText() const;
+
+	/** Gets the number of instances of this foliage type  */
+	FText GetInstanceCountText(bool bLevelOnly = true) const;
+
+	/** Sets whether this foliage type is active in the palette */
+	void SetTypeActiveInPalette(bool bSetActiveInPalette);
+
+	/** Gets whether this foliage type is active in the palette */
+	bool IsActive() const;
 
 private:
 	/** Handles the change in activation of the item in the palette */
@@ -70,7 +82,7 @@ private:
 	TSharedPtr<SWidget> ThumbnailWidget;
 
 	FFoliageMeshUIInfoPtr TypeInfo;
-	TSharedPtr<SFoliagePalette> FoliagePalette;
+	TWeakPtr<SFoliagePalette> FoliagePalette;
 	FEdModeFoliage* FoliageEditMode;
 };
 
@@ -87,8 +99,11 @@ private:
 	FLinearColor GetTileColorAndOpacity() const;
 	EVisibility GetCheckBoxVisibility() const;
 	EVisibility GetSaveButtonVisibility() const;
+	EVisibility GetInstanceCountVisibility() const;
+	bool CanShowOverlayItems() const;
 
 private:
+	static const float MinScaleForOverlayItems;
 	TSharedPtr<FFoliagePaletteItemModel> Model;
 };
 

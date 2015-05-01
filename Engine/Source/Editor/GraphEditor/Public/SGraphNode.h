@@ -39,6 +39,9 @@ public:
 	/** Returns the main title for the node */
 	FText GetHeadTitle() const;
 
+	/** Get the size of this title the last time it was drawn */
+	FVector2D GetTitleSize() const;
+
 protected:
 	UEdGraphNode* GraphNode;
 	FNodeTextCache NodeTitleCache;
@@ -49,6 +52,9 @@ protected:
 
 	/** The title text to use, auto-binds to get the title if not set externally */
 	TAttribute< FText > TitleText;
+
+	/** The cached size of the title */
+	FVector2D CachedSize;
 
 protected:
 	// Gets the expected node title
@@ -177,6 +183,8 @@ public:
 	void SetTextCommittedEvent(FOnNodeTextCommitted InDelegate);
 	/** Set event when the user generates a warning tooltip because a connection was invalid */
 	void SetDisallowedPinConnectionEvent(SGraphEditor::FOnDisallowedPinConnection InOnDisallowedPinConnection);
+	/** called to replace this nodes comment text */
+	void OnCommentTextCommitted(const FText& NewComment, ETextCommit::Type CommitInfo);
 	/** returns true if a rename is pending on this node */
 	bool IsRenamePending() const { return bRenameIsPending; }
 

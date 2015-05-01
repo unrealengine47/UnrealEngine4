@@ -228,20 +228,21 @@ void FSingleTileEditorViewportClient::SetTileIndex(int32 InTileIndex)
 	UPaperSprite* DummySprite = nullptr;
 	if (TileBeingEditedIndex != INDEX_NONE)
 	{
-		//@TODO: Should use this to pick the correct material
-		//const bool bUseTranslucentBlend = Texture->HasAlphaChannel();
-
 		DummySprite = NewObject<UPaperSprite>();
  		DummySprite->SpriteCollisionDomain = ESpriteCollisionMode::None;
  		DummySprite->PivotMode = ESpritePivotMode::Center_Center;
  		DummySprite->CollisionGeometry.GeometryType = ESpritePolygonMode::SourceBoundingBox;
  		DummySprite->RenderGeometry.GeometryType = ESpritePolygonMode::SourceBoundingBox;
-		DummySprite->PixelsPerUnrealUnit = 1.0f;
 
 		FSpriteAssetInitParameters SpriteReinitParams;
+
 		SpriteReinitParams.Texture = TileSet->TileSheet;
+
+		//@TODO: Should analyze the texture (*at a higher level, not per tile click!*) to pick the correct material
+
 		TileSet->GetTileUV(TileBeingEditedIndex, /*out*/ SpriteReinitParams.Offset);
 		SpriteReinitParams.Dimension = FVector2D(TileSet->TileWidth, TileSet->TileHeight);
+		SpriteReinitParams.SetPixelsPerUnrealUnit(1.0f);
 		DummySprite->InitializeSprite(SpriteReinitParams);
 	}
 	PreviewTileSpriteComponent->SetSprite(DummySprite);
@@ -259,11 +260,14 @@ void FSingleTileEditorViewportClient::SetTileIndex(int32 InTileIndex)
 		RequestFocusOnSelection(/*bInstant=*/ true);
 	}
 
+	// Trigger a details panel customization rebuild
+	OnSingleTileIndexChanged.Broadcast(TileBeingEditedIndex, OldTileIndex);
+
 	// Redraw the viewport
 	Invalidate();
 }
 
-void FSingleTileEditorViewportClient::OnActiveTileIndexChanged(const FIntPoint& TopLeft, const FIntPoint& Dimensions)
+void FSingleTileEditorViewportClient::OnTileSelectionRegionChanged(const FIntPoint& TopLeft, const FIntPoint& Dimensions)
 {
 	const int32 TopLeftIndex = (TileSet->GetTileCountX() * TopLeft.Y) + TopLeft.X;
 	const int32 SelectionArea = Dimensions.X * Dimensions.Y;

@@ -639,6 +639,11 @@ namespace UnrealBuildTool
 				// @todo clang: Hack due to how we have our 'DummyPCH' wrappers setup when using unity builds.  This warning should not be disabled!!
 				Arguments.Append(" -Wno-msvc-include");
 
+				if (BuildConfiguration.bEnableShadowVariableWarning)
+				{
+					Arguments.Append(" -Wshadow");
+				}
+
 				// @todo clang: Kind of a shame to turn these off.  We'd like to catch unused variables, but it is tricky with how our assertion macros work.
 				Arguments.Append(" -Wno-inconsistent-missing-override");
 				Arguments.Append(" -Wno-unused-variable");
@@ -1001,6 +1006,11 @@ namespace UnrealBuildTool
 				}
 			}
 
+            if (!WindowsPlatform.bCompileWithClang && WindowsPlatform.bLogDetailedCompilerTimingInfo)
+            {
+                // Force MSVC
+                SharedArguments.Append(" /Bt+");
+            }
 
 			// Add preprocessor definitions to the argument list.
 			foreach (string Definition in CompileEnvironment.Config.Definitions)
@@ -1018,6 +1028,11 @@ namespace UnrealBuildTool
 			{
 				Action CompileAction = new Action(ActionType.Compile);
 				CompileAction.CommandDescription = "Compile";
+                // ensure compiler timings are captured when we execute the action.
+                if (!WindowsPlatform.bCompileWithClang && WindowsPlatform.bLogDetailedCompilerTimingInfo)
+                {
+                    CompileAction.bPrintDebugInfo = true;
+                }
 
 				StringBuilder FileArguments = new StringBuilder();
 				bool bIsPlainCFile = Path.GetExtension(SourceFile.AbsolutePath).ToUpperInvariant() == ".C";
@@ -1408,7 +1423,10 @@ namespace UnrealBuildTool
 				AppendLinkArguments(LinkEnvironment, Arguments);
 			}
 
-
+            if (!WindowsPlatform.bCompileWithClang && WindowsPlatform.bLogDetailedCompilerTimingInfo)
+            {
+                Arguments.Append(" /time+");
+            }
 
 			// If we're only building an import library, add the '/DEF' option that tells the LIB utility
 			// to simply create a .LIB file and .EXP file, and don't bother validating imports
@@ -1580,6 +1598,11 @@ namespace UnrealBuildTool
 			LinkAction.ProducedItems    .AddRange(ProducedItems);
 			LinkAction.PrerequisiteItems.AddRange(PrerequisiteItems);
 			LinkAction.StatusDescription  = Path.GetFileName(OutputFile.AbsolutePath);
+            // ensure compiler timings are captured when we execute the action.
+            if (!WindowsPlatform.bCompileWithClang && WindowsPlatform.bLogDetailedCompilerTimingInfo)
+            {
+                LinkAction.bPrintDebugInfo = true;
+            }
 
 			if( WindowsPlatform.bCompileWithClang )
 			{ 

@@ -54,6 +54,12 @@ namespace UnrealBuildTool
             }
         }
 
+        /// <summary>
+        /// When true, throws some CL and link flags (/Bt+ and /link) to output detailed timing info.
+        /// </summary>
+        [XmlConfig]
+        public static bool bLogDetailedCompilerTimingInfo = false;
+
         /// True if we should use Clang/LLVM instead of MSVC to compile code on Windows platform
         public static readonly bool bCompileWithClang = false;
 
@@ -61,7 +67,7 @@ namespace UnrealBuildTool
 		public static readonly bool bUseVCCompilerArgs = !bCompileWithClang || false;
 
 		/// True if we should use the Clang linker (LLD) when bCompileWithClang is enabled, otherwise we use the MSVC linker
-		public static readonly bool bAllowClangLinker = bCompileWithClang && true;
+		public static readonly bool bAllowClangLinker = bCompileWithClang && false;
 
         /// True if we're targeting Windows XP as a minimum spec.  In Visual Studio 2012 and higher, this may change how
         /// we compile and link the application (http://blogs.msdn.com/b/vcblog/archive/2012/10/08/10357555.aspx)

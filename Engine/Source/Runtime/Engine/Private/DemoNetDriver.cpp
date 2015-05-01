@@ -20,8 +20,9 @@
 #include "Net/UnrealNetwork.h"
 #include "Net/NetworkProfiler.h"
 #include "Net/DataReplication.h"
+#include "GameFramework/GameMode.h"
 
-DEFINE_LOG_CATEGORY_STATIC( LogDemo, Log, All );
+DEFINE_LOG_CATEGORY( LogDemo );
 
 static TAutoConsoleVariable<float> CVarDemoRecordHz( TEXT( "demo.RecordHz" ), 10, TEXT( "Number of demo frames recorded per second" ) );
 static TAutoConsoleVariable<float> CVarDemoTimeDilation( TEXT( "demo.TimeDilation" ), -1.0f, TEXT( "Override time dilation during demo playback (-1 = don't override)" ) );
@@ -393,7 +394,14 @@ bool UDemoNetDriver::InitListen( FNetworkNotify* InNotify, FURL& ListenURL, bool
 	Connection->InitSendBuffer();
 	ClientConnections.Add( Connection );
 
-	ReplayStreamer->StartStreaming( DemoFilename, World->GetMapName(), true, FNetworkVersion::GetReplayVersion(), FOnStreamReadyDelegate::CreateUObject( this, &UDemoNetDriver::ReplayStreamingReady ) );
+	const TCHAR* FriendlyNameOption = ListenURL.GetOption( TEXT("DemoFriendlyName="), nullptr );
+
+	ReplayStreamer->StartStreaming(
+		DemoFilename,
+		FriendlyNameOption != nullptr ? FString(FriendlyNameOption) : World->GetMapName(),
+		true,
+		FNetworkVersion::GetReplayVersion(),
+		FOnStreamReadyDelegate::CreateUObject( this, &UDemoNetDriver::ReplayStreamingReady ) );
 
 	FArchive* FileAr = ReplayStreamer->GetHeaderArchive();
 
@@ -508,10 +516,19 @@ void UDemoNetDriver::TickDispatch(float DeltaSeconds)
 		//	(we want to continue to fly around in real-time)
 		if ( SpectatorController != NULL )
 		{
-			SpectatorController->CustomTimeDilation = 1.0f;
+			if ( World->GetWorldSettings()->DemoPlayTimeDilation > KINDA_SMALL_NUMBER )
+			{
+				SpectatorController->CustomTimeDilation = 1.0f / World->GetWorldSettings()->DemoPlayTimeDilation;
+			}
+			else
+			{
+				SpectatorController->CustomTimeDilation = 1.0f;
+			}
 
 			if ( SpectatorController->GetSpectatorPawn() != NULL )
 			{
+				SpectatorController->GetSpectatorPawn()->CustomTimeDilation = SpectatorController->CustomTimeDilation;
+
 				// Disable collision on the spectator
 				SpectatorController->GetSpectatorPawn()->SetActorEnableCollision( false );
 					
@@ -521,7 +538,7 @@ void UDemoNetDriver::TickDispatch(float DeltaSeconds)
 
 				if ( SpectatorMovement )
 				{
-					SpectatorMovement->bIgnoreTimeDilation = true;
+					//SpectatorMovement->bIgnoreTimeDilation = true;
 					SpectatorMovement->PrimaryComponentTick.bTickEvenWhenPaused = true;
 				}
 			}
@@ -1342,7 +1359,7 @@ void UDemoNetDriver::SpawnDemoRecSpectator( UNetConnection* Connection )
 {
 	check( Connection != NULL );
 
-	UClass* C = StaticLoadClass( AActor::StaticClass(), NULL, *DemoSpectatorClass, NULL, LOAD_None, NULL );
+	UClass* C = GetWorld()->GetAuthGameMode()->ReplaySpectatorPlayerControllerClass;
 
 	if ( C == NULL )
 	{

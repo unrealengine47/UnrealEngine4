@@ -8,6 +8,7 @@
 #include "EnginePrivate.h"
 #include "Engine/GameInstance.h"
 #include "Engine/Engine.h"
+#include "Engine/DemoNetDriver.h"
 #include "OnlineSubsystem.h"
 #include "OnlineSessionInterface.h"
 #include "GameFramework/OnlineSession.h"
@@ -20,7 +21,19 @@
 
 UGameInstance::UGameInstance(const FObjectInitializer& ObjectInitializer)
 : Super(ObjectInitializer)
+, TimerManager(new FTimerManager())
 {
+}
+
+void UGameInstance::FinishDestroy()
+{
+	if (TimerManager)
+	{
+		delete TimerManager;
+		TimerManager = nullptr;
+	}
+
+	Super::FinishDestroy();
 }
 
 UWorld* UGameInstance::GetWorld() const
@@ -73,6 +86,11 @@ void UGameInstance::InitializeStandalone()
 	// Creates the world context. This should be the only WorldContext that ever gets created for this GameInstance.
 	WorldContext = &Engine->CreateNewWorldContext(EWorldType::Game);
 	WorldContext->OwningGameInstance = this;
+
+	// In standalone create a dummy world from the beginning to avoid issues of not having a world until LoadMap gets us our real world
+	UWorld* DummyWorld = UWorld::CreateWorld(EWorldType::Game, false);
+	DummyWorld->SetGameInstance(this);
+	WorldContext->SetCurrentWorld(DummyWorld);
 
 	Init();
 }
@@ -653,5 +671,116 @@ void UGameInstance::OnSessionUserInviteAccepted(const bool bWasSuccess, const in
 		{
 			UE_LOG(LogPlayerManagement, Warning, TEXT("Invite accept returned invalid search result."));
 		}
+	}
+}
+
+void UGameInstance::StartRecordingReplay(const FString& Name, const FString& FriendlyName)
+{
+	if ( FParse::Param( FCommandLine::Get(),TEXT( "NOREPLAYS" ) ) )
+	{
+		UE_LOG( LogDemo, Warning, TEXT( "UGameInstance::StartRecordingReplay: Rejected due to -noreplays option" ) );
+		return;
+	}
+
+	UWorld* CurrentWorld = GetWorld();
+
+	if ( CurrentWorld == nullptr )
+	{
+		UE_LOG( LogDemo, Warning, TEXT( "UGameInstance::StartRecordingReplay: GetWorld() is null" ) );
+		return;
+	}
+
+	FURL DemoURL;
+	FString DemoName = Name;
+	
+	DemoName.ReplaceInline( TEXT( "%m" ), *CurrentWorld->GetMapName() );
+
+	// replace the current URL's map with a demo extension
+	DemoURL.Map = DemoName;
+	DemoURL.AddOption( *FString::Printf( TEXT( "DemoFriendlyName=%s" ), *FriendlyName ) );
+
+	CurrentWorld->DestroyDemoNetDriver();
+
+	const FName NAME_DemoNetDriver( TEXT( "DemoNetDriver" ) );
+
+	if ( !GEngine->CreateNamedNetDriver( CurrentWorld, NAME_DemoNetDriver, NAME_DemoNetDriver ) )
+	{
+		UE_LOG( LogDemo, Warning, TEXT( "RecordReplay: failed to create demo net driver!" ) );
+		return;
+	}
+
+	CurrentWorld->DemoNetDriver = Cast< UDemoNetDriver >( GEngine->FindNamedNetDriver( CurrentWorld, NAME_DemoNetDriver ) );
+
+	check( CurrentWorld->DemoNetDriver != NULL );
+
+	CurrentWorld->DemoNetDriver->SetWorld( CurrentWorld );
+
+	FString Error;
+
+	if ( !CurrentWorld->DemoNetDriver->InitListen( CurrentWorld, DemoURL, false, Error ) )
+	{
+		UE_LOG( LogDemo, Warning, TEXT( "Demo recording failed: %s" ), *Error );
+		CurrentWorld->DemoNetDriver = NULL;
+	}
+	else
+	{
+		UE_LOG(LogDemo, Log, TEXT( "Num Network Actors: %i" ), CurrentWorld->NetworkActors.Num() );
+	}
+}
+
+void UGameInstance::StopRecordingReplay()
+{
+	UWorld* CurrentWorld = GetWorld();
+
+	if ( CurrentWorld == nullptr )
+	{
+		UE_LOG( LogDemo, Warning, TEXT( "UGameInstance::StopRecordingReplay: GetWorld() is null" ) );
+		return;
+	}
+
+	CurrentWorld->DestroyDemoNetDriver();
+}
+
+void UGameInstance::PlayReplay(const FString& Name)
+{
+	UWorld* CurrentWorld = GetWorld();
+
+	if ( CurrentWorld == nullptr )
+	{
+		UE_LOG( LogDemo, Warning, TEXT( "UGameInstance::PlayReplay: GetWorld() is null" ) );
+		return;
+	}
+
+	CurrentWorld->DestroyDemoNetDriver();
+
+	FURL DemoURL;
+	UE_LOG( LogDemo, Log, TEXT( "PlayReplay: Attempting to play demo %s" ), *Name );
+
+	DemoURL.Map = Name;
+
+	const FName NAME_DemoNetDriver( TEXT( "DemoNetDriver" ) );
+
+	if ( !GEngine->CreateNamedNetDriver( CurrentWorld, NAME_DemoNetDriver, NAME_DemoNetDriver ) )
+	{
+		UE_LOG(LogDemo, Warning, TEXT( "PlayReplay: failed to create demo net driver!" ) );
+		return;
+	}
+
+	CurrentWorld->DemoNetDriver = Cast< UDemoNetDriver >( GEngine->FindNamedNetDriver( CurrentWorld, NAME_DemoNetDriver ) );
+
+	check( CurrentWorld->DemoNetDriver != NULL );
+
+	CurrentWorld->DemoNetDriver->SetWorld( CurrentWorld );
+
+	FString Error;
+
+	if ( !CurrentWorld->DemoNetDriver->InitConnect( CurrentWorld, DemoURL, Error ) )
+	{
+		UE_LOG(LogDemo, Warning, TEXT( "Demo playback failed: %s" ), *Error );
+		CurrentWorld->DestroyDemoNetDriver();
+	}
+	else
+	{
+		FCoreUObjectDelegates::PostDemoPlay.Broadcast();
 	}
 }

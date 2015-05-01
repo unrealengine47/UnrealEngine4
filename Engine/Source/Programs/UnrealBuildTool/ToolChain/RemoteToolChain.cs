@@ -42,6 +42,9 @@ namespace UnrealBuildTool
 		/** Whether or not to connect to UnrealRemoteTool using RPCUtility */
 		[XmlConfig]
 		public static bool bUseRPCUtil = true;
+
+		/** The user has specified a deltacopy install path */
+		private static string OverrideDeltaCopyInstallPath = null;
 		
 		/** Path to rsync executable and parameters for your rsync utility */
 		[XmlConfig]
@@ -206,6 +209,15 @@ namespace UnrealBuildTool
 			{
 				bUseRPCUtil = !bUseRSync;
 				Ini.GetString("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "RSyncUsername", out RSyncUsername);
+				
+				if (Ini.GetString("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "DeltaCopyInstallPath", out OverrideDeltaCopyInstallPath))
+				{
+					if (!string.IsNullOrEmpty(OverrideDeltaCopyInstallPath))
+					{
+						SSHExe = Path.Combine(OverrideDeltaCopyInstallPath, Path.GetFileName(SSHExe));
+						RSyncExe = Path.Combine(OverrideDeltaCopyInstallPath, Path.GetFileName(RSyncExe));
+					}
+				}
 
 				string ConfigKeyPath;
 				if (Ini.GetString("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "SSHPrivateKeyOverridePath", out ConfigKeyPath))
@@ -671,7 +683,7 @@ namespace UnrealBuildTool
 				List<string> RelativeRsyncDirs = new List<string>();
 				foreach (string Dir in RsyncDirs)
 				{
-					RelativeRsyncDirs.Add(Utils.CleanDirectorySeparators(Utils.MakePathRelativeTo(Dir, "../.."), '/') + "/");
+					RelativeRsyncDirs.Add(Utils.CleanDirectorySeparators(Dir.Replace(":", ""), '/') + "/");
 				}
 
 				// write out directories to copy
@@ -681,8 +693,10 @@ namespace UnrealBuildTool
 				File.WriteAllLines(IncludeFromFile, RsyncExtensions);
 
 				// source and destination paths in the format rsync wants
-				string CygRootPath = ConvertPathToCygwin(Path.GetFullPath("../../"));
-				string RemotePath = ConvertPath(Path.GetFullPath("../../")).Replace(" ", "\\ ");
+				string CygRootPath = "/cygdrive";// ConvertPathToCygwin(Path.GetFullPath(""));
+				string RemotePath = string.Format("{0}{1}",
+					UserDevRootMac,
+					Environment.MachineName);
 
 				// get the executable dir for SSH, so Rsync can call it easily
 				string ExeDir = Path.GetDirectoryName(ResolvedSSHExe);

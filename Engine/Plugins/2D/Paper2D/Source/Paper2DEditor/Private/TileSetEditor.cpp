@@ -18,6 +18,8 @@
 #include "TileSetEditor/SingleTileEditorViewportClient.h"
 #include "TileSetEditor/TileSetEditorCommands.h"
 #include "SpriteEditor/SpriteEditorCommands.h"
+#include "TileSetEditor/TileSetDetailsCustomization.h"
+#include "Editor/PropertyEditor/Public/IDetailsView.h"
 
 #define LOCTEXT_NAMESPACE "TileSetEditor"
 
@@ -51,14 +53,52 @@ public:
 	SLATE_END_ARGS()
 
 private:
+	TSharedRef<IDetailCustomization> MakeEmbeddedInstance()
+	{
+		TSharedRef<FTileSetDetailsCustomization> Customization = FTileSetDetailsCustomization::MakeEmbeddedInstance();
+		CurrentCustomizationPtr = Customization;
+
+		// Make sure the customization starts off looking at the right tile index
+		TSharedPtr<FSingleTileEditorViewportClient> SingleTileEditor = TileSetEditorPtr.Pin()->GetSingleTileEditor();
+
+		const int32 TileIndex = SingleTileEditor->GetTileIndex();
+		if (TileIndex != INDEX_NONE)
+		{
+			Customization->OnTileIndexChanged(TileIndex, INDEX_NONE);
+		}
+
+		return Customization;
+	}
+
+	void OnTileIndexChanged(int32 NewIndex, int32 OldIndex)
+	{
+		if (FTileSetDetailsCustomization* CurrentCustomization = CurrentCustomizationPtr.Pin().Get())
+		{
+			CurrentCustomization->OnTileIndexChanged(NewIndex, OldIndex);
+		}
+	}
+
+private:
 	// Pointer back to owning TileSet editor instance (the keeper of state)
 	TWeakPtr<class FTileSetEditor> TileSetEditorPtr;
+
+	// Pointer to the allocated customization
+	TWeakPtr<FTileSetDetailsCustomization> CurrentCustomizationPtr;
+
 public:
 	void Construct(const FArguments& InArgs, TSharedPtr<FTileSetEditor> InTileSetEditor)
 	{
 		TileSetEditorPtr = InTileSetEditor;
 
 		SSingleObjectDetailsPanel::Construct(SSingleObjectDetailsPanel::FArguments().HostCommandList(InTileSetEditor->GetToolkitCommands()));
+
+		// Register for index change notifications
+		TSharedPtr<FSingleTileEditorViewportClient> SingleTileEditor = TileSetEditorPtr.Pin()->GetSingleTileEditor();
+		SingleTileEditor->GetOnSingleTileIndexChanged().AddSP(this, &STileSetPropertiesTabBody::OnTileIndexChanged);
+
+		// Register our customization that will be notified of tile index changes
+		FOnGetDetailCustomizationInstance LayoutTileSetDetails = FOnGetDetailCustomizationInstance::CreateSP(this, &STileSetPropertiesTabBody::MakeEmbeddedInstance);
+		PropertyView->RegisterInstancedCustomPropertyLayout(UPaperTileSet::StaticClass(), LayoutTileSetDetails);
 	}
 
 	// SSingleObjectDetailsPanel interface
@@ -83,6 +123,7 @@ public:
 // FTileSetEditor
 
 FTileSetEditor::FTileSetEditor()
+	: bUseAlternateLayout(false)
 {
 	// Register to be notified when properties are edited
 	FCoreUObjectDelegates::FOnObjectPropertyChanged::FDelegate OnPropertyChangedDelegate = FCoreUObjectDelegates::FOnObjectPropertyChanged::FDelegate::CreateRaw(this, &FTileSetEditor::OnPropertyChanged);
@@ -103,8 +144,8 @@ void FTileSetEditor::RegisterTabSpawners(const TSharedRef<class FTabManager>& Ta
 	FAssetEditorToolkit::RegisterTabSpawners(TabManager);
 
 	TabManager->RegisterTabSpawner(FTileSetEditorTabs::TextureViewID, FOnSpawnTab::CreateSP(this, &FTileSetEditor::SpawnTab_TextureView))
-		.SetDisplayName(LOCTEXT("TextureViewTabMenu_Description", "Viewport"))
-		.SetTooltipText(LOCTEXT("TextureViewTabMenu_ToolTip", "Shows the viewport"))
+		.SetDisplayName(LOCTEXT("TextureViewTabMenu_Description", "Tile Set View"))
+		.SetTooltipText(LOCTEXT("TextureViewTabMenu_ToolTip", "Shows the tile set viewport"))
 		.SetGroup(WorkspaceMenuCategoryRef)
 		.SetIcon(FSlateIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.Tabs.Viewports"));
 
@@ -114,8 +155,8 @@ void FTileSetEditor::RegisterTabSpawners(const TSharedRef<class FTabManager>& Ta
 		.SetIcon(FSlateIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.Tabs.Details"));
 
 	TabManager->RegisterTabSpawner(FTileSetEditorTabs::SingleTileEditorID, FOnSpawnTab::CreateSP(this, &FTileSetEditor::SpawnTab_SingleTileEditor))
-		.SetDisplayName(LOCTEXT("SingleTileEditTabMenu_Description", "Tile Editor"))
-		.SetTooltipText(LOCTEXT("SingleTileEditTabMenu_ToolTip", "Shows the tile editor"))
+		.SetDisplayName(LOCTEXT("SingleTileEditTabMenu_Description", "Single Tile Editor"))
+		.SetTooltipText(LOCTEXT("SingleTileEditTabMenu_ToolTip", "Shows the single tile editor viewport"))
 		.SetGroup(WorkspaceMenuCategoryRef)
 		.SetIcon(FSlateIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.Tabs.Viewports"));
 }
@@ -136,7 +177,7 @@ void FTileSetEditor::InitTileSetEditor(const EToolkitMode::Type Mode, const TSha
 
 	TileSetViewport = SNew(STileSetSelectorViewport, InitTileSet, /*EdMode=*/ nullptr);
 	TileEditorViewportClient = MakeShareable(new FSingleTileEditorViewportClient(InitTileSet));
-	TileSetViewport->GetTileSelectionChanged().AddRaw(TileEditorViewportClient.Get(), &FSingleTileEditorViewportClient::OnActiveTileIndexChanged);
+	TileSetViewport->GetTileSelectionChanged().AddRaw(TileEditorViewportClient.Get(), &FSingleTileEditorViewportClient::OnTileSelectionRegionChanged);
 
 	TileEditorViewport = SNew(SSingleTileEditorViewport, TileEditorViewportClient);
 
@@ -144,56 +185,11 @@ void FTileSetEditor::InitTileSetEditor(const EToolkitMode::Type Mode, const TSha
 	FSpriteGeometryEditCommands::Register();
 
 	BindCommands();
-
-	// Default layout
-	const TSharedRef<FTabManager::FLayout> StandaloneDefaultLayout = FTabManager::NewLayout("Standalone_TileSetEditor_Layout_v3")
-		->AddArea
-		(
-			FTabManager::NewPrimaryArea()
-			->SetOrientation(Orient_Vertical)
-			->Split
-			(
-				FTabManager::NewStack()
-				->SetSizeCoefficient(0.1f)
-				->SetHideTabWell(true)
-				->AddTab(GetToolbarTabId(), ETabState::OpenedTab)
-			)
-			->Split
-			(
-				FTabManager::NewSplitter()
-				->SetOrientation(Orient_Horizontal)
-				->SetSizeCoefficient(0.9f)
-				->Split
-				(
-					FTabManager::NewStack()
-					->SetSizeCoefficient(0.6f)
-					->SetHideTabWell(true)
-					->AddTab(FTileSetEditorTabs::TextureViewID, ETabState::OpenedTab)
-				)
-				->Split
-				(
-					FTabManager::NewSplitter()
-					->SetOrientation(Orient_Vertical)
-					->SetSizeCoefficient(0.4f)
-					->Split
-					(
-						FTabManager::NewStack()
-						->SetSizeCoefficient(0.5f)
-						->AddTab(FTileSetEditorTabs::SingleTileEditorID, ETabState::OpenedTab)
-					)
-					->Split
-					(
-						FTabManager::NewStack()
-						->SetSizeCoefficient(0.5f)
-						->AddTab(FTileSetEditorTabs::DetailsID, ETabState::OpenedTab)
-					)
-				)
-			)
-		);
-
+	CreateLayouts();
 
 	// Initialize the asset editor
-	InitAssetEditor(Mode, InitToolkitHost, TileSetEditorAppName, StandaloneDefaultLayout, /*bCreateDefaultStandaloneMenu=*/ true, /*bCreateDefaultToolbar=*/ true, InitTileSet);
+	TSharedRef<FTabManager::FLayout> StartupLayout = GetDesiredLayout();
+	InitAssetEditor(Mode, InitToolkitHost, TileSetEditorAppName, StartupLayout, /*bCreateDefaultStandaloneMenu=*/ true, /*bCreateDefaultToolbar=*/ true, InitTileSet);
 	
 	TileEditorViewportClient->ActivateEditMode(TileEditorViewport->GetCommandList());
 
@@ -206,7 +202,7 @@ void FTileSetEditor::InitTileSetEditor(const EToolkitMode::Type Mode, const TSha
 TSharedRef<SDockTab> FTileSetEditor::SpawnTab_TextureView(const FSpawnTabArgs& Args)
 {
 	return SNew(SDockTab)
-		.Label(LOCTEXT("TextureViewTabLabel", "Viewport"))
+		.Label(LOCTEXT("TextureViewTabLabel", "Tile Set View"))
 		[
 			TileSetViewport.ToSharedRef()
 		];
@@ -228,7 +224,7 @@ TSharedRef<SDockTab> FTileSetEditor::SpawnTab_SingleTileEditor(const FSpawnTabAr
 	TSharedPtr<FTileSetEditor> TileSetEditorPtr = SharedThis(this);
 
 	return SNew(SDockTab)
-		.Label(LOCTEXT("SingleTileEditTabLabel", "Tile Editor"))
+		.Label(LOCTEXT("SingleTileEditTabLabel", "Single Tile Editor"))
 		[
 			TileEditorViewport.ToSharedRef()
 		];
@@ -236,7 +232,14 @@ TSharedRef<SDockTab> FTileSetEditor::SpawnTab_SingleTileEditor(const FSpawnTabAr
 
 void FTileSetEditor::BindCommands()
 {
-	// Commands would go here
+	const TSharedRef<FUICommandList>& CommandList = GetToolkitCommands();
+	
+	FTileSetEditorCommands::Register();
+	const FTileSetEditorCommands& Commands = FTileSetEditorCommands::Get();
+	
+	CommandList->MapAction(
+		Commands.SwapTileSetEditorViewports,
+		FExecuteAction::CreateSP(this, &FTileSetEditor::ToggleActiveLayout));
 }
 
 void FTileSetEditor::ExtendMenu()
@@ -252,7 +255,7 @@ void FTileSetEditor::ExtendToolbar()
 			ToolbarBuilder.BeginSection("TileHighlights");
 			{
 				ToolbarBuilder.AddToolBarButton(FTileSetEditorCommands::Get().SetShowTilesWithCollision);
-				//ToolbarBuilder.AddToolBarButton(FTileSetEditorCommands::Get().SetShowTilesWithMetaData); //@TODO: TileMetadata: Enable once there is actually metadata...
+				ToolbarBuilder.AddToolBarButton(FTileSetEditorCommands::Get().SetShowTilesWithMetaData);
 			}
 			ToolbarBuilder.EndSection();
 
@@ -260,6 +263,7 @@ void FTileSetEditor::ExtendToolbar()
 			{
 				ToolbarBuilder.AddToolBarButton(FTileSetEditorCommands::Get().SetShowTileStats);
 				ToolbarBuilder.AddToolBarButton(FTileSetEditorCommands::Get().ApplyCollisionEdits);
+				ToolbarBuilder.AddToolBarButton(FTileSetEditorCommands::Get().SwapTileSetEditorViewports);
 			}
 			ToolbarBuilder.EndSection();
 
@@ -295,6 +299,121 @@ void FTileSetEditor::OnPropertyChanged(UObject* ObjectBeingModified, FPropertyCh
 	{
 		TileEditorViewportClient->SetTileIndex(TileEditorViewportClient->GetTileIndex());
 	}
+}
+
+void FTileSetEditor::CreateLayouts()
+{
+	// Default layout
+	TileSelectorPreferredLayout = FTabManager::NewLayout("Standalone_TileSetEditor_Layout_v4")
+		->AddArea
+		(
+			FTabManager::NewPrimaryArea()
+			->SetOrientation(Orient_Vertical)
+			->Split
+			(
+				FTabManager::NewStack()
+				->SetSizeCoefficient(0.1f)
+				->SetHideTabWell(true)
+				->AddTab(GetToolbarTabId(), ETabState::OpenedTab)
+			)
+			->Split
+			(
+				FTabManager::NewSplitter()
+				->SetOrientation(Orient_Horizontal)
+				->SetSizeCoefficient(0.9f)
+				->Split
+				(
+					FTabManager::NewStack()
+					->SetSizeCoefficient(0.6f)
+					->AddTab(FTileSetEditorTabs::TextureViewID, ETabState::OpenedTab)
+				)
+				->Split
+				(
+					FTabManager::NewSplitter()
+					->SetOrientation(Orient_Vertical)
+					->SetSizeCoefficient(0.4f)
+					->Split
+					(
+						FTabManager::NewStack()
+						->SetSizeCoefficient(0.5f)
+						->AddTab(FTileSetEditorTabs::SingleTileEditorID, ETabState::OpenedTab)
+					)
+					->Split
+					(
+						FTabManager::NewStack()
+						->SetSizeCoefficient(0.5f)
+						->SetHideTabWell(true)
+						->AddTab(FTileSetEditorTabs::DetailsID, ETabState::OpenedTab)
+					)
+				)
+			)
+		);
+
+	// Alternate layout
+	SingleTileEditorPreferredLayout = FTabManager::NewLayout("Standalone_TileSetEditor_AlternateLayout_v1")
+		->AddArea
+		(
+			FTabManager::NewPrimaryArea()
+			->SetOrientation(Orient_Vertical)
+			->Split
+			(
+				FTabManager::NewStack()
+				->SetSizeCoefficient(0.1f)
+				->SetHideTabWell(true)
+				->AddTab(GetToolbarTabId(), ETabState::OpenedTab)
+			)
+			->Split
+			(
+				FTabManager::NewSplitter()
+				->SetOrientation(Orient_Horizontal)
+				->SetSizeCoefficient(0.9f)
+				->Split
+				(
+					FTabManager::NewStack()
+					->SetSizeCoefficient(0.6f)
+					->AddTab(FTileSetEditorTabs::SingleTileEditorID, ETabState::OpenedTab)
+				)
+				->Split
+				(
+					FTabManager::NewSplitter()
+					->SetOrientation(Orient_Vertical)
+					->SetSizeCoefficient(0.4f)
+					->Split
+					(
+						FTabManager::NewStack()
+						->SetSizeCoefficient(0.5f)
+						->AddTab(FTileSetEditorTabs::TextureViewID, ETabState::OpenedTab)
+					)
+					->Split
+					(
+						FTabManager::NewStack()
+						->SetSizeCoefficient(0.5f)
+						->SetHideTabWell(true)
+						->AddTab(FTileSetEditorTabs::DetailsID, ETabState::OpenedTab)
+					)
+				)
+			)
+		);
+}
+
+void FTileSetEditor::ToggleActiveLayout()
+{
+	// Save the existing layout
+	FLayoutSaveRestore::SaveToConfig(GEditorLayoutIni, GetTabManager()->PersistLayout());
+
+	// Switch and load the new layout
+	bUseAlternateLayout = !bUseAlternateLayout;
+
+	TSharedRef<FTabManager::FLayout> NewLayout = GetDesiredLayout();
+	FLayoutSaveRestore::LoadFromConfig(GEditorLayoutIni, NewLayout);
+
+	// Activate the new layout
+	RestoreFromLayout(NewLayout);
+}
+
+TSharedRef<FTabManager::FLayout> FTileSetEditor::GetDesiredLayout() const
+{
+	return bUseAlternateLayout ? SingleTileEditorPreferredLayout.ToSharedRef() : TileSelectorPreferredLayout.ToSharedRef();
 }
 
 FName FTileSetEditor::GetToolkitFName() const

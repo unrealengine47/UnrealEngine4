@@ -7,7 +7,8 @@
 #define IMAGE_PLUGIN_BRUSH( RelativePath, ... ) FSlateImageBrush( FPaperStyle::InContent( RelativePath, ".png" ), __VA_ARGS__ )
 #define IMAGE_BRUSH(RelativePath, ...) FSlateImageBrush(StyleSet->RootToContentDir(RelativePath, TEXT(".png")), __VA_ARGS__)
 #define BOX_BRUSH(RelativePath, ...) FSlateBoxBrush(StyleSet->RootToContentDir(RelativePath, TEXT(".png")), __VA_ARGS__)
-#define TTF_FONT( RelativePath, ... ) FSlateFontInfo(StyleSet->RootToContentDir(RelativePath, TEXT(".ttf")), __VA_ARGS__)
+#define TTF_FONT(RelativePath, ...) FSlateFontInfo(StyleSet->RootToContentDir(RelativePath, TEXT(".ttf")), __VA_ARGS__)
+#define TTF_CORE_FONT(RelativePath, ...) FSlateFontInfo(StyleSet->RootToCoreContentDir(RelativePath, TEXT(".ttf") ), __VA_ARGS__)
 
 FString FPaperStyle::InContent(const FString& RelativePath, const ANSICHAR* Extension)
 {
@@ -45,7 +46,7 @@ void FPaperStyle::Initialize()
 			);
 
 		StyleSet->Set("Paper2D.Common.ViewportTitleTextStyle", FTextBlockStyle(NormalText)
-			.SetFont(TTF_FONT("Fonts/Roboto-Regular", 18))
+			.SetFont(TTF_CORE_FONT("Fonts/Roboto-Regular", 18))
 			.SetColorAndOpacity(FLinearColor(1.0, 1.0f, 1.0f, 0.5f))
 			);
 
@@ -153,6 +154,9 @@ void FPaperStyle::Initialize()
 
 		StyleSet->Set("TileSetEditor.ApplyCollisionEdits", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileSetEditor/icon_TileSet_Refresh_40x"), Icon40x40));
 		StyleSet->Set("TileSetEditor.ApplyCollisionEdits.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileSetEditor/icon_TileSet_Refresh_40x"), Icon20x20));
+		
+		StyleSet->Set("TileSetEditor.SwapTileSetEditorViewports", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileSetEditor/icon_AlternateView_40x"), Icon40x40));
+		StyleSet->Set("TileSetEditor.SwapTileSetEditorViewports.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/TileSetEditor/icon_AlternateView_40x"), Icon20x20));
 	}
 
 	// Sprite editor
@@ -219,12 +223,22 @@ void FPaperStyle::Initialize()
 		StyleSet->Set("FlipbookEditor.RegionBorder", new BOX_BRUSH("Common/CurrentCellBorder", FMargin(4.f / 16.f), FLinearColor(1.0f, 1.0f, 1.0f, 1.0f)));
 	}
 
+	// Asset actions
+	{
+		StyleSet->Set("AssetActions.CreateSprite", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/icon_Texture_CreateSprite_16x"), Icon16x16));
+		StyleSet->Set("AssetActions.ExtractSprites", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/icon_Texture_ExtractSprites_16x"), Icon16x16));
+		StyleSet->Set("AssetActions.ConfigureForRetroSprites", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/icon_Texture_ConfigureForRetroSprites_16x"), Icon16x16));
+		StyleSet->Set("AssetActions.CreateTileSet", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/icon_Texture_CreateTileSet_16x"), Icon16x16));
+	}
+
 	FSlateStyleRegistry::RegisterSlateStyle(*StyleSet.Get());
 };
 
 #undef IMAGE_PLUGIN_BRUSH
 #undef IMAGE_BRUSH
 #undef BOX_BRUSH
+#undef TTF_FONT
+#undef TTF_CORE_FONT
 
 void FPaperStyle::Shutdown()
 {

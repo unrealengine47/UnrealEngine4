@@ -271,6 +271,7 @@ void SMultiLineEditableText::Construct( const FArguments& InArgs )
 	OnCursorMoved = InArgs._OnCursorMoved;
 	bSelectAllTextWhenFocused = InArgs._SelectAllTextWhenFocused;
 	bClearKeyboardFocusOnCommit = InArgs._ClearKeyboardFocusOnCommit;
+	OnContextMenuOpening = InArgs._OnContextMenuOpening;
 	bRevertTextOnEscape = InArgs._RevertTextOnEscape;
 	OnHScrollBarUserScrolled = InArgs._OnHScrollBarUserScrolled;
 	OnVScrollBarUserScrolled = InArgs._OnVScrollBarUserScrolled;
@@ -375,6 +376,22 @@ void SMultiLineEditableText::SetText(const TAttribute< FText >& InText)
 		// Let outsiders know that the text content has been changed
 		OnTextChanged.ExecuteIfBound(TextToSet);
 	}
+}
+
+const FText SMultiLineEditableText::GetPlainText() const
+{
+	const TArray< FTextLayout::FLineModel >& Lines = TextLayout->GetLineModels();
+	const int32 NumberOfLines = Lines.Num();
+	if( NumberOfLines > 0)
+	{
+		FString SelectedText;
+		const FTextLocation StartLocation(0, 0);
+		const FTextLocation EndLocation(NumberOfLines -1, Lines[NumberOfLines -1].Text->Len());
+		FTextSelection Selection(StartLocation, EndLocation);
+		TextLayout->GetSelectionAsText(SelectedText, Selection);
+		return FText::FromString(SelectedText);
+	}
+	return FText::GetEmpty();
 }
 
 void SMultiLineEditableText::SetHintText(const TAttribute< FText >& InHintText)
@@ -1548,6 +1565,11 @@ void SMultiLineEditableText::GoTo(const FTextLocation& NewLocation)
 	}
 }
 
+void SMultiLineEditableText::GoTo(ETextLocation GoToLocation)
+{
+	JumpTo(GoToLocation, ECursorAction::MoveCursor);
+}
+
 void SMultiLineEditableText::ScrollTo(const FTextLocation& NewLocation)
 {
 	const TArray< FTextLayout::FLineModel >& Lines = TextLayout->GetLineModels();
@@ -1779,10 +1801,11 @@ void SMultiLineEditableText::RestoreOriginalText()
 {
 	if(HasTextChangedFromOriginal())
 	{
-		SaveText(OriginalText.Text);
+		SetText(OriginalText.Text);
+		TextLayout->UpdateIfNeeded();
 
 		// Let outsiders know that the text content has been changed
-		OnTextChanged.ExecuteIfBound(OriginalText.Text);
+		OnTextCommitted.ExecuteIfBound(OriginalText.Text, ETextCommit::OnCleared);
 	}
 }
 
@@ -2307,68 +2330,82 @@ TSharedRef< SWidget > SMultiLineEditableText::GetWidget()
 
 void SMultiLineEditableText::SummonContextMenu(const FVector2D& InLocation, TSharedPtr<SWindow> ParentWindow)
 {
-	// Set the menu to automatically close when the user commits to a choice
-	const bool bShouldCloseWindowAfterMenuSelection = true;
+	TSharedPtr<SWidget> MenuContentWidget;
 
-#define LOCTEXT_NAMESPACE "EditableTextContextMenu"
-
-	// This is a context menu which could be summoned from within another menu if this text block is in a menu
-	// it should not close the menu it is inside
-	bool bCloseSelfOnly = true;
-	FMenuBuilder MenuBuilder(bShouldCloseWindowAfterMenuSelection, UICommandList, MenuExtender, bCloseSelfOnly, &FCoreStyle::Get());
+	if (OnContextMenuOpening.IsBound())
 	{
-		MenuBuilder.BeginSection("EditText", LOCTEXT("Heading", "Modify Text"));
-		{
-			// Undo
-			MenuBuilder.AddMenuEntry(FGenericCommands::Get().Undo);
-		}
-		MenuBuilder.EndSection();
-
-		MenuBuilder.BeginSection("EditableTextModify2");
-		{
-			// Cut
-			MenuBuilder.AddMenuEntry(FGenericCommands::Get().Cut);
-
-			// Copy
-			MenuBuilder.AddMenuEntry(FGenericCommands::Get().Copy);
-
-			// Paste
-			MenuBuilder.AddMenuEntry(FGenericCommands::Get().Paste);
-
-			// Delete
-			MenuBuilder.AddMenuEntry(FGenericCommands::Get().Delete);
-		}
-		MenuBuilder.EndSection();
-
-		MenuBuilder.BeginSection("EditableTextModify3");
-		{
-			// Select All
-			MenuBuilder.AddMenuEntry(FGenericCommands::Get().SelectAll);
-		}
-		MenuBuilder.EndSection();
-	}
-
-#undef LOCTEXT_NAMESPACE
-
-	ActiveContextMenu.PrepareToSummon();
-
-	const bool bFocusImmediately = true;
-	TSharedRef<SWidget> MenuParent = SharedThis(this);
-	if (ParentWindow.IsValid())
-	{
-		MenuParent = StaticCastSharedRef<SWidget>(ParentWindow.ToSharedRef());
-	}
-	TSharedPtr< SWindow > ContextMenuWindow = FSlateApplication::Get().PushMenu(MenuParent, MenuBuilder.MakeWidget(), InLocation, FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu), bFocusImmediately);
-
-	// Make sure the window is valid.  It's possible for the parent to already be in the destroy queue, for example if the editable text was configured to dismiss it's window during OnTextCommitted.
-	if (ContextMenuWindow.IsValid())
-	{
-		ContextMenuWindow->SetOnWindowClosed(FOnWindowClosed::CreateSP(this, &SMultiLineEditableText::OnWindowClosed));
-		ActiveContextMenu.SummonSucceeded(ContextMenuWindow.ToSharedRef());
+		MenuContentWidget = OnContextMenuOpening.Execute();
 	}
 	else
 	{
-		ActiveContextMenu.SummonFailed();
+		// Set the menu to automatically close when the user commits to a choice
+		const bool bShouldCloseWindowAfterMenuSelection = true;
+
+#define LOCTEXT_NAMESPACE "EditableTextContextMenu"
+
+		// This is a context menu which could be summoned from within another menu if this text block is in a menu
+		// it should not close the menu it is inside
+		bool bCloseSelfOnly = true;
+		FMenuBuilder MenuBuilder(bShouldCloseWindowAfterMenuSelection, UICommandList, MenuExtender, bCloseSelfOnly, &FCoreStyle::Get());
+		{
+			MenuBuilder.BeginSection("EditText", LOCTEXT("Heading", "Modify Text"));
+			{
+				// Undo
+				MenuBuilder.AddMenuEntry(FGenericCommands::Get().Undo);
+			}
+			MenuBuilder.EndSection();
+
+			MenuBuilder.BeginSection("EditableTextModify2");
+			{
+				// Cut
+				MenuBuilder.AddMenuEntry(FGenericCommands::Get().Cut);
+
+				// Copy
+				MenuBuilder.AddMenuEntry(FGenericCommands::Get().Copy);
+
+				// Paste
+				MenuBuilder.AddMenuEntry(FGenericCommands::Get().Paste);
+
+				// Delete
+				MenuBuilder.AddMenuEntry(FGenericCommands::Get().Delete);
+			}
+			MenuBuilder.EndSection();
+
+			MenuBuilder.BeginSection("EditableTextModify3");
+			{
+				// Select All
+				MenuBuilder.AddMenuEntry(FGenericCommands::Get().SelectAll);
+			}
+			MenuBuilder.EndSection();
+		}
+
+		MenuContentWidget = MenuBuilder.MakeWidget();
+
+#undef LOCTEXT_NAMESPACE
+	}
+
+	if (MenuContentWidget.IsValid())
+	{
+		ActiveContextMenu.PrepareToSummon();
+
+		const bool bFocusImmediately = true;
+		TSharedRef<SWidget> MenuParent = SharedThis(this);
+		if (ParentWindow.IsValid())
+		{
+			MenuParent = StaticCastSharedRef<SWidget>(ParentWindow.ToSharedRef());
+		}
+		TSharedPtr< SWindow > ContextMenuWindow = FSlateApplication::Get().PushMenu(MenuParent, MenuContentWidget.ToSharedRef(), InLocation, FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu), bFocusImmediately);
+
+		// Make sure the window is valid.  It's possible for the parent to already be in the destroy queue, for example if the editable text was configured to dismiss it's window during OnTextCommitted.
+		if (ContextMenuWindow.IsValid())
+		{
+			ContextMenuWindow->SetOnWindowClosed(FOnWindowClosed::CreateSP(this, &SMultiLineEditableText::OnWindowClosed));
+			ActiveContextMenu.SummonSucceeded(ContextMenuWindow.ToSharedRef());
+		}
+		else
+		{
+			ActiveContextMenu.SummonFailed();
+		}
 	}
 }
 

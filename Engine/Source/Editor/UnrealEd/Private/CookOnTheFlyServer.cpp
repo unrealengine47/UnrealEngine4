@@ -2023,16 +2023,9 @@ bool UCookOnTheFlyServer::SaveCookedPackage( UPackage* Package, uint32 SaveFlags
 					Package->PackageFlags &= ~PKG_FilterEditorOnly;
 				}
 
-				bool bDidInitializeWorld = false;
 				if (World)
 				{
 					World->PersistentLevel->OwningWorld = World;
-					if ( !World->bIsWorldInitialized)
-					{
-						// we need to initialize the world - at least need physics scene since BP construction script runs during cooking, otherwise trace won't work
-						World->InitWorld(UWorld::InitializationValues().RequiresHitProxies(false).ShouldSimulatePhysics(false).EnableTraceCollision(false).CreateNavigation(false).CreateAISystem(false).AllowAudioPlayback(false).CreatePhysicsScene(true));
-						bDidInitializeWorld = true;
-					}
 				}
 
 				// need to subtract 32 because the SavePackage code creates temporary files with longer file names then the one we provide
@@ -2051,18 +2044,6 @@ bool UCookOnTheFlyServer::SaveCookedPackage( UPackage* Package, uint32 SaveFlags
 					SCOPE_TIMER(GEditorSavePackage);
 					bSavedCorrectly &= GEditor->SavePackage( Package, World, Flags, *PlatFilename, GError, NULL, bSwap, false, SaveFlags, Target, FDateTime::MinValue(), false );
 				}
-
-				// if we initialized the world we are responsible for cleaning it up.
-				if (World && World->bIsWorldInitialized && bDidInitializeWorld)
-				{
-					// Make sure we clean up the physics scene here. If we leave too many scenes in memory, undefined behavior occurs when locking a scene for read/write.
-					World->SetPhysicsScene(nullptr);
-					if ( GPhysCommandHandler )
-					{
-						GPhysCommandHandler->Flush();
-					}
-				}
-
 				
 				bOutWasUpToDate = false;
 			}
@@ -2092,24 +2073,30 @@ void UCookOnTheFlyServer::Initialize( ECookMode::Type DesiredCookMode, ECookInit
 	CurrentCookMode = DesiredCookMode;
 	CookFlags = InCookFlags;
 
-	TArray<FString> FullGCAssetClassNames;
-	GConfig->GetArray( TEXT("CookSettings"), TEXT("FullGCAssetClassNames"), FullGCAssetClassNames, GEditorIni );
-	for ( const auto& FullGCAssetClassName : FullGCAssetClassNames )
+	bool bUseFullGCAssetClassNames = true;
+	GConfig->GetBool(TEXT("CookSettings"), TEXT("bUseFullGCAssetClassNames"), bUseFullGCAssetClassNames, GEditorIni);
+	
+	if (bUseFullGCAssetClassNames)
 	{
-		UClass* FullGCAssetClass = FindObject<UClass>(ANY_PACKAGE, *FullGCAssetClassName, true);
-		if( FullGCAssetClass == NULL )
+		TArray<FString> FullGCAssetClassNames;
+		GConfig->GetArray( TEXT("CookSettings"), TEXT("FullGCAssetClassNames"), FullGCAssetClassNames, GEditorIni );
+		for ( const auto& FullGCAssetClassName : FullGCAssetClassNames )
 		{
-			UE_LOG(LogCook, Warning, TEXT("Unable to find full gc asset class name %s may result in bad cook"), *FullGCAssetClassName);
+			UClass* FullGCAssetClass = FindObject<UClass>(ANY_PACKAGE, *FullGCAssetClassName, true);
+			if( FullGCAssetClass == NULL )
+			{
+				UE_LOG(LogCook, Warning, TEXT("Unable to find full gc asset class name %s may result in bad cook"), *FullGCAssetClassName);
+			}
+			else
+			{
+				FullGCAssetClasses.Add( FullGCAssetClass );
+			}
 		}
-		else
+		if ( FullGCAssetClasses.Num() == 0 )
 		{
-			FullGCAssetClasses.Add( FullGCAssetClass );
+			// default to UWorld
+			FullGCAssetClasses.Add( UWorld::StaticClass() );
 		}
-	}
-	if ( FullGCAssetClasses.Num() == 0 )
-	{
-		// default to UWorld
-		FullGCAssetClasses.Add( UWorld::StaticClass() );
 	}
 
 	PackagesPerGC = 50;

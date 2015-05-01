@@ -4315,17 +4315,17 @@ FRotator UCharacterMovementComponent::ComputeOrientToMovementRotation(const FRot
 
 void UCharacterMovementComponent::PhysicsRotation(float DeltaTime)
 {
-	if (!HasValidData() || (!CharacterOwner->Controller && !bRunPhysicsWithNoController))
-	{
-		return;
-	}
-
 	if (!(bOrientRotationToMovement || bUseControllerDesiredRotation))
 	{
 		return;
 	}
 
-	const FRotator CurrentRotation = UpdatedComponent->GetComponentRotation();
+	if (!HasValidData() || (!CharacterOwner->Controller && !bRunPhysicsWithNoController))
+	{
+		return;
+	}
+
+	const FRotator CurrentRotation = UpdatedComponent->GetComponentRotation(); // Normalized
 	FRotator DeltaRot = GetDeltaRotation(DeltaTime);
 	FRotator DesiredRotation = CurrentRotation;
 
@@ -4343,44 +4343,46 @@ void UCharacterMovementComponent::PhysicsRotation(float DeltaTime)
 	}
 
 	// Always remain vertical when walking or falling.
-	if( IsMovingOnGround() || IsFalling() )
+	if (IsMovingOnGround() || IsFalling())
 	{
-		DesiredRotation.Pitch = 0;
-		DesiredRotation.Roll = 0;
+		DesiredRotation.Pitch = 0.f;
+		DesiredRotation.Yaw = FRotator::NormalizeAxis(DesiredRotation.Yaw);
+		DesiredRotation.Roll = 0.f;
 	}
-
-	if( CurrentRotation.GetDenormalized().Equals(DesiredRotation.GetDenormalized(), 0.01f) )
+	else
 	{
-		return;
+		DesiredRotation.Normalize();
 	}
-
+	
 	// Accumulate a desired new rotation.
-	FRotator NewRotation = CurrentRotation;	
-
-	//YAW
-	if( DesiredRotation.Yaw != CurrentRotation.Yaw )
-	{
-		NewRotation.Yaw = FMath::FixedTurn(CurrentRotation.Yaw, DesiredRotation.Yaw, DeltaRot.Yaw);
-	}
+	const float AngleTolerance = 1e-3f;
+	bool bRotationChanged = false;
 
 	// PITCH
-	if( DesiredRotation.Pitch != CurrentRotation.Pitch )
+	if ((DeltaRot.Pitch != 0.f) && !FMath::IsNearlyEqual(CurrentRotation.Pitch, DesiredRotation.Pitch, AngleTolerance))
 	{
-		NewRotation.Pitch = FMath::FixedTurn(CurrentRotation.Pitch, DesiredRotation.Pitch, DeltaRot.Pitch);
+		DesiredRotation.Pitch = FMath::FixedTurn(CurrentRotation.Pitch, DesiredRotation.Pitch, DeltaRot.Pitch);
+		bRotationChanged = true;
+	}
+
+	// YAW
+	if ((DeltaRot.Yaw != 0.f) && !FMath::IsNearlyEqual(CurrentRotation.Yaw, DesiredRotation.Yaw, AngleTolerance))
+	{
+		DesiredRotation.Yaw = FMath::FixedTurn(CurrentRotation.Yaw, DesiredRotation.Yaw, DeltaRot.Yaw);
+		bRotationChanged = true;
 	}
 
 	// ROLL
-	if( DesiredRotation.Roll != CurrentRotation.Roll )
+	if ((DeltaRot.Roll != 0.f) && !FMath::IsNearlyEqual(CurrentRotation.Roll, DesiredRotation.Roll, AngleTolerance))
 	{
-		NewRotation.Roll = FMath::FixedTurn(CurrentRotation.Roll, DesiredRotation.Roll, DeltaRot.Roll);
+		DesiredRotation.Roll = FMath::FixedTurn(CurrentRotation.Roll, DesiredRotation.Roll, DeltaRot.Roll);
+		bRotationChanged = true;
 	}
 
-	//UpdatedComponent->AngularVelocity = CharAngularVelocity( CurrentRotation, NewRotation, deltaTime );
-
 	// Set the new rotation.
-	if( !NewRotation.Equals(CurrentRotation.GetDenormalized(), 0.01f) )
+	if (bRotationChanged)
 	{
-		MoveUpdatedComponent( FVector::ZeroVector, NewRotation, true );
+		MoveUpdatedComponent( FVector::ZeroVector, DesiredRotation, true );
 	}
 }
 
@@ -4803,11 +4805,13 @@ void UCharacterMovementComponent::ComputeFloorDist(const FVector& CapsuleLocatio
 void UCharacterMovementComponent::FindFloor(const FVector& CapsuleLocation, FFindFloorResult& OutFloorResult, bool bZeroDelta, const FHitResult* DownwardSweepResult) const
 {
 	// No collision, no floor...
-	if (!UpdatedComponent->IsCollisionEnabled())
+	if (!HasValidData() || !UpdatedComponent->IsCollisionEnabled())
 	{
 		OutFloorResult.Clear();
 		return;
 	}
+
+	check(CharacterOwner->GetCapsuleComponent());
 
 	// Increase height check slightly if walking, to prevent floor height adjustment from later invalidating the floor result.
 	const float HeightCheckAdjust = (IsMovingOnGround() ? MAX_FLOOR_DIST + KINDA_SMALL_NUMBER : -MAX_FLOOR_DIST);

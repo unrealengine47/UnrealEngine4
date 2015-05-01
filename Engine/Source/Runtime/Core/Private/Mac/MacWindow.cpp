@@ -107,14 +107,7 @@ void FMacWindow::Initialize( FMacApplication* const Application, const TSharedRe
 			}
 			else if (Definition->IsRegularWindow)
 			{
-				if (InParent.IsValid())
-				{
-					[WindowHandle setLevel: NSFloatingWindowLevel];
-				}
-				else
-				{
-					[WindowHandle setLevel: NSNormalWindowLevel];
-				}
+				[WindowHandle setLevel: NSNormalWindowLevel];
 			}
 			else if (!Definition->SupportsMaximize && !Definition->SupportsMinimize)
 			{
@@ -160,6 +153,8 @@ void FMacWindow::Initialize( FMacApplication* const Application, const TSharedRe
 						WindowHandle.titleVisibility = NSWindowTitleHidden;
 					}
 				}
+
+				SetText(*Definition->Title);
 			}
 			else if(Definition->AppearsInTaskbar)
 			{

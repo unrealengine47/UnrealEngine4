@@ -503,11 +503,6 @@ void UObject::GetArchetypeInstances( TArray<UObject*>& Instances )
 
 void UObject::BeginDestroy()
 {
-	LowLevelRename(NAME_None);
-
-	// Remove from linker's export table.
-	SetLinker( NULL, INDEX_NONE );
-
 	// Sanity assertion to ensure ConditionalBeginDestroy is the only code calling us.
 	if( !HasAnyFlags(RF_BeginDestroyed) )
 	{
@@ -516,6 +511,11 @@ void UObject::BeginDestroy()
 			*GetName()
 			);
 	}
+
+	LowLevelRename(NAME_None);
+
+	// Remove from linker's export table.
+	SetLinker( NULL, INDEX_NONE );
 
 	// ensure BeginDestroy has been routed back to UObject::BeginDestroy.
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
@@ -3753,6 +3753,12 @@ void UObject::PreNetReceive()
 
 /** Called right after receiving a bunch */
 void UObject::PostNetReceive()
+{
+
+}
+
+/** Called right before being marked for destruction due to network replication */
+void UObject::PreDestroyFromReplication()
 {
 
 }

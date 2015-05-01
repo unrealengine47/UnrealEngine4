@@ -316,6 +316,13 @@ FBodyInstance* FindParentBodyInstance(FName BodyName, USkeletalMeshComponent* Sk
 	return NULL;
 }
 
+FPhysScene* GetPhysicsScene(const FBodyInstance* BodyInstance)
+{
+	UPrimitiveComponent* OwnerComponentInst = BodyInstance->OwnerComponent.Get();
+	return OwnerComponentInst ? OwnerComponentInst->GetWorld()->GetPhysicsScene() : nullptr;
+}
+
+
 #if WITH_PHYSX
 //Determine that the shape is associated with this subbody (or root body)
 bool ShapeBoundToBody(const PxShape * PShape, const FBodyInstance* SubBody)
@@ -964,114 +971,17 @@ void FBodyInstance::UpdatePhysicsFilterData(bool bForceSimpleAsComplex)
 
 #if UE_WITH_PHYSICS
 
-void FBodyInstance::InitBody(class UBodySetup* Setup, const FTransform& Transform, class UPrimitiveComponent* PrimComp, class FPhysScene* InRBScene, PhysXAggregateType InAggregate /*= NULL*/, bool bDefer /*= false*/ )
-{
-	static TArray<FBodyInstance*> Bodies;
-	static TArray<FTransform> Transforms;
-
-	if(Bodies.Num() == 1 && Transforms.Num() == 1)
-	{
-		Bodies[0] = this;
-		Transforms[0] = Transform;
-
-	}
-	else
-	{
-		Bodies.Add(this);
-		Transforms.Add(Transform);
-	}
-	check(Bodies.Num() == Transforms.Num() == 1);
-
-	InitBodies(Bodies, Transforms, Setup, PrimComp, InRBScene, InAggregate, bDefer);
-}
-
-TSharedPtr<TArray<ANSICHAR>> GetDebugDebugName(const UPrimitiveComponent* PrimitiveComp, const UBodySetup* BodySetup, FString& DebugName)
-{
-	// Setup names
-	// Make the debug name for this geometry...
-	DebugName = (TEXT(""));
-	TSharedPtr<TArray<ANSICHAR>> PhysXName;
-
-#if (WITH_EDITORONLY_DATA || UE_BUILD_DEBUG || LOOKING_FOR_PERF_ISSUES) && !(UE_BUILD_SHIPPING || UE_BUILD_TEST) && !NO_LOGGING
-	if (PrimitiveComp)
-	{
-		DebugName += FString::Printf(TEXT("Component: %s "), *PrimitiveComp->GetReadableName());
-	}
-
-	if (BodySetup->BoneName != NAME_None)
-	{
-		DebugName += FString::Printf(TEXT("Bone: %s "), *BodySetup->BoneName.ToString());
-	}
-
-	// Convert to char* for PhysX
-	PhysXName = MakeShareable(new TArray<ANSICHAR>(StringToArray<ANSICHAR>(*DebugName, DebugName.Len() + 1)));
-#endif
-
-	return PhysXName;
-}
-
-const USkeletalMeshComponent* GetSkeletalMeshComponentAndProperties(const UPrimitiveComponent* PrimitiveComp, const UBodySetup* BodySetup, float& InstanceBlendWeight, bool& bInstanceSimulatePhysics, bool& bComponentAwake)
-{
-	const USkeletalMeshComponent* SkelMeshComp = Cast<USkeletalMeshComponent>(PrimitiveComp);
-	if (SkelMeshComp)
-	{
-		if ((BodySetup->PhysicsType == PhysType_Simulated) || (BodySetup->PhysicsType == PhysType_Default))
-		{
-			bool bEnableSim = (SkelMeshComp && IsRunningDedicatedServer()) ? SkelMeshComp->bEnablePhysicsOnDedicatedServer : true;
-			bEnableSim &= ((BodySetup->PhysicsType == PhysType_Simulated) || (SkelMeshComp->BodyInstance.bSimulatePhysics));	//if unfixed enable. If default look at parent
-
-			if (bEnableSim)
-			{
-				// set simulate to true if using physics
-				bInstanceSimulatePhysics = true;
-				if (BodySetup->PhysicsType == PhysType_Simulated)
-				{
-					InstanceBlendWeight = 1.f;
-				}
-			}
-			else
-			{
-				bInstanceSimulatePhysics = false;
-				if (BodySetup->PhysicsType == PhysType_Simulated)
-				{
-					InstanceBlendWeight = 0.f;
-				}
-			}
-		}
-
-		bComponentAwake = SkelMeshComp->BodyInstance.bStartAwake;
-	}
-
-	return SkelMeshComp;
-}
-
-FVector GetInitialLinearVelocity(const AActor* OwningActor, bool& bComponentAwake)
-{
-	FVector InitialLinVel(EForceInit::ForceInitToZero);
-	if (OwningActor)
-	{
-		InitialLinVel = OwningActor->GetVelocity();
-
-		if (InitialLinVel.Size() > KINDA_SMALL_NUMBER)
-		{
-			bComponentAwake = true;
-		}
-	}
-
-	return InitialLinVel;
-}
 
 template <bool bCompileStatic>
 struct FInitBodiesHelper
 {
-	FInitBodiesHelper(const TArray<FBodyInstance*>& InBodies, const TArray<FTransform>& InTransforms, class UBodySetup* InBodySetup, class UPrimitiveComponent* InPrimitiveComp, class FPhysScene* InInRBScene, FBodyInstance::PhysXAggregateType InInAggregate = NULL, bool InDefer = false, UPhysicsSerializer* InPhysicsSerializer = nullptr)
+	FInitBodiesHelper(const TArray<FBodyInstance*>& InBodies, const TArray<FTransform>& InTransforms, class UBodySetup* InBodySetup, class UPrimitiveComponent* InPrimitiveComp, class FPhysScene* InInRBScene, FBodyInstance::PhysXAggregateType InInAggregate = NULL, UPhysicsSerializer* InPhysicsSerializer = nullptr)
 	: Bodies(InBodies)
 	, Transforms(InTransforms)
 	, BodySetup(InBodySetup)
 	, PrimitiveComp(InPrimitiveComp)
 	, PhysScene(InInRBScene)
 	, InAggregate(InInAggregate)
-	, bDefer(InDefer)
 	, PhysicsSerializer(InPhysicsSerializer)
 	, DebugName(TEXT(""))
 	, InstanceBlendWeight(-1.f)
@@ -1086,7 +996,7 @@ struct FInitBodiesHelper
 
 		bStatic = bCompileStatic || PrimitiveComp == nullptr || PrimitiveComp->Mobility != EComponentMobility::Movable;
 		SkelMeshComp = bCompileStatic ? nullptr : GetSkeletalMeshComponentAndProperties(PrimitiveComp, BodySetup, InstanceBlendWeight, bInstanceSimulatePhysics, bComponentAwake);
-		
+
 		const AActor* OwningActor = PrimitiveComp ? PrimitiveComp->GetOwner() : nullptr;
 		InitialLinVel = GetInitialLinearVelocity(OwningActor, bComponentAwake);
 
@@ -1094,7 +1004,18 @@ struct FInitBodiesHelper
 		PSyncScene = PhysScene->GetPhysXScene(PST_Sync);
 		PAsyncScene = PhysScene->HasAsyncScene() ? PhysScene->GetPhysXScene(PST_Async) : nullptr;
 #endif
-	
+
+	}
+
+	void InitBodies() const
+	{
+#if WITH_PHYSX
+		InitBodies_PhysX();
+#endif
+
+#if WITH_BOX2D
+		InitBodies_Box2D();
+#endif
 	}
 
 	//The arguments passed into InitBodies
@@ -1104,9 +1025,8 @@ struct FInitBodiesHelper
 	class UPrimitiveComponent* PrimitiveComp;
 	class FPhysScene* PhysScene;
 	FBodyInstance::PhysXAggregateType InAggregate;
-	const bool bDefer;
 	UPhysicsSerializer* PhysicsSerializer;
-	
+
 	FString DebugName;
 	TSharedPtr<TArray<ANSICHAR>> PhysXName;
 
@@ -1445,8 +1365,8 @@ struct FInitBodiesHelper
 		TArray<PxActor*> PAsyncActors;
 		TArray<PxActor*> PDynamicActors;
 
-		// No reason to defer if there's an existing aggregate.
-		const bool bCanDefer = bCompileStatic || (bDefer && !InAggregate);
+		// Only static objects qualify for deferred addition
+		const bool bCanDefer = bCompileStatic;
 		bool bDynamicsUseAsync = false;
 		if (CreateShapesAndActors_PhysX(PSyncActors, PAsyncActors, PDynamicActors, bCanDefer, bDynamicsUseAsync) == false)
 		{
@@ -1643,26 +1563,108 @@ struct FInitBodiesHelper
 
 };
 
-void FBodyInstance::InitBodies(TArray<FBodyInstance*>& Bodies, TArray<FTransform>& Transforms, class UBodySetup* BodySetup, class UPrimitiveComponent* PrimitiveComp, class FPhysScene* InRBScene, PhysXAggregateType InAggregate /*= NULL*/, bool bDefer /*= false*/, UPhysicsSerializer* PhysicsSerializer )
+void FBodyInstance::InitBody(class UBodySetup* Setup, const FTransform& Transform, class UPrimitiveComponent* PrimComp, class FPhysScene* InRBScene, PhysXAggregateType InAggregate /*= NULL*/)
 {
-	SCOPE_CYCLE_COUNTER(STAT_InitBodies);
-
-	check(BodySetup);
+	SCOPE_CYCLE_COUNTER(STAT_InitBody);
+	check(Setup);
 	check(InRBScene);
-	check(Bodies.Num() > 0);
-
-	FInitBodiesHelper<false> InitBodiesHelper(Bodies, Transforms, BodySetup, PrimitiveComp, InRBScene, InAggregate, bDefer, PhysicsSerializer);
 	
-#if WITH_PHYSX
-	InitBodiesHelper.InitBodies_PhysX();
-#endif
+	static TArray<FBodyInstance*> Bodies;
+	static TArray<FTransform> Transforms;
 
-#if WITH_BOX2D
-	InitBodiesHelper.InitBodies_Box2D();
-#endif
+	if(Bodies.Num() == 1 && Transforms.Num() == 1)
+	{
+		Bodies[0] = this;
+		Transforms[0] = Transform;
+
+	}
+	else
+	{
+		Bodies.Add(this);
+		Transforms.Add(Transform);
+	}
+	
+	check(Bodies.Num() == Transforms.Num() == 1);
+
+	FInitBodiesHelper<false> InitBodiesHelper(Bodies, Transforms, Setup, PrimComp, InRBScene, InAggregate);
+	InitBodiesHelper.InitBodies();
 }
 
+TSharedPtr<TArray<ANSICHAR>> GetDebugDebugName(const UPrimitiveComponent* PrimitiveComp, const UBodySetup* BodySetup, FString& DebugName)
+{
+	// Setup names
+	// Make the debug name for this geometry...
+	DebugName = (TEXT(""));
+	TSharedPtr<TArray<ANSICHAR>> PhysXName;
 
+#if (WITH_EDITORONLY_DATA || UE_BUILD_DEBUG || LOOKING_FOR_PERF_ISSUES) && !(UE_BUILD_SHIPPING || UE_BUILD_TEST) && !NO_LOGGING
+	if (PrimitiveComp)
+	{
+		DebugName += FString::Printf(TEXT("Component: %s "), *PrimitiveComp->GetReadableName());
+	}
+
+	if (BodySetup->BoneName != NAME_None)
+	{
+		DebugName += FString::Printf(TEXT("Bone: %s "), *BodySetup->BoneName.ToString());
+	}
+
+	// Convert to char* for PhysX
+	PhysXName = MakeShareable(new TArray<ANSICHAR>(StringToArray<ANSICHAR>(*DebugName, DebugName.Len() + 1)));
+#endif
+
+	return PhysXName;
+}
+
+const USkeletalMeshComponent* GetSkeletalMeshComponentAndProperties(const UPrimitiveComponent* PrimitiveComp, const UBodySetup* BodySetup, float& InstanceBlendWeight, bool& bInstanceSimulatePhysics, bool& bComponentAwake)
+{
+	const USkeletalMeshComponent* SkelMeshComp = Cast<USkeletalMeshComponent>(PrimitiveComp);
+	if (SkelMeshComp)
+	{
+		if ((BodySetup->PhysicsType == PhysType_Simulated) || (BodySetup->PhysicsType == PhysType_Default))
+		{
+			bool bEnableSim = (SkelMeshComp && IsRunningDedicatedServer()) ? SkelMeshComp->bEnablePhysicsOnDedicatedServer : true;
+			bEnableSim &= ((BodySetup->PhysicsType == PhysType_Simulated) || (SkelMeshComp->BodyInstance.bSimulatePhysics));	//if unfixed enable. If default look at parent
+
+			if (bEnableSim)
+			{
+				// set simulate to true if using physics
+				bInstanceSimulatePhysics = true;
+				if (BodySetup->PhysicsType == PhysType_Simulated)
+				{
+					InstanceBlendWeight = 1.f;
+				}
+			}
+			else
+			{
+				bInstanceSimulatePhysics = false;
+				if (BodySetup->PhysicsType == PhysType_Simulated)
+				{
+					InstanceBlendWeight = 0.f;
+				}
+			}
+		}
+
+		bComponentAwake = SkelMeshComp->BodyInstance.bStartAwake;
+	}
+
+	return SkelMeshComp;
+}
+
+FVector GetInitialLinearVelocity(const AActor* OwningActor, bool& bComponentAwake)
+{
+	FVector InitialLinVel(EForceInit::ForceInitToZero);
+	if (OwningActor)
+	{
+		InitialLinVel = OwningActor->GetVelocity();
+
+		if (InitialLinVel.Size() > KINDA_SMALL_NUMBER)
+		{
+			bComponentAwake = true;
+		}
+	}
+
+	return InitialLinVel;
+}
 
 
 #endif // UE_WITH_PHYSICS
@@ -2592,9 +2594,10 @@ void FBodyInstance::SetBodyTransform(const FTransform& NewTransform, bool bTelep
 				// If kinematic and not teleporting, set kinematic target
 				if (!IsRigidBodyNonKinematic_AssumesLocked(PRigidDynamic) && !bTeleport)
 				{
-					const PxScene* PScene = PRigidDynamic->getScene();
-					FPhysScene* PhysScene = FPhysxUserData::Get<FPhysScene>(PScene->userData);
+					if(FPhysScene* PhysScene = GetPhysicsScene(this))
+					{
 						PhysScene->SetKinematicTarget_AssumesLocked(this, NewTransform, true);
+					}
 				}
 				// Otherwise, set global pose
 				else
@@ -3412,11 +3415,12 @@ void FBodyInstance::AddCustomPhysics(FCalculateCustomPhysics& CalculateCustomPhy
 	ExecuteOnPxRigidBodyReadOnly(this, [&](const PxRigidBody* PRigidBody)
 	{
 		if (IsRigidBodyNonKinematic_AssumesLocked(PRigidBody))
-	{
-		const PxScene* PScene = PRigidBody->getScene();
-		FPhysScene* PhysScene = FPhysxUserData::Get<FPhysScene>(PScene->userData);
-			PhysScene->AddCustomPhysics_AssumesLocked(this, CalculateCustomPhysics);
-	}
+		{
+			if(FPhysScene* PhysScene = GetPhysicsScene(this))
+			{
+				PhysScene->AddCustomPhysics_AssumesLocked(this, CalculateCustomPhysics);
+			}
+		}
 	});
 	
 #endif // WITH_PHYSX
@@ -3436,12 +3440,13 @@ void FBodyInstance::AddForce(const FVector& Force, bool bAllowSubstepping, bool 
 	ExecuteOnPxRigidBodyReadWrite(this, [&](PxRigidBody* PRigidBody)
 	{
 		if (IsRigidBodyNonKinematic_AssumesLocked(PRigidBody))
-	{
-		const PxScene* PScene = PRigidBody->getScene();
-		FPhysScene* PhysScene = FPhysxUserData::Get<FPhysScene>(PScene->userData);
-			PhysScene->AddForce_AssumesLocked(this, Force, bAllowSubstepping, bAccelChange);
+		{
+			if(FPhysScene* PhysScene = GetPhysicsScene(this))
+			{
+				PhysScene->AddForce_AssumesLocked(this, Force, bAllowSubstepping, bAccelChange);
+			}
 
-	}
+		}
 	});
 #endif // WITH_PHYSX
 
@@ -3463,11 +3468,12 @@ void FBodyInstance::AddForceAtPosition(const FVector& Force, const FVector& Posi
 	ExecuteOnPxRigidBodyReadWrite(this, [&](PxRigidBody* PRigidBody)
 	{
 		if (IsRigidBodyNonKinematic_AssumesLocked(PRigidBody))
-	{
-		const PxScene* PScene = PRigidBody->getScene();
-		FPhysScene* PhysScene = FPhysxUserData::Get<FPhysScene>(PScene->userData);
-			PhysScene->AddForceAtPosition_AssumesLocked(this, Force, Position, bAllowSubstepping);
-	}
+		{
+			if(FPhysScene* PhysScene = GetPhysicsScene(this))
+			{
+				PhysScene->AddForceAtPosition_AssumesLocked(this, Force, Position, bAllowSubstepping);
+			}
+		}
 	});
 	
 #endif // WITH_PHYSX
@@ -3491,13 +3497,13 @@ void FBodyInstance::AddTorque(const FVector& Torque, bool bAllowSubstepping, boo
 	ExecuteOnPxRigidBodyReadWrite(this, [&](PxRigidBody* PRigidBody)
 	{
 		if (IsRigidBodyNonKinematic_AssumesLocked(PRigidBody))
-	{
-		const PxScene* PScene = PRigidBody->getScene();
-		FPhysScene* PhysScene = FPhysxUserData::Get<FPhysScene>(PScene->userData);
-			PhysScene->AddTorque_AssumesLocked(this, Torque, bAllowSubstepping, bAccelChange);
-	}
+		{
+			if(FPhysScene* PhysScene = GetPhysicsScene(this))
+			{
+				PhysScene->AddTorque_AssumesLocked(this, Torque, bAllowSubstepping, bAccelChange);
+			}
+		}
 	});
-	
 #endif // WITH_PHYSX
 
 #if WITH_BOX2D
@@ -3694,12 +3700,13 @@ void FBodyInstance::AddRadialForceToBody(const FVector& Origin, float Radius, fl
 	ExecuteOnPxRigidBodyReadWrite(this, [&](PxRigidBody* PRigidBody)
 	{
 		if (IsRigidBodyNonKinematic_AssumesLocked(PRigidBody))
-	{
-		const PxScene* PScene = PRigidBody->getScene();
-		FPhysScene* PhysScene = FPhysxUserData::Get<FPhysScene>(PScene->userData);
-			PhysScene->AddRadialForceToBody_AssumesLocked(this, Origin, Radius, Strength, Falloff, bAccelChange, bAllowSubstepping);
+		{
+			if(FPhysScene* PhysScene = GetPhysicsScene(this))
+			{
+				PhysScene->AddRadialForceToBody_AssumesLocked(this, Origin, Radius, Strength, Falloff, bAccelChange, bAllowSubstepping);
+			}
 
-	}
+		}
 	});
 #endif // WITH_PHYSX
 
@@ -4615,15 +4622,8 @@ void FBodyInstance::InitStaticBodies(TArray<FBodyInstance*>& Bodies, TArray<FTra
 	check(InRBScene);
 	check(Bodies.Num() > 0);
 
-	FInitBodiesHelper<true> InitBodiesHelper(Bodies, Transforms, BodySetup, PrimitiveComp, InRBScene, nullptr, true, PhysicsSerializer);
-
-#if WITH_PHYSX
-	InitBodiesHelper.InitBodies_PhysX();
-#endif
-
-#if WITH_BOX2D
-	InitBodiesHelper.InitBodies_Box2D();
-#endif
+	FInitBodiesHelper<true> InitBodiesHelper(Bodies, Transforms, BodySetup, PrimitiveComp, InRBScene, nullptr, PhysicsSerializer);
+	InitBodiesHelper.InitBodies();
 }
 
 void FBodyInstance::SetShapeFlags_AssumesLocked(TEnumAsByte<ECollisionEnabled::Type> UseCollisionEnabled, PxShape* PInShape, EPhysicsSceneType SceneType, const bool bUseComplexAsSimple)

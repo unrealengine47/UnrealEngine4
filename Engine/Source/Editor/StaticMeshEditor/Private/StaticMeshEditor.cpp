@@ -71,11 +71,13 @@ void FStaticMeshEditor::RegisterTabSpawners(const TSharedRef<class FTabManager>&
 
 	TabManager->RegisterTabSpawner( SocketManagerTabId, FOnSpawnTab::CreateSP(this, &FStaticMeshEditor::SpawnTab_SocketManager) )
 		.SetDisplayName( LOCTEXT("SocketManagerTab", "Socket Manager") )
-		.SetGroup(WorkspaceMenuCategoryRef);
+		.SetGroup(WorkspaceMenuCategoryRef)
+		.SetIcon(FSlateIcon(FEditorStyle::GetStyleSetName(), "StaticMeshEditor.Tabs.SocketManager"));
 
 	TabManager->RegisterTabSpawner( CollisionTabId, FOnSpawnTab::CreateSP(this, &FStaticMeshEditor::SpawnTab_Collision) )
 		.SetDisplayName( LOCTEXT("CollisionTab", "Convex Decomposition") )
-		.SetGroup(WorkspaceMenuCategoryRef);
+		.SetGroup(WorkspaceMenuCategoryRef)
+		.SetIcon(FSlateIcon(FEditorStyle::GetStyleSetName(), "StaticMeshEditor.Tabs.ConvexDecomposition"));
 }
 
 void FStaticMeshEditor::UnregisterTabSpawners(const TSharedRef<class FTabManager>& TabManager)
@@ -1525,8 +1527,8 @@ void FStaticMeshEditor::SetEditorMesh(UStaticMesh* InStaticMesh)
 {
 	StaticMesh = InStaticMesh;
 
-	//Init stat arrays. A static mesh can have up to three level of details beyond the base mesh.
-	const int32 ArraySize = 4;
+	//Init stat arrays.
+	const int32 ArraySize = MAX_STATIC_MESH_LODS;
 	NumVertices.Empty(ArraySize);
 	NumVertices.AddZeroed(ArraySize);
 	NumTriangles.Empty(ArraySize);

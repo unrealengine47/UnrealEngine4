@@ -8,7 +8,7 @@
 #include "IPlatformFilePak.h"
 #include "FileHelpers.h"
 #include "Editor/MainFrame/Public/Interfaces/IMainFrameModule.h"
-/*#include "SuperSearchModule.h"*/
+#include "SuperSearchModule.h"
 
 #define LOCTEXT_NAMESPACE "ContentFeaturePacks"
 
@@ -105,13 +105,7 @@ bool TryValidateManifestObject(TSharedPtr<FJsonObject> ManifestObject, TSharedPt
 		ErrorMessage = MakeShareable(new FString("Manifest object missing 'Category' field"));
 		return false;
 	}
-
-	if (ManifestObject->HasTypedField<EJson::String>("FocusAsset") == false)
-	{
-		ErrorMessage = MakeShareable(new FString("Manifest object missing 'FocusAsset' field"));
-		return false;
-	}
-
+		
 	if (ManifestObject->HasTypedField<EJson::String>("Thumbnail") == false)
 	{
 		ErrorMessage = MakeShareable(new FString("Manifest object missing 'Thumbnail' field"));
@@ -206,8 +200,12 @@ FFeaturePackContentSource::FFeaturePackContentSource(FString InFeaturePackPath)
 	// Parse class types field
 	ClassTypes = ManifestObject->GetStringField("ClassTypes");
 	
-	// Parse initial focus asset
-	FocusAssetIdent = ManifestObject->GetStringField("FocusAsset");
+	
+	// Parse initial focus asset if we have one - this is not required
+	if (ManifestObject->HasTypedField<EJson::String>("FocusAsset") == false)
+	{
+		FocusAssetIdent = ManifestObject->GetStringField("FocusAsset");
+	}	
 
 	// Use the path as the sort key - it will be alphabetical that way
 	SortKey = FeaturePackPath;
@@ -235,8 +233,14 @@ FFeaturePackContentSource::FFeaturePackContentSource(FString InFeaturePackPath)
 	for (const TSharedPtr<FJsonValue> ScreenshotFilename : ScreenshotFilenameArray)
 	{
 		TSharedPtr<TArray<uint8>> SingleScreenshotData = MakeShareable(new TArray<uint8>);
-		LoadPakFileToBuffer(PakPlatformFile, FPaths::Combine(*MountPoint, TEXT("Media"), *ScreenshotFilename->AsString()), *SingleScreenshotData);
-		ScreenshotData.Add(MakeShareable(new FImageData(ScreenshotFilename->AsString(), SingleScreenshotData)));
+		if( LoadPakFileToBuffer(PakPlatformFile, FPaths::Combine(*MountPoint, TEXT("Media"), *ScreenshotFilename->AsString()), *SingleScreenshotData) )
+		{
+			ScreenshotData.Add(MakeShareable(new FImageData(ScreenshotFilename->AsString(), SingleScreenshotData)));
+		}
+		else
+		{
+			UE_LOG(LogFeaturePack, Warning, TEXT("Error in Feature pack %s. Cannot find screenshot %s."), *InFeaturePackPath, *ScreenshotFilename->AsString() );
+		}
 	}
 
 	FSuperSearchModule& SuperSearchModule = FModuleManager::LoadModuleChecked< FSuperSearchModule >(TEXT("SuperSearch"));
@@ -386,18 +390,14 @@ void FFeaturePackContentSource::HandleActOnSearchText(TSharedPtr<FSearchEntry> S
 
 void FFeaturePackContentSource::TryAddFeaturePackCategory(FString CategoryTitle, TArray< TSharedPtr<FSearchEntry> >& OutSuggestions)
 {
-	for (int32 iEntry = 0; iEntry < OutSuggestions.Num() ; iEntry++)
+	if (OutSuggestions.ContainsByPredicate([&CategoryTitle](TSharedPtr<FSearchEntry>& InElement)
+		{ return ((InElement->Title == CategoryTitle) && (InElement->bCategory == true)); }) == false)
 	{
-		if((OutSuggestions[iEntry]->Title == CategoryTitle ) && (OutSuggestions[iEntry]->bCategory == true ))
-		{
-			return;
-		}
+		TSharedPtr<FSearchEntry> FeaturePackCat = MakeShareable(new FSearchEntry());
+		FeaturePackCat->bCategory = true;
+		FeaturePackCat->Title = CategoryTitle;
+		OutSuggestions.Add(FeaturePackCat);
 	}
-	
-	TSharedPtr<FSearchEntry> FeaturePackCat = MakeShareable(new FSearchEntry());
-	FeaturePackCat->bCategory = true;
-	FeaturePackCat->Title = CategoryTitle;
-	OutSuggestions.Add(FeaturePackCat);
 }
 
 void FFeaturePackContentSource::HandleSuperSearchTextChanged(const FString& InText, TArray< TSharedPtr<FSearchEntry> >& OutSuggestions)

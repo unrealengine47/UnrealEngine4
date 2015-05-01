@@ -146,8 +146,11 @@ void FSpriteEditorViewportClient::UpdateSourceTextureSpriteFromSprite(UPaperSpri
 			FComponentReregisterContext ReregisterSprite(SourceTextureViewComponent);
 
 			FSpriteAssetInitParameters SpriteReinitParams;
+
 			SpriteReinitParams.SetTextureAndFill(SourceSprite->SourceTexture);
-			TargetSprite->PixelsPerUnrealUnit = SourceSprite->PixelsPerUnrealUnit;
+			SpriteReinitParams.DefaultMaterialOverride = SourceSprite->DefaultMaterial;
+			SpriteReinitParams.AlternateMaterialOverride = SourceSprite->AlternateMaterial;
+			SpriteReinitParams.SetPixelsPerUnrealUnit(SourceSprite->PixelsPerUnrealUnit);
 			TargetSprite->InitializeSprite(SpriteReinitParams);
 
 			RequestFocusOnSelection(/*bInstant=*/ true);
@@ -719,6 +722,8 @@ void FSpriteEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* HitP
 					(TexturePoint.X < (RelatedSprite.SourceUV.X + RelatedSprite.SourceDimension.X)) &&
 					(TexturePoint.Y < (RelatedSprite.SourceUV.Y + RelatedSprite.SourceDimension.Y)))
 				{
+					bHandled = true;
+
 					// Select this sprite
 					if (UPaperSprite* LoadedSprite = Cast<UPaperSprite>(RelatedSprite.AssetData.GetAsset()))
 					{
@@ -728,7 +733,6 @@ void FSpriteEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* HitP
 							break;
 						}
 					}
-					bHandled = true;
 				}
 			}
 		}

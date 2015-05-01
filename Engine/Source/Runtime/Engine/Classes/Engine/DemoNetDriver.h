@@ -4,6 +4,8 @@
 
 #include "DemoNetDriver.generated.h"
 
+DECLARE_LOG_CATEGORY_EXTERN( LogDemo, Log, All );
+
 /**
  * Simulated network driver for recording and playing back game sessions.
  */
@@ -44,9 +46,6 @@ class ENGINE_API UDemoNetDriver : public UNetDriver
 
 	/** This is our spectator controller that is used to view the demo world from */
 	APlayerController* SpectatorController;
-
-	UPROPERTY(config)
-	FString DemoSpectatorClass;
 
 	/** Our network replay streamer */
 	TSharedPtr< class INetworkReplayStreamer >	ReplayStreamer;

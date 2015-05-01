@@ -111,6 +111,8 @@
 #include "EngineStats.h"
 #include "Engine/SimpleConstructionScript.h"
 
+#include "PhysicsPublic.h"
+
 DEFINE_LOG_CATEGORY_STATIC(LogEditor, Log, All);
 
 #define LOCTEXT_NAMESPACE "UnrealEd.Editor"
@@ -628,11 +630,6 @@ void UEditorEngine::Init(IEngineLoop* InEngineLoop)
 			TEXT("SettingsEditor"),
 			TEXT("EditorSettingsViewer"),
 			TEXT("ProjectSettingsViewer"),
-			TEXT("AndroidRuntimeSettings"),
-			TEXT("AndroidPlatformEditor"),
-			TEXT("HTML5PlatformEditor"),
-			TEXT("IOSRuntimeSettings"),
-			TEXT("IOSPlatformEditor"),
 			TEXT("Blutility"),
 			TEXT("OnlineBlueprintSupport"),
 			TEXT("XmlParser"),
@@ -654,6 +651,31 @@ void UEditorEngine::Init(IEngineLoop* InEngineLoop)
 		{
 			ModuleSlowTask.EnterProgressFrame(1);
 			FModuleManager::Get().LoadModule(ModuleName);
+		}
+
+		{
+			// Load platform runtime settings modules
+			TArray<FName> Modules;
+			FModuleManager::Get().FindModules( TEXT( "*RuntimeSettings" ), Modules );
+
+			for( int32 Index = 0; Index < Modules.Num(); Index++ )
+			{
+				FModuleManager::Get().LoadModule( Modules[Index] );
+			}
+		}
+
+		{
+			// Load platform editor modules
+			TArray<FName> Modules;
+			FModuleManager::Get().FindModules( TEXT( "*PlatformEditor" ), Modules );
+
+			for( int32 Index = 0; Index < Modules.Num(); Index++ )
+			{
+				if( Modules[Index] != TEXT("ProjectTargetPlatformEditor") )
+				{
+					FModuleManager::Get().LoadModule( Modules[Index] );
+				}
+			}
 		}
 
 		if (!IsRunningCommandlet())
@@ -3653,8 +3675,33 @@ bool UEditorEngine::SavePackage( UPackage* InOuter, UObject* InBase, EObjectFlag
 	SlowTask.EnterProgressFrame(10);
 
 	UWorld* World = Cast<UWorld>(Base);
+	bool bInitializedPhysicsSceneForSave = false;
 	if ( World )
 	{
+		// We need a physics scene at save time in case code does traces during onsave events.
+		if (World->GetPhysicsScene() == nullptr)
+		{
+			// Clear world components first so that UpdateWorldComponents below properly adds them all to the physics scene
+			World->ClearWorldComponents();
+
+			if (World->bIsWorldInitialized)
+			{
+				// If we don't have a physics scene and the world was initialized without one (i.e. an inactive world) then we should create one here. We will remove it down below after the save
+				World->CreatePhysicsScene();
+			}
+			else
+			{
+				// If we aren't already initialized, initialize now and create a physics scene
+				World->InitWorld(UWorld::InitializationValues().RequiresHitProxies(false).ShouldSimulatePhysics(false).EnableTraceCollision(false).CreateNavigation(false).CreateAISystem(false).AllowAudioPlayback(false).CreatePhysicsScene(true));
+			}
+
+			// Update components now that a phyiscs scene exists.
+			World->UpdateWorldComponents(true, true);
+
+			// Set this to true so we can clean up what we just did down below
+			bInitializedPhysicsSceneForSave = true;
+		}
+
 		OnPreSaveWorld(SaveFlags, World);
 	}
 
@@ -3697,6 +3744,17 @@ bool UEditorEngine::SavePackage( UPackage* InOuter, UObject* InBase, EObjectFlag
 	if ( World )
 	{
 		OnPostSaveWorld(SaveFlags, World, OriginalPackageFlags, bSuccess);
+
+		if (bInitializedPhysicsSceneForSave)
+		{
+			// Make sure we clean up the physics scene here. If we leave too many scenes in memory, undefined behavior occurs when locking a scene for read/write.
+			World->ClearWorldComponents();
+			World->SetPhysicsScene(nullptr);
+			if (GPhysCommandHandler)
+			{
+				GPhysCommandHandler->Flush();
+			}
+		}
 	}
 
 	return bSuccess;

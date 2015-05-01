@@ -102,6 +102,8 @@
 #include "SNotificationList.h"
 #include "Engine/UserInterfaceSettings.h"
 #include "ComponentRecreateRenderStateContext.h"
+#include "JsonInternationalizationArchiveSerializer.h"
+#include "JsonInternationalizationManifestSerializer.h"
 
 DEFINE_LOG_CATEGORY(LogEngine);
 
@@ -2242,6 +2244,27 @@ bool UEngine::Exec( UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar )
 	{
 		return true;
 	}
+
+#if ENABLE_LOC_TESTING
+	{
+		FString CultureName;
+		if (FParse::Value(Cmd, TEXT("CULTURE="), CultureName))
+		{
+			FInternationalization::Get().SetCurrentCulture(CultureName);
+		}
+	}
+
+	{
+		FString ConfigFilePath;
+		if (FParse::Value(Cmd, TEXT("REGENLOC="), ConfigFilePath))
+		{
+			FJsonInternationalizationArchiveSerializer ArchiveSerializer;
+			FJsonInternationalizationManifestSerializer ManifestSerializer;
+
+			FTextLocalizationManager::Get().LoadFromManifestAndArchives(ConfigFilePath, ArchiveSerializer, ManifestSerializer);
+		}
+	}
+#endif
 
 	// Handle engine command line.
 	if ( FParse::Command(&Cmd,TEXT("FLUSHLOG")) )
@@ -6431,7 +6454,9 @@ void UEngine::PerformanceCapture(const FString& CaptureName)
 	
 	FString ScreenshotName = FString::Printf(TEXT("%s%d.png"), *PathName, GEngineVersion.GetChangelist());
 	
-	FScreenshotRequest::RequestScreenshot( ScreenshotName, false );
+	const bool bShowUI = false;
+	const bool bAddFilenameSuffix = false;
+	FScreenshotRequest::RequestScreenshot( ScreenshotName, bShowUI, bAddFilenameSuffix );
 
 }
 
@@ -9323,12 +9348,12 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 	// See if we need to record network demos
 	if ( WorldContext.World()->GetAuthGameMode() == NULL || !WorldContext.World()->GetAuthGameMode()->IsHandlingReplays() )
 	{
-		if ( URL.HasOption( TEXT( "DemoRec" ) ) )
+		if ( URL.HasOption( TEXT( "DemoRec" ) ) && WorldContext.OwningGameInstance != nullptr )
 		{
 			const TCHAR* DemoRecName = URL.GetOption( TEXT( "DemoRec=" ), NULL );
 
 			// Record the demo, optionally with the specified custom name.
-			GEngine->Exec( WorldContext.World(), *FString::Printf( TEXT("DEMOREC %s"), DemoRecName != NULL ? DemoRecName : TEXT("") ) );
+			WorldContext.OwningGameInstance->StartRecordingReplay( FString(DemoRecName), WorldContext.World()->GetMapName() );
 		}
 	}
 

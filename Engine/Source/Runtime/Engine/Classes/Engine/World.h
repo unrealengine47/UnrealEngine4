@@ -12,6 +12,7 @@
 #include "Engine/LatentActionManager.h"
 #include "Runtime/RHI/Public/RHIDefinitions.h"
 #include "GameFramework/Actor.h"
+#include "GameInstance.h"
 
 #if WITH_EDITOR
 	#include "Editor/UnrealEd/Public/HierarchicalLOD.h"
@@ -630,9 +631,12 @@ class ENGINE_API UWorld : public UObject, public FNetworkNotify
 	UPROPERTY()
 	class AParticleEventManager*				MyParticleEventManager;
 
+private:
 	/** DefaultPhysicsVolume used for whole game **/
 	UPROPERTY()
 	APhysicsVolume*								DefaultPhysicsVolume;
+
+public:
 
 	/** View locations rendered in the previous frame, if any. */
 	TArray<FVector>								ViewLocationsRenderedLastFrame;
@@ -2177,6 +2181,9 @@ public:
 	 */
 	APhysicsVolume* GetDefaultPhysicsVolume() const;
 
+	/** Returns true if a DefaultPhysicsVolume has been created. */
+	bool HasDefaultPhysicsVolume() const { return DefaultPhysicsVolume != nullptr; }
+
 	/** Add a physics volume to the list of those in the world. DefaultPhysicsVolume is not tracked. Used internally by APhysicsVolume. */
 	void AddPhysicsVolume(APhysicsVolume* Volume);
 
@@ -3120,7 +3127,7 @@ public:
 	/** Returns TimerManager instance for this world. */
 	inline FTimerManager& GetTimerManager() const
 	{
-		return *TimerManager;
+		return (OwningGameInstance ? OwningGameInstance->GetTimerManager() : *TimerManager);
 	}
 
 	/** Returns LatentActionManager instance for this world. */

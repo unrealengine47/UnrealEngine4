@@ -698,8 +698,13 @@ void UWorld::RunTickGroup(ETickingGroup Group, bool bBlockTillComplete = true)
 
 static TAutoConsoleVariable<int32> CVarAllowAsyncRenderThreadUpdates(
 	TEXT("AllowAsyncRenderThreadUpdates"),
+	1,
+	TEXT("Used to control async renderthread updates. Also gated on FApp::ShouldUseThreadingForPerformance()."));
+
+static TAutoConsoleVariable<int32> CVarAllowAsyncRenderThreadUpdatesEditor(
+	TEXT("AllowAsyncRenderThreadUpdatesEditor"),
 	0,
-	TEXT("Used to control async renderthread updates."));
+	TEXT("Used to control async renderthread updates in the editor."));
 
 static TAutoConsoleVariable<int32> CVarCollectGarbageEveryFrame(
 	TEXT("CollectGarbageEveryFrame"),
@@ -752,7 +757,8 @@ void UWorld::MarkActorComponentForNeededEndOfFrameUpdate(UActorComponent* Compon
 	{
 		if (!bForceGameThread)
 		{
-			bool bAllowConcurrentUpdates = !!CVarAllowAsyncRenderThreadUpdates.GetValueOnGameThread();
+			bool bAllowConcurrentUpdates = FApp::ShouldUseThreadingForPerformance() && 
+				(GIsEditor ? !!CVarAllowAsyncRenderThreadUpdatesEditor.GetValueOnGameThread() : !!CVarAllowAsyncRenderThreadUpdates.GetValueOnGameThread());
 			bForceGameThread = !bAllowConcurrentUpdates;
 		}
 
@@ -1213,8 +1219,8 @@ void UWorld::Tick( ELevelTick TickType, float DeltaSeconds )
 
 		if (TickType != LEVELTICK_TimeOnly && !bIsPaused)
 		{
-			STAT(FScopeCycleCounter Context(TimerManager->GetStatId());)
-			TimerManager->Tick(DeltaSeconds);
+			STAT(FScopeCycleCounter Context(GetTimerManager().GetStatId());)
+			GetTimerManager().Tick(DeltaSeconds);
 		}
 
 		for( int32 i=0; i<FTickableGameObject::TickableObjects.Num(); i++ )

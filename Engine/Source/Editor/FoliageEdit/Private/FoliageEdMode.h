@@ -8,11 +8,22 @@ class ULandscapeComponent;
 class UFoliageType;
 
 #include "InstancedFoliage.h"
+#include "InstancedFoliageActor.h"
 
 //
 // Forward declarations.
 //
 class UStaticMesh;
+
+/** View modes supported by the foliage palette */
+namespace EFoliagePaletteViewMode
+{
+	enum Type
+	{
+		Thumbnail,
+		Tree
+	};
+}
 
 // Current user settings in Foliage UI
 struct FFoliageUISettings
@@ -53,6 +64,15 @@ struct FFoliageUISettings
 	bool GetFilterTranslucent() const { return bFilterTranslucent; }
 	void SetFilterTranslucent(bool InbFilterTranslucent) { bFilterTranslucent = InbFilterTranslucent; }
 
+	bool GetShowPaletteItemDetails() const { return bShowPaletteItemDetails; }
+	void SetShowPaletteItemDetails(bool InbShowPaletteItemDetails) { bShowPaletteItemDetails = InbShowPaletteItemDetails; }
+	bool GetShowPaletteItemTooltips() const { return bShowPaletteItemTooltips; }
+	void SetShowPaletteItemTooltips(bool InbShowPaletteItemTooltips) { bShowPaletteItemTooltips = InbShowPaletteItemTooltips; }
+	EFoliagePaletteViewMode::Type GetActivePaletteViewMode() const { return ActivePaletteViewMode; }
+	void SetActivePaletteViewMode(EFoliagePaletteViewMode::Type InActivePaletteViewMode) { ActivePaletteViewMode = InActivePaletteViewMode; }
+	float GetPaletteThumbnailScale() const { return PaletteThumbnailScale; }
+	void SetPaletteThumbnailScale(float InThumbnailScale) { PaletteThumbnailScale = InThumbnailScale; }
+
 	FFoliageUISettings()
 		: WindowX(-1)
 		, WindowY(-1)
@@ -64,6 +84,10 @@ struct FFoliageUISettings
 		, bLassoSelectToolSelected(false)
 		, bPaintBucketToolSelected(false)
 		, bReapplyPaintBucketToolSelected(false)
+		, bShowPaletteItemDetails(true)
+		, bShowPaletteItemTooltips(true)
+		, ActivePaletteViewMode(EFoliagePaletteViewMode::Thumbnail)
+		, PaletteThumbnailScale(0.3f)
 		, Radius(512.f)
 		, PaintDensity(0.5f)
 		, UnpaintDensity(0.f)
@@ -89,6 +113,11 @@ private:
 	bool bLassoSelectToolSelected;
 	bool bPaintBucketToolSelected;
 	bool bReapplyPaintBucketToolSelected;
+
+	bool bShowPaletteItemDetails;
+	bool bShowPaletteItemTooltips;
+	EFoliagePaletteViewMode::Type ActivePaletteViewMode;
+	float PaletteThumbnailScale;
 
 	float Radius;
 	float PaintDensity;
@@ -170,6 +199,9 @@ class FEdModeFoliage : public FEdMode
 public:
 	FFoliageUISettings UISettings;
 
+	/** Command list lives here so that the key bindings on the commands can be processed in the viewport. */
+	TSharedPtr<FUICommandList> UICommandList;
+
 	/** Constructor */
 	FEdModeFoliage();
 
@@ -193,9 +225,6 @@ public:
 	void NotifyLevelAddedToWorld(ULevel* InLevel, UWorld* InWorld);
 	void NotifyLevelRemovedFromWorld(ULevel* InLevel, UWorld* InWorld);
 	
-	/** Called when the user changes the current tool in the UI */
-	void NotifyToolChanged();
-
 	/**
 	 * Called when the mouse is moved over the viewport
 	 *
@@ -335,6 +364,9 @@ public:
 	/** Find and select instances that don't have valid base or 'off-ground' */
 	void SelectInvalidInstances(const UFoliageType* Settings);
 
+	/** Adjusts the radius of the foliage brush by the specified amount */
+	void AdjustBrushRadius(float Adjustment);
+
 	/** Add desired instances. Uses foliage settings to determine location/scale/rotation and whether instances should be ignored */
 	static void AddInstances(UWorld* InWorld, const TArray<FDesiredFoliageInstance>& DesiredInstances);
 
@@ -342,6 +374,30 @@ public:
 
 	FSimpleMulticastDelegate OnToolChanged;
 private:
+
+	void BindCommands();
+	bool CurrentToolUsesBrush() const;
+
+	/** Called when the user changes the current tool in the UI */
+	void HandleToolChanged();
+
+	/** Deselects all tools */
+	void ClearAllToolSelection();
+
+	/** Sets the tool mode to Paint. */
+	void OnSetPaint();
+
+	/** Sets the tool mode to Reapply Settings. */
+	void OnSetReapplySettings();
+
+	/** Sets the tool mode to Select. */
+	void OnSetSelectInstance();
+
+	/** Sets the tool mode to Lasso Select. */
+	void OnSetLasso();
+
+	/** Sets the tool mode to Paint Bucket. */
+	void OnSetPaintFill();
 
 	/** Add instances inside the brush to match DesiredInstanceCount */
 	void AddInstancesForBrush(UWorld* InWorld, const UFoliageType* Settings, const FSphere& BrushSphere, int32 DesiredInstanceCount, float Pressure);
@@ -386,6 +442,12 @@ private:
 	bool SnapInstanceToGround(AInstancedFoliageActor* InIFA, float AlignMaxAngle, FFoliageMeshInfo& Mesh, int32 InstanceIdx);
 	void SnapSelectedInstancesToGround(UWorld* InWorld);
 
+	/** Callback for when an actor is spawned (to check if it's a new IFA) */
+	void HandleOnActorSpawned(AActor* Actor);
+
+	/** Callback for when the mesh assigned to a foliage type referenced by an IFA is changed */
+	void HandleOnFoliageTypeMeshChanged(UFoliageType* FoliageType);
+
 	/** Common code for adding instances to world based on settings */
 	static void AddInstancesImp(UWorld* InWorld, const UFoliageType* Settings, const TArray<FDesiredFoliageInstance>& DesiredInstances, const TArray<int32>& ExistingInstances = TArray<int32>(), const float Pressure = 1.f, LandscapeLayerCacheData* LandscapeLayerCaches = nullptr, const FFoliageUISettings* UISettings = nullptr);
 
@@ -414,8 +476,11 @@ private:
 
 	bool bToolActive;
 	bool bCanAltDrag;
+	bool bAdjustBrushRadius;
 
 	TArray<FFoliageMeshUIInfoPtr>	FoliageMeshList;
 	EColumnSortMode::Type			FoliageMeshListSortMode; 
+
+	FDelegateHandle OnActorSpawnedHandle;
 };
 

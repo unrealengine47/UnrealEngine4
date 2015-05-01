@@ -65,8 +65,12 @@ float CalculateOverlap(const FSphere& ASphere, const float AFillingFactor, const
 	float  ACapHeight = (BRadius*BRadius - (ARadius - Distance)*(ARadius - Distance)) / (2*Distance);
 	float  BCapHeight = (ARadius*ARadius - (BRadius - Distance)*(BRadius - Distance)) / (2*Distance);
 
-	check (ACapHeight>0.f);
-	check (BCapHeight>0.f);
+	if (ACapHeight<=0.f || BCapHeight<=0.f)
+	{
+		// it's possible to get cap height to be less than 0 
+		// since when we do check intersect, we do have regular tolerance
+		return 0.f;		
+	}
 
 	float  OverlapRadius1 = ((ARadius+BRadius)*(ARadius+BRadius) - Distance*Distance) * (Distance*Distance - (ARadius-BRadius)*(ARadius-BRadius));
 	float  OverlapRadius2 = 2*Distance;
@@ -171,6 +175,9 @@ void FHierarchicalLODBuilder::BuildClusters(class ULevel* InLevel)
 		ObjectTools::DeleteSingleObject(Asset, false);
 	}
 
+	// garbage collect
+	CollectGarbage( GARBAGE_COLLECTION_KEEPFLAGS, true );
+
 	// only build if it's enabled
 	if(InLevel->GetWorld()->GetWorldSettings()->bEnableHierarchicalLODSystem)
 	{
@@ -181,10 +188,10 @@ void FHierarchicalLODBuilder::BuildClusters(class ULevel* InLevel)
 			AWorldSettings* WorldSetting = InLevel->GetWorld()->GetWorldSettings();
 			// we use meter for bound. Otherwise it's very easy to get to overflow and have problem with filling ratio because
 			// bound is too huge
-			float DesiredBoundBoxHalfSize = WorldSetting->HierarchicalLODSetup[LODId].DesiredBoundSize * CM_TO_METER * 0.5f;
+			float DesiredBoundRadius = WorldSetting->HierarchicalLODSetup[LODId].DesiredBoundRadius * CM_TO_METER;
 			float DesiredFillingRatio = WorldSetting->HierarchicalLODSetup[LODId].DesiredFillingPercentage * 0.01f;
 			ensure(DesiredFillingRatio!=0.f);
-			float HighestCost = FMath::Pow(DesiredBoundBoxHalfSize, 3)/(DesiredFillingRatio);
+			float HighestCost = FMath::Pow(DesiredBoundRadius, 3)/(DesiredFillingRatio);
 			int32 MinNumActors = WorldSetting->HierarchicalLODSetup[LODId].MinNumberOfActorsToBuild;
 			check (MinNumActors > 0);
 			// test parameter I was playing with to cull adding to the array
@@ -220,6 +227,7 @@ void FHierarchicalLODBuilder::BuildClusters(class ULevel* InLevel)
 
 	// Clear Clusters. It is using stack mem, so it won't be good after this
 	Clusters.Empty();
+	Clusters.Shrink();
 }
 
 void FHierarchicalLODBuilder::FindMST() 
@@ -371,7 +379,21 @@ bool ShouldGenerateCluster(class AActor* Actor)
 	// TODO: support instanced static meshes
 	Components.RemoveAll([](UStaticMeshComponent* Val){ return Val->IsA(UInstancedStaticMeshComponent::StaticClass()); });
 
-	return (Components.Num() > 0);
+	// now make sure you check parent primitive, so that we don't build for the actor that already has built. 
+	if (Components.Num() > 0)
+	{
+		for (auto& ComponentIter: Components)
+		{
+			if (ComponentIter->GetLODParentPrimitive())
+			{
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	return false;
 }
 
 void FHierarchicalLODBuilder::InitializeClusters(class ULevel* InLevel, const int32 LODIdx, float CullCost)
@@ -412,36 +434,45 @@ void FHierarchicalLODBuilder::InitializeClusters(class ULevel* InLevel, const in
 		else // at this point we only care for LODActors
 		{
 			Clusters.Empty();
-			TArray<ALODActor*> LODActors;
+
+			// we filter the LOD index first
+			TArray<AActor*> Actors;
 			for(int32 ActorId=0; ActorId<InLevel->Actors.Num(); ++ActorId)
 			{
-				ALODActor* Actor = Cast<ALODActor>(InLevel->Actors[ActorId]);
-				if (Actor)
+				AActor* Actor = (InLevel->Actors[ActorId]);
+				if (Actor && Actor->IsA(ALODActor::StaticClass()))
 				{
-					LODActors.Add(Actor);
+					ALODActor* LODActor = CastChecked<ALODActor>(Actor);
+					if (LODActor->LODLevel == LODIdx)
+					{
+						Actors.Add(Actor);
+					}
+				}
+				else if(ShouldGenerateCluster(Actor))
+				{
+					Actors.Add(Actor);
 				}
 			}
 			// first we generate graph with 2 pair nodes
 			// this is very expensive when we have so many actors
 			// so we'll need to optimize later @todo
-			for(int32 ActorId=0; ActorId<LODActors.Num(); ++ActorId)
+			for(int32 ActorId=0; ActorId<Actors.Num(); ++ActorId)
 			{
-				ALODActor* Actor1 = (LODActors[ActorId]);
-				if (Actor1->LODLevel == LODIdx)
+				AActor* Actor1 = (Actors[ActorId]);
+				for(int32 SubActorId=ActorId+1; SubActorId<Actors.Num(); ++SubActorId)
 				{
-					for(int32 SubActorId=ActorId+1; SubActorId<LODActors.Num(); ++SubActorId)
-					{
-						ALODActor* Actor2 = LODActors[SubActorId];
+					AActor* Actor2 = Actors[SubActorId];
 
-						if (Actor2->LODLevel == LODIdx)
-						{
-							// create new cluster
-							FLODCluster NewClusterCandidate = FLODCluster(Actor1, Actor2);
-							Clusters.Add(NewClusterCandidate);
-						}
-					}
+					// create new cluster
+					FLODCluster NewClusterCandidate = FLODCluster(Actor1, Actor2);
+					Clusters.Add(NewClusterCandidate);
 				}
 			}
+
+			// shrink after adding actors
+			// LOD 0 has lots of actors, and subsequence LODs tend to have a lot less actors
+			// so this should save a lot more. 
+			Clusters.Shrink();
 		}
 	}
 }
@@ -601,7 +632,7 @@ void FLODCluster::BuildActor(class ULevel* InLevel, const int32 LODIdx)
 		////////////////////////////////////////////////////////////////////////////////////
 		// create asset using Actors
 		const FHierarchicalSimplification& LODSetup = InLevel->GetWorld()->GetWorldSettings()->HierarchicalLODSetup[LODIdx];
-		const FMeshProxySettings& ProxySetting = LODSetup.Setting;
+
 		// Where generated assets will be stored
 		UPackage* AssetsOuter = InLevel->GetOutermost(); // this asset is going to save with map, this means, I'll have to delete with it
 		if (AssetsOuter)
@@ -633,13 +664,11 @@ void FLODCluster::BuildActor(class ULevel* InLevel, const int32 LODIdx)
 				const FString PackageName = FString::Printf(TEXT("LOD_%s"), *FirstActor->GetName());
 				if (MeshUtilities.GetMeshMergingInterface() && LODSetup.bSimplifyMesh)
 				{
-					MeshUtilities.CreateProxyMesh(Actors, ProxySetting, AssetsOuter, PackageName, OutAssets, OutProxyLocation);
+					MeshUtilities.CreateProxyMesh(Actors, LODSetup.ProxySetting, AssetsOuter, PackageName, OutAssets, OutProxyLocation);
 				}
 				else
 				{
-					FMeshMergingSettings MergeSetting;
-					MergeSetting.bMergeMaterials = true;
-					MeshUtilities.MergeActors(Actors, MergeSetting, AssetsOuter, PackageName, LODIdx+1, OutAssets, OutProxyLocation, true );
+					MeshUtilities.MergeActors(Actors, LODSetup.MergeSetting, AssetsOuter, PackageName, LODIdx+1, OutAssets, OutProxyLocation, true );
 				}
 
 				// we make it private, so it can't be used by outside of map since it's useless, and then remove standalone
@@ -673,6 +702,7 @@ void FLODCluster::BuildActor(class ULevel* InLevel, const int32 LODIdx)
 					NewActor->SubActors = Actors;
 					NewActor->LODLevel = LODIdx+1; 
 					float DrawDistance = LODSetup.DrawDistance;
+					NewActor->LODDrawDistance = DrawDistance;
 
 					NewActor->GetStaticMeshComponent()->StaticMesh = MainMesh;
 

@@ -96,16 +96,18 @@ public:
 	// Returns the polygon centroid in texture space
 	FVector2D GetPolygonCentroid() const
 	{
+		FBox2D Bounds(ForceInit);
+
 		FVector2D LocalSpaceResult = FVector2D::ZeroVector;
 
 		for (const FVector2D& Vertex : Vertices)
 		{
-			LocalSpaceResult += Vertex;
+			Bounds += Vertex;
 		}
 
 		if (Vertices.Num() > 0)
 		{
-			LocalSpaceResult *= 1.0f / Vertices.Num();
+			LocalSpaceResult = Bounds.GetCenter();
 		}
 
 		return ConvertShapeSpaceToTextureSpace(LocalSpaceResult);
@@ -256,10 +258,10 @@ struct FSpriteAssetInitParameters
 		: Texture(nullptr)
 		, Offset(FVector2D::ZeroVector)
 		, Dimension(FVector2D::ZeroVector)
-		, bNewlyCreated(false)
-		, OpaqueMaterialOverride(nullptr)
-		, TranslucentMaterialOverride(nullptr)
-		, MaskedMaterialOverride(nullptr)
+		, bOverridePixelsPerUnrealUnit(false)
+		, PixelsPerUnrealUnit(1.0f)
+		, DefaultMaterialOverride(nullptr)
+		, AlternateMaterialOverride(nullptr)
 	{
 	}
 
@@ -279,6 +281,11 @@ struct FSpriteAssetInitParameters
 		}
 	}
 
+	void SetPixelsPerUnrealUnit(float NewPixelsPerUU)
+	{
+		bOverridePixelsPerUnrealUnit = true;
+		PixelsPerUnrealUnit = NewPixelsPerUU;
+	}
 public:
 	// The texture to use
 	UTexture2D* Texture;
@@ -292,17 +299,17 @@ public:
 	// The dimension of the subregion within the texture (in pixels)
 	FVector2D Dimension;
 
-	// Is this sprite newly created (should we pull the default pixels/uu and materials from the project settings)?
-	bool bNewlyCreated;
+	// Should we apply the PixelsPerUnrealUnit, or leave the value as it was
+	bool bOverridePixelsPerUnrealUnit;
 
-	// The material to use for opaque sprites if set
-	UMaterialInterface* OpaqueMaterialOverride;
+	// The scaling factor between pixels and Unreal units (cm) to use (e.g., 0.64 would make a 64 pixel wide sprite take up 100 cm)
+	float PixelsPerUnrealUnit;
 
-	// The material to use for translucent sprites if set
-	UMaterialInterface* TranslucentMaterialOverride;
+	// The material to override the default value with, if set
+	UMaterialInterface* DefaultMaterialOverride;
 
-	// The material to use for masked sprites if set
-	UMaterialInterface* MaskedMaterialOverride;
+	// The material to override the alternate (opaque) value with, if set
+	UMaterialInterface* AlternateMaterialOverride;
 };
 
 UENUM()

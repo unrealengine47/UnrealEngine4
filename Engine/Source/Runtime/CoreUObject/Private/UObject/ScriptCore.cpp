@@ -76,7 +76,33 @@ void FBlueprintCoreDelegates::ThrowScriptException(const UObject* ActiveObject, 
 	case EBlueprintExceptionType::Tracepoint:
 	case EBlueprintExceptionType::WireTracepoint:
 		break;
+#if WITH_EDITOR
+	case EBlueprintExceptionType::AccessViolation:
+		{
+			struct FIntConfigValueHelper
+			{
+				int32 Value;
 
+				FIntConfigValueHelper() : Value(0)
+				{
+					GConfig->GetInt(TEXT("ScriptErrorLog"), TEXT("MaxNumOfAccessViolation"), Value, GEditorIni);
+				}
+			};
+
+			static const FIntConfigValueHelper MaxNumOfAccessViolation;
+			if (MaxNumOfAccessViolation.Value > 0)
+			{
+				static TMap<FName, int32> DisplayedWarningsMap;
+				const FName ActiveObjectName = ActiveObject ? ActiveObject->GetFName() : FName();
+				int32& Num = DisplayedWarningsMap.FindOrAdd(ActiveObjectName);
+				if (Num > MaxNumOfAccessViolation.Value)
+				{
+					break;
+				}
+				Num++;
+			}
+		}
+#endif // WITH_EDITOR
 	default:
 		UE_SUPPRESS(LogScript, Warning, const_cast<FFrame*>(&StackFrame)->Logf(TEXT("%s"), *(Info.GetDescription())));
 		break;
@@ -1519,7 +1545,9 @@ void UObject::ProcessContextOpcode( FFrame& Stack, RESULT_DECL, bool bCanFailSil
 	// Execute or skip the following expression in the object's context.
 	if (IsValid(NewContext))
 	{
-		Stack.Code += sizeof(CodeSkipSizeType) + sizeof(ScriptPointerType) + sizeof(uint8);
+		Stack.Code += sizeof(CodeSkipSizeType)	// Code offset for NULL expressions.
+			+ sizeof(ScriptPointerType)			// Property corresponding to the r-value data, in case the l-value needs to be cleared
+			+ sizeof(uint8);					// Property type, in case the r-value is a non-property - in ue4 it seems to be unused
 		Stack.Step( NewContext, RESULT_PARAM );
 	}
 	else
@@ -1549,15 +1577,21 @@ void UObject::ProcessContextOpcode( FFrame& Stack, RESULT_DECL, bool bCanFailSil
 			}
 		}
 
-		CodeSkipSizeType wSkip = Stack.ReadCodeSkipCount();
-		VariableSizeType bSize = Stack.ReadVariableSize();
+		const CodeSkipSizeType wSkip = Stack.ReadCodeSkipCount(); // Code offset for NULL expressions. Code += sizeof(CodeSkipSizeType)
+		UField* RValueField = nullptr;
+		const VariableSizeType bSize = Stack.ReadVariableSize(&RValueField); // Code += sizeof(ScriptPointerType) + sizeof(uint8)
 		Stack.Code += wSkip;
 		Stack.MostRecentPropertyAddress = NULL;
 		Stack.MostRecentProperty = NULL;
 
 		if (RESULT_PARAM)
 		{
-			FMemory::Memzero( RESULT_PARAM, bSize );
+			auto RValueProperty = Cast<const UProperty>(RValueField);
+			ensure(RValueProperty || !RValueField);
+			if (RValueProperty)
+			{
+				RValueProperty->ClearValue(RESULT_PARAM);
+			}
 		}
 	}
 }
