@@ -2,7 +2,7 @@
 
 #include "Paper2DEditorPrivatePCH.h"
 #include "SpriteGeometryEditMode.h"
-#include "../SpriteEditor/SpriteEditorCommands.h"
+#include "SpriteGeometryEditCommands.h"
 #include "PhysicsEngine/BodySetup2D.h"
 #include "SocketEditing.h"
 
@@ -316,7 +316,10 @@ void FSpriteGeometryEditMode::SetGeometryColors(const FLinearColor& NewVertexCol
 
 void FSpriteGeometryEditMode::SetGeometryBeingEdited(FSpriteGeometryCollection* NewGeometryBeingEdited, bool bInAllowCircles, bool bInAllowSubtractivePolygons)
 {
-	SpriteGeometryHelper.SetGeometryBeingEdited(NewGeometryBeingEdited, bInAllowCircles, bInAllowSubtractivePolygons);
+	if (SpriteGeometryHelper.GetGeometryBeingEdited() != NewGeometryBeingEdited)
+	{
+		SpriteGeometryHelper.SetGeometryBeingEdited(NewGeometryBeingEdited, bInAllowCircles, bInAllowSubtractivePolygons);
+	}
 	bIsMarqueeTracking = false;
 }
 

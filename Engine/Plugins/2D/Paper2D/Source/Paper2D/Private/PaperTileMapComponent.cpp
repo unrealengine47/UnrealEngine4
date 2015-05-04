@@ -24,7 +24,7 @@ UPaperTileMapComponent::UPaperTileMapComponent(const FObjectInitializer& ObjectI
 	TileWidth_DEPRECATED = 32;
 	TileHeight_DEPRECATED = 32;
 
-	static ConstructorHelpers::FObjectFinder<UMaterial> DefaultMaterial(TEXT("/Paper2D/DefaultSpriteMaterial"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> DefaultMaterial(TEXT("/Paper2D/MaskedUnlitSpriteMaterial"));
 	Material_DEPRECATED = DefaultMaterial.Object;
 
 	CastShadow = false;
@@ -258,7 +258,7 @@ void UPaperTileMapComponent::RebuildRenderData(FPaperTileMapRenderSceneProxy* Pr
 				EffectiveTopLeftCorner = CornerOffset;
 				break;
 			case ETileMapProjectionMode::IsometricDiamond:
-				EffectiveTopLeftCorner = CornerOffset - StepPerTileX;
+				EffectiveTopLeftCorner = CornerOffset - 0.5f * StepPerTileX + 0.5f * StepPerTileY;
 				break;
 			case ETileMapProjectionMode::IsometricStaggered:
 			case ETileMapProjectionMode::HexagonalStaggered:
@@ -389,11 +389,6 @@ void UPaperTileMapComponent::CreateNewOwnedTileMap()
 	UPaperTileMap* NewTileMap = NewObject<UPaperTileMap>(this);
 	NewTileMap->SetFlags(RF_Transactional);
 	NewTileMap->InitializeNewEmptyTileMap();
-
-	if (TileMap != nullptr)
-	{
-		NewTileMap->SelectedTileSet = TileMap->SelectedTileSet;
-	}
 
 	SetTileMap(NewTileMap);
 }

@@ -647,6 +647,20 @@ void USceneComponent::OnComponentDestroyed()
 
 	ScopedMovementStack.Reset();
 
+	// Detach children before destroying
+	for (int32 Index = AttachChildren.Num()-1; Index >= 0; --Index)
+	{
+		USceneComponent* Child = AttachChildren[Index];
+		if (AttachParent)
+		{
+			Child->AttachTo(AttachParent);
+		}
+		else
+		{
+			Child->DetachFromParent();
+		}
+	}
+
 	// Ensure we are detached before destroying
 	DetachFromParent();
 }
@@ -1148,7 +1162,7 @@ void USceneComponent::AttachTo(class USceneComponent* Parent, FName InSocketName
 			//Also physics state may not be created yet so we use bSimulatePhysics to determine if the object has any intention of being physically simulated
 			UPrimitiveComponent * PrimitiveComponent = Cast<UPrimitiveComponent>(this);
 
-			if (PrimitiveComponent && PrimitiveComponent->BodyInstance.bSimulatePhysics && !bWeldSimulatedBodies && GetWorld() && GetWorld()->IsGameWorld() && !GetWorld()->bIsRunningConstructionScript)
+			if (PrimitiveComponent && PrimitiveComponent->BodyInstance.bSimulatePhysics && !bWeldSimulatedBodies && GetWorld() && GetWorld()->IsGameWorld() /*&& !GetWorld()->bIsRunningConstructionScript*/)
 			{
 				//Since the object is physically simulated it can't be the case that it's a child of object A and being attached to object B (at runtime)
 				if (bMaintainWorldPosition == false)	//User tried to attach but physically based so detach. However, if they provided relative coordinates we should still get the correct position

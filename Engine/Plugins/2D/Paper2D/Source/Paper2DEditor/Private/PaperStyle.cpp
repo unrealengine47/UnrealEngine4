@@ -3,6 +3,7 @@
 #include "Paper2DEditorPrivatePCH.h"
 #include "PaperStyle.h"
 #include "SlateStyle.h"
+#include "IPluginManager.h"
 
 #define IMAGE_PLUGIN_BRUSH( RelativePath, ... ) FSlateImageBrush( FPaperStyle::InContent( RelativePath, ".png" ), __VA_ARGS__ )
 #define IMAGE_BRUSH(RelativePath, ...) FSlateImageBrush(StyleSet->RootToContentDir(RelativePath, TEXT(".png")), __VA_ARGS__)
@@ -12,7 +13,7 @@
 
 FString FPaperStyle::InContent(const FString& RelativePath, const ANSICHAR* Extension)
 {
-	static FString ContentDir = FPaths::EnginePluginsDir() / TEXT("2D/Paper2D/Content");
+	static FString ContentDir = IPluginManager::Get().FindPlugin(TEXT("Paper2D"))->GetContentDir();
 	return (ContentDir / RelativePath) + Extension;
 }
 
@@ -169,6 +170,13 @@ void FPaperStyle::Initialize()
 		StyleSet->Set("SpriteEditor.SetShowBounds.Small", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_Bounds_40x"), Icon20x20));
 		StyleSet->Set("SpriteEditor.SetShowCollision", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_Collision_40x"), Icon40x40));
 		StyleSet->Set("SpriteEditor.SetShowCollision.Small", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_Collision_40x"), Icon20x20));
+
+		StyleSet->Set("SpriteEditor.ExtractSprites", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/SpriteEditor/icon_ExtractSprites_40x"), Icon40x40));
+		StyleSet->Set("SpriteEditor.ExtractSprites.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/SpriteEditor/icon_ExtractSprites_40x"), Icon20x20));
+		StyleSet->Set("SpriteEditor.ToggleShowRelatedSprites", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/SpriteEditor/icon_ShowOtherSprites_40x"), Icon40x40));
+		StyleSet->Set("SpriteEditor.ToggleShowRelatedSprites.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/SpriteEditor/icon_ShowOtherSprites_40x"), Icon20x20));
+		StyleSet->Set("SpriteEditor.ToggleShowSpriteNames", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/SpriteEditor/icon_ShowSpriteNames_40x"), Icon40x40));
+		StyleSet->Set("SpriteEditor.ToggleShowSpriteNames.Small", new IMAGE_PLUGIN_BRUSH(TEXT("Icons/SpriteEditor/icon_ShowSpriteNames_40x"), Icon20x20));
 
 		StyleSet->Set("SpriteEditor.SetShowSockets", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_ShowSockets_40x"), Icon40x40));
 		StyleSet->Set("SpriteEditor.SetShowSockets.Small", new IMAGE_BRUSH(TEXT("Icons/icon_StaticMeshEd_ShowSockets_40x"), Icon20x20));

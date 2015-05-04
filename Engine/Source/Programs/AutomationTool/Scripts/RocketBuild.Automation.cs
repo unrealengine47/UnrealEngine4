@@ -77,6 +77,9 @@ namespace Rocket
 				// Find all the target platforms for this host platform.
 				List<UnrealTargetPlatform> TargetPlatforms = GetTargetPlatforms(bp, HostPlatform);
 
+				// Remove any platforms that aren't available on this machine
+				TargetPlatforms.RemoveAll(x => !bp.ActivePlatforms.Contains(x));
+
 				// Get the temp directory for stripped files for this host
 				string StrippedDir = Path.GetFullPath(CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, "Engine", "Saved", "Rocket", HostPlatform.ToString()));
 
@@ -122,10 +125,20 @@ namespace Rocket
 					}
 				}
 
+				// Get the output directory for the build zips
+				string PublishedEngineDir;
+				if(ShouldDoSeriousThingsLikeP4CheckinAndPostToMCP())
+				{
+					PublishedEngineDir = CommandUtils.CombinePaths(CommandUtils.RootSharedTempStorageDirectory(), "Rocket", "Automated", GetBuildLabel(), CommandUtils.GetGenericPlatformName(HostPlatform));
+				}
+				else
+				{
+					PublishedEngineDir = CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, "LocalBuilds", "RocketPublish", CommandUtils.GetGenericPlatformName(HostPlatform));
+				}
+
 				// Publish the install to the network
-				string RemoteOutputDir = CommandUtils.CombinePaths(CommandUtils.RootSharedTempStorageDirectory(), "Rocket", "Automated", GetBuildLabel(), CommandUtils.GetGenericPlatformName(HostPlatform));
-				bp.AddNode(new PublishRocketNode(HostPlatform, LocalOutputDir, RemoteOutputDir));
-				bp.AddNode(new PublishRocketSymbolsNode(bp, HostPlatform, TargetPlatforms, RemoteOutputDir + "Symbols"));
+				bp.AddNode(new PublishRocketNode(HostPlatform, LocalOutputDir, PublishedEngineDir));
+				bp.AddNode(new PublishRocketSymbolsNode(bp, HostPlatform, TargetPlatforms, PublishedEngineDir + "Symbols"));
 
 				// Add a dependency on this being published as part of the shared promotable being labeled
 				GUBP.SharedLabelPromotableSuccessNode LabelPromotableNode = (GUBP.SharedLabelPromotableSuccessNode)bp.FindNode(GUBP.SharedLabelPromotableSuccessNode.StaticGetFullName());
@@ -156,10 +169,10 @@ namespace Rocket
 			return FEngineVersionSupport.FromVersionFile(CommandUtils.CombinePaths(CommandUtils.CmdEnv.LocalRoot, @"Engine\Source\Runtime\Launch\Resources\Version.h")).ToString();
 		}
 
-		public static List<UnrealTargetPlatform> GetTargetPlatforms(GUBP bp, UnrealTargetPlatform HostPlatform)
+		public static List<UnrealTargetPlatform> GetTargetPlatforms(BuildCommand Command, UnrealTargetPlatform HostPlatform)
 		{
 			List<UnrealTargetPlatform> TargetPlatforms = new List<UnrealTargetPlatform>();
-			if(!bp.ParseParam("NoTargetPlatforms"))
+			if(!Command.ParseParam("NoTargetPlatforms"))
 			{
 				// Always support the host platform
 				TargetPlatforms.Add(HostPlatform);
@@ -186,11 +199,8 @@ namespace Rocket
 					TargetPlatforms.Add(UnrealTargetPlatform.HTML5);
 				}
 
-				// Remove any platforms that aren't available on this machine
-				TargetPlatforms.RemoveAll(x => !bp.ActivePlatforms.Contains(x));
-
 				// Remove any platforms that aren't enabled on the command line
-				string TargetPlatformFilter = bp.ParseParamValue("TargetPlatforms", null);
+				string TargetPlatformFilter = Command.ParseParamValue("TargetPlatforms", null);
 				if(TargetPlatformFilter != null)
 				{
 					List<UnrealTargetPlatform> NewTargetPlatforms = new List<UnrealTargetPlatform>();
@@ -807,18 +817,41 @@ namespace Rocket
 			return StaticGetFullName(HostPlatform);
 		}
 
-		public override float Priority()
-		{
-			return -10000.0f; // Do this and PublishRocketSymbolsNode at the end
-		}
-
 		public override void DoBuild(GUBP bp)
 		{
-			if(RocketBuild.ShouldDoSeriousThingsLikeP4CheckinAndPostToMCP())
-			{
-				CommandUtils.ThreadedCopyFiles(LocalDir, PublishDir);
-			}
+			// Create a zip file containing the install
+			string FullZipFileName = Path.Combine(CommandUtils.CmdEnv.LocalRoot, "FullInstall" + StaticGetHostPlatformSuffix(HostPlatform) + ".zip");
+			CommandUtils.Log("Creating {0}...", FullZipFileName);
+			CommandUtils.ZipFiles(FullZipFileName, LocalDir, new FileFilter(FileFilterType.Include));
 
+			// Create a filter for the files we need just to run the editor
+			FileFilter EditorFilter = new FileFilter(FileFilterType.Include);
+			EditorFilter.Exclude("/Engine/Binaries/...");
+			EditorFilter.Include("/Engine/Binaries/DotNET/...");
+			EditorFilter.Include("/Engine/Binaries/ThirdParty/...");
+			EditorFilter.Include("/Engine/Binaries/" + HostPlatform.ToString() + "/...");
+			EditorFilter.Exclude("/Engine/Binaries/.../*.lib");
+			EditorFilter.Exclude("/Engine/Binaries/.../*.a");
+			EditorFilter.Exclude("/Engine/Extras/...");
+			EditorFilter.Exclude("/Engine/Source/.../Private/...");
+			EditorFilter.Exclude("/FeaturePacks/...");
+			EditorFilter.Exclude("/Samples/...");
+			EditorFilter.Exclude("/Templates/...");
+			EditorFilter.Exclude("*.pdb");
+
+			// Create a zip file containing the editor install
+			string EditorZipFileName = Path.Combine(CommandUtils.CmdEnv.LocalRoot, "EditorInstall" + StaticGetHostPlatformSuffix(HostPlatform) + ".zip");
+			CommandUtils.Log("Creating {0}...", EditorZipFileName);
+			CommandUtils.ZipFiles(EditorZipFileName, LocalDir, EditorFilter);
+
+			// Copy the files to their final location
+			CommandUtils.Log("Copying files to {0}", PublishDir);
+			CommandUtils.CopyFile(FullZipFileName, Path.Combine(PublishDir, Path.GetFileName(FullZipFileName)));
+			CommandUtils.CopyFile(EditorZipFileName, Path.Combine(PublishDir, Path.GetFileName(EditorZipFileName)));
+			CommandUtils.DeleteFile(FullZipFileName);
+			CommandUtils.DeleteFile(EditorZipFileName);
+
+			// Save a record of success
 			BuildProducts = new List<string>();
 			SaveRecordOfSuccessAndAddToBuildProducts();
 		}
@@ -857,11 +890,6 @@ namespace Rocket
 		public override string GetFullName()
 		{
 			return StaticGetFullName(HostPlatform);
-		}
-
-		public override float Priority()
-		{
-			return -100000.0f; // Do this last; it's not mission critical
 		}
 
 		public override void DoBuild(GUBP bp)

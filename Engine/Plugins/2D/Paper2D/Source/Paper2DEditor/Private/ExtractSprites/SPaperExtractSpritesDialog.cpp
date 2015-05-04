@@ -234,8 +234,9 @@ SPaperExtractSpritesDialog::~SPaperExtractSpritesDialog()
 	}
 }
 
-bool SPaperExtractSpritesDialog::ShowWindow(const FText& TitleText, UTexture2D* SourceTexture)
+bool SPaperExtractSpritesDialog::ShowWindow(UTexture2D* SourceTexture)
 {
+	const FText TitleText = NSLOCTEXT("Paper2D", "Paper2D_ExtractSprites", "Extract sprites");
 	// Create the window to pick the class
 	TSharedRef<SWindow> ExtractSpritesWindow = SNew(SWindow)
 		.Title(TitleText)
@@ -263,10 +264,6 @@ bool SPaperExtractSpritesDialog::ShowWindow(const FText& TitleText, UTexture2D* 
 // Extract the sprites based on SpriteExtractSettings->Mode
 void SPaperExtractSpritesDialog::PreviewExtractedSprites()
 {
-	FScopedSlowTask SlowTask(2, NSLOCTEXT("Paper2D", "Paper2D_ExtractingSprites", "Extracting Sprites"));
-	SlowTask.MakeDialog(false);
-	SlowTask.EnterProgressFrame();
-
 	FString NamingTemplate = ExtractSpriteSettings->NamingTemplate;
 	if (NamingTemplate.Find(TEXT("{0}")) == INDEX_NONE)
 	{
@@ -444,8 +441,8 @@ void SPaperExtractSpritesDialog::CreateExtractedSprites()
 
 		SpriteFactory->bUseSourceRegion = true;
 		const FIntRect& ExtractedRect = ExtractedSprite.Rect;
-		SpriteFactory->InitialSourceUV = FVector2D(ExtractedRect.Min.X, ExtractedRect.Min.Y);
-		SpriteFactory->InitialSourceDimension = FVector2D(ExtractedRect.Width(), ExtractedRect.Height());
+		SpriteFactory->InitialSourceUV = ExtractedRect.Min;
+		SpriteFactory->InitialSourceDimension = FIntPoint(ExtractedRect.Width(), ExtractedRect.Height());
 
 		// Get a unique name for the sprite
 		// Extracted sprite name is a name, we insert a _ as we're appending this to the texture name

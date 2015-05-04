@@ -650,7 +650,7 @@ TSharedRef<SWidget> STransformViewportToolBar::FillLayer2DSnapMenu()
 		{
 			if (ISettingsModule* SettingsModule = FModuleManager::GetModulePtr<ISettingsModule>("Settings"))
 			{
-				SettingsModule->ShowViewer("Project", "Editor", "2D");
+				SettingsModule->ShowViewer("Project", "Editor", "LevelEditor2DSettings");
 			}
 		}
 
@@ -686,7 +686,7 @@ TSharedRef<SWidget> STransformViewportToolBar::FillLayer2DSnapMenu()
 					}
 				}
 
-				GEditor->RedrawViewports();
+				GEditor->RedrawLevelEditingViewports(true);
 			}
 
 			return FReply::Handled();

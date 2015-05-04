@@ -33,9 +33,20 @@ UPaperTileMap::UPaperTileMap(const FObjectInitializer& ObjectInitializer)
 
 	LayerNameIndex = 0;
 
-	static ConstructorHelpers::FObjectFinder<UMaterial> DefaultMaterial(TEXT("/Paper2D/DefaultSpriteMaterial"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> DefaultMaterial(TEXT("/Paper2D/MaskedUnlitSpriteMaterial"));
 	Material = DefaultMaterial.Object;
 }
+
+#if WITH_EDITOR
+void UPaperTileMap::PreEditChange(UProperty* PropertyAboutToChange)
+{
+	if ((PropertyAboutToChange != nullptr) && (PropertyAboutToChange->GetFName() == GET_MEMBER_NAME_CHECKED(UPaperTileMap, HexSideLength)))
+	{
+		// Subtract out the hex side length; we'll add it back (along with any changes) in PostEditChangeProperty
+		TileHeight -= HexSideLength;
+	}
+}
+#endif
 
 #if WITH_EDITOR
 
@@ -87,6 +98,19 @@ void UPaperTileMap::PostEditChangeProperty(FPropertyChangedEvent& PropertyChange
 	FTileMapReregisterContext ReregisterTileMapComponents(this);
 
 	ValidateSelectedLayerIndex();
+
+	if (PropertyName == GET_MEMBER_NAME_CHECKED(UPaperTileMap, HexSideLength))
+	{
+		HexSideLength = FMath::Max<int32>(HexSideLength, 0);
+
+		// The side length needs to be included in the overall tile height
+		TileHeight += HexSideLength;
+	}
+
+	TileWidth = FMath::Max(TileWidth, 1);
+	TileHeight = FMath::Max(TileHeight, 1);
+	MapWidth = FMath::Max(MapWidth, 1);
+	MapHeight = FMath::Max(MapHeight, 1);
 
 	if (PixelsPerUnrealUnit <= 0.0f)
 	{
@@ -343,7 +367,7 @@ FVector UPaperTileMap::GetTilePositionInLocalSpace(float TileX, float TileY, int
 	return LocalPos;
 }
 
-void UPaperTileMap::GetTilePolygon(int32 TileX, int32 TileY, int32 LayerIndex, TArray<FVector>& LocalSpacePoints)
+void UPaperTileMap::GetTilePolygon(int32 TileX, int32 TileY, int32 LayerIndex, TArray<FVector>& LocalSpacePoints) const
 {
 	switch (ProjectionMode)
 	{
@@ -352,8 +376,8 @@ void UPaperTileMap::GetTilePolygon(int32 TileX, int32 TileY, int32 LayerIndex, T
 	default:
 		LocalSpacePoints.Add(GetTilePositionInLocalSpace(TileX, TileY, LayerIndex));
 		LocalSpacePoints.Add(GetTilePositionInLocalSpace(TileX + 1, TileY, LayerIndex));
-		LocalSpacePoints.Add(GetTilePositionInLocalSpace(TileX, TileY + 1, LayerIndex));
 		LocalSpacePoints.Add(GetTilePositionInLocalSpace(TileX + 1, TileY + 1, LayerIndex));
+		LocalSpacePoints.Add(GetTilePositionInLocalSpace(TileX, TileY + 1, LayerIndex));
 		break;
 
 	case ETileMapProjectionMode::IsometricStaggered:
@@ -378,20 +402,22 @@ void UPaperTileMap::GetTilePolygon(int32 TileX, int32 TileY, int32 LayerIndex, T
 			const float TileWidthInUU = TileWidth * UnrealUnitsPerPixel;
 			const float TileHeightInUU = TileHeight * UnrealUnitsPerPixel;
 
-			const FVector RecenterOffset = PaperAxisX*TileWidthInUU*0.5f;
-			const FVector LSTM = GetTilePositionInLocalSpace(TileX, TileY, LayerIndex) + RecenterOffset;
+			const FVector HalfWidth = PaperAxisX*TileWidthInUU*0.5f;
+			const FVector LSTM = GetTilePositionInLocalSpace(TileX, TileY, LayerIndex) + HalfWidth;
 
 			const float HexSideLengthInUU = HexSideLength * UnrealUnitsPerPixel;
+			const float HalfHexLength = HexSideLengthInUU*0.5f;
+			const FVector Top(LSTM - PaperAxisY*HalfHexLength);
 
-			const FVector Top(LSTM - PaperAxisY*HexSideLengthInUU);
+			const FVector StepTopSides = PaperAxisY*(TileHeightInUU*0.5f - HalfHexLength);
+			const FVector RightTop(LSTM + HalfWidth - StepTopSides);
+			const FVector LeftTop(LSTM - HalfWidth - StepTopSides);
 
-			const FVector RightTop(LSTM + PaperAxisX*TileWidthInUU*0.5f - PaperAxisY*TileHeightInUU*0.5f);
-			const FVector LeftTop(LSTM - PaperAxisX*TileWidthInUU*0.5f - PaperAxisY*TileHeightInUU*0.5f);
+			const FVector StepBottomSides = PaperAxisY*(TileHeightInUU*0.5f + HalfHexLength);
+			const FVector RightBottom(LSTM + HalfWidth - StepBottomSides);
+			const FVector LeftBottom(LSTM - HalfWidth - StepBottomSides);
 
-			const FVector RightBottom(LSTM + PaperAxisX*TileWidthInUU*0.5f - PaperAxisY*(TileHeightInUU*0.5f + HexSideLengthInUU));
-			const FVector LeftBottom(LSTM - PaperAxisX*TileWidthInUU*0.5f - PaperAxisY*(TileHeightInUU*0.5f + HexSideLengthInUU));
-
-			const FVector Bottom(LSTM - PaperAxisY*TileHeightInUU*1.0f);
+			const FVector Bottom(LSTM - PaperAxisY*(TileHeightInUU - HalfHexLength));
 
 			LocalSpacePoints.Add(Top);
 			LocalSpacePoints.Add(RightTop);
@@ -411,6 +437,10 @@ FVector UPaperTileMap::GetTileCenterInLocalSpace(float TileX, float TileY, int32
 	case ETileMapProjectionMode::Orthogonal:
 	default:
 		return GetTilePositionInLocalSpace(TileX + 0.5f, TileY + 0.5f, LayerIndex);
+
+	case ETileMapProjectionMode::IsometricDiamond:
+		return GetTilePositionInLocalSpace(TileX + 0.5f, TileY + 0.5f, LayerIndex);
+
 	case ETileMapProjectionMode::IsometricStaggered:
 		{
 			const float UnrealUnitsPerPixel = GetUnrealUnitsPerPixel();
@@ -428,7 +458,7 @@ FVector UPaperTileMap::GetTileCenterInLocalSpace(float TileX, float TileY, int32
 			const float TileHeightInUU = TileHeight * UnrealUnitsPerPixel;
 			const float HexSideLengthInUU = HexSideLength * UnrealUnitsPerPixel;
 
-			const FVector RecenterOffset = PaperAxisX*TileWidthInUU*0.5f - PaperAxisY*(HexSideLengthInUU + TileHeightInUU)*0.5f;
+			const FVector RecenterOffset = PaperAxisX*TileWidthInUU*0.5f - PaperAxisY*(TileHeightInUU)*0.5f;
 			return GetTilePositionInLocalSpace(TileX, TileY, LayerIndex) + RecenterOffset;
 		}
 	}
@@ -536,9 +566,15 @@ void UPaperTileMap::ResizeMap(int32 NewWidth, int32 NewHeight, bool bForceResize
 	}
 }
 
-void UPaperTileMap::InitializeNewEmptyTileMap()
+void UPaperTileMap::InitializeNewEmptyTileMap(UPaperTileSet* InitialTileSet)
 {
-	//@TODO: Consider removing this function / making it a 'prepare' method just like the sprite one on the importer settings
+	if (InitialTileSet != nullptr)
+	{
+		TileWidth = InitialTileSet->TileWidth;
+		TileHeight = InitialTileSet->TileHeight;
+		SelectedTileSet = InitialTileSet;
+	}
+
 	AddNewLayer();
 }
 

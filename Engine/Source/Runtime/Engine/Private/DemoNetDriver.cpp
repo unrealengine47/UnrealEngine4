@@ -1709,6 +1709,8 @@ void UDemoNetConnection::LowLevelSend( void* Data, int32 Count )
 	
 		*CheckpointArchive << Count;
 		CheckpointArchive->Serialize( Data, Count );
+
+		TrackSendForProfiler( Data, Count );
 		return;
 	}
 
@@ -1739,13 +1741,21 @@ void UDemoNetConnection::LowLevelSend( void* Data, int32 Count )
 		*FileAr << Count;
 		FileAr->Serialize( Data, Count );
 		
-		NETWORK_PROFILER(GNetworkProfiler.FlushOutgoingBunches(this));
-
+		TrackSendForProfiler( Data, Count );
+		
 #if DEMO_CHECKSUMS == 1
 		uint32 Checksum = FCrc::MemCrc32( Data, Count, 0 );
 		*FileAr << Checksum;
 #endif
 	}
+}
+
+void UDemoNetConnection::TrackSendForProfiler(const void* Data, int32 NumBytes)
+{
+	NETWORK_PROFILER(GNetworkProfiler.FlushOutgoingBunches(this));
+
+	// Track "socket send" even though we're not technically sending to a socket, to get more accurate information in the profiler.
+	NETWORK_PROFILER(GNetworkProfiler.TrackSocketSendToCore(TEXT("Unreal"), Data, NumBytes, NumPacketIdBits, NumBunchBits, NumAckBits, NumPaddingBits, 0));
 }
 
 FString UDemoNetConnection::LowLevelDescribe()

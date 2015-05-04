@@ -211,6 +211,25 @@ void UActorComponent::PostRename(UObject* OldOuter, const FName OldName)
 			{
 				Owner->AddOwnedComponent(this);
 			}
+
+			TArray<UObject*> Children;
+			GetObjectsWithOuter(this, Children);
+
+			for (UObject* Child : Children)
+			{
+				if (UActorComponent* ChildComponent = Cast<UActorComponent>(Child))
+				{
+					ChildComponent->Owner = Owner;
+					if (OldOwner)
+					{
+						OldOwner->RemoveOwnedComponent(ChildComponent);
+					}
+					if (Owner)
+					{
+						Owner->AddOwnedComponent(ChildComponent);
+					}
+				}
+			}
 		}
 	}
 
@@ -474,6 +493,25 @@ void UActorComponent::PostEditUndo()
 		if (Owner)
 		{
 			Owner->AddOwnedComponent(this);
+		}
+
+		TArray<UObject*> Children;
+		GetObjectsWithOuter(this, Children);
+
+		for (UObject* Child : Children)
+		{
+			if (UActorComponent* ChildComponent = Cast<UActorComponent>(Child))
+			{
+				if (ChildComponent->Owner)
+				{
+					ChildComponent->Owner->RemoveOwnedComponent(ChildComponent);
+				}
+				ChildComponent->Owner = Owner;
+				if (Owner)
+				{
+					Owner->AddOwnedComponent(ChildComponent);
+				}
+			}
 		}
 
 		if (GetWorld())
@@ -1389,6 +1427,12 @@ bool UActorComponent::IsNetSimulating() const
 
 void UActorComponent::GetLifetimeReplicatedProps( TArray< FLifetimeProperty > & OutLifetimeProps ) const
 {
+	UBlueprintGeneratedClass* BPClass = Cast<UBlueprintGeneratedClass>(GetClass());
+	if (BPClass != NULL)
+	{
+		BPClass->GetLifetimeBlueprintReplicationList(OutLifetimeProps);
+	}
+
 	DOREPLIFETIME( UActorComponent, bIsActive );
 	DOREPLIFETIME( UActorComponent, bReplicates );
 }

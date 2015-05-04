@@ -1,7 +1,7 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 #pragma once
 
-#include "Developer/MeshUtilities/Public/MeshUtilities.h"
+class FMeshMergingTool;
 
 /*-----------------------------------------------------------------------------
    SMeshMergingDialog
@@ -13,22 +13,16 @@ public:
 	{
 	}
 
-	// The parent window hosting this dialog
-	SLATE_ATTRIBUTE(TWeakPtr<SWindow>, ParentWindow)
-
 	SLATE_END_ARGS()
 
 public:
 	/** **/
 	SMeshMergingDialog();
-	virtual ~SMeshMergingDialog();
 
 	/** SWidget functions */
-	void Construct(const FArguments& InArgs);
+	void Construct(const FArguments& InArgs, FMeshMergingTool* InTool);
 
 private:
-	/** Called when the Cancel button is clicked */
-	FReply OnCancelClicked();
 
 	/** Called when the Merge button is clicked */
 	FReply OnMergeClicked();
@@ -78,43 +72,12 @@ private:
 
 	void SetMergedMaterialAtlasResolution(TSharedPtr<FString> NewSelection, ESelectInfo::Type SelectInfo);
 	
-	/** Called when actors selection is changed */
-	void OnActorSelectionChanged(const TArray<UObject*>& NewSelection, bool bForceRefresh=false);
-	
-	/** Generates destination package name using currently selected actors */
-	void GenerateNewPackageName();
-
-	/** Destination package name accessors */
-	FText GetMergedMeshPackageName() const;
-	void OnMergedMeshPackageNameTextCommited(const FText& InText, ETextCommit::Type InCommitType);
-	
-	/** Called when the select package name  button is clicked. Brings asset path picker dialog */
-	FReply OnSelectPackageNameClicked();
-
-	/** */
-	void RunMerging();
-
 private:
-	/** Pointer to the parent window */
-	TAttribute<TWeakPtr<SWindow>> ParentWindow;
 
-	/** Current mesh merging settings */
-	FMeshMergingSettings MergingSettings;
+	FMeshMergingTool* Tool;
 
-	/** Merged mesh destination package name */
-	FString MergedMeshPackageName;
-
-	/** Whether to spawn merged actor in the world */
-	bool bPlaceInWorld;
-
-	bool bExportSpecificLOD;
-	int32 ExportLODIndex;
 	TArray<TSharedPtr<FString>>	ExportLODOptions;
-
-	/**  */
 	TArray<TSharedPtr<FString>>	LightMapResolutionOptions;
 	TArray<TSharedPtr<FString>>	LightMapChannelOptions;
-	
-	/**  */
 	TArray<TSharedPtr<FString>>	MergedMaterialResolutionOptions;
 };

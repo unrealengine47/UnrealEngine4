@@ -3,24 +3,7 @@
 #include "Paper2DEditorPrivatePCH.h"
 #include "SpriteEditorCommands.h"
 
-#define LOCTEXT_NAMESPACE ""
-
-//////////////////////////////////////////////////////////////////////////
-// FSpriteGeometryEditCommands
-
-void FSpriteGeometryEditCommands::RegisterCommands()
-{
-	// Show toggles
-	UI_COMMAND(SetShowNormals, "Normals", "Toggles display of vertex normals in the Preview Pane.", EUserInterfaceActionType::ToggleButton, FInputChord());
-
-	// Geometry editing commands
-	UI_COMMAND(DeleteSelection, "Delete", "Delete the selection.", EUserInterfaceActionType::Button, FInputChord(EKeys::Platform_Delete, EModifierKey::None));
-	UI_COMMAND(SplitEdge, "Split", "Split edge.", EUserInterfaceActionType::Button, FInputChord(EKeys::Insert, EModifierKey::None));
-	UI_COMMAND(AddBoxShape, "Add Box", "Adds a new box shape.", EUserInterfaceActionType::Button, FInputChord());
-	UI_COMMAND(ToggleAddPolygonMode, "Add Polygon", "Adds a new polygon shape.", EUserInterfaceActionType::ToggleButton, FInputChord());
-	UI_COMMAND(AddCircleShape, "Add Circle", "Adds a new circle shape.", EUserInterfaceActionType::Button, FInputChord());
-	UI_COMMAND(SnapAllVertices, "Snap to pixel grid", "Snaps all vertices to the pixel grid.", EUserInterfaceActionType::Button, FInputChord());
-}
+#define LOCTEXT_NAMESPACE "SpriteEditor"
 
 //////////////////////////////////////////////////////////////////////////
 // FSpriteEditorCommands
@@ -37,6 +20,11 @@ void FSpriteEditorCommands::RegisterCommands()
 
 	UI_COMMAND(SetShowPivot, "Pivot", "Display the pivot location of the sprite.", EUserInterfaceActionType::ToggleButton, FInputChord());
 	UI_COMMAND(SetShowMeshEdges, "Mesh Edges", "Overlays the mesh edges on top of the view.", EUserInterfaceActionType::ToggleButton, FInputChord());
+
+	// Source region edit mode
+	UI_COMMAND(ExtractSprites, "Extract Sprites", "Triggers the Extract Sprites dialog on the source texture.", EUserInterfaceActionType::Button, FInputChord());
+	UI_COMMAND(ToggleShowRelatedSprites, "Other Sprites", "Toggles display of the source region bounds for other sprites that share the same source texture.", EUserInterfaceActionType::ToggleButton, FInputChord());
+	UI_COMMAND(ToggleShowSpriteNames, "Sprite Names", "Toggles display of the name of each sprite that shares the same source texture.", EUserInterfaceActionType::ToggleButton, FInputChord());
 
 	// Editing modes
 	UI_COMMAND(EnterViewMode, "View", "View the sprite.", EUserInterfaceActionType::ToggleButton, FInputChord());

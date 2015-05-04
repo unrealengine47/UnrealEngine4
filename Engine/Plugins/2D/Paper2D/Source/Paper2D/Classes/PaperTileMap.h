@@ -49,11 +49,6 @@ class PAPER2D_API UPaperTileMap : public UObject
 	UPROPERTY(Category=Setup, EditAnywhere, BlueprintReadOnly, meta=(UIMin=1, ClampMin=1))
 	int32 TileHeight;
 
-	// The vertical height of the sides of the hex cell for a tile.
-	// Note: This value should already be included as part of the TileHeight, and is purely cosmetic; it only affects how the tile cursor preview is drawn.
-	UPROPERTY(Category=Setup, EditAnywhere, meta=(UIMin=0, ClampMin=0))
-	int32 HexSideLength;
-
 	// The scaling factor between pixels and Unreal units (cm) (e.g., 0.64 would make a 64 pixel wide tile take up 100 cm)
 	UPROPERTY(Category = Setup, EditAnywhere)
 	float PixelsPerUnrealUnit;
@@ -96,6 +91,11 @@ public:
 	UPROPERTY(Category=Setup, EditAnywhere, BlueprintReadOnly)
 	TEnumAsByte<ETileMapProjectionMode::Type> ProjectionMode;
 
+	// The vertical height of the sides of the hex cell for a tile.
+	// Note: This value should already be included as part of the TileHeight, and is purely cosmetic; it only affects how the tile cursor preview is drawn.
+	UPROPERTY(Category=Setup, EditAnywhere, meta=(UIMin=0, ClampMin=0))
+	int32 HexSideLength;
+
 	// Baked physics data.
 	UPROPERTY()
 	class UBodySetup* BodySetup;
@@ -122,6 +122,7 @@ public:
 public:
 	// UObject interface
 #if WITH_EDITOR
+	virtual void PreEditChange(UProperty* PropertyAboutToChange) override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 	virtual bool CanEditChange(const UProperty* InProperty) const override;
 	virtual void PostLoad() override;
@@ -142,7 +143,7 @@ public:
 	FVector GetTileCenterInLocalSpace(float TileX, float TileY, int32 LayerIndex = 0) const;
 
 	// Returns the polygon for the specified tile (will be 4 or 6 vertices as a rectangle, diamond, or hexagon)
-	void GetTilePolygon(int32 TileX, int32 TileY, int32 LayerIndex, TArray<FVector>& LocalSpacePoints);
+	void GetTilePolygon(int32 TileX, int32 TileY, int32 LayerIndex, TArray<FVector>& LocalSpacePoints) const;
 
 	void GetTileToLocalParameters(FVector& OutCornerPosition, FVector& OutStepX, FVector& OutStepY, FVector& OutOffsetYFactor) const;
 	void GetLocalToTileParameters(FVector& OutCornerPosition, FVector& OutStepX, FVector& OutStepY, FVector& OutOffsetYFactor) const;
@@ -178,7 +179,7 @@ public:
 
 	// Called when a fresh tile map has been created (by factory or otherwise)
 	// Adds a default layer and pulls the PixelsPerUnrealUnit from the project settings
-	void InitializeNewEmptyTileMap();
+	void InitializeNewEmptyTileMap(UPaperTileSet* DefaultTileSetAsset = nullptr);
 
 	// Creates a clone of this tile map in the specified outer
 	UPaperTileMap* CloneTileMap(UObject* OuterForClone);

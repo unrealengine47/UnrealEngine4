@@ -52,8 +52,8 @@ namespace SpriteEditingConstants
 	const float BakedCollisionVertexSize = 3.0f;
 
 	const FLinearColor SourceRegionBoundsColor(1.0f, 1.0f, 1.0f, 0.8f);
-	// Alpha is being ignored in FBatchedElements::AddLine :(
-	const FLinearColor SourceRegionRelatedBoundsColor(0.3f, 0.3f, 0.3f, 0.2f);
+	const FLinearColor SourceRegionRelatedBoundsColor(0.3f, 0.3f, 0.3f, 0.8f);
+	const FLinearColor SourceRegionRelatedSpriteNameColor(0.6f, 0.6f, 0.6f, 0.8f);
 
 	const FLinearColor CollisionShapeColor(0.0f, 0.7f, 1.0f, 1.0f);
 	const FLinearColor RenderShapeColor(1.0f, 0.2f, 0.0f, 1.0f);
@@ -86,6 +86,7 @@ FSpriteEditorViewportClient::FSpriteEditorViewportClient(TWeakPtr<FSpriteEditor>
 	bShowSockets = true;
 	bShowPivot = true;
 	bShowRelatedSprites = true;
+	bShowNamesForSprites = true;
 
 	DrawHelper.bDrawGrid = GetDefault<USpriteEditorSettings>()->bShowGridByDefault;
 
@@ -218,25 +219,45 @@ FVector FSpriteEditorViewportClient::SourceTextureSpaceToWorldSpace(const FVecto
 	return Sprite->ConvertTextureSpaceToWorldSpace(SourcePoint);
 }
 
-void FSpriteEditorViewportClient::DrawRelatedSprites(FViewport& InViewport, FSceneView& View, FCanvas& Canvas, const FLinearColor& LineColor)
+void FSpriteEditorViewportClient::DrawRelatedSprites(FViewport& InViewport, FSceneView& View, FCanvas& Canvas, const FLinearColor& BoundsColor, const FLinearColor& NameColor)
 {
+	const FLinearColor ShadowColor = FLinearColor::Black;
+
 	for (int32 SpriteIndex = 0; SpriteIndex < RelatedSprites.Num(); ++SpriteIndex)
 	{
 		FRelatedSprite& RelatedSprite = RelatedSprites[SpriteIndex];
 		const FVector2D& SourceUV = RelatedSprite.SourceUV;
 		const FVector2D& SourceDimension = RelatedSprite.SourceDimension;
-		FVector2D BoundsVertices[4];
-		BoundsVertices[0] = SourceTextureSpaceToScreenSpace(View, SourceUV);
-		BoundsVertices[1] = SourceTextureSpaceToScreenSpace(View, SourceUV + FVector2D(SourceDimension.X, 0));
-		BoundsVertices[2] = SourceTextureSpaceToScreenSpace(View, SourceUV + FVector2D(SourceDimension.X, SourceDimension.Y));
-		BoundsVertices[3] = SourceTextureSpaceToScreenSpace(View, SourceUV + FVector2D(0, SourceDimension.Y));
-		for (int32 VertexIndex = 0; VertexIndex < 4; ++VertexIndex)
-		{
-			const int32 NextVertexIndex = (VertexIndex + 1) % 4;
 
-			FCanvasLineItem LineItem(BoundsVertices[VertexIndex], BoundsVertices[NextVertexIndex]);
-			LineItem.SetColor(LineColor);
-			Canvas.DrawItem(LineItem);
+		if (bShowNamesForSprites)
+		{
+			const FVector2D TextPos = SourceTextureSpaceToScreenSpace(View, SourceUV + SourceDimension*0.5f);
+
+			const FText AssetNameText = FText::AsCultureInvariant(RelatedSprite.AssetData.AssetName.ToString());
+			FCanvasTextItem TextItem(TextPos, AssetNameText, GEngine->GetSmallFont(), NameColor);
+			TextItem.EnableShadow(ShadowColor);
+			TextItem.bCentreX = true;
+			TextItem.bCentreY = true;
+
+			TextItem.Draw(&Canvas);
+		}
+
+		if (bShowRelatedSprites)
+		{
+			FVector2D BoundsVertices[4];
+			BoundsVertices[0] = SourceTextureSpaceToScreenSpace(View, SourceUV);
+			BoundsVertices[1] = SourceTextureSpaceToScreenSpace(View, SourceUV + FVector2D(SourceDimension.X, 0));
+			BoundsVertices[2] = SourceTextureSpaceToScreenSpace(View, SourceUV + FVector2D(SourceDimension.X, SourceDimension.Y));
+			BoundsVertices[3] = SourceTextureSpaceToScreenSpace(View, SourceUV + FVector2D(0, SourceDimension.Y));
+
+			for (int32 VertexIndex = 0; VertexIndex < 4; ++VertexIndex)
+			{
+				const int32 NextVertexIndex = (VertexIndex + 1) % 4;
+
+				FCanvasLineItem LineItem(BoundsVertices[VertexIndex], BoundsVertices[NextVertexIndex]);
+				LineItem.SetColor(BoundsColor);
+				Canvas.DrawItem(LineItem);
+			}
 		}
 	}
 }
@@ -259,6 +280,20 @@ void FSpriteEditorViewportClient::DrawSourceRegion(FViewport& InViewport, FScene
 	BoundsVertices[1] = SourceTextureSpaceToScreenSpace(View, Sprite->SourceUV + FVector2D(Sprite->SourceDimension.X, 0));
 	BoundsVertices[2] = SourceTextureSpaceToScreenSpace(View, Sprite->SourceUV + FVector2D(Sprite->SourceDimension.X, Sprite->SourceDimension.Y));
 	BoundsVertices[3] = SourceTextureSpaceToScreenSpace(View, Sprite->SourceUV + FVector2D(0, Sprite->SourceDimension.Y));
+
+	if (bShowNamesForSprites)
+	{
+		const FVector2D TextPos = SourceTextureSpaceToScreenSpace(View, Sprite->SourceUV + FVector2D(Sprite->SourceDimension.X*0.5f, Sprite->SourceDimension.Y*0.5f));
+
+		const FText AssetNameText = FText::AsCultureInvariant(Sprite->GetName());
+		FCanvasTextItem TextItem(TextPos, AssetNameText, GEngine->GetSmallFont(), FLinearColor::White);
+		TextItem.EnableShadow(FLinearColor::Black);
+		TextItem.bCentreX = true;
+		TextItem.bCentreY = true;
+
+		TextItem.Draw(&Canvas);
+	}
+
 	for (int32 VertexIndex = 0; VertexIndex < 4; ++VertexIndex)
 	{
 		const int32 NextVertexIndex = (VertexIndex + 1) % 4;
@@ -452,7 +487,7 @@ void FSpriteEditorViewportClient::DrawCanvas(FViewport& Viewport, FSceneView& Vi
 
 	int32 YPos = 42;
 
-	static const FText SourceRegionHelpStr = LOCTEXT("SourceRegionHelp", "Drag handles to adjust source region\nDouble-click on an image region to create a new sprite from all connected pixels\nHold down Ctrl and drag a rectangle to create a new sprite at that position\nClick on other sprite rectangles to change the active sprite");
+	static const FText SourceRegionHelpStr = LOCTEXT("SourceRegionHelp", "Drag handles to adjust source region\nDouble-click on an image region to select all connected pixels (Ctrl creates a new sprite)\nHold down Ctrl and drag a rectangle to create a new sprite at that position\nClick on other sprite rectangles to change the active sprite");
 
 	switch (CurrentMode)
 	{
@@ -523,7 +558,7 @@ void FSpriteEditorViewportClient::DrawCanvas(FViewport& Viewport, FSceneView& Vi
 
 			if (bShowRelatedSprites)
 			{
-				DrawRelatedSprites(Viewport, View, Canvas, SpriteEditingConstants::SourceRegionRelatedBoundsColor);
+				DrawRelatedSprites(Viewport, View, Canvas, SpriteEditingConstants::SourceRegionRelatedBoundsColor, SpriteEditingConstants::SourceRegionRelatedSpriteNameColor);
 			}
 
 			DrawSourceRegion(Viewport, View, Canvas, SpriteEditingConstants::SourceRegionBoundsColor);
@@ -622,6 +657,18 @@ void FSpriteEditorViewportClient::ToggleShowSourceTexture()
 	Invalidate();
 }
 
+void FSpriteEditorViewportClient::ToggleShowRelatedSprites()
+{
+	bShowRelatedSprites = !bShowRelatedSprites;
+	Invalidate();
+}
+
+void FSpriteEditorViewportClient::ToggleShowSpriteNames()
+{
+	bShowNamesForSprites = !bShowNamesForSprites;
+	Invalidate();
+}
+
 void FSpriteEditorViewportClient::ToggleShowMeshEdges()
 {
 	EngineShowFlags.MeshEdges = !EngineShowFlags.MeshEdges;
@@ -691,15 +738,17 @@ void FSpriteEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* HitP
 
 	if (IsInSourceRegionEditMode())
 	{
-		if (Event == EInputEvent::IE_DoubleClick)
+		if ((Event == EInputEvent::IE_DoubleClick) && (Key == EKeys::LeftMouseButton))
 		{
 			FVector4 WorldPoint = View.PixelToWorld(HitX, HitY, 0);
 			UPaperSprite* Sprite = GetSpriteBeingEdited();
 			FVector2D TexturePoint = SourceTextureViewComponent->GetSprite()->ConvertWorldSpaceToTextureSpace(WorldPoint);
 			if (bIsCtrlKeyDown)
 			{
-				UPaperSprite* NewSprite = CreateNewSprite(Sprite->GetSourceUV(), Sprite->GetSourceSize());
-				if (NewSprite != nullptr)
+				const FVector2D StartingUV = Sprite->GetSourceUV();
+				const FVector2D StartingSize = Sprite->GetSourceSize();
+
+				if (UPaperSprite* NewSprite = CreateNewSprite(FIntPoint((int32)StartingUV.X, (int32)StartingUV.Y), FIntPoint((int32)StartingSize.X, (int32)StartingSize.Y)))
 				{
 					NewSprite->ExtractSourceRegionFromTexturePoint(TexturePoint);
 					bHandled = true;
@@ -711,7 +760,7 @@ void FSpriteEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* HitP
 				bHandled = true;
 			}
 		}
-		else
+		else if ((Event == EInputEvent::IE_Released) && (Key == EKeys::LeftMouseButton))
 		{
 			FVector4 WorldPoint = View.PixelToWorld(HitX, HitY, 0);
 			FVector2D TexturePoint = SourceTextureViewComponent->GetSprite()->ConvertWorldSpaceToTextureSpace(WorldPoint);
@@ -746,7 +795,7 @@ void FSpriteEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* HitP
 
 // Create a new sprite and return this sprite. The sprite editor will now be editing this new sprite
 // Returns nullptr if failed
-UPaperSprite* FSpriteEditorViewportClient::CreateNewSprite(FVector2D TopLeft, FVector2D Dimensions)
+UPaperSprite* FSpriteEditorViewportClient::CreateNewSprite(const FIntPoint& TopLeft, const FIntPoint& Dimensions)
 {
 	FAssetToolsModule& AssetToolsModule = FModuleManager::Get().LoadModuleChecked<FAssetToolsModule>("AssetTools");
 	FContentBrowserModule& ContentBrowserModule = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
@@ -798,8 +847,8 @@ bool FSpriteEditorViewportClient::InputKey(FViewport* Viewport, int32 Controller
 		const bool bMarqueeStartModifier = InputState.IsCtrlButtonPressed();
 		if (GeometryEditMode->ProcessMarquee(Viewport, Key, Event, bMarqueeStartModifier))
 		{
-			FVector2D TextureSpaceStartPos;
-			FVector2D TextureSpaceDimensions;
+			FIntPoint TextureSpaceStartPos;
+			FIntPoint TextureSpaceDimensions;
 			if (ConvertMarqueeToSourceTextureSpace(/*out*/TextureSpaceStartPos, /*out*/TextureSpaceDimensions))
 			{
 				//@TODO: Warn if overlapping with another sprite
@@ -985,7 +1034,7 @@ void FSpriteEditorViewportClient::InternalActivateNewMode(ESpriteEditorMode::Typ
 	}
 }
 
-bool FSpriteEditorViewportClient::ConvertMarqueeToSourceTextureSpace(/*out*/FVector2D& OutStartPos, /*out*/FVector2D& OutDimension)
+bool FSpriteEditorViewportClient::ConvertMarqueeToSourceTextureSpace(/*out*/ FIntPoint& OutStartPos, /*out*/ FIntPoint& OutDimension)
 {
 	FSpriteGeometryEditMode* GeometryEditMode = ModeTools->GetActiveModeTyped<FSpriteGeometryEditMode>(FSpriteGeometryEditMode::EM_SpriteGeometry);
 	check(GeometryEditMode);
@@ -1019,15 +1068,19 @@ bool FSpriteEditorViewportClient::ConvertMarqueeToSourceTextureSpace(/*out*/FVec
 		const FIntPoint SourceTextureSize(SpriteSourceTexture->GetImportedSize());
 		const int32 SourceTextureWidth = SourceTextureSize.X;
 		const int32 SourceTextureHeight = SourceTextureSize.Y;
-		TextureSpaceStartPos.X = FMath::Clamp((int)TextureSpaceStartPos.X, 0, SourceTextureWidth - 1);
-		TextureSpaceStartPos.Y = FMath::Clamp((int)TextureSpaceStartPos.Y, 0, SourceTextureHeight - 1);
-		TextureSpaceEndPos.X = FMath::Clamp((int)TextureSpaceEndPos.X, 0, SourceTextureWidth - 1);
-		TextureSpaceEndPos.Y = FMath::Clamp((int)TextureSpaceEndPos.Y, 0, SourceTextureHeight - 1);
+		
+		FIntPoint TSStartPos;
+		TSStartPos.X = FMath::Clamp<int32>((int32)TextureSpaceStartPos.X, 0, SourceTextureWidth - 1);
+		TSStartPos.Y = FMath::Clamp<int32>((int32)TextureSpaceStartPos.Y, 0, SourceTextureHeight - 1);
 
-		const FVector2D TextureSpaceDimensions = TextureSpaceEndPos - TextureSpaceStartPos;
-		if (TextureSpaceDimensions.X > 0 || TextureSpaceDimensions.Y > 0)
+		FIntPoint TSEndPos;
+		TSEndPos.X = FMath::Clamp<int32>((int32)TextureSpaceEndPos.X, 0, SourceTextureWidth - 1);
+		TSEndPos.Y = FMath::Clamp<int32>((int32)TextureSpaceEndPos.Y, 0, SourceTextureHeight - 1);
+
+		const FIntPoint TextureSpaceDimensions = TSEndPos - TSStartPos;
+		if ((TextureSpaceDimensions.X > 0) || (TextureSpaceDimensions.Y > 0))
 		{
-			OutStartPos = TextureSpaceStartPos;
+			OutStartPos = TSStartPos;
 			OutDimension = TextureSpaceDimensions;
 			bSuccessful = true;
 		}

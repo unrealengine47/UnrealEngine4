@@ -9,6 +9,7 @@
 
 #include "SpriteEditorViewportClient.h"
 #include "SpriteEditorCommands.h"
+#include "PaperEditorShared/SpriteGeometryEditCommands.h"
 #include "SEditorViewport.h"
 #include "WorkspaceMenuStructureModule.h"
 #include "Paper2DEditorModule.h"
@@ -17,6 +18,8 @@
 
 #include "SSpriteList.h"
 #include "SDockTab.h"
+
+#include "ExtractSprites/SPaperExtractSpritesDialog.h"
 
 #define LOCTEXT_NAMESPACE "SpriteEditor"
 
@@ -80,6 +83,9 @@ public:
 	{
 		EditorViewportClient->ActivateEditMode();
 	}
+
+	void ShowExtractSpritesDialog();
+
 private:
 	// Pointer back to owning sprite editor instance (the keeper of state)
 	TWeakPtr<class FSpriteEditor> SpriteEditorPtr;
@@ -106,15 +112,36 @@ void SSpriteEditorViewport::BindCommands()
 	// Show toggles
 	CommandList->MapAction(
 		Commands.SetShowGrid,
-		FExecuteAction::CreateSP( EditorViewportClientRef, &FEditorViewportClient::SetShowGrid ),
+		FExecuteAction::CreateSP(EditorViewportClientRef, &FEditorViewportClient::SetShowGrid),
 		FCanExecuteAction(),
-		FIsActionChecked::CreateSP( EditorViewportClientRef, &FEditorViewportClient::IsSetShowGridChecked ) );
+		FIsActionChecked::CreateSP(EditorViewportClientRef, &FEditorViewportClient::IsSetShowGridChecked));
 
 	CommandList->MapAction(
 		Commands.SetShowSourceTexture,
-		FExecuteAction::CreateSP( EditorViewportClientRef, &FSpriteEditorViewportClient::ToggleShowSourceTexture ),
+		FExecuteAction::CreateSP(EditorViewportClientRef, &FSpriteEditorViewportClient::ToggleShowSourceTexture),
 		FCanExecuteAction::CreateSP(EditorViewportClientRef, &FSpriteEditorViewportClient::CanShowSourceTexture),
-		FIsActionChecked::CreateSP( EditorViewportClientRef, &FSpriteEditorViewportClient::IsShowSourceTextureChecked ) );
+		FIsActionChecked::CreateSP(EditorViewportClientRef, &FSpriteEditorViewportClient::IsShowSourceTextureChecked));
+
+	CommandList->MapAction(
+		Commands.ExtractSprites,
+		FExecuteAction::CreateSP(this, &SSpriteEditorViewport::ShowExtractSpritesDialog),
+		FCanExecuteAction(),
+		FIsActionChecked(),
+		FIsActionButtonVisible::CreateSP(EditorViewportClientRef, &FSpriteEditorViewportClient::IsInSourceRegionEditMode));
+
+	CommandList->MapAction(
+		Commands.ToggleShowRelatedSprites,
+		FExecuteAction::CreateSP(EditorViewportClientRef, &FSpriteEditorViewportClient::ToggleShowRelatedSprites),
+		FCanExecuteAction(),
+		FIsActionChecked::CreateSP(EditorViewportClientRef, &FSpriteEditorViewportClient::IsShowRelatedSpritesChecked),
+		FIsActionButtonVisible::CreateSP(EditorViewportClientRef, &FSpriteEditorViewportClient::IsInSourceRegionEditMode));
+
+	CommandList->MapAction(
+		Commands.ToggleShowSpriteNames,
+		FExecuteAction::CreateSP(EditorViewportClientRef, &FSpriteEditorViewportClient::ToggleShowSpriteNames),
+		FCanExecuteAction(),
+		FIsActionChecked::CreateSP(EditorViewportClientRef, &FSpriteEditorViewportClient::IsShowSpriteNamesChecked),
+		FIsActionButtonVisible::CreateSP(EditorViewportClientRef, &FSpriteEditorViewportClient::IsInSourceRegionEditMode));
 
 	CommandList->MapAction(
 		Commands.SetShowBounds,
@@ -206,6 +233,18 @@ void SSpriteEditorViewport::OnFloatingButtonClicked()
 {
 }
 
+void SSpriteEditorViewport::ShowExtractSpritesDialog()
+{
+	if (UPaperSprite* Sprite = SpriteEditorPtr.Pin()->GetSpriteBeingEdited())
+	{
+		if (UTexture2D* SourceTexture = Sprite->GetSourceTexture())
+		{
+			SPaperExtractSpritesDialog::ShowWindow(SourceTexture);
+		}
+	}
+}
+
+
 /////////////////////////////////////////////////////
 // SSpritePropertiesTabBody
 
@@ -293,13 +332,11 @@ TSharedRef<SDockTab> FSpriteEditor::SpawnTab_Details(const FSpawnTabArgs& Args)
 
 TSharedRef<SDockTab> FSpriteEditor::SpawnTab_SpriteList(const FSpawnTabArgs& Args)
 {
-	TSharedPtr<FSpriteEditor> SpriteEditorPtr = SharedThis(this);
-
 	// Spawn the tab
 	return SNew(SDockTab)
 		.Label(LOCTEXT("SpriteListTab_Title", "Sprite List"))
 		[
-			SNew(SSpriteList, SpriteEditorPtr)
+			SpriteListPtr.ToSharedRef()
 		];
 }
 
@@ -344,8 +381,10 @@ void FSpriteEditor::InitSpriteEditor(const EToolkitMode::Type Mode, const TShare
 
 	BindCommands();
 
-	ViewportPtr = SNew(SSpriteEditorViewport, SharedThis(this));
-	
+	TSharedPtr<FSpriteEditor> SpriteEditorPtr = SharedThis(this);
+	ViewportPtr = SNew(SSpriteEditorViewport, SpriteEditorPtr);
+	SpriteListPtr = SNew(SSpriteList, SpriteEditorPtr);
+
 	// Default layout
 	const TSharedRef<FTabManager::FLayout> StandaloneDefaultLayout = FTabManager::NewLayout("Standalone_SpriteEditor_Layout_v6")
 		->AddArea
@@ -479,24 +518,24 @@ void FSpriteEditor::ExtendToolbar()
 	{
 		static void FillToolbar(FToolBarBuilder& ToolbarBuilder)
 		{
-// 			ToolbarBuilder.BeginSection("Realtime");
-// 			{
-// 				ToolbarBuilder.AddToolBarButton(FEditorViewportCommands::Get().ToggleRealTime);
-// 			}
-// 			ToolbarBuilder.EndSection();
+			const FSpriteEditorCommands& SpriteCommands = FSpriteEditorCommands::Get();
+			const FSpriteGeometryEditCommands& GeometryCommands = FSpriteGeometryEditCommands::Get();
 
 			ToolbarBuilder.BeginSection("Command");
 			{
-				ToolbarBuilder.AddToolBarButton(FSpriteEditorCommands::Get().SetShowSourceTexture);
+				ToolbarBuilder.AddToolBarButton(SpriteCommands.SetShowSourceTexture);
+				ToolbarBuilder.AddToolBarButton(SpriteCommands.ToggleShowRelatedSprites);
+				ToolbarBuilder.AddToolBarButton(SpriteCommands.ToggleShowSpriteNames);
 			}
 			ToolbarBuilder.EndSection();
 
 			ToolbarBuilder.BeginSection("Tools");
 			{
-				ToolbarBuilder.AddToolBarButton(FSpriteGeometryEditCommands::Get().AddBoxShape);
-				ToolbarBuilder.AddToolBarButton(FSpriteGeometryEditCommands::Get().ToggleAddPolygonMode);
-				ToolbarBuilder.AddToolBarButton(FSpriteGeometryEditCommands::Get().AddCircleShape);
-				ToolbarBuilder.AddToolBarButton(FSpriteGeometryEditCommands::Get().SnapAllVertices);
+				ToolbarBuilder.AddToolBarButton(SpriteCommands.ExtractSprites);
+				ToolbarBuilder.AddToolBarButton(GeometryCommands.AddBoxShape);
+				ToolbarBuilder.AddToolBarButton(GeometryCommands.ToggleAddPolygonMode);
+				ToolbarBuilder.AddToolBarButton(GeometryCommands.AddCircleShape);
+				ToolbarBuilder.AddToolBarButton(GeometryCommands.SnapAllVertices);
 			}
 			ToolbarBuilder.EndSection();
 		}
@@ -536,6 +575,9 @@ void FSpriteEditor::SetSpriteBeingEdited(UPaperSprite* NewSprite)
 		// Let the editor know that are editing something different
 		RemoveEditingObject(OldSprite);
 		AddEditingObject(NewSprite);
+
+		// Update the asset picker to select the new active sprite
+		SpriteListPtr->SelectAsset(NewSprite);
 	}
 }
 

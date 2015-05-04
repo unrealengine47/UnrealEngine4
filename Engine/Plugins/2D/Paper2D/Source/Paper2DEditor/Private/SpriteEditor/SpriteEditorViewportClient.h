@@ -85,12 +85,18 @@ public:
 	bool IsShowSourceTextureChecked() const { return bShowSourceTexture; }
 	bool CanShowSourceTexture() const { return !IsInSourceRegionEditMode(); }
 
+	void ToggleShowRelatedSprites();
+	bool IsShowRelatedSpritesChecked() const { return bShowRelatedSprites; }
+
+	void ToggleShowSpriteNames();
+	bool IsShowSpriteNamesChecked() const { return bShowNamesForSprites; }
+
 	// Invalidate any references to the sprite being edited; it has changed
 	void NotifySpriteBeingEditedHasChanged();
 
 	void UpdateRelatedSpritesList();
 
-	UPaperSprite* CreateNewSprite(FVector2D TopLeft, FVector2D Dimensions);
+	UPaperSprite* CreateNewSprite(const FIntPoint& TopLeft, const FIntPoint& Dimensions);
 
 	ESpriteEditorMode::Type GetCurrentMode() const
 	{
@@ -147,6 +153,9 @@ private:
 	// Should we show related sprites in the source texture?
 	bool bShowRelatedSprites;
 
+	// Should we show names for sprites in the source region edit mode?
+	bool bShowNamesForSprites;
+
 	// Other sprites that share the same source texture
 	TArray<FRelatedSprite> RelatedSprites;
 
@@ -164,11 +173,11 @@ private:
 
 	void DrawRenderStats(FViewport& InViewport, FSceneView& View, FCanvas& Canvas, class UPaperSprite* Sprite, int32& YPos);
 	void DrawSourceRegion(FViewport& InViewport, FSceneView& View, FCanvas& Canvas, const FLinearColor& GeometryVertexColor);
-	void DrawRelatedSprites(FViewport& InViewport, FSceneView& View, FCanvas& Canvas, const FLinearColor& GeometryVertexColor);
+	void DrawRelatedSprites(FViewport& InViewport, FSceneView& View, FCanvas& Canvas, const FLinearColor& BoundsColor, const FLinearColor& NameColor);
 
 	void UpdateSourceTextureSpriteFromSprite(UPaperSprite* SourceSprite);
 	
-	bool ConvertMarqueeToSourceTextureSpace(/*out*/FVector2D& OutStartPos, /*out*/FVector2D& OutDimension);
+	bool ConvertMarqueeToSourceTextureSpace(/*out*/ FIntPoint& OutStartPos, /*out*/ FIntPoint& OutDimension);
 
 	// Activates a new mode, clearing selection set, etc...
 	void InternalActivateNewMode(ESpriteEditorMode::Type NewMode);
