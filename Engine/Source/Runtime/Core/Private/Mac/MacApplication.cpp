@@ -121,7 +121,10 @@ FMacApplication::~FMacApplication()
 
 	CGDisplayRemoveReconfigurationCallback(FMacApplication::OnDisplayReconfiguration, this);
 
-	TextInputMethodSystem->Terminate();
+	if (TextInputMethodSystem.IsValid())
+	{
+		TextInputMethodSystem->Terminate();
+	}
 
 	MacApplication = nullptr;
 }
@@ -169,25 +172,28 @@ void FMacApplication::PumpMessages(const float TimeDelta)
 
 void FMacApplication::ProcessDeferredEvents(const float TimeDelta)
 {
-	TArray<FDeferredMacEvent> EventsToProcess;
-
-	EventsMutex.Lock();
-	EventsToProcess.Append(DeferredEvents);
-	DeferredEvents.Empty();
-	EventsMutex.Unlock();
-
-	const bool bAlreadyProcessingDeferredEvents = bIsProcessingDeferredEvents;
-	bIsProcessingDeferredEvents = true;
-
-	for (int32 Index = 0; Index < EventsToProcess.Num(); ++Index)
+	if (!FPlatformMisc::bIsPumpingMessages)
 	{
-		ProcessEvent(EventsToProcess[Index]);
+		TArray<FDeferredMacEvent> EventsToProcess;
+
+		EventsMutex.Lock();
+		EventsToProcess.Append(DeferredEvents);
+		DeferredEvents.Empty();
+		EventsMutex.Unlock();
+
+		const bool bAlreadyProcessingDeferredEvents = bIsProcessingDeferredEvents;
+		bIsProcessingDeferredEvents = true;
+
+		for (int32 Index = 0; Index < EventsToProcess.Num(); ++Index)
+		{
+			ProcessEvent(EventsToProcess[Index]);
+		}
+
+		bIsProcessingDeferredEvents = bAlreadyProcessingDeferredEvents;
+
+		InvalidateTextLayouts();
+		CloseQueuedWindows();
 	}
-
-	bIsProcessingDeferredEvents = bAlreadyProcessingDeferredEvents;
-
-	InvalidateTextLayouts();
-	CloseQueuedWindows();
 }
 
 TSharedRef<FGenericWindow> FMacApplication::MakeWindow()
@@ -373,7 +379,9 @@ void FMacApplication::DeferEvent(NSObject* Object)
 				DeferredEvent.Window = FindWindowByNSWindow(WindowHandle);
 				if (DeferredEvent.Window.IsValid())
 				{
-					GameThreadCall(^{ OnWindowDidResize(DeferredEvent.Window.Pin().ToSharedRef()); }, @[ NSDefaultRunLoopMode, UE4ResizeEventMode, UE4ShowEventMode, UE4FullscreenEventMode ], true);
+					GameThreadCall(^{
+						TSharedPtr<FMacWindow> Window = FindWindowByNSWindow(WindowHandle); // We cannot use DeferredEvent.Window here because the block doesn't handle TSharedPtr correctly
+						OnWindowDidResize(Window.ToSharedRef()); }, @[ NSDefaultRunLoopMode, UE4ResizeEventMode, UE4ShowEventMode, UE4FullscreenEventMode ], true);
 				}
 				return;
 			}
@@ -571,10 +579,6 @@ void FMacApplication::ProcessEvent(const FDeferredMacEvent& Event)
 		{
 			OnWindowDidMove(EventWindow);
 		}
-		else if (Event.NotificationName == NSWindowWillCloseNotification)
-		{
-			OnWindowDidClose(EventWindow);
-		}
 		else if (Event.NotificationName == NSDraggingExited)
 		{
 			MessageHandler->OnDragLeave(EventWindow);
@@ -759,13 +763,14 @@ void FMacApplication::ProcessMouseDownEvent(const FDeferredMacEvent& Event)
 			if (IsMouseOverTitleBar)
 			{
 				const bool bShouldMinimize = [[NSUserDefaults standardUserDefaults] boolForKey:@"AppleMiniaturizeOnDoubleClick"];
+				FCocoaWindow* WindowHandle = EventWindow->GetWindowHandle();
 				if (bShouldMinimize)
 				{
-					MainThreadCall(^{ [EventWindow->GetWindowHandle() performMiniaturize:nil]; }, NSDefaultRunLoopMode, true);
+					MainThreadCall(^{ [WindowHandle performMiniaturize:nil]; }, NSDefaultRunLoopMode, true);
 				}
 				else if (!FPlatformMisc::IsRunningOnMavericks())
 				{
-					MainThreadCall(^{ [EventWindow->GetWindowHandle() zoom:nil]; }, NSDefaultRunLoopMode, true);
+					MainThreadCall(^{ [WindowHandle zoom:nil]; }, NSDefaultRunLoopMode, true);
 				}
 			}
 			else
@@ -890,7 +895,8 @@ void FMacApplication::ProcessKeyDownEvent(const FDeferredMacEvent& Event)
 		FCocoaMenu* MainMenu = [[NSApp mainMenu] isKindOfClass:[FCocoaMenu class]] ? (FCocoaMenu*)[NSApp mainMenu]: nil;
 		if (MainMenu)
 		{
-			MainThreadCall(^{ [MainMenu highlightKeyEquivalent:Event.Event]; }, NSDefaultRunLoopMode, true);
+			NSEvent* NativeEvent = Event.Event;
+			MainThreadCall(^{ [MainMenu highlightKeyEquivalent:NativeEvent]; }, NSDefaultRunLoopMode, true);
 		}
 	}
 	else
@@ -958,17 +964,6 @@ void FMacApplication::OnWindowDidResize(TSharedRef<FMacWindow> Window)
 	MessageHandler->OnResizingWindow(Window);
 	MessageHandler->OnSizeChanged(Window, Width, Height);
 	MessageHandler->OnResizingWindow(Window);
-}
-
-void FMacApplication::OnWindowDidClose(TSharedRef<FMacWindow> Window)
-{
-	SCOPED_AUTORELEASE_POOL;
-	if ([Window->GetWindowHandle() isKeyWindow])
-	{
-		MessageHandler->OnWindowActivationChanged(Window, EWindowActivation::Deactivate);
-	}
-	Windows.Remove(Window);
-	MessageHandler->OnWindowClose(Window);
 }
 
 bool FMacApplication::OnWindowDestroyed(TSharedRef<FMacWindow> Window)

@@ -29,9 +29,7 @@ void FTileSetEditorViewportClient::Draw(FViewport* Viewport, FCanvas* Canvas)
 		return;
 	}
 
-	UTexture2D* Texture = TileSet->TileSheet;
-
-	if (Texture != nullptr)
+	if (UTexture2D* Texture = TileSet->GetTileSheetTexture())
 	{
 		const bool bUseTranslucentBlend = Texture->HasAlphaChannel();
 
@@ -51,6 +49,23 @@ void FTileSetEditorViewportClient::Draw(FViewport* Viewport, FCanvas* Canvas)
 			Canvas->DrawTile(XPos, YPos, Width, Height, 0.0f, 0.0f, 1.0f, 1.0f, TextureDrawColor, Texture->Resource, bUseTranslucentBlend);
 		}
 
+
+		const FLinearColor BorderRectangleColor(0.3f, 0.3f, 0.3f, 1.0f);
+		{
+			const FIntPoint TextureSize = Texture->GetImportedSize();
+			const FIntMargin BorderSize = TileSet->GetMargin();
+			const FIntRect TileSetRegion(BorderSize.Left, BorderSize.Top, TextureSize.X - BorderSize.Right, TextureSize.Y - BorderSize.Bottom);
+
+			const float X = (TileSetRegion.Min.X - ZoomPos.X) * ZoomAmount;
+			const float Y = (TileSetRegion.Min.Y - ZoomPos.Y) * ZoomAmount;
+			const float W = TileSetRegion.Width() * ZoomAmount;
+			const float H = TileSetRegion.Height() * ZoomAmount;
+
+			FCanvasBoxItem BoxItem(FVector2D(X, Y), FVector2D(W, H));
+			BoxItem.SetColor(BorderRectangleColor);
+			Canvas->DrawItem(BoxItem);
+		}
+
 		if (bShowTilesWithCollision || bShowTilesWithMetaData)
 		{
 			// Draw an overlay rectangle on top of any tiles that have collision or metadata geometry
@@ -60,8 +75,9 @@ void FTileSetEditorViewportClient::Draw(FViewport* Viewport, FCanvas* Canvas)
 			const FLinearColor MetaDataOverlayColor(1.0f, 0.2f, 0.0f, 0.5f);
 			const FLinearColor InfoOverlayColor = bShowTilesWithCollision ? CollisionOverlayColor : MetaDataOverlayColor;
 
-			const float Width = (TileSet->TileWidth - 2) * ZoomAmount;
-			const float Height = (TileSet->TileHeight - 2) * ZoomAmount;
+			const FIntPoint TileSetTileSize(TileSet->GetTileSize());
+			const float Width = (TileSetTileSize.X - 2) * ZoomAmount;
+			const float Height = (TileSetTileSize.Y - 2) * ZoomAmount;
 
 			for (int32 TileIndex = 0; TileIndex < NumTiles; ++TileIndex)
 			{
@@ -119,7 +135,7 @@ FLinearColor FTileSetEditorViewportClient::GetBackgroundColor() const
 {
 	if (UPaperTileSet* TileSet = TileSetBeingEdited.Get())
 	{
-		return TileSet->BackgroundColor;
+		return TileSet->GetBackgroundColor();
 	}
 	else
 	{

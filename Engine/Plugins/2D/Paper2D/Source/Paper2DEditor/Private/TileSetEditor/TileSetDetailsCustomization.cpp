@@ -78,10 +78,13 @@ void FTileSetDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& Detail
 			// Customize for the single tile being edited
 			IDetailCategoryBuilder& SingleTileCategory = DetailLayout.EditCategory("SingleTileEditor", FText::GetEmpty());
 			
-			TSharedPtr<IPropertyHandle> OneTileEntry = PerTileArrayProperty->GetChildHandle(SelectedSingleTileIndex);
-			SingleTileCategory.AddProperty(OneTileEntry)
-				.ShouldAutoExpand(true);
-
+			uint32 NumChildren;
+			if ((PerTileArrayProperty->GetNumChildren(/*out*/ NumChildren) == FPropertyAccess::Success) && ((uint32)SelectedSingleTileIndex < NumChildren))
+			{
+				TSharedPtr<IPropertyHandle> OneTileEntry = PerTileArrayProperty->GetChildHandle(SelectedSingleTileIndex);
+				SingleTileCategory.AddProperty(OneTileEntry)
+					.ShouldAutoExpand(true);
+			}
 
 			// Add a display of the tile index being edited to the header
 			const FText TileIndexHeaderText = FText::Format(LOCTEXT("SingleTileSectionHeader", "Editing Tile #{0}"), FText::AsNumber(SelectedSingleTileIndex));
@@ -114,17 +117,17 @@ FText FTileSetDetailsCustomization::GetCellDimensionHeaderText() const
 		const int32 NumTilesX = TileSet->GetTileCountX();
 		const int32 NumTilesY = TileSet->GetTileCountY();
 
-		if (TileSet->TileSheet == nullptr)
+		if (TileSet->GetTileSheetTexture() == nullptr)
 		{
-			Result = LOCTEXT("NoTexture", "No TileSheet");
+			Result = LOCTEXT("NoTexture", "No Tile Sheet");
 		}
 		else if (NumTilesX == 0)
 		{
-			Result = LOCTEXT("TextureTooNarrow", "TileSheet too narrow");
+			Result = LOCTEXT("TextureTooNarrow", "Tile Sheet too narrow");
 		}
 		else if (NumTilesY == 0)
 		{
-			Result = LOCTEXT("TextureTooShort", "TileSheet too short");
+			Result = LOCTEXT("TextureTooShort", "Tile Sheet too short");
 		}
 		else
 		{

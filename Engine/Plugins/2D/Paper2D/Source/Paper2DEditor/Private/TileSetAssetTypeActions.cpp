@@ -6,6 +6,7 @@
 #include "AssetToolsModule.h"
 #include "ContentBrowserModule.h"
 #include "PaperTileMapFactory.h"
+#include "TileSetEditor/TileSetEditorSettings.h"
 #include "TileSetEditor/TileSheetPaddingFactory.h"
 
 #define LOCTEXT_NAMESPACE "AssetTypeActions"
@@ -109,16 +110,17 @@ void FTileSetAssetTypeActions::ExecutePadTileSetTexture(TWeakObjectPtr<UPaperTil
 {
 	FAssetToolsModule& AssetToolsModule = FModuleManager::GetModuleChecked<FAssetToolsModule>("AssetTools");
 	FContentBrowserModule& ContentBrowserModule = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
+	const UTileSetEditorSettings* TileSetEditorSettings = GetDefault<UTileSetEditorSettings>();
 
 	if (UPaperTileSet* TileSet = TileSetPtr.Get())
 	{
-		if (TileSet->TileSheet != nullptr)
+		if (UTexture2D* TileSheetTexture = TileSet->GetTileSheetTexture())
 		{
 			const FString TileSheetSuffix(TEXT("Padded"));
-			const FString TileSheetPathName = TileSet->TileSheet->GetOutermost()->GetPathName();
+			const FString TileSheetPathName = TileSheetTexture->GetOutermost()->GetPathName();
 			const FString LongPackagePath = FPackageName::GetLongPackagePath(TileSheetPathName);
 
-			const FString EffectiveTileSheetName = TileSet->TileSheet->GetName();
+			const FString EffectiveTileSheetName = TileSheetTexture->GetName();
 			const FString NewTileSheetDefaultPath = LongPackagePath / EffectiveTileSheetName;
 
 			// Make sure the name is unique
@@ -130,6 +132,9 @@ void FTileSetAssetTypeActions::ExecutePadTileSetTexture(TWeakObjectPtr<UPaperTil
 			// Create the new tile sheet
 			UTileSheetPaddingFactory* TileSheetPaddingFactory = NewObject<UTileSheetPaddingFactory>();
 			TileSheetPaddingFactory->SourceTileSet = TileSet;
+			TileSheetPaddingFactory->ExtrusionAmount = TileSetEditorSettings->ExtrusionAmount;
+			TileSheetPaddingFactory->bPadToPowerOf2 = TileSetEditorSettings->bPadToPowerOf2;
+			TileSheetPaddingFactory->bFillWithTransparentBlack = TileSetEditorSettings->bFillWithTransparentBlack;
 			ContentBrowserModule.Get().CreateNewAsset(AssetName, PackagePath, UTexture::StaticClass(), TileSheetPaddingFactory);
 		}
 	}

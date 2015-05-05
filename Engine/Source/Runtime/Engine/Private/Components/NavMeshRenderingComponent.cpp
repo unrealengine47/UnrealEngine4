@@ -41,14 +41,19 @@ bool UNavMeshRenderingComponent::IsNavigationShowFlagSet(const UWorld* World)
 	FWorldContext* WorldContext = GEngine->GetWorldContextFromWorld(World);
 
 #if WITH_EDITOR
-	if (GEditor && WorldContext && WorldContext->WorldType == EWorldType::Editor)
+	if (GEditor && WorldContext && WorldContext->WorldType != EWorldType::Game)
 	{
-		for (FEditorViewportClient* CurrentViewport : GEditor->AllViewportClients)
+		bShowNavigation = WorldContext->GameViewport != nullptr && WorldContext->GameViewport->EngineShowFlags.Navigation;
+		if (bShowNavigation == false)
 		{
-			if (CurrentViewport && CurrentViewport->EngineShowFlags.Navigation)
+			// we have to check all vieports because we can't to distinguish between SIE and PIE at this point.
+			for (FEditorViewportClient* CurrentViewport : GEditor->AllViewportClients)
 			{
-				bShowNavigation = true;
-				break;
+				if (CurrentViewport && CurrentViewport->IsVisible() && CurrentViewport->EngineShowFlags.Navigation)
+				{
+					bShowNavigation = true;
+					break;
+				}
 			}
 		}
 	}
