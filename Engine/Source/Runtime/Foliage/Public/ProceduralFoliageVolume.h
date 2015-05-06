@@ -16,6 +16,10 @@ class FOLIAGE_API AProceduralFoliageVolume: public AVolume
 	UProceduralFoliageComponent* ProceduralComponent;
 
 #if WITH_EDITOR
+
+	// UObject interface
+	virtual void PostEditImport() override;
+
 	virtual bool GetReferencedContentObjects(TArray<UObject*>& Objects) const override;
 #endif
 };

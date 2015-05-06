@@ -1541,6 +1541,7 @@ void UEditorEngine::PlayUsingLauncher()
 			bool bSaveContentPackages = true;
 			if (!FEditorFileUtils::SaveDirtyPackages(bPromptUserToSave, bSaveMapPackages, bSaveContentPackages))
 			{
+				CancelRequestPlaySession();
 				return;
 			}
 		}
@@ -1550,7 +1551,7 @@ void UEditorEngine::PlayUsingLauncher()
 
 			if (MapNames.Num() == 0)
 			{
-				GEditor->CancelRequestPlaySession();
+				CancelRequestPlaySession();
 				return;
 			}
 		}
@@ -2881,7 +2882,10 @@ UGameInstance* UEditorEngine::CreatePIEGameInstance(int32 PIEInstance, bool bInS
 				ViewportClient->Viewport->SetPlayInEditorViewport( ViewportClient->bIsPlayInEditorViewport );
 
 				// Ensure the window has a valid size before calling BeginPlay
-				SlatePlayInEditorSession.SlatePlayInEditorWindowViewport->ResizeFrame( PieWindow->GetSizeInScreen().X, PieWindow->GetSizeInScreen().Y, EWindowMode::Windowed, PieWindow->GetPositionInScreen().X, PieWindow->GetPositionInScreen().Y );
+				SlatePlayInEditorSession.SlatePlayInEditorWindowViewport->ResizeFrame( NewWindowWidth, NewWindowHeight, EWindowMode::Windowed, PieWindow->GetPositionInScreen().X, PieWindow->GetPositionInScreen().Y );
+
+				// Change the system resolution to match our window, to make sure game and slate window are kept syncronised
+				FSystemResolution::RequestResolutionChange(NewWindowWidth, NewWindowHeight, EWindowMode::Windowed);
 
 				if (bUseVRPreviewForPlayWorld && GEngine->HMDDevice.IsValid())
 				{

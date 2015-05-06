@@ -201,6 +201,7 @@ public class GUBP : BuildCommand
 			public List<string> ExcludeNodes = new List<string>();
 			public List<UnrealTargetPlatform> ExcludePlatformsForEditor = new List<UnrealTargetPlatform>();
             public List<UnrealTargetPlatform> RemovePlatformFromPromotable = new List<UnrealTargetPlatform>();
+            public List<string> PromotablesWithoutTools = new List<string>();
 			public bool bNoAutomatedTesting = false;
 			public bool bNoDocumentation = false;
 			public bool bNoInstalledEngine = false;
@@ -1169,11 +1170,14 @@ public class GUBP : BuildCommand
 				bool CrossCompile;
                 if (ProgramTarget.Rules.GUBP_AlwaysBuildWithTools(HostPlatform, out bInternalOnly, out SeparateNode, out CrossCompile) && ProgramTarget.Rules.SupportsPlatform(HostPlatform) && !bInternalOnly && !SeparateNode)
                 {
-                    foreach (var Plat in ProgramTarget.Rules.GUBP_ToolPlatforms(HostPlatform))
+                    if (!bp.BranchOptions.ExcludeNodes.Contains(ProgramTarget.TargetName))
                     {
-                        foreach (var Config in ProgramTarget.Rules.GUBP_ToolConfigs(HostPlatform))
+                        foreach (var Plat in ProgramTarget.Rules.GUBP_ToolPlatforms(HostPlatform))
                         {
-                            Agenda.AddTargets(new string[] { ProgramTarget.TargetName }, Plat, Config, InAddArgs: AddArgs);
+                            foreach (var Config in ProgramTarget.Rules.GUBP_ToolConfigs(HostPlatform))
+                            {
+                                Agenda.AddTargets(new string[] { ProgramTarget.TargetName }, Plat, Config, InAddArgs: AddArgs);
+                            }
                         }
                     }
                 }
@@ -2015,11 +2019,7 @@ public class GUBP : BuildCommand
 
         public AggregatePromotableNode(List<UnrealTargetPlatform> InHostPlatforms, string InPromotionLabelPrefix)
         {
-            HostPlatforms = InHostPlatforms;
-            foreach (var HostPlatform in HostPlatforms)
-            {
-                AddDependency(EditorAndToolsNode.StaticGetFullName(HostPlatform));
-            }
+            HostPlatforms = InHostPlatforms;            
             PromotionLabelPrefix = InPromotionLabelPrefix; 
         }
         public static string StaticGetFullName(string InPromotionLabelPrefix)
@@ -2147,7 +2147,12 @@ public class GUBP : BuildCommand
 			
             foreach (var HostPlatform in HostPlatforms)
             {
-                AddDependency(RootEditorNode.StaticGetFullName(HostPlatform));				
+                AddDependency(RootEditorNode.StaticGetFullName(HostPlatform));
+			    if(!bp.BranchOptions.PromotablesWithoutTools.Contains(GameProj.GameName))
+                {
+                    AddDependency(ToolsNode.StaticGetFullName(HostPlatform));
+                    AddDependency(InternalToolsNode.StaticGetFullName(HostPlatform));
+                }
                 if (InGameProj.GameName != bp.Branch.BaseEngineProject.GameName && GameProj.Properties.Targets.ContainsKey(TargetRules.TargetType.Editor))
                 {
                     AddDependency(EditorGameNode.StaticGetFullName(HostPlatform, GameProj));
@@ -2214,6 +2219,7 @@ public class GUBP : BuildCommand
         {
             foreach (var HostPlatform in HostPlatforms)
             {
+                AddDependency(EditorAndToolsNode.StaticGetFullName(HostPlatform));
                 {
                     var Options = bp.Branch.BaseEngineProject.Options(HostPlatform);
                     if (Options.bIsPromotable && !Options.bSeparateGamePromotion)

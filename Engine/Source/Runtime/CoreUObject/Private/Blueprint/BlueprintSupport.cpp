@@ -127,18 +127,49 @@ FScopedClassDependencyGather::~FScopedClassDependencyGather()
 	// dependencies (unless compiling on load is explicitly disabled)
 	if( bMasterClass && !GForceDisableBlueprintCompileOnLoad )
 	{
-		for( auto DependencyIter = BatchClassDependencies.CreateIterator(); DependencyIter; ++DependencyIter )
+		auto DependencyIter = BatchClassDependencies.CreateIterator();
+		// implemented as a lambda, to prevent duplicated code between 
+		// BatchMasterClass and BatchClassDependencies entries
+		auto RecompileClassLambda = [&DependencyIter](UClass* Class)
+		{
+			Class->ConditionalRecompileClass(&FUObjectThreadContext::Get().ObjLoaded);
+
+			// because of the above call to ConditionalRecompileClass(), the 
+			// specified Class gets "cleaned and sanitized" (meaning its old 
+			// properties get moved to a TRASH class, and new ones are 
+			// constructed in their place)... the unfortunate side-effect of 
+			// this is that child classes that have already been linked are now
+			// referencing TRASH inherited properties; to resolve this issue, 
+			// here we go back through dependencies that were already recompiled
+			// and re-link any that are sub-classes
+			//
+			// @TODO: this isn't the most optimal solution to this problem; we 
+			//        should probably instead prevent CleanAndSanitizeClass()
+			//        from running for BytecodeOnly compiles (we would then need 
+			//        to block UField re-creation)... UE-14957 was created to 
+			//        track this issue
+			auto ReverseIt = DependencyIter;
+			for (--ReverseIt; ReverseIt.GetIndex() >= 0; --ReverseIt)
+			{
+				UClass* ProcessedDependency = *ReverseIt;
+				if (ProcessedDependency->IsChildOf(Class))
+				{
+					ProcessedDependency->StaticLink(/*bRelinkExistingProperties =*/true);
+				}
+			}
+		};
+
+		for( ; DependencyIter; ++DependencyIter )
 		{
 			UClass* Dependency = *DependencyIter;
 			if( Dependency->ClassGeneratedBy != BatchMasterClass->ClassGeneratedBy )
 			{
-				Dependency->ConditionalRecompileClass(&FUObjectThreadContext::Get().ObjLoaded);
+				RecompileClassLambda(Dependency);
 			}
 		}
 
 		// Finally, recompile the master class to make sure it gets updated too
-		BatchMasterClass->ConditionalRecompileClass(&FUObjectThreadContext::Get().ObjLoaded);
-		
+		RecompileClassLambda(BatchMasterClass);
 		BatchMasterClass = NULL;
 	}
 }
@@ -904,14 +935,26 @@ int32 FLinkerLoad::ResolveDependencyPlaceholder(FLinkerPlaceholderBase* Placehol
 
 #if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 	UFunction* AsFunction = Cast<UFunction>(RealImportObj);
+	UClass* FunctionOwner = (AsFunction != nullptr) ? AsFunction->GetOwnerClass() : nullptr;
 	// it's ok if super functions come in not fully loaded (missing 
 	// RF_LoadCompleted... meaning it's in the middle of serializing in somewhere 
 	// up the stack); the function will be forcefully ran through Preload(), 
 	// when we regenerate the super class (see FRegenerationHelper::ForcedLoadMembers)
-	bool const bIsSuperFunction = (AsFunction != nullptr) && (ReferencingClass != nullptr) && ReferencingClass->IsChildOf(AsFunction->GetOwnerClass());
+	bool const bIsSuperFunction   = (AsFunction != nullptr) && (ReferencingClass != nullptr) && ReferencingClass->IsChildOf(FunctionOwner);
+	// it's also possible that the loaded version of this function has been 
+	// thrown out and replaced with a regenerated version (presumably from a
+	// blueprint compiling on load)... if that's the case, then this function 
+	// will not have a corresponding linker assigned to it
+	bool const bIsRegeneratedFunc = (AsFunction != nullptr) && (AsFunction->GetLinker() == nullptr);
+
+	bool const bExpectsLoadCompleteFlag = (RealImportObj != nullptr) && !bIsSuperFunction && !bIsRegeneratedFunc;
+	// if we can't rely on the Import object's RF_LoadCompleted flag, then its
+	// owner class should at least have it
+	DEFERRED_DEPENDENCY_CHECK( (RealImportObj == nullptr) || bExpectsLoadCompleteFlag ||
+		(FunctionOwner && FunctionOwner->HasAnyFlags(RF_LoadCompleted)) );
 
 	DEFERRED_DEPENDENCY_CHECK(RealImportObj != PlaceholderObj);
-	DEFERRED_DEPENDENCY_CHECK(RealImportObj == nullptr || bIsSuperFunction || RealImportObj->HasAnyFlags(RF_LoadCompleted));
+	DEFERRED_DEPENDENCY_CHECK(!bExpectsLoadCompleteFlag || RealImportObj->HasAnyFlags(RF_LoadCompleted));
 #endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 
 	int32 ReplacementCount = 0;

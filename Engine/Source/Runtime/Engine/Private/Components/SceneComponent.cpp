@@ -294,17 +294,17 @@ FTransform USceneComponent::CalcNewComponentToWorld(const FTransform& NewRelativ
 
 		if(bAbsoluteLocation)
 		{
-			NewCompToWorld.SetTranslation(NewRelativeTransform.GetTranslation());
+			NewCompToWorld.CopyTranslation(NewRelativeTransform);
 		}
 
 		if(bAbsoluteRotation)
 		{
-			NewCompToWorld.SetRotation(NewRelativeTransform.GetRotation());
+			NewCompToWorld.CopyRotation(NewRelativeTransform);
 		}
 
 		if(bAbsoluteScale)
 		{
-			NewCompToWorld.SetScale3D(NewRelativeTransform.GetScale3D());
+			NewCompToWorld.CopyScale3D(NewRelativeTransform);
 		}
 
 		return NewCompToWorld;
@@ -650,14 +650,16 @@ void USceneComponent::OnComponentDestroyed()
 	// Detach children before destroying
 	for (int32 Index = AttachChildren.Num()-1; Index >= 0; --Index)
 	{
-		USceneComponent* Child = AttachChildren[Index];
-		if (AttachParent)
+		if (USceneComponent* Child = AttachChildren[Index])
 		{
-			Child->AttachTo(AttachParent);
-		}
-		else
-		{
-			Child->DetachFromParent();
+			if (AttachParent)
+			{
+				Child->AttachTo(AttachParent);
+			}
+			else
+			{
+				Child->DetachFromParent();
+			}
 		}
 	}
 

@@ -301,6 +301,7 @@ FSLESSoundSource::FSLESSoundSource( class FAudioDevice* InAudioDevice )
 		bBuffersToFlush(false),
 		BufferSize(0),
 		BufferInUse(0),
+		VolumePreviousUpdate(-1.0f),
 		bHasLooped(false),
 		SL_PlayerObject(NULL),
 		SL_PlayerPlayInterface(NULL),
@@ -367,7 +368,8 @@ void FSLESSoundSource::Update( void )
 		Volume = FMath::Clamp(Volume, 0.0f, MAX_VOLUME);
 	}
 	
-	const float Pitch = FMath::Clamp<float>(WaveInstance->Pitch, MIN_PITCH, MAX_PITCH);
+	// Pitch is *not* currently supported on android... but this is commented out rather than deleted for reference
+	// const float Pitch = FMath::Clamp<float>(WaveInstance->Pitch, MIN_PITCH, MAX_PITCH);
 
 	// Set whether to apply reverb
 	SetReverbApplied(true);
@@ -395,14 +397,20 @@ void FSLESSoundSource::Update( void )
 	
 	// Set volume (Pitch changes are not supported on current Android platforms!)
 	// also Location & Velocity
-	
+
 	// Convert volume to millibels.
-	SLmillibel MaxMillibel = 0;
-	SLmillibel MinMillibel = -3000;
-	(*SL_VolumeInterface)->GetMaxVolumeLevel( SL_VolumeInterface, &MaxMillibel );
-	SLmillibel VolumeMillibel = (Volume * (MaxMillibel - MinMillibel)) + MinMillibel;
-	VolumeMillibel = FMath::Clamp(VolumeMillibel, MinMillibel, MaxMillibel);
-	
+	static const int64 MinVolumeMillibel = -12000;
+	SLmillibel VolumeMillibel = (SLmillibel)MinVolumeMillibel;
+
+	// Avoid doing the log calculation each update by only doing it if the volume changed
+	if (Volume > 0.0f && Volume != VolumePreviousUpdate)
+	{
+		SLmillibel MaxMillibel = 0;
+		(*SL_VolumeInterface)->GetMaxVolumeLevel(SL_VolumeInterface, &MaxMillibel);
+		VolumeMillibel = (SLmillibel)FMath::Clamp<int64>((int64)(2000.0f * log10f(Volume)), MinVolumeMillibel, (int64)MaxMillibel);
+		VolumePreviousUpdate = Volume;
+	}
+
 	SLresult result = (*SL_VolumeInterface)->SetVolumeLevel(SL_VolumeInterface, VolumeMillibel);
 	check(SL_RESULT_SUCCESS == result);
 
