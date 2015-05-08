@@ -2751,4 +2751,47 @@ inline T* GetMutableDefault(UClass *Class)
 	return (T*)Class->GetDefaultObject();
 }
 
-COREUOBJECT_API UScriptStruct* GetBaseStructure(const TCHAR* Name);
+template< class T > struct TBaseStructure
+{
+};
+
+template<> struct TBaseStructure<FRotator>
+{
+	COREUOBJECT_API static UScriptStruct* Get();
+};
+
+template<> struct TBaseStructure<FTransform>
+{
+	COREUOBJECT_API static UScriptStruct* Get();
+};
+
+template<> struct TBaseStructure<FLinearColor>
+{
+	COREUOBJECT_API static UScriptStruct* Get();
+};
+
+template<> struct TBaseStructure<FColor>
+{
+	COREUOBJECT_API static UScriptStruct* Get();
+};
+
+template<> struct  TBaseStructure<FVector>
+{
+	COREUOBJECT_API static UScriptStruct* Get();
+};
+
+template<> struct TBaseStructure<FVector2D>
+{
+	COREUOBJECT_API static UScriptStruct* Get();
+};
+
+template<> struct TBaseStructure<FRandomStream>
+{
+	COREUOBJECT_API static UScriptStruct* Get();
+};
+
+struct FFallbackStruct;
+template<> struct TBaseStructure<FFallbackStruct>
+{
+	COREUOBJECT_API static UScriptStruct* Get();
+};

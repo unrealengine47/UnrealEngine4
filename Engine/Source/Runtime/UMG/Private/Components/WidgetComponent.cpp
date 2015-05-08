@@ -734,11 +734,13 @@ void UWidgetComponent::InitWidget()
 			Widget = nullptr;
 		}
 
+#if WITH_EDITOR
 		if ( Widget && !GetWorld()->IsGameWorld() )
 		{
 			// Prevent native ticking of editor component previews
-			Widget->SetIsDesignTime(true);
+			Widget->SetDesignerFlags(EWidgetDesignFlags::Designing);
 		}
+#endif
 	}
 }
 
@@ -904,11 +906,15 @@ TArray<FWidgetAndPointer> UWidgetComponent::GetHitWidgetPath(const FHitResult& H
 	// Cache the location of the hit
 	LastLocalHitLocation = LocalHitLocation;
 
-	TArray<FWidgetAndPointer> ArrangedWidgets = HitTestGrid->GetBubblePath(LocalHitLocation, CursorRadius, bIgnoreEnabledStatus);
-
-	for( FWidgetAndPointer& ArrangedWidget : ArrangedWidgets )
+	TArray<FWidgetAndPointer> ArrangedWidgets;
+	if ( HitTestGrid.IsValid() )
 	{
-		ArrangedWidget.PointerPosition = VirtualMouseCoordinate;
+		ArrangedWidgets = HitTestGrid->GetBubblePath( LocalHitLocation, CursorRadius, bIgnoreEnabledStatus );
+
+		for( FWidgetAndPointer& ArrangedWidget : ArrangedWidgets )
+		{
+			ArrangedWidget.PointerPosition = VirtualMouseCoordinate;
+		}
 	}
 
 	return ArrangedWidgets;

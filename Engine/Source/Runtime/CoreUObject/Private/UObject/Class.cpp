@@ -1545,7 +1545,13 @@ bool UStruct::GetStringMetaDataHierarchical(const FName& Key, FString* OutValue)
 	 */
 	static void HandlePlaceholderScriptRef(ScriptPointerType& ScriptPtr)
 	{
+#ifdef REQUIRES_ALIGNED_INT_ACCESS
+		ScriptPointerType  Temp; 
+		FMemory::Memcpy(&Temp, &ScriptPtr, sizeof(ScriptPointerType));
+		UObject*& ExprPtrRef = (UObject*&)Temp;
+#else
 		UObject*& ExprPtrRef = (UObject*&)ScriptPtr;
+#endif 
 		if (ULinkerPlaceholderClass* PlaceholderObj = Cast<ULinkerPlaceholderClass>(ExprPtrRef))
 		{
 			PlaceholderObj->AddReferencingScriptExpr((UClass**)(&ExprPtrRef));
@@ -4193,11 +4199,60 @@ bool UFunction::IsSignatureCompatibleWith(const UFunction* OtherFunction, uint64
 	return !(IteratorB && (IteratorB->PropertyFlags & CPF_Parm));
 }
 
-UScriptStruct* GetBaseStructure(const TCHAR* Name)
+static UScriptStruct* StaticGetBaseStructureInternal(const TCHAR* Name)
 {
 	static auto* CoreUObjectPkg = FindObjectChecked<UPackage>(nullptr, TEXT("/Script/CoreUObject"));
 	return FindObjectChecked<UScriptStruct>(CoreUObjectPkg, Name);
 }
+
+UScriptStruct* TBaseStructure<FRotator>::Get()
+{
+	static auto ScriptStruct = StaticGetBaseStructureInternal(TEXT("Rotator"));
+	return ScriptStruct;
+}
+
+UScriptStruct* TBaseStructure<FTransform>::Get()
+{
+	static auto ScriptStruct = StaticGetBaseStructureInternal(TEXT("Transform"));
+	return ScriptStruct;
+}
+
+UScriptStruct* TBaseStructure<FLinearColor>::Get()
+{
+	static auto ScriptStruct = StaticGetBaseStructureInternal(TEXT("LinearColor"));
+	return ScriptStruct;
+}
+
+UScriptStruct* TBaseStructure<FColor>::Get()
+{
+	static auto ScriptStruct = StaticGetBaseStructureInternal(TEXT("Color"));
+	return ScriptStruct;
+}
+
+UScriptStruct* TBaseStructure<FVector>::Get()
+{
+	static auto ScriptStruct = StaticGetBaseStructureInternal(TEXT("Vector"));
+	return ScriptStruct;
+}
+
+UScriptStruct* TBaseStructure<FVector2D>::Get()
+{
+	static auto ScriptStruct = StaticGetBaseStructureInternal(TEXT("Vector2D"));
+	return ScriptStruct;
+}
+
+UScriptStruct* TBaseStructure<FRandomStream>::Get()
+{
+	static auto ScriptStruct = StaticGetBaseStructureInternal(TEXT("RandomStream"));
+	return ScriptStruct;
+}
+
+UScriptStruct* TBaseStructure<FFallbackStruct>::Get()
+{
+	static auto ScriptStruct = StaticGetBaseStructureInternal(TEXT("FallbackStruct"));
+	return ScriptStruct;
+}
+
 
 IMPLEMENT_CORE_INTRINSIC_CLASS(UFunction, UStruct,
 	{

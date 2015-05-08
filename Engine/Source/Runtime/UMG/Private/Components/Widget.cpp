@@ -100,7 +100,7 @@ UWidget::UWidget(const FObjectInitializer& ObjectInitializer)
 {
 	bIsEnabled = true;
 	bIsVariable = true;
-	bDesignTime = false;
+	DesignerFlags = EWidgetDesignFlags::None;
 	Visiblity_DEPRECATED = Visibility = ESlateVisibility::Visible;	
 	RenderTransformPivot = FVector2D(0.5f, 0.5f);
 
@@ -143,14 +143,20 @@ void UWidget::UpdateRenderTransform()
 	TSharedPtr<SWidget> SafeWidget = GetCachedWidget();
 	if (SafeWidget.IsValid())
 	{
-		if (!RenderTransform.IsIdentity())
+		if (RenderTransform.IsIdentity())
 		{
-			FSlateRenderTransform Transform2D = ::Concatenate(FScale2D(RenderTransform.Scale), FShear2D::FromShearAngles(RenderTransform.Shear), FQuat2D(FMath::DegreesToRadians(RenderTransform.Angle)), FVector2D(RenderTransform.Translation));
-			SafeWidget->SetRenderTransform(Transform2D);
+			SafeWidget->SetRenderTransform(TOptional<FSlateRenderTransform>());
 		}
 		else
 		{
-			SafeWidget->SetRenderTransform(TOptional<FSlateRenderTransform>());
+			FSlateRenderTransform Transform2D =
+				::Concatenate(
+				FScale2D(RenderTransform.Scale),
+				FShear2D::FromShearAngles(RenderTransform.Shear),
+				FQuat2D(FMath::DegreesToRadians(RenderTransform.Angle)),
+				FVector2D(RenderTransform.Translation));
+
+			SafeWidget->SetRenderTransform(Transform2D);
 		}
 	}
 }
@@ -274,17 +280,6 @@ bool UWidget::HasKeyboardFocus() const
 	return false;
 }
 
-bool UWidget::HasFocusedDescendants() const
-{
-	TSharedPtr<SWidget> SafeWidget = GetCachedWidget();
-	if (SafeWidget.IsValid())
-	{
-		return SafeWidget->HasFocusedDescendants();
-	}
-
-	return false;
-}
-
 bool UWidget::HasMouseCapture() const
 {
 	TSharedPtr<SWidget> SafeWidget = GetCachedWidget();
@@ -337,6 +332,41 @@ bool UWidget::HasAnyUserFocus() const
 	{
 		TOptional<EFocusCause> FocusCause = SafeWidget->HasAnyUserFocus();
 		return FocusCause.IsSet();
+	}
+
+	return false;
+}
+
+bool UWidget::HasFocusedDescendants() const
+{
+	TSharedPtr<SWidget> SafeWidget = GetCachedWidget();
+	if ( SafeWidget.IsValid() )
+	{
+		return SafeWidget->HasFocusedDescendants();
+	}
+
+	return false;
+}
+
+bool UWidget::HasUserFocusedDescendants(APlayerController* PlayerController) const
+{
+	if ( PlayerController == nullptr || !PlayerController->IsLocalPlayerController() )
+	{
+		return false;
+	}
+
+	TSharedPtr<SWidget> SafeWidget = GetCachedWidget();
+	if ( SafeWidget.IsValid() )
+	{
+		FLocalPlayerContext Context(PlayerController);
+
+		if ( ULocalPlayer* LocalPlayer = Context.GetLocalPlayer() )
+		{
+			// HACK: We use the controller Id as the local player index for focusing widgets in Slate.
+			int32 UserIndex = LocalPlayer->GetControllerId();
+
+			return SafeWidget->HasUserFocusedDescendants(UserIndex);
+		}
 	}
 
 	return false;
@@ -477,6 +507,7 @@ TSharedPtr<SWidget> UWidget::GetCachedWidget() const
 
 TSharedRef<SWidget> UWidget::BuildDesignTimeWidget(TSharedRef<SWidget> WrapWidget)
 {
+#if WITH_EDITOR
 	if (IsDesignTime())
 	{
 		return SNew(SOverlay)
@@ -493,7 +524,7 @@ TSharedRef<SWidget> UWidget::BuildDesignTimeWidget(TSharedRef<SWidget> WrapWidge
 		.VAlign(VAlign_Fill)
 		[
 			SNew(SBorder)
-			.Visibility( EVisibility::HitTestInvisible )
+			.Visibility(HasAnyDesignerFlags(EWidgetDesignFlags::ShowOutline) ? EVisibility::HitTestInvisible : EVisibility::Collapsed)
 			.BorderImage(FUMGStyle::Get().GetBrush("MarchingAnts"))
 		];
 	}
@@ -501,10 +532,18 @@ TSharedRef<SWidget> UWidget::BuildDesignTimeWidget(TSharedRef<SWidget> WrapWidge
 	{
 		return WrapWidget;
 	}
+#else
+	return WrapWidget;
+#endif
 }
 
 #if WITH_EDITOR
 #define LOCTEXT_NAMESPACE "UMGEditor"
+
+void UWidget::SetDesignerFlags(EWidgetDesignFlags::Type NewFlags)
+{
+	DesignerFlags = ( EWidgetDesignFlags::Type )( DesignerFlags | NewFlags );
+}
 
 bool UWidget::IsGeneratedName() const
 {
@@ -713,18 +752,6 @@ void UWidget::BuildNavigation()
 
 		Navigation->UpdateMetaData(MetaData.ToSharedRef());
 	}
-}
-
-#if WITH_EDITOR
-bool UWidget::IsDesignTime() const
-{
-	return bDesignTime;
-}
-#endif
-
-void UWidget::SetIsDesignTime(bool bInDesignTime)
-{
-	bDesignTime = bInDesignTime;
 }
 
 UWorld* UWidget::GetWorld() const

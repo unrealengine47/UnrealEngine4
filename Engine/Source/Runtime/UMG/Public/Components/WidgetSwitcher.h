@@ -35,15 +35,20 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Switcher")
 	void SetActiveWidget(UWidget* Widget);
 	
+	// UWidget interface
 	virtual void SynchronizeProperties() override;
-
 	virtual void ReleaseSlateResources(bool bReleaseChildren) override;
+	// End of UWidget interface
 
 #if WITH_EDITOR
 	virtual const FSlateBrush* GetEditorIcon() override;
 	virtual const FText GetPaletteCategory() override;
 	virtual void OnDescendantSelected(UWidget* DescendantWidget) override;
 	virtual void OnDescendantDeselected(UWidget* DescendantWidget) override;
+
+	// UObject interface
+	virtual void PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent) override;
+	// End of UObject interface
 #endif
 
 protected:

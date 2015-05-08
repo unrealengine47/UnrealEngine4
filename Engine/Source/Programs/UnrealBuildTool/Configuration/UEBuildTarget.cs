@@ -16,13 +16,14 @@ namespace UnrealBuildTool
 		Unknown,
 		Win32,
 		Win64,
+		WinRT,
+		WinRT_ARM,
+		WinUAP,
 		Mac,
 		XboxOne,
 		PS4,
 		IOS,
 		Android,
-		WinRT,
-		WinRT_ARM,
 		HTML5,
         Linux,
 		Desktop,
@@ -204,6 +205,7 @@ namespace UnrealBuildTool
 			{
 				case CPPTargetPlatform.Win32:			return UnrealTargetPlatform.Win32;
 				case CPPTargetPlatform.Win64:			return UnrealTargetPlatform.Win64;
+				case CPPTargetPlatform.WinUAP:          return UnrealTargetPlatform.WinUAP;
 				case CPPTargetPlatform.Mac:				return UnrealTargetPlatform.Mac;
 				case CPPTargetPlatform.XboxOne:			return UnrealTargetPlatform.XboxOne;
 				case CPPTargetPlatform.PS4:				return UnrealTargetPlatform.PS4;
@@ -1096,7 +1098,7 @@ namespace UnrealBuildTool
 				}
 
 				// Clean the intermediate directory
-				if( !String.IsNullOrEmpty( ProjectIntermediateDirectory ) )
+				if( !String.IsNullOrEmpty( ProjectIntermediateDirectory ) && (!UnrealBuildTool.IsEngineInstalled() || !Utils.IsFileUnderDirectory(ProjectIntermediateDirectory, BuildConfiguration.RelativeEnginePath)))
 				{
 					if (Directory.Exists(ProjectIntermediateDirectory))
 					{
@@ -1446,7 +1448,7 @@ namespace UnrealBuildTool
                 }
                 else
                 {
-                    IsCurrentPlatform = Platform == UnrealTargetPlatform.Win64 || Platform == UnrealTargetPlatform.Win32;
+                    IsCurrentPlatform = Platform == UnrealTargetPlatform.Win64 || Platform == UnrealTargetPlatform.Win32 || Platform == UnrealTargetPlatform.WinUAP;
 
                 }
 
@@ -1797,12 +1799,12 @@ namespace UnrealBuildTool
 				var FilteredBinaries = new List<UEBuildBinary>();
 
 				// Have to do absolute here as this could be a project that is under the root
-				string FullUProjectPath = Path.GetFullPath(UnrealBuildTool.GetUProjectPath());
+				string FullEnginePath = Path.GetFullPath(BuildConfiguration.RelativeEnginePath);
 
 				// We only want to build rocket projects...
 				foreach (var DLLBinary in AppBinaries)
 				{
-					if (Utils.IsFileUnderDirectory(DLLBinary.Config.OutputFilePath, FullUProjectPath))
+					if (!Utils.IsFileUnderDirectory(DLLBinary.Config.OutputFilePath, FullEnginePath))
 					{
 						FilteredBinaries.Add(DLLBinary);
 					}
@@ -2211,14 +2213,17 @@ namespace UnrealBuildTool
         public void AddPlugin(PluginInfo Plugin)
 		{
 			UEBuildBinaryType BinaryType = ShouldCompileMonolithic() ? UEBuildBinaryType.StaticLibrary : UEBuildBinaryType.DynamicLinkLibrary;
-			foreach(ModuleDescriptor Module in Plugin.Descriptor.Modules)
+			if(Plugin.Descriptor.Modules != null)
 			{
-				if (Module.IsCompiledInConfiguration(Platform, TargetType))
+				foreach(ModuleDescriptor Module in Plugin.Descriptor.Modules)
 				{
-					// Add the corresponding binary for it
-					string ModuleFileName = RulesCompiler.GetModuleFilename(Module.Name);
-					bool bHasSource = (!String.IsNullOrEmpty(ModuleFileName) && Directory.EnumerateFiles(Path.GetDirectoryName(ModuleFileName), "*.cpp", SearchOption.AllDirectories).Any());
-					AddBinaryForModule(Module.Name, BinaryType, bAllowCompilation: bHasSource, bIsCrossTarget: false);
+					if (Module.IsCompiledInConfiguration(Platform, TargetType))
+					{
+						// Add the corresponding binary for it
+						string ModuleFileName = RulesCompiler.GetModuleFilename(Module.Name);
+						bool bHasSource = (!String.IsNullOrEmpty(ModuleFileName) && Directory.EnumerateFiles(Path.GetDirectoryName(ModuleFileName), "*.cpp", SearchOption.AllDirectories).Any());
+						AddBinaryForModule(Module.Name, BinaryType, bAllowCompilation: bHasSource, bIsCrossTarget: false);
+					}
 				}
 			}
 		}
@@ -2407,7 +2412,7 @@ namespace UnrealBuildTool
 		/// <returns>Matching plugin, or null if not found</returns>
 		private PluginInfo FindPluginForModule(string ModuleName)
 		{
-			return ValidPlugins.FirstOrDefault(ValidPlugin => ValidPlugin.Descriptor.Modules.Any(Module => Module.Name == ModuleName));
+			return ValidPlugins.FirstOrDefault(ValidPlugin => ValidPlugin.Descriptor.Modules != null && ValidPlugin.Descriptor.Modules.Any(Module => Module.Name == ModuleName));
 		}
 
 		/**
@@ -3009,8 +3014,7 @@ namespace UnrealBuildTool
 					}
 
 					// So all we care about are the game module and/or plugins.
-					//@todo Rocket: This assumes plugins that have source will be under the game folder...
-					if (bDiscoverFiles && (!UnrealBuildTool.RunningRocket() || Utils.IsFileUnderDirectory(ModuleFileName, UnrealBuildTool.GetUProjectPath())))
+					if (bDiscoverFiles && (!UnrealBuildTool.IsEngineInstalled() || !Utils.IsFileUnderDirectory(ModuleFileName, BuildConfiguration.RelativeEnginePath)))
 					{
 						var SourceFilePaths = new List<string>();
 

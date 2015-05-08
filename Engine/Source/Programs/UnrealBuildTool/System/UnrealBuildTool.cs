@@ -198,22 +198,22 @@ namespace UnrealBuildTool
             return UnrealBuildToolPath;
         }
 
-        // @todo projectfiles: Move this into the ProjectPlatformGeneration class?
-        /// <summary>
-        /// IsDesktopPlatform
-        /// </summary>
-        /// <param name="InPlatform">The platform of interest</param>
-        /// <returns>True if the given platform is a 'desktop' platform</returns>
-        static public bool IsDesktopPlatform(UnrealTargetPlatform InPlatform)
-        {
-            // Windows and Mac are desktop platforms.
-            return (
-                (InPlatform == UnrealTargetPlatform.Win64) ||
-                (InPlatform == UnrealTargetPlatform.Win32) ||
-                (InPlatform == UnrealTargetPlatform.Linux) ||
-                (InPlatform == UnrealTargetPlatform.Mac)
-                );
-        }
+		// @todo projectfiles: Move this into the ProjectPlatformGeneration class?
+		/// <summary>
+		/// IsDesktopPlatform
+		/// </summary>
+		/// <param name="InPlatform">The platform of interest</param>
+		/// <returns>True if the given platform is a 'desktop' platform</returns>
+		static public bool IsDesktopPlatform(UnrealTargetPlatform InPlatform)
+		{
+			// Windows and Mac are desktop platforms.
+			return (
+				(InPlatform == UnrealTargetPlatform.Win64) ||
+				(InPlatform == UnrealTargetPlatform.Win32) ||
+				(InPlatform == UnrealTargetPlatform.Linux) ||
+				(InPlatform == UnrealTargetPlatform.Mac)
+				);
+		}
 
         // @todo projectfiles: Move this into the ProjectPlatformGeneration class?
         /// <summary>
@@ -249,21 +249,22 @@ namespace UnrealBuildTool
                 );
         }
 
-        // @todo projectfiles: Move this into the ProjectPlatformGeneration class?
-        /// <summary>
-        /// PlatformSupportsCrashReporter
-        /// </summary>
-        /// <param name="InPlatform">The platform of interest</param>
-        /// <returns>True if the given platform supports a crash reporter client (i.e. it can be built for it)</returns>
-        static public bool PlatformSupportsCrashReporter(UnrealTargetPlatform InPlatform)
-        {
-            return (
-                (InPlatform == UnrealTargetPlatform.Win64) ||
-                (InPlatform == UnrealTargetPlatform.Win32) ||
-                (InPlatform == UnrealTargetPlatform.Linux) ||
-                (InPlatform == UnrealTargetPlatform.Mac)
-                );
-        }
+		// @todo projectfiles: Move this into the ProjectPlatformGeneration class?
+		/// <summary>
+		/// PlatformSupportsCrashReporter
+		/// </summary>
+		/// <param name="InPlatform">The platform of interest</param>
+		/// <returns>True if the given platform supports a crash reporter client (i.e. it can be built for it)</returns>
+		static public bool PlatformSupportsCrashReporter(UnrealTargetPlatform InPlatform)
+		{
+			return (
+				(InPlatform == UnrealTargetPlatform.WinUAP) ||
+				(InPlatform == UnrealTargetPlatform.Win64) ||
+				(InPlatform == UnrealTargetPlatform.Win32) ||
+				(InPlatform == UnrealTargetPlatform.Linux) ||
+				(InPlatform == UnrealTargetPlatform.Mac)
+				);
+		}
 
         /// <summary>
         /// Gets all platforms that satisfies the predicate.
@@ -356,33 +357,33 @@ namespace UnrealBuildTool
             return true;
         }
 
-        /// <summary>
-        /// Is this a valid platform
-        /// Used primarily for Rocket vs non-Rocket
-        /// </summary>
-        /// <param name="InPlatform"></param>
-        /// <returns>true if valid, false if not</returns>
-        static public bool IsValidPlatform(UnrealTargetPlatform InPlatform)
-        {
-            if (RunningRocket())
-            {
-                if(Utils.IsRunningOnMono)
-                {
-                    if (InPlatform != UnrealTargetPlatform.Mac && InPlatform != UnrealTargetPlatform.IOS && InPlatform != UnrealTargetPlatform.Linux)
-                    {
-                        return false;
-                    }
-                }
-                else
-                {
-                    if(InPlatform != UnrealTargetPlatform.Win32 && InPlatform != UnrealTargetPlatform.Win64 && InPlatform != UnrealTargetPlatform.Android)
-                    {
-                        return false;
-                    }
-                }
-            }
-            return true;
-        }
+		/// <summary>
+		/// Is this a valid platform
+		/// Used primarily for Rocket vs non-Rocket
+		/// </summary>
+		/// <param name="InPlatform"></param>
+		/// <returns>true if valid, false if not</returns>
+		static public bool IsValidPlatform(UnrealTargetPlatform InPlatform)
+		{
+			if (RunningRocket())
+			{
+				if(Utils.IsRunningOnMono)
+				{
+					if (InPlatform != UnrealTargetPlatform.Mac && InPlatform != UnrealTargetPlatform.IOS && InPlatform != UnrealTargetPlatform.Linux)
+					{
+						return false;
+					}
+				}
+				else
+				{
+					if(InPlatform != UnrealTargetPlatform.Win32 && InPlatform != UnrealTargetPlatform.Win64 && InPlatform != UnrealTargetPlatform.Android)
+					{
+						return false;
+					}
+				}
+			}
+			return true;
+		}
 
 
         /// <summary>
@@ -679,6 +680,10 @@ namespace UnrealBuildTool
                 else if (LowercaseArg.StartsWith("-log="))
                 {
                     BuildConfiguration.LogFilename = LowercaseArg.Replace("-log=","");
+                }
+                else if (LowercaseArg.StartsWith("-logdetailedcompilertiminginfo="))
+                {
+                    WindowsPlatform.bLogDetailedCompilerTimingInfo = bool.Parse(LowercaseArg.Replace("-logdetailedcompilertiminginfo=",""));
                 }
                 else if (LowercaseArg == "-forceheadergeneration")
                 {
@@ -1506,7 +1511,7 @@ namespace UnrealBuildTool
 				}
 
 				UEBuildConfiguration.bHotReloadFromIDE = UEBuildConfiguration.bAllowHotReloadFromIDE && TargetDescs.Count == 1 && !TargetDescs[0].bIsEditorRecompile && ShouldDoHotReloadFromIDE(TargetDescs[0]);
-				bool bIsHotReload = UEBuildConfiguration.bHotReloadFromIDE || ( TargetDescs.Count == 1 && TargetDescs[0].OnlyModules.Count > 0 );
+				bool bIsHotReload = UEBuildConfiguration.bHotReloadFromIDE || ( TargetDescs.Count == 1 && TargetDescs[0].OnlyModules.Count > 0 && TargetDescs[0].ForeignPlugins.Count == 0 );
 				TargetDescriptor HotReloadTargetDesc = bIsHotReload ? TargetDescs[0] : null;
 
 				if (ProjectFileGenerator.bGenerateProjectFiles)
@@ -2474,7 +2479,6 @@ namespace UnrealBuildTool
 					{
 						// Remove "-####-Platform-Configuration" suffix in Debug configuration
 						var IndexOfSecondLastHyphen = OriginalFileNameWithoutExtension.LastIndexOf('-', IndexOfLastHyphen - 1, IndexOfLastHyphen);
-						var SuffixLenght = OriginalFileNameWithoutExtension.Length - IndexOfSecondLastHyphen;
 						var IndexOfThirdLastHyphen = OriginalFileNameWithoutExtension.LastIndexOf('-', IndexOfSecondLastHyphen - 1, IndexOfSecondLastHyphen);
 						OriginalFileNameWithoutNumberSuffix = OriginalFileNameWithoutExtension.Substring(0, IndexOfThirdLastHyphen);
 						PlatformConfigSuffix = OriginalFileNameWithoutExtension.Substring(IndexOfSecondLastHyphen);

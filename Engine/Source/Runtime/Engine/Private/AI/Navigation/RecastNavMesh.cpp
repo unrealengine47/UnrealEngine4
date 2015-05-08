@@ -16,11 +16,12 @@
 
 #if WITH_RECAST
 #include "DetourAlloc.h"
-#endif 
+#endif // WITH_RECAST
 
 #if WITH_EDITOR
 #include "UnrealEd.h"
 #endif
+
 #include "AI/Navigation/NavMeshRenderingComponent.h"
 
 #if WITH_RECAST
@@ -45,7 +46,7 @@ FNavMeshTileData::FNavData::~FNavData()
 	dtFree(RawNavData);
 #else
 	FMemory::Free(RawNavData);
-#endif
+#endif // WITH_RECAST
 }
 
 FNavMeshTileData::FNavMeshTileData(uint8* RawData, int32 RawDataSize, int32 LayerIdx, FBox LayerBounds)
@@ -90,7 +91,7 @@ void FNavMeshTileData::MakeUnique()
 		uint8* UniqueRawData = (uint8*)dtAlloc(sizeof(uint8)*DataSize, DT_ALLOC_PERM);
 #else
 		uint8* UniqueRawData = (uint8*)FMemory::Malloc(sizeof(uint8)*DataSize);
-#endif
+#endif //WITH_RECAST
 		FMemory::Memcpy(UniqueRawData, NavData->RawNavData, DataSize);
 		NavData = MakeShareable(new FNavData(UniqueRawData));
 	}
@@ -234,6 +235,7 @@ ARecastNavMesh::ARecastNavMesh(const FObjectInitializer& ObjectInitializer)
 	LayerChunkSplits = 2;
 	MaxSimultaneousTileGenerationJobsCount = 1024;
 	bDoFullyAsyncNavDataGathering = false;
+	TileNumberHardLimit = 1 << 20;
 
 #if RECAST_ASYNC_REBUILDING
 	BatchQueryCounter = 0;
@@ -480,6 +482,7 @@ void ARecastNavMesh::PostLoad()
 	Super::PostLoad();
 	// tilesize validation. This is temporary and should get removed by 4.9
 	TileSizeUU = FMath::Clamp(TileSizeUU, CellSize, ArbitraryMaxVoxelTileSize * CellSize);
+	UpdatePolyRefBitsPreview();
 }
 
 void ARecastNavMesh::PostInitProperties()
@@ -563,11 +566,21 @@ void ARecastNavMesh::PostInitProperties()
 			AgentMaxStepHeight = DefOb->AgentMaxStepHeight;
 		}
 	}
+
+	UpdatePolyRefBitsPreview();
 }
 
 FVector ARecastNavMesh::GetModifiedQueryExtent(const FVector& QueryExtent) const
 {
 	return FVector(QueryExtent.X, QueryExtent.Y, QueryExtent.Z + FMath::Max(0.0f, VerticalDeviationFromGroundCompensation));
+}
+
+void ARecastNavMesh::UpdatePolyRefBitsPreview()
+{
+	static const int32 TotalBits = (sizeof(dtPolyRef) * 8);
+
+	FRecastNavMeshGenerator::CalcPolyRefBits(this, PolyRefTileBits, PolyRefNavPolyBits);
+	PolyRefSaltBits = TotalBits - PolyRefTileBits - PolyRefNavPolyBits;
 }
 
 void ARecastNavMesh::OnNavAreaAdded(const UClass* NavAreaClass, int32 AgentIndex)
@@ -1291,6 +1304,26 @@ bool ARecastNavMesh::GetPolyFlags(NavNodeRef PolyID, uint16& PolyFlags, uint16& 
 	return bFound;
 }
 
+bool ARecastNavMesh::GetPolyFlags(NavNodeRef PolyID, FNavMeshNodeFlags& Flags) const
+{
+	bool bFound = false;
+	if (RecastNavMeshImpl)
+	{
+		uint16 PolyFlags = 0;
+
+		bFound = RecastNavMeshImpl->GetPolyData(PolyID, PolyFlags, Flags.Area);
+		if (bFound)
+		{
+			const UClass* AreaClass = GetAreaClass(Flags.Area);
+			const UNavArea* DefArea = AreaClass ? ((UClass*)AreaClass)->GetDefaultObject<UNavArea>() : NULL;
+			Flags.AreaFlags = DefArea ? DefArea->GetAreaFlags() : 0;
+			Flags.PathFlags = (PolyFlags & GetNavLinkFlag()) ? 4 : 0;
+		}
+	}
+
+	return bFound;
+}
+
 bool ARecastNavMesh::GetClosestPointOnPoly(NavNodeRef PolyID, const FVector& TestPt, FVector& PointOnPoly) const
 {
 	bool bFound = false;
@@ -1939,6 +1972,7 @@ void ARecastNavMesh::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 {
 	static const FName NAME_Generation = FName(TEXT("Generation"));
 	static const FName NAME_Display = FName(TEXT("Display"));
+	static const FName NAME_TileNumberHardLimit = GET_MEMBER_NAME_CHECKED(ARecastNavMesh, TileNumberHardLimit);
 
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
@@ -1964,6 +1998,11 @@ void ARecastNavMesh::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 
 				// update config
 				FillConfig(NavDataConfig);
+			}
+			else if (PropName == NAME_TileNumberHardLimit)
+			{
+				TileNumberHardLimit = 1 << (FMath::CeilToInt(FMath::Log2(TileNumberHardLimit)));
+				UpdatePolyRefBitsPreview();
 			}
 
 			if (HasAnyFlags(RF_ClassDefaultObject) == false)
@@ -2050,7 +2089,6 @@ void ARecastNavMesh::UpdateNavObject()
 {
 	OnNavMeshUpdate.Broadcast();
 }
-
 #endif	//WITH_RECAST
 
 bool ARecastNavMesh::HasValidNavmesh() const
@@ -2188,12 +2226,11 @@ void ARecastNavMesh::RebuildTile(const TArray<FIntPoint>& Tiles)
 		}
 	}
 }
-#endif
 
 //----------------------------------------------------------------------//
 // FRecastNavMeshCachedData
 //----------------------------------------------------------------------//
-#if WITH_RECAST
+
 FRecastNavMeshCachedData FRecastNavMeshCachedData::Construct(const ARecastNavMesh* RecastNavMeshActor)
 {
 	check(RecastNavMeshActor);

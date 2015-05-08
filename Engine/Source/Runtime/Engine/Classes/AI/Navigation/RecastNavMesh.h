@@ -17,9 +17,10 @@
 #define NAVMESHVER_64BIT				9
 #define NAVMESHVER_CLUSTER_SIMPLIFIED	10
 #define NAVMESHVER_OFFMESH_HEIGHT_BUG	11
+#define NAVMESHVER_LANDSCAPE_HEIGHT		13
 
-#define NAVMESHVER_LATEST				NAVMESHVER_OFFMESH_HEIGHT_BUG
-#define NAVMESHVER_MIN_COMPATIBLE		NAVMESHVER_CLUSTER_SIMPLIFIED
+#define NAVMESHVER_LATEST				NAVMESHVER_LANDSCAPE_HEIGHT
+#define NAVMESHVER_MIN_COMPATIBLE		NAVMESHVER_LANDSCAPE_HEIGHT
 
 #define RECAST_MAX_SEARCH_NODES		2048
 
@@ -74,8 +75,10 @@ struct ENGINE_API FNavMeshNodeFlags
 	/** Area flags for this node */
 	uint16 AreaFlags;
 
+	FNavMeshNodeFlags() : PathFlags(0), Area(0), AreaFlags(0) {}
 	FNavMeshNodeFlags(uint32 Flags) : PathFlags(Flags), Area(Flags >> 8), AreaFlags(Flags >> 16) {}
 	uint32 Pack() const { return PathFlags | ((uint32)Area << 8) | ((uint32)AreaFlags << 16); }
+	bool IsNavLink() const { return (PathFlags & 4) != 0;  }
 };
 
 struct ENGINE_API FNavMeshPath : public FNavigationPath
@@ -108,6 +111,9 @@ struct ENGINE_API FNavMeshPath : public FNavigationPath
 	void ApplyFlags(int32 NavDataFlags);
 
 	void Reset();
+
+	/** get flags of path point or corridor poly (depends on bStringPulled flag) */
+	bool GetNodeFlags(int32 NodeIdx, FNavMeshNodeFlags& Flags) const;
 
 	/** get cost of path, starting from next poly in corridor */
 	virtual float GetCostFromNode(NavNodeRef PathNode) const override { return GetCostFromIndex(PathCorridor.Find(PathNode) + 1); }
@@ -532,7 +538,23 @@ class ENGINE_API ARecastNavMesh : public ANavigationData
 
 	UPROPERTY(EditAnywhere, Category = Generation, config, meta = (ClampMin = "0", UIMin = "0"), AdvancedDisplay)
 	int32 MaxSimultaneousTileGenerationJobsCount;
-	
+
+	/** Absolute hard limit to number of navmesh tiles. Be very, very careful while modifying it while
+	 *	having big maps with navmesh. A single, empty tile takes 176 bytes and empty tiles are
+	 *	allocated up front (subject to change, but that's where it's at now)
+	 *	@note TileNumberHardLimit is always rounded up to the closest power of 2 */
+	UPROPERTY(EditAnywhere, Category = Generation, config, meta = (ClampMin = "1", UIMin = "1"), AdvancedDisplay)
+	int32 TileNumberHardLimit;
+
+	UPROPERTY(VisibleAnywhere, Category = "Generation|Poly Ref Bits", AdvancedDisplay)
+	int32 PolyRefTileBits;
+
+	UPROPERTY(VisibleAnywhere, Category = Generation, AdvancedDisplay)
+	int32 PolyRefNavPolyBits;
+
+	UPROPERTY(VisibleAnywhere, Category = Generation, AdvancedDisplay)
+	int32 PolyRefSaltBits;
+
 	/** navmesh draw distance in game (always visible in editor) */
 	UPROPERTY(config)
 	float DefaultDrawDistance;
@@ -854,6 +876,7 @@ public:
 
 	/** Retrieves poly and area flags for specified polygon */
 	bool GetPolyFlags(NavNodeRef PolyID, uint16& PolyFlags, uint16& AreaFlags) const;
+	bool GetPolyFlags(NavNodeRef PolyID, FNavMeshNodeFlags& Flags) const;
 
 	/** Finds closest point constrained to given poly */
 	bool GetClosestPointOnPoly(NavNodeRef PolyID, const FVector& TestPt, FVector& PointOnPoly) const;
@@ -924,12 +947,15 @@ public:
 	virtual bool SupportsStreaming() const override;
 	virtual void ConditionalConstructGenerator() override;
 	bool ShouldGatherDataOnGameThread() const { return bDoFullyAsyncNavDataGathering == false; }
+	int32 GetTileNumberHardLimit() const { return TileNumberHardLimit; }
 
 	void UpdateActiveTiles(const TArray<FNavigationInvokerRaw>& InvokerLocations);
 	void RemoveTiles(const TArray<FIntPoint>& Tiles);
 	void RebuildTile(const TArray<FIntPoint>& Tiles);
 
 protected:
+
+	void UpdatePolyRefBitsPreview();
 
 	/** Returns query extent including adjustments for voxelization error compensation */
 	FVector GetModifiedQueryExtent(const FVector& QueryExtent) const;

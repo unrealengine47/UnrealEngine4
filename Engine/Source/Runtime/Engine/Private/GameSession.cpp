@@ -95,7 +95,7 @@ void AGameSession::HandleMatchHasEnded()
 			}
 		}
 
-		SessionInt->AddOnEndSessionCompleteDelegate_Handle(FOnEndSessionCompleteDelegate::CreateUObject(this, &AGameSession::OnEndSessionComplete));
+		EndSessionCompleteHandle = SessionInt->AddOnEndSessionCompleteDelegate_Handle(FOnEndSessionCompleteDelegate::CreateUObject(this, &AGameSession::OnEndSessionComplete));
 		SessionInt->EndSession(SessionName);
 	}
 }
@@ -215,7 +215,7 @@ int32 AGameSession::GetNextPlayerID()
  * @param UniqueId uniqueId they sent over on Login
  * @param bWasFromInvite was this from an invite
  */
-void AGameSession::RegisterPlayer(APlayerController* NewPlayer, const TSharedPtr<FUniqueNetId>& UniqueId, bool bWasFromInvite)
+void AGameSession::RegisterPlayer(APlayerController* NewPlayer, const TSharedPtr<const FUniqueNetId>& UniqueId, bool bWasFromInvite)
 {
 	if (NewPlayer != NULL)
 	{

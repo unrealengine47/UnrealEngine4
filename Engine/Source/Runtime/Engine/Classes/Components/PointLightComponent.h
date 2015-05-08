@@ -67,6 +67,9 @@ class ENGINE_API UPointLightComponent : public ULightComponent
 	UFUNCTION(BlueprintCallable, Category="Rendering|Lighting")
 	void SetSourceRadius(float bNewValue);
 
+	UFUNCTION(BlueprintCallable, Category="Rendering|Lighting")
+	void SetSourceLength(float NewValue);
+
 protected:
 	// Begin UActorComponent Interface
 	virtual void SendRenderTransform_Concurrent() override;

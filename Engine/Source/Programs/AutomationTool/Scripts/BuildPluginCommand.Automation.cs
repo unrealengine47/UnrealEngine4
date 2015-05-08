@@ -9,9 +9,10 @@ using AutomationTool;
 using UnrealBuildTool;
 
 [Help("Builds a plugin, and packages it for distribution")]
-[Help("Plugin", "Specify the path to the plugin that should be packaged")]
-[Help("NoEditor", "Prevent compiling for the editor platform")]
+[Help("Plugin", "Specify the path to the descriptor file for the plugin that should be packaged")]
+[Help("NoHostPlatform", "Prevent compiling for the editor platform on the host")]
 [Help("TargetPlatforms", "Specify a list of target platforms to build, separated by '+' characters (eg. -TargetPlatforms=Win32+Win64). Default is all the Rocket target platforms.")]
+[Help("Package", "The path which the build artifacts should be packaged to, ready for distribution.")]
 class BuildPlugin : BuildCommand
 {
 	public override void ExecuteBuild()
@@ -22,7 +23,7 @@ class BuildPlugin : BuildCommand
 		{
 			throw new AutomationException("Plugin file name was not specified via the -plugin argument");
 		}
-			
+
 		// Read the plugin
 		PluginDescriptor Plugin = PluginDescriptor.FromFile(PluginFileName);
 
@@ -33,13 +34,20 @@ class BuildPlugin : BuildCommand
 			CommandUtils.DeleteDirectory(IntermediateBuildDirectory);
 		}
 
+		// Get any additional arguments from the commandline
+		string AdditionalArgs = "";
+		if(ParseParam("Rocket"))
+		{
+			AdditionalArgs += " -Rocket";
+		}
+
 		// Build the host platforms
 		List<string> ReceiptFileNames = new List<string>();
 		UE4Build.BuildAgenda Agenda = new UE4Build.BuildAgenda();
 		UnrealTargetPlatform HostPlatform = BuildHostPlatform.Current.Platform;
 		if(!ParseParam("NoHostPlatform"))
 		{
-			AddPluginToAgenda(Agenda, PluginFileName, Plugin, "UE4Editor", TargetRules.TargetType.Editor, HostPlatform, UnrealTargetConfiguration.Development, ReceiptFileNames);
+			AddPluginToAgenda(Agenda, PluginFileName, Plugin, "UE4Editor", TargetRules.TargetType.Editor, HostPlatform, UnrealTargetConfiguration.Development, ReceiptFileNames, AdditionalArgs);
 		}
 
 		// Add the game targets
@@ -48,8 +56,8 @@ class BuildPlugin : BuildCommand
 		{
 			if(Rocket.RocketBuild.IsCodeTargetPlatform(HostPlatform, TargetPlatform))
 			{
-				AddPluginToAgenda(Agenda, PluginFileName, Plugin, "UE4Game", TargetRules.TargetType.Game, TargetPlatform, UnrealTargetConfiguration.Development, ReceiptFileNames);
-				AddPluginToAgenda(Agenda, PluginFileName, Plugin, "UE4Game", TargetRules.TargetType.Game, TargetPlatform, UnrealTargetConfiguration.Shipping, ReceiptFileNames);
+				AddPluginToAgenda(Agenda, PluginFileName, Plugin, "UE4Game", TargetRules.TargetType.Game, TargetPlatform, UnrealTargetConfiguration.Development, ReceiptFileNames, AdditionalArgs);
+				AddPluginToAgenda(Agenda, PluginFileName, Plugin, "UE4Game", TargetRules.TargetType.Game, TargetPlatform, UnrealTargetConfiguration.Shipping, ReceiptFileNames, AdditionalArgs);
 			}
 		}
 
@@ -66,29 +74,7 @@ class BuildPlugin : BuildCommand
 		}
 	}
 
-	List<UnrealTargetPlatform> ParseParamPlatforms(string ParamName)
-	{
-		// Parse the raw parameter
-		string ParamValue = ParseParamValue(ParamName, null);
-
-		// Convert it to a list of target platform enums
-		List<UnrealTargetPlatform> Platforms = new List<UnrealTargetPlatform>();
-		if(ParamValue != null)
-		{
-			foreach(string PlatformName in ParamValue.Split(new char[]{ '+' }, StringSplitOptions.RemoveEmptyEntries))
-			{
-				UnrealTargetPlatform Platform;
-				if(!Enum.TryParse<UnrealTargetPlatform>(PlatformName, true, out Platform))
-				{
-					throw new AutomationException("'{0}' is not a valid platform name; valid platforms are: {1}.", PlatformName, String.Join(", ", Enum.GetNames(typeof(UnrealTargetPlatform))));
-				}
-				Platforms.Add(Platform);
-			}
-		}
-		return Platforms;
-	}
-
-	static void AddPluginToAgenda(UE4Build.BuildAgenda Agenda, string PluginFileName, PluginDescriptor Plugin, string TargetName, TargetRules.TargetType TargetType, UnrealTargetPlatform Platform, UnrealTargetConfiguration Configuration, List<string> ReceiptFileNames)
+	static void AddPluginToAgenda(UE4Build.BuildAgenda Agenda, string PluginFileName, PluginDescriptor Plugin, string TargetName, TargetRules.TargetType TargetType, UnrealTargetPlatform Platform, UnrealTargetConfiguration Configuration, List<string> ReceiptFileNames, string InAdditionalArgs)
 	{
 		// Find a list of modules that need to be built for this plugin
 		List<string> ModuleNames = new List<string>();
@@ -112,6 +98,11 @@ class BuildPlugin : BuildCommand
 			string ReceiptFileName = BuildReceipt.GetDefaultPath(Path.GetDirectoryName(PluginFileName), TargetName, Platform, Configuration, "");
 			Arguments += String.Format(" -receipt {0}", CommandUtils.MakePathSafeToUseWithCommandLine(ReceiptFileName));
 			ReceiptFileNames.Add(ReceiptFileName);
+			
+			if(!String.IsNullOrEmpty(InAdditionalArgs))
+			{
+				Arguments += InAdditionalArgs;
+			}
 
 			Agenda.AddTarget(TargetName, Platform, Configuration, InAddArgs: Arguments);
 		}

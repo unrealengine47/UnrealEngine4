@@ -19,12 +19,14 @@ public:
 	{
 		if(ItemSelected->GetMessageType() == EChatMessageType::Whisper)
 		{
-			if(ItemSelected->GetSenderID().IsValid())
+			TSharedPtr<const FUniqueNetId> FriendID = ItemSelected->IsFromSelf() ? ItemSelected->GetRecipientID() : ItemSelected->GetSenderID();
+			FText FriendName = ItemSelected->IsFromSelf() ? ItemSelected->GetRecipientName() : ItemSelected->GetSenderName();
+			if (FriendID.IsValid())
 			{
-				TSharedPtr< IFriendItem > ExistingFriend = FFriendsAndChatManager::Get()->FindUser(*ItemSelected->GetSenderID());
+				TSharedPtr< IFriendItem > ExistingFriend = FFriendsAndChatManager::Get()->FindUser(*FriendID);
 				if(ExistingFriend.IsValid() && ExistingFriend->GetInviteStatus() == EInviteStatus::Accepted)
 				{
-					SetWhisperChannel(GetRecentFriend(ItemSelected->GetSenderName(), ItemSelected->GetSenderID()));
+					SetWhisperChannel(GetRecentFriend(FriendName, FriendID));
 				}
 			}
 		}
@@ -255,7 +257,7 @@ public:
 			bool bFoundUser = false;
 			TSharedPtr< IFriendItem > ExistingFriend = NULL;
 
-			const TSharedPtr<FUniqueNetId> ChatID = ChatItemSelected->IsFromSelf() ? ChatItemSelected->GetRecipientID() : ChatItemSelected->GetSenderID();
+			const TSharedPtr<const FUniqueNetId> ChatID = ChatItemSelected->IsFromSelf() ? ChatItemSelected->GetRecipientID() : ChatItemSelected->GetSenderID();
 			if(ChatID.IsValid())
 			{
 				ExistingFriend = FFriendsAndChatManager::Get()->FindUser(*ChatID.Get());
@@ -571,7 +573,7 @@ private:
 		}
 	}
 
-	TSharedPtr<FSelectedFriend> FindFriend(TSharedPtr<FUniqueNetId> UniqueID)
+	TSharedPtr<FSelectedFriend> FindFriend(TSharedPtr<const FUniqueNetId> UniqueID)
 	{
 		// ToDo - Make this nicer NickD
 		for( const auto& ExistingFriend : RecentPlayerList)
@@ -607,7 +609,7 @@ private:
 		}
 	}
 
-	TSharedRef<FSelectedFriend> GetRecentFriend(const FText Username, TSharedPtr<FUniqueNetId> UniqueID)
+	TSharedRef<FSelectedFriend> GetRecentFriend(const FText Username, TSharedPtr<const FUniqueNetId> UniqueID)
 	{
 		TSharedPtr<FSelectedFriend> NewFriend = FindFriend(UniqueID);
 		if (!NewFriend.IsValid())

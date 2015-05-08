@@ -145,10 +145,14 @@ void UWidgetSwitcher::OnDescendantSelected(UWidget* DescendantWidget)
 
 void UWidgetSwitcher::OnDescendantDeselected(UWidget* DescendantWidget)
 {
-	if ( MyWidgetSwitcher.IsValid() )
-	{
-		MyWidgetSwitcher->SetActiveWidgetIndex(ActiveWidgetIndex);
-	}
+	SetActiveWidgetIndex(ActiveWidgetIndex);
+}
+
+void UWidgetSwitcher::PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent)
+{
+	ActiveWidgetIndex = FMath::Clamp(ActiveWidgetIndex, 0, FMath::Max(0, Slots.Num() - 1));
+
+	Super::PostEditChangeProperty(PropertyChangedEvent);
 }
 
 #endif

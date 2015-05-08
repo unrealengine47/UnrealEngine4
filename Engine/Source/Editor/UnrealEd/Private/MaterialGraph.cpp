@@ -7,6 +7,7 @@
 
 #include "Materials/MaterialExpressionComment.h"
 #include "Materials/MaterialExpressionFunctionOutput.h"
+#include "Materials/MaterialExpressionLandscapeGrassOutput.h"
 
 #include "GraphEditor.h"
 #include "MaterialShared.h"
@@ -325,6 +326,19 @@ void UMaterialGraph::GetUnusedExpressions(TArray<UEdGraphNode*>& UnusedNodes) co
 				&& InputPins[Index]->LinkedTo.Num() > 0 && InputPins[Index]->LinkedTo[0])
 			{
 				NodesToCheck.Push(InputPins[Index]->LinkedTo[0]->GetOwningNode());
+			}
+		}
+
+		for (int32 Index = 0; Index < Nodes.Num(); Index++)
+		{
+			UMaterialGraphNode* GraphNode = Cast<UMaterialGraphNode>(Nodes[Index]);
+			if (GraphNode)
+			{
+				UMaterialExpressionLandscapeGrassOutput* Output = Cast<UMaterialExpressionLandscapeGrassOutput>(GraphNode->MaterialExpression);
+				if (Output)
+				{
+					NodesToCheck.Push(GraphNode);
+				}
 			}
 		}
 	}

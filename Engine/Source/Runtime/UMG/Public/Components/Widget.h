@@ -69,6 +69,21 @@ class UPanelSlot;
 
 
 /**
+ * Flags used by the widget designer.
+ */
+UENUM()
+namespace EWidgetDesignFlags
+{
+	enum Type
+	{
+		None		= 0,
+		Designing	= 1,
+		ShowOutline	= 2,
+	};
+}
+
+
+/**
  * This is the base class for all wrapped Slate controls that are exposed to UObjects.
  */
 UCLASS(Abstract, BlueprintType)
@@ -264,12 +279,6 @@ public:
 	bool HasKeyboardFocus() const;
 
 	/**
-	 * @return Whether this widget has any descendants with keyboard focus
-	 */
-	UFUNCTION(BlueprintCallable, Category="Widget")
-	bool HasFocusedDescendants() const;
-
-	/**
 	 * Checks to see if this widget is the current mouse captor
 	 * @return  True if this widget has captured the mouse
 	 */
@@ -280,13 +289,21 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Widget")
 	void SetKeyboardFocus();
 
-	/** Gets the focus to this widget. */
+	/** @return true if this widget is focused by a specific user. */
 	UFUNCTION(BlueprintCallable, Category="Widget")
 	bool HasUserFocus(APlayerController* PlayerController) const;
 
-	/** Gets the focus to this widget. */
+	/** @return true if this widget is focused by any user. */
 	UFUNCTION(BlueprintCallable, Category="Widget")
 	bool HasAnyUserFocus() const;
+
+	/** @return true if any descendant widget is focused by any user. */
+	UFUNCTION(BlueprintCallable, Category="Widget", meta=(DisplayName="HasAnyUserFocusedDescendants"))
+	bool HasFocusedDescendants() const;
+
+	/** @return true if any descendant widget is focused by a specific user. */
+	UFUNCTION(BlueprintCallable, Category="Widget")
+	bool HasUserFocusedDescendants(APlayerController* PlayerController) const;
 	
 	/** Sets the focus to this widget for a specific user */
 	UFUNCTION(BlueprintCallable, Category="Widget")
@@ -347,14 +364,30 @@ public:
 
 #if WITH_EDITOR
 	/** Returns if the widget is currently being displayed in the designer, it may want to display different data. */
-	bool IsDesignTime() const;
+	FORCEINLINE bool IsDesignTime() const
+	{
+		return HasAnyDesignerFlags(EWidgetDesignFlags::Designing);
+	}
+
+	/** Sets the designer flags on the widget. */
+	virtual void SetDesignerFlags(EWidgetDesignFlags::Type NewFlags);
+
+	/** Gets the designer flags currently set on the widget. */
+	FORCEINLINE EWidgetDesignFlags::Type GetDesignerFlags() const
+	{
+		return DesignerFlags;
+	}
+
+	/** Tests if any of the flags exist on this widget. */
+	FORCEINLINE bool HasAnyDesignerFlags(EWidgetDesignFlags::Type FlagToCheck) const
+	{
+		return ( DesignerFlags&FlagToCheck ) != 0;
+	}
+
 #else
 	FORCEINLINE bool IsDesignTime() const { return false; }
 #endif
 	
-	/** Sets that this widget is being designed */
-	virtual void SetIsDesignTime(bool bInDesignTime);
-
 	/** Mark this object as modified, also mark the slot as modified. */
 	virtual bool Modify(bool bAlwaysMarkDirty = true) override;
 
@@ -454,6 +487,7 @@ protected:
 	/** Function called after the underlying SWidget is constructed. */
 	virtual void OnWidgetRebuilt();
 	
+	/** Utility method for building a design time wrapper widget. */
 	TSharedRef<SWidget> BuildDesignTimeWidget(TSharedRef<SWidget> WrapWidget);
 
 	void UpdateRenderTransform();
@@ -486,16 +520,17 @@ protected:
 
 	/** The underlying SWidget contained in a SObjectWidget */
 	TWeakPtr<class SObjectWidget> MyGCWidget;
-	
-	/** Is this widget being displayed on a designer surface */
-	UPROPERTY(Transient)
-	bool bDesignTime;
 
 	/** Native property bindings. */
 	UPROPERTY(Transient)
 	TArray<class UPropertyBinding*> NativeBindings;
 
 	static TArray<TSubclassOf<UPropertyBinding>> BinderClasses;
+
+private:
+	/** Any flags used by the designer at edit time. */
+	UPROPERTY(Transient)
+	TEnumAsByte<EWidgetDesignFlags::Type> DesignerFlags;
 
 private:
 	GAME_SAFE_BINDING_IMPLEMENTATION(FText, ToolTipText)
