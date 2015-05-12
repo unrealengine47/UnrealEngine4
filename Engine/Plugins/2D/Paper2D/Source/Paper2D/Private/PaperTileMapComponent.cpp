@@ -16,6 +16,8 @@
 UPaperTileMapComponent::UPaperTileMapComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 	, TileMapColor(FLinearColor::White)
+	, UseSingleLayerIndex(0)
+	, bUseSingleLayer(false)
 {
 	BodyInstance.SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 
@@ -125,6 +127,25 @@ void UPaperTileMapComponent::PostLoad()
 		TileLayers_DEPRECATED.Empty();
 	}
 }
+
+#if WITH_EDITOR
+void UPaperTileMapComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	if (TileMap != nullptr)
+	{
+		if (TileMap->TileLayers.Num() > 0)
+		{
+			UseSingleLayerIndex = FMath::Clamp(UseSingleLayerIndex, 0, TileMap->TileLayers.Num() - 1);
+		}
+		else
+		{
+			UseSingleLayerIndex = 0;
+		}
+	}
+
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+}
+#endif
 
 UBodySetup* UPaperTileMapComponent::GetBodySetup()
 {
@@ -237,14 +258,21 @@ void UPaperTileMapComponent::RebuildRenderData(FPaperTileMapRenderSceneProxy* Pr
 			continue;
 		}
 
+		if (bUseSingleLayer)
+		{
+			if (Z != UseSingleLayerIndex)
+			{
+				continue;
+			}
+		}
+
 		FLinearColor DrawColor = TileMapColor * Layer->GetLayerColor();
+
 #if WITH_EDITORONLY_DATA
-		if (Layer->bHiddenInEditor)
+		if (!Layer->ShouldRenderInEditor())
 		{
 			continue;
 		}
-
-		DrawColor.A *= Layer->LayerOpacity;
 #endif
 
 		FSpriteDrawCallRecord* CurrentBatch = nullptr;
@@ -430,6 +458,22 @@ bool UPaperTileMapComponent::SetTileMap(class UPaperTileMap* NewTileMap)
 	return false;
 }
 
+void UPaperTileMapComponent::GetMapSize(int32& MapWidth, int32& MapHeight, int32& NumLayers)
+{
+	if (TileMap != nullptr)
+	{
+		MapWidth = TileMap->MapWidth;
+		MapHeight = TileMap->MapHeight;
+		NumLayers = TileMap->TileLayers.Num();
+	}
+	else
+	{
+		MapWidth = 1;
+		MapHeight = 1;
+		NumLayers = 1;
+	}
+}
+
 FPaperTileInfo UPaperTileMapComponent::GetTile(int32 X, int32 Y, int32 Layer) const
 {
 	FPaperTileInfo Result;
@@ -540,5 +584,57 @@ void UPaperTileMapComponent::GetRenderingStats(int32& OutNumTriangles, int32& Ou
 	OutNumTriangles = NumTriangles;
 }
 #endif
+
+FVector UPaperTileMapComponent::GetTileCornerPosition(int32 TileX, int32 TileY, int32 LayerIndex, bool bWorldSpace) const
+{
+	FVector Result(ForceInitToZero);
+
+	if (TileMap != nullptr)
+	{
+		Result = TileMap->GetTilePositionInLocalSpace(TileX, TileY, LayerIndex);
+	}
+
+	if (bWorldSpace)
+	{
+		Result = ComponentToWorld.TransformPosition(Result);
+	}
+	return Result;
+}
+
+FVector UPaperTileMapComponent::GetTileCenterPosition(int32 TileX, int32 TileY, int32 LayerIndex, bool bWorldSpace) const
+{
+	FVector Result(ForceInitToZero);
+
+	if (TileMap != nullptr)
+	{
+		Result = TileMap->GetTileCenterInLocalSpace(TileX, TileY, LayerIndex);
+	}
+
+	if (bWorldSpace)
+	{
+		Result = ComponentToWorld.TransformPosition(Result);
+	}
+	return Result;
+}
+
+void UPaperTileMapComponent::GetTilePolygon(int32 TileX, int32 TileY, TArray<FVector>& Points, int32 LayerIndex, bool bWorldSpace) const
+{
+	Points.Reset();
+
+	if (TileMap != nullptr)
+	{
+		TileMap->GetTilePolygon(TileX, TileY, LayerIndex, /*out*/ Points);
+	}
+
+	if (bWorldSpace)
+	{
+		for (FVector& Point : Points)
+		{
+			Point = ComponentToWorld.TransformPosition(Point);
+		}
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 #undef LOCTEXT_NAMESPACE

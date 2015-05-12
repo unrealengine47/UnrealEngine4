@@ -40,56 +40,16 @@ const static FTransform TilePermutationTransforms[8] =
 };
 
 //////////////////////////////////////////////////////////////////////////
-// FTileMapLayerReregisterContext
-
-/** Removes all components that use the specified tile map layer from their scenes for the lifetime of the class. */
-class FTileMapLayerReregisterContext
-{
-public:
-	/** Initialization constructor. */
-	FTileMapLayerReregisterContext(UPaperTileLayer* TargetAsset)
-	{
-		// Look at tile map components
-		for (TObjectIterator<UPaperTileMapComponent> MapIt; MapIt; ++MapIt)
-		{
-			if (UPaperTileMap* TestMap = (*MapIt)->TileMap)
-			{
-				if (TestMap->TileLayers.Contains(TargetAsset))
-				{
-					AddComponentToRefresh(*MapIt);
-				}
-			}
-		}
-	}
-
-protected:
-	void AddComponentToRefresh(UActorComponent* Component)
-	{
-		if (ComponentContexts.Num() == 0)
-		{
-			// wait until resources are released
-			FlushRenderingCommands();
-		}
-
-		new (ComponentContexts) FComponentReregisterContext(Component);
-	}
-
-private:
-	/** The recreate contexts for the individual components. */
-	TIndirectArray<FComponentReregisterContext> ComponentContexts;
-};
-
-//////////////////////////////////////////////////////////////////////////
 // FPaperTileLayerToBodySetupBuilder
 
 class FPaperTileLayerToBodySetupBuilder : public FSpriteGeometryCollisionBuilderBase
 {
 public:
-	FPaperTileLayerToBodySetupBuilder(UPaperTileMap* InTileMap, UBodySetup* InBodySetup, float InZOffset)
+	FPaperTileLayerToBodySetupBuilder(UPaperTileMap* InTileMap, UBodySetup* InBodySetup, float InZOffset, float InThickness)
 		: FSpriteGeometryCollisionBuilderBase(InBodySetup)
 	{
 		UnrealUnitsPerPixel = InTileMap->GetUnrealUnitsPerPixel();
-		CollisionThickness = InTileMap->GetCollisionThickness();
+		CollisionThickness = InThickness;
 		CollisionDomain = InTileMap->GetSpriteCollisionDomain();
 		CurrentCellOffset = FVector2D::ZeroVector;
 		ZOffsetAmount = InZOffset;
@@ -137,16 +97,19 @@ protected:
 
 UPaperTileLayer::UPaperTileLayer(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
+	, LayerWidth(4)
+	, LayerHeight(4)
+#if WITH_EDITORONLY_DATA
+	, bHiddenInEditor(false)
+#endif
+	, bHiddenInGame(false)
+	, bLayerCollides(true)
+	, bOverrideCollisionThickness(false)
+	, bOverrideCollisionOffset(false)
+	, CollisionThicknessOverride(50.0f)
+	, CollisionOffsetOverride(0.0f)
 	, LayerColor(FLinearColor::White)
 {
-	LayerWidth = 4;
-	LayerHeight = 4;
-
-#if WITH_EDITORONLY_DATA
-	LayerOpacity = 1.0f;
-
-	bHiddenInEditor = false;
-#endif
 
 	DestructiveAllocateMap(LayerWidth, LayerHeight);
 }
@@ -154,6 +117,8 @@ UPaperTileLayer::UPaperTileLayer(const FObjectInitializer& ObjectInitializer)
 void UPaperTileLayer::DestructiveAllocateMap(int32 NewWidth, int32 NewHeight)
 {
 	check((NewWidth > 0) && (NewHeight > 0));
+	LayerWidth = NewWidth;
+	LayerHeight = NewHeight;
 
 	const int32 NumCells = NewWidth * NewHeight;
 	AllocatedCells.Empty(NumCells);
@@ -200,8 +165,6 @@ void UPaperTileLayer::ReallocateAndCopyMap()
 
 void UPaperTileLayer::PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent)
 {
-	FTileMapLayerReregisterContext ReregisterExistingComponents(this);
-
 	FName PropertyName = (PropertyChangedEvent.Property != nullptr) ? PropertyChangedEvent.Property->GetFName() : NAME_None;
 
 	if ((PropertyName == GET_MEMBER_NAME_CHECKED(UPaperTileLayer, LayerWidth)) || (PropertyName == GET_MEMBER_NAME_CHECKED(UPaperTileLayer, LayerHeight)))
@@ -213,12 +176,11 @@ void UPaperTileLayer::PostEditChangeProperty(struct FPropertyChangedEvent& Prope
 		// Resize the map, trying to preserve existing data
 		ReallocateAndCopyMap();
 	}
-// 	else if (PropertyName == TEXT("AllocatedCells"))
-// 	{
-// 		BakeMap();
-// 	}
 
 	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	// Force our owning tile map to recreate any component instances
+	GetTileMap()->PostEditChange();
 }
 #endif
 
@@ -232,40 +194,40 @@ int32 UPaperTileLayer::GetLayerIndex() const
 	return GetTileMap()->TileLayers.Find(const_cast<UPaperTileLayer*>(this));
 }
 
+bool UPaperTileLayer::InBounds(int32 X, int32 Y) const
+{
+	return (X >= 0) && (X < LayerWidth) && (Y >= 0) && (Y < LayerHeight);
+}
+
 FPaperTileInfo UPaperTileLayer::GetCell(int32 X, int32 Y) const
 {
-	if ((X < 0) || (X >= LayerWidth) || (Y < 0) || (Y >= LayerHeight))
-	{
-		return FPaperTileInfo();
-	}
-	else
-	{
-		return AllocatedCells[X + (Y*LayerWidth)];
-	}
+	return InBounds(X, Y) ? AllocatedCells[X + (Y*LayerWidth)] : FPaperTileInfo();
 }
 
 void UPaperTileLayer::SetCell(int32 X, int32 Y, const FPaperTileInfo& NewValue)
 {
-	if ((X < 0) || (X >= LayerWidth) || (Y < 0) || (Y >= LayerHeight))
-	{
-	}
-	else
+	if (InBounds(X, Y))
 	{
 		AllocatedCells[X + (Y*LayerWidth)] = NewValue;
 	}
 }
 
-void UPaperTileLayer::AugmentBodySetup(UBodySetup* ShapeBodySetup)
+void UPaperTileLayer::AugmentBodySetup(UBodySetup* ShapeBodySetup, float RenderSeparation)
 {
+	if (!bLayerCollides)
+	{
+		return;
+	}
+
 	UPaperTileMap* TileMap = GetTileMap();
 	const float TileWidth = TileMap->TileWidth;
 	const float TileHeight = TileMap->TileHeight;
 
-	//@TODO: Determine if we want collision to be attached to the layer or always relative to the zero layer (probably need a per-layer config value / option, as you may even want to inset layer 0's collision so it's flush with the surface (imagine a top-down game))
-	const float ZOffset = 0.0f;
+	const float EffectiveCollisionOffset = bOverrideCollisionOffset ? CollisionOffsetOverride : RenderSeparation;
+	const float EffectiveCollisionThickness = bOverrideCollisionThickness ? CollisionThicknessOverride : TileMap->GetCollisionThickness();
 
 	// Generate collision for all cells that contain a tile with collision metadata
-	FPaperTileLayerToBodySetupBuilder CollisionBuilder(GetTileMap(), ShapeBodySetup, ZOffset);
+	FPaperTileLayerToBodySetupBuilder CollisionBuilder(TileMap, ShapeBodySetup, EffectiveCollisionOffset, EffectiveCollisionThickness);
 
 	for (int32 CellY = 0; CellY < LayerHeight; ++CellY)
 	{
@@ -327,4 +289,10 @@ bool UPaperTileLayer::UsesTileSet(UPaperTileSet* TileSet) const
 	}
 
 	return false;
+}
+
+FTransform UPaperTileLayer::GetTileTransform(int32 FlagIndex)
+{
+	checkSlow((FlagIndex >= 0) && (FlagIndex < 8));
+	return TilePermutationTransforms[FlagIndex];
 }

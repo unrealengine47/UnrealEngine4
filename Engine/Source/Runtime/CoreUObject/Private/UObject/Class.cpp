@@ -332,7 +332,7 @@ const FText UField::GetMetaDataText(const TCHAR* MetaDataKey, const FString Loca
 		if( HasMetaData( MetaDataKey ))
 		{
 			DefaultMetaData = GetMetaData(MetaDataKey);
-			LocalizedMetaData = FText::FromString(DefaultMetaData);
+			LocalizedMetaData = FText::AsCultureInvariant(DefaultMetaData);
 		}
 	}
 
@@ -348,7 +348,7 @@ const FText UField::GetMetaDataText(const FName& MetaDataKey, const FString Loca
 		if( HasMetaData( MetaDataKey ))
 		{
 			DefaultMetaData = GetMetaData(MetaDataKey);
-			LocalizedMetaData = FText::FromString(DefaultMetaData);
+			LocalizedMetaData = FText::AsCultureInvariant(DefaultMetaData);
 		}
 	}
 	return LocalizedMetaData;
@@ -1012,6 +1012,24 @@ void UStruct::SerializeTaggedProperties(FArchive& Ar, uint8* Data, UStruct* Defa
 				AdvanceProperty = true;
 				continue; 
 			}
+			else if( Tag.Type==NAME_NameProperty && dynamic_cast<UTextProperty*>(Property) ) // Convert serialized name to text.
+			{ 
+				FName Name;  
+				Ar << Name;
+				FText Text = FText::FromName(Name);
+				CastChecked<UTextProperty>(Property)->SetPropertyValue_InContainer(Data, Text, Tag.ArrayIndex);
+				AdvanceProperty = true;
+				continue; 
+			}
+			else if( Tag.Type==NAME_TextProperty && dynamic_cast<UNameProperty*>(Property) ) // Convert serialized text to name.
+			{ 
+				FText Text;  
+				Ar << Text;
+				FName Name = FName(*Text.ToString());
+				CastChecked<UNameProperty>(Property)->SetPropertyValue_InContainer(Data, Name, Tag.ArrayIndex);
+				AdvanceProperty = true;
+				continue; 
+			}
 			else if ( Tag.Type == NAME_ByteProperty && Property->GetID() == NAME_IntProperty )
 			{
 				// this property's data was saved as a uint8, but the property has been changed to an int32.  Since there is no loss of data
@@ -1162,6 +1180,31 @@ void UStruct::SerializeTaggedProperties(FArchive& Ar, uint8* Data, UStruct* Defa
 					}
 					continue; 
 				}
+				else if (Tag.InnerType == NAME_NameProperty && dynamic_cast<UTextProperty*>(ArrayProperty->Inner)) // Convert serialized name to text.
+				{ 
+					for(int32 i = 0; i < ElementCount; ++i)
+					{
+						FName Name;
+						Ar << Name;
+						FText Text = FText::FromName(Name);
+						Text.Flags |= ETextFlag::ConvertedProperty;
+						CastChecked<UTextProperty>(ArrayProperty->Inner)->SetPropertyValue(ScriptArrayHelper.GetRawPtr(i), Text);
+						AdvanceProperty = true;
+					}
+					continue;
+				}
+				else if( Tag.InnerType==NAME_TextProperty && dynamic_cast<UNameProperty*>(ArrayProperty->Inner) ) // Convert serialized text to name.
+				{ 
+					for(int32 i = 0; i < ElementCount; ++i)
+					{
+						FText Text;  
+						Ar << Text;
+						FName Name = FTextInspector::GetSourceString(Text) ? FName(**FTextInspector::GetSourceString(Text)) : NAME_None;
+						static_cast<UNameProperty*>(ArrayProperty->Inner)->SetPropertyValue(ScriptArrayHelper.GetRawPtr(i), Name);
+						AdvanceProperty = true;
+					}
+					continue; 
+				}
 				else if ((Tag.InnerType == NAME_AssetObjectProperty || Tag.InnerType == NAME_AssetSubclassOfProperty) && (ArrayProperty->Inner->GetID() == NAME_ObjectProperty || ArrayProperty->Inner->GetID() == NAME_ClassProperty))
 				{
 					for (int32 i = 0; i < ElementCount; ++i)
@@ -1203,7 +1246,8 @@ void UStruct::SerializeTaggedProperties(FArchive& Ar, uint8* Data, UStruct* Defa
 			else if( Tag.Type==NAME_StructProperty && Tag.StructName!=CastChecked<UStructProperty>(Property)->Struct->GetFName() 
 				&& !CanSerializeFromStructWithDifferentName(Ar, Tag, CastChecked<UStructProperty>(Property)))
 			{
-				UE_LOG(LogClass, Warning, TEXT("Property %s of %s struct type mismatch %s/%s for package:  %s. If that property got renamed, add an ActiveStructRedirect."), *Tag.Name.ToString(), *GetName(), *Tag.StructName.ToString(), *CastChecked<UStructProperty>(Property)->Struct->GetName(), *Ar.GetArchiveName() );
+				UE_LOG(LogClass, Warning, TEXT("Property %s of %s has a struct type mismatch (tag %s != prop %s) in package:  %s. If that struct got renamed, add an entry to ActiveStructRedirects."),
+					*Tag.Name.ToString(), *GetName(), *Tag.StructName.ToString(), *CastChecked<UStructProperty>(Property)->Struct->GetName(), *Ar.GetArchiveName() );
 			}
 			else if( !Property->ShouldSerializeValue(Ar) )
 			{
@@ -3156,11 +3200,18 @@ void UClass::SetSuperStruct(UStruct* NewSuperStruct)
 void UClass::SerializeSuperStruct(FArchive& Ar)
 {
 #if UCLASS_FAST_ISA_IMPL & 2
-	FFastIndexingClassTree::Unregister(this);
+	bool bIsLoading = Ar.IsLoading();
+	if (bIsLoading)
+	{
+		FFastIndexingClassTree::Unregister(this);
+	}
 #endif
 	Super::SerializeSuperStruct(Ar);
 #if UCLASS_FAST_ISA_IMPL & 2
-	FFastIndexingClassTree::Register(this);
+	if (bIsLoading)
+	{
+		FFastIndexingClassTree::Register(this);
+	}
 #endif
 }
 

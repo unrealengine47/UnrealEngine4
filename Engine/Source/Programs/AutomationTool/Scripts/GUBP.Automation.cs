@@ -739,9 +739,10 @@ public class GUBP : BuildCommand
                 bool ReallyDeleteBuildProducts = DeleteBuildProducts() && !GUBP.bForceIncrementalCompile;
                 Agenda.DoRetries = false; // these would delete build products
                 UE4Build.Build(Agenda, InDeleteBuildProducts: ReallyDeleteBuildProducts, InUpdateVersionFiles: false, InForceUnity: true);
-				
+                var StartPostBuild = DateTime.Now.ToString();
                 PostBuild(bp, UE4Build);
-
+                var FinishPostBuild = DateTime.Now.ToString();
+                PrintCSVFile(String.Format("UAT,PostBuild,{0},{1}", StartPostBuild, FinishPostBuild));
                 UE4Build.CheckBuildProducts(UE4Build.BuildProductFiles);
                 foreach (var Product in UE4Build.BuildProductFiles)
                 {
@@ -751,7 +752,10 @@ public class GUBP : BuildCommand
                 if (bp.bSignBuildProducts)
                 {
                     // Sign everything we built
+                    var StartSign = DateTime.Now.ToString();
                     CodeSign.SignMultipleIfEXEOrDLL(bp, BuildProducts);
+                    var FinishSign = DateTime.Now.ToString();
+                    PrintCSVFile(String.Format("UAT,SignBuildProducts,{0},{1}", StartSign, FinishSign));
                 }
                 PostBuildProducts(bp);
             }
@@ -2783,9 +2787,10 @@ public class GUBP : BuildCommand
             {
                 // not sure if we need something here or if the cook commandlet will automatically convert the exe name
             }
-
+            var StartCook = DateTime.Now.ToString();
 			CommandUtils.CookCommandlet(GameProj.FilePath, "UE4Editor-Cmd.exe", null, null, null, null, CookPlatform);
-		
+            var FinishCook = DateTime.Now.ToString();
+            PrintCSVFile(String.Format("UAT,Cook.{0}.{1},{2},{3}", GameProj.GameName, CookPlatform, StartCook, FinishCook));
             var CookedPath = RootIfAnyForTempStorage();
             var CookedFiles = CommandUtils.FindFiles("*", true, CookedPath);
             if (CookedFiles.GetLength(0) < 1)
@@ -6762,9 +6767,19 @@ public class GUBP : BuildCommand
                 var Fringe = new HashSet<string>(); 
                 foreach (var NodeToDo in NodesToDo)
                 {
-                    if (BranchOptions.NodesToRemovePseudoDependencies.Contains(NodeToDo))
+                    if (BranchOptions.NodesToRemovePseudoDependencies.Count > 0)
                     {
-                        RemoveAllPseudodependenciesFromNode(NodeToDo);
+                        var ListOfRetainedNodesToRemovePseudoDependencies = BranchOptions.NodesToRemovePseudoDependencies;
+                        foreach (var NodeToRemovePseudoDependencies in BranchOptions.NodesToRemovePseudoDependencies)
+                        {
+                            if (NodeToDo == NodeToRemovePseudoDependencies)
+                            {
+                                RemoveAllPseudodependenciesFromNode(NodeToDo);
+                                ListOfRetainedNodesToRemovePseudoDependencies.Remove(NodeToDo);
+                                break;
+                            }
+                        }
+                        BranchOptions.NodesToRemovePseudoDependencies = ListOfRetainedNodesToRemovePseudoDependencies;
                     }
                     foreach (var Dep in GUBPNodes[NodeToDo].FullNamesOfDependencies)
                     {
@@ -7136,6 +7151,7 @@ public class GUBP : BuildCommand
 
             var FakeECArgs = new List<string>();
             var AgentGroupChains = new Dictionary<string, List<string>>();
+            var StickyChain = new List<string>();
             foreach (var NodeToDo in OrdereredToDo)
             {
                 if (GUBPNodes[NodeToDo].RunInEC() && !NodeIsAlreadyComplete(NodeToDo, LocalOnly)) // if something is already finished, we don't put it into EC  
@@ -7153,8 +7169,14 @@ public class GUBP : BuildCommand
                         }
                     }
                 }
+                if(GUBPNodes[NodeToDo].IsSticky())
+                {
+                    if(!StickyChain.Contains(NodeToDo))
+                    {
+                        StickyChain.Add(NodeToDo);
+                    }
+                }
             }
-
             foreach (var NodeToDo in OrdereredToDo)
             {
                 if (GUBPNodes[NodeToDo].RunInEC() && !NodeIsAlreadyComplete(NodeToDo, LocalOnly)) // if something is already finished, we don't put it into EC  
@@ -7270,6 +7292,33 @@ public class GUBP : BuildCommand
                                         {
                                             PreConditionUncompletedEcDeps.Add(Dep);
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if(GUBPNodes[NodeToDo].IsSticky())
+                    {
+                        var MyChain = StickyChain;
+                        int MyIndex = MyChain.IndexOf(NodeToDo);
+                        if (MyIndex > 0)
+                        {
+                            PreConditionUncompletedEcDeps.Add(MyChain[MyIndex - 1]);
+                        }
+                        else
+                        {
+                            var EcDeps = GetECDependencies(NodeToDo);
+                            foreach (var Dep in EcDeps)
+                            {
+                                if (GUBPNodes[Dep].RunInEC() && !NodeIsAlreadyComplete(Dep, LocalOnly) && OrdereredToDo.Contains(Dep)) // if something is already finished, we don't put it into EC
+                                {
+                                    if (OrdereredToDo.IndexOf(Dep) > OrdereredToDo.IndexOf(NodeToDo))
+                                    {
+                                        throw new AutomationException("Topological sort error, node {0} has a dependency of {1} which sorted after it.", NodeToDo, Dep);
+                                    }
+                                    if (!MyChain.Contains(Dep) && !PreConditionUncompletedEcDeps.Contains(Dep))
+                                    {
+                                        PreConditionUncompletedEcDeps.Add(Dep);
                                     }
                                 }
                             }

@@ -104,34 +104,52 @@ class PAPER2D_API UPaperTileLayer : public UObject
 	GENERATED_UCLASS_BODY()
 
 	// Name of the layer
-	UPROPERTY()
+	UPROPERTY(BlueprintReadOnly, Category=Sprite)
 	FText LayerName;
 
+private:
 	// Width of the layer (in tiles)
-	UPROPERTY(BlueprintReadOnly, Category=Sprite)
+	UPROPERTY(BlueprintReadOnly, Category=Sprite, meta=(AllowPrivateAccess="true"))
 	int32 LayerWidth;
 
 	// Height of the layer (in tiles)
-	UPROPERTY(BlueprintReadOnly, Category=Sprite)
+	UPROPERTY(BlueprintReadOnly, Category=Sprite, meta=(AllowPrivateAccess="true"))
 	int32 LayerHeight;
 
 #if WITH_EDITORONLY_DATA
-	// Opacity of the layer (editor only)
-	UPROPERTY()
-	float LayerOpacity;
-
 	// Is this layer currently hidden in the editor?
-	UPROPERTY()
-	bool bHiddenInEditor;
+	UPROPERTY(EditAnywhere, Category=Sprite, meta=(AllowPrivateAccess="true"))
+	uint32 bHiddenInEditor:1;
 #endif
 
 	// Should this layer be hidden in the game?
-	UPROPERTY(BlueprintReadOnly, Category=Sprite)
-	bool bHiddenInGame;
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category=Sprite, meta=(AllowPrivateAccess="true"))
+	uint32 bHiddenInGame:1;
 
-protected:
+	// Should this layer generate collision?
+	// Note: This only has an effect if the owning tile map has collision enabled
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category=Sprite, meta=(AllowPrivateAccess="true"))
+	uint32 bLayerCollides:1;
+
+	// Should this layer use a custom thickness for generated collision instead of the thickness setting in the tile map?
+	UPROPERTY(BlueprintReadOnly, Category=Sprite, meta=(AllowPrivateAccess="true"))
+	uint32 bOverrideCollisionThickness:1;
+
+	// Should this layer use a custom offset for generated collision instead of the layer drawing offset?
+	UPROPERTY(BlueprintReadOnly, Category=Sprite, meta=(AllowPrivateAccess="true"))
+	uint32 bOverrideCollisionOffset:1;
+
+	// The override thickness of the collision for this layer (when bOverrideCollisionThickness is set)
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category=Sprite, meta=(EditCondition=bOverrideCollisionThickness, AllowPrivateAccess="true"))
+	float CollisionThicknessOverride;
+
+	// The override offset of the collision for this layer (when bOverrideCollisionOffset is set)
+	// Note: This is measured in Unreal Units (cm) from the center of the tile map component, not from the previous layer.
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category=Sprite, meta=(EditCondition=bOverrideCollisionOffset, AllowPrivateAccess="true"))
+	float CollisionOffsetOverride;
+
 	// The color of this layer (multiplied with the tile map color and passed to the material as a vertex color)
-	UPROPERTY(EditAnywhere, Category=Sprite)
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category=Sprite, meta=(AllowPrivateAccess="true"))
 	FLinearColor LayerColor;
 
 	// The allocated width of the tile data (used to handle resizing without data loss)
@@ -146,7 +164,6 @@ protected:
 	UPROPERTY()
 	TArray<FPaperTileInfo> AllocatedCells;
 
-private:
 	UPROPERTY()
 	UPaperTileSet* TileSet_DEPRECATED;
 
@@ -168,6 +185,9 @@ public:
 	// Returns the index of this layer in the parent tile map
 	int32 GetLayerIndex() const;
 
+	// Returns whether the specified coordinates are in bounds for the layer
+	bool InBounds(int32 X, int32 Y) const;
+
 	// Returns the tile information about the specified cell
 	FPaperTileInfo GetCell(int32 X, int32 Y) const;
 
@@ -181,7 +201,7 @@ public:
 	void ResizeMap(int32 NewWidth, int32 NewHeight);
 
 	// Adds collision to the specified body setup
-	void AugmentBodySetup(UBodySetup* ShapeBodySetup);
+	void AugmentBodySetup(UBodySetup* ShapeBodySetup, float RenderSeparation);
 
 	// Gets the layer-specific color multiplier
 	FLinearColor GetLayerColor() const;
@@ -193,6 +213,25 @@ public:
 	// Note: This is a slow operation, it scans each tile!
 	bool UsesTileSet(UPaperTileSet* TileSet) const;
 
+#if WITH_EDITORONLY_DATA
+	// Should this layer be drawn (in the editor)?
+	bool ShouldRenderInEditor() const { return !bHiddenInEditor; }
+
+	// Set whether this layer should be drawn (in the editor)
+	void SetShouldRenderInEditor(bool bShouldRender) { bHiddenInEditor = !bShouldRender; }
+#endif
+
+	// Should this layer be drawn (in game)?
+	bool ShouldRenderInGame() const { return !bHiddenInGame; }
+
+	// Returns the width of the layer (in tiles)
+	int32 GetLayerWidth() const { return LayerWidth; }
+
+	// Returns the height of the layer (in tiles)
+	int32 GetLayerHeight() const { return LayerHeight; }
+
+	// Returns the transform for the given packed flag index (0..7)
+	static FTransform GetTileTransform(int32 FlagIndex);
 protected:
 	void ReallocateAndCopyMap();
 };

@@ -1414,11 +1414,12 @@ bool UPrimitiveComponent::MoveComponentImpl( const FVector& Delta, const FQuat& 
 			MoveTimer.bDidLineCheck = true;
 #endif 
 			static const FName Name_MoveComponent(TEXT("MoveComponent"));
+			UWorld* const MyWorld = GetWorld();
 
 			FComponentQueryParams Params(Name_MoveComponent, Actor);
 			FCollisionResponseParams ResponseParam;
 			InitSweepCollisionParams(Params, ResponseParam);
-			bool const bHadBlockingHit = GetWorld()->ComponentSweepMulti(Hits, this, TraceStart, TraceEnd, GetComponentQuat(), Params);
+			bool const bHadBlockingHit = MyWorld->ComponentSweepMulti(Hits, this, TraceStart, TraceEnd, GetComponentQuat(), Params);
 
 			if (Hits.Num() > 0)
 			{
@@ -1440,9 +1441,9 @@ bool UPrimitiveComponent::MoveComponentImpl( const FVector& Delta, const FQuat& 
 				{
 					const FHitResult& TestHit = Hits[HitIdx];
 
-					if ( !ShouldIgnoreHitResult(GetWorld(), TestHit, Delta, Actor, MoveFlags) )
+					if (TestHit.bBlockingHit)
 					{
-						if (TestHit.bBlockingHit)
+						if (!ShouldIgnoreHitResult(MyWorld, TestHit, Delta, Actor, MoveFlags))
 						{
 							if (TestHit.Time == 0.f)
 							{
@@ -1460,30 +1461,30 @@ bool UPrimitiveComponent::MoveComponentImpl( const FVector& Delta, const FQuat& 
 								// This should be the only non-overlapping blocking hit, and last in the results.
 								BlockingHitIndex = HitIdx;
 								break;
-							}							
+							}
 						}
-						else if (bGenerateOverlapEvents)
+					}
+					else if (bGenerateOverlapEvents)
+					{
+						UPrimitiveComponent* OverlapComponent = TestHit.Component.Get();
+						if (OverlapComponent && OverlapComponent->bGenerateOverlapEvents)
 						{
-							UPrimitiveComponent * OverlapComponent = TestHit.Component.Get();
-							if (OverlapComponent && OverlapComponent->bGenerateOverlapEvents)
+							if (!ShouldIgnoreOverlapResult(MyWorld, Actor, *this, TestHit.GetActor(), *OverlapComponent))
 							{
-								if (!ShouldIgnoreOverlapResult(GetWorld(), Actor, *this, TestHit.GetActor(), *OverlapComponent))
+								// don't process touch events after initial blocking hits
+								if (BlockingHitIndex >= 0 && TestHit.Time > Hits[BlockingHitIndex].Time)
 								{
-									// don't process touch events after initial blocking hits
-									if (BlockingHitIndex >= 0 && TestHit.Time > Hits[BlockingHitIndex].Time)
-									{
-										break;
-									}
-
-									if (FirstNonInitialOverlapIdx == INDEX_NONE && TestHit.Time > 0.f)
-									{
-										// We are about to add the first non-initial overlap.
-										FirstNonInitialOverlapIdx = PendingOverlaps.Num();
-									}
-
-									// cache touches
-									PendingOverlaps.AddUnique(FOverlapInfo(TestHit));
+									break;
 								}
+
+								if (FirstNonInitialOverlapIdx == INDEX_NONE && TestHit.Time > 0.f)
+								{
+									// We are about to add the first non-initial overlap.
+									FirstNonInitialOverlapIdx = PendingOverlaps.Num();
+								}
+
+								// cache touches
+								PendingOverlaps.AddUnique(FOverlapInfo(TestHit));
 							}
 						}
 					}
@@ -1564,15 +1565,21 @@ bool UPrimitiveComponent::MoveComponentImpl( const FVector& Delta, const FQuat& 
 		else if (DeltaSizeSq == 0.f && bCollisionEnabled)
 		{
 			// We didn't move, and any rotation that doesn't change our overlap bounds means we already know what we are overlapping at this point.
-			// Can only do this if current known overlaps are valid (not deferring updates)
-			if (CVarAllowCachedOverlaps->GetInt() && Actor && Actor->GetRootComponent() == this && !IsDeferringMovementUpdates())
+			if (Actor && Actor->GetRootComponent() == this && CVarAllowCachedOverlaps->GetInt())
 			{
-				// Only if we know that we won't change our overlap status with children by moving.
-				if (AreSymmetricRotations(NewRotationQuat, ComponentToWorld.GetRotation(), ComponentToWorld.GetScale3D()) &&
-					AreAllCollideableDescendantsRelative())
+				// Can only do this if current known overlaps are valid (not deferring updates, or we know there are no new pending overlaps).
+				const FScopedMovementUpdate* ScopedUpdate = GetCurrentScopedMovement();
+				if (ScopedUpdate == nullptr
+					|| (OverlappingComponents.Num() == 0 && !ScopedUpdate->HasPendingOverlapsInAncestorOrSelf())
+					|| (!ScopedUpdate->GetOuterDeferredScope()))
 				{
-					OverlapsAtEndLocation = OverlappingComponents;
-					OverlapsAtEndLocationPtr = &OverlapsAtEndLocation;
+					// Only if we know that we won't change our overlap status with children by moving.
+					if (AreSymmetricRotations(NewRotationQuat, ComponentToWorld.GetRotation(), ComponentToWorld.GetScale3D()) &&
+						AreAllCollideableDescendantsRelative())
+					{
+						OverlapsAtEndLocation = OverlappingComponents;
+						OverlapsAtEndLocationPtr = &OverlapsAtEndLocation;
+					}
 				}
 			}
 		}
@@ -2148,7 +2155,7 @@ void UPrimitiveComponent::UpdateOverlaps(TArray<FOverlapInfo> const* PendingOver
 
 			// now generate full list of new touches, so we can compare to existing list and
 			// determine what changed
-			typedef TArray<FOverlapInfo, TInlineAllocator<4>> TInlineOverlapInfoArray;
+			typedef TArray<FOverlapInfo, TInlineAllocator<3>> TInlineOverlapInfoArray;
 			TInlineOverlapInfoArray NewOverlappingComponents;
 
 			// If pending kill, we should not generate any new overlaps

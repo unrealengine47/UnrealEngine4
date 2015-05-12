@@ -341,7 +341,10 @@ void USceneComponent::UpdateComponentToWorldWithParent(USceneComponent* Parent, 
 	
 	// Minimize accumulation of errors after many composed transforms.
 	NewTransform.NormalizeRotation();
+
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	ensureOnce(NewTransform.IsValid());
+#endif
 
 	// If transform has changed..
 	if (!ComponentToWorld.Equals(NewTransform, SMALL_NUMBER))
@@ -494,7 +497,7 @@ void USceneComponent::EndScopedMovementUpdate(class FScopedMovementUpdate& Compl
 			}
 
 			// We may have moved somewhere and then moved back to the start, we still need to update overlaps if we touched things along the way.
-			if (bMoved || CurrentScopedUpdate->HasPendingOverlaps() || CurrentScopedUpdate->GetOverlapsAtEnd())
+			if (bMoved || CurrentScopedUpdate->HasPendingOverlaps() || CurrentScopedUpdate->HasValidOverlapsAtEnd())
 			{
 				UpdateOverlaps(&CurrentScopedUpdate->GetPendingOverlaps(), true, CurrentScopedUpdate->GetOverlapsAtEnd());
 			}
@@ -2237,11 +2240,13 @@ static uint32 s_ScopedWarningCount = 0;
 
 FScopedMovementUpdate::FScopedMovementUpdate( class USceneComponent* Component, EScopedUpdate::Type ScopeBehavior )
 : Owner(Component)
+, OuterDeferredScope(nullptr)
 , bDeferUpdates(ScopeBehavior == EScopedUpdate::DeferredUpdates)
 , bHasValidOverlapsAtEnd(false)
 {
 	if (IsValid(Component))
 	{
+		OuterDeferredScope = Component->GetCurrentScopedMovement();
 		InitialTransform = Component->GetComponentToWorld();
 		InitialRelativeLocation = Component->RelativeLocation;
 		InitialRelativeRotation = Component->RelativeRotation;
@@ -2250,8 +2255,7 @@ FScopedMovementUpdate::FScopedMovementUpdate( class USceneComponent* Component, 
 		if (ScopeBehavior == EScopedUpdate::ImmediateUpdates)
 		{
 			// We only allow ScopeUpdateImmediately if there is no outer scope, or if the outer scope is also ScopeUpdateImmediately.
-			FScopedMovementUpdate* OuterScope = Component->GetCurrentScopedMovement();
-			if (OuterScope && OuterScope->bDeferUpdates)
+			if (OuterDeferredScope && OuterDeferredScope->bDeferUpdates)
 			{
 				if (s_ScopedWarningCount < 100 || (GFrameCounter & 31) == 0)
 				{
@@ -2303,6 +2307,7 @@ void FScopedMovementUpdate::RevertMove()
 	{
 		bHasValidOverlapsAtEnd = false;
 		PendingOverlaps.Reset();
+		OverlapsAtEnd.Reset();
 		BlockingHits.Reset();
 		
 		if (IsTransformDirty())
@@ -2337,13 +2342,13 @@ void FScopedMovementUpdate::AppendOverlaps(const TArray<struct FOverlapInfo>& Ot
 	}
 }
 
-
 void FScopedMovementUpdate::OnInnerScopeComplete(const FScopedMovementUpdate& InnerScope)
 {
 	if (IsValid(Owner))
 	{
 		checkSlow(IsDeferringUpdates());
 		checkSlow(InnerScope.IsDeferringUpdates());
+		checkSlow(InnerScope.OuterDeferredScope == this);
 
 		// Combine with the next item on the stack
 		AppendOverlaps(InnerScope.GetPendingOverlaps(), InnerScope.GetOverlapsAtEnd());
