@@ -16,7 +16,7 @@ static const FName WorldClassName = FName("World");
 #define VALIDATE_INITIALIZECORECLASSES 0
 #define EXPORT_SORTING_DETAILED_LOGGING 0
 
-#define UE_PROFILE_COOKSAVE 1
+#define UE_PROFILE_COOKSAVE 0
 #if UE_PROFILE_COOKSAVE
 
 #define UE_START_LOG_COOK_TIME(InFilename) double PreviousTime; double StartTime; PreviousTime = StartTime = FPlatformTime::Seconds(); \
@@ -1809,7 +1809,7 @@ public:
 	 * Constructor
 	 */
 	FExportReferenceSorter()
-		: FArchiveUObject(), CurrentInsertIndex(INDEX_NONE), CurrentClass(NULL), bIgnoreFieldReferences(false), CoreReferencesOffset(INDEX_NONE)
+		: FArchiveUObject(), CurrentInsertIndex(INDEX_NONE), CoreReferencesOffset(INDEX_NONE), bIgnoreFieldReferences(false), CurrentClass(nullptr)
 	{
 		ArIsObjectReferenceCollector = true;
 		ArIsPersistent = true;

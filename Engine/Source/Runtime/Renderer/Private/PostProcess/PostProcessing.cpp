@@ -982,6 +982,8 @@ void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, FViewInfo& V
 		FRenderingCompositeOutputRef SeparateTranslucency;
 		// optional
 		FRenderingCompositeOutputRef BloomOutputCombined;
+		// not always valid
+		FRenderingCompositePass* VelocityFlattenPass = 0;
 
 		bool bAllowTonemapper = true;
 		EStereoscopicPass StereoPass = View.StereoPass;
@@ -1133,7 +1135,8 @@ void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, FViewInfo& V
 					FRenderingCompositeOutputRef SceneDepth( Context.SceneDepth );
 
 					{
-						FRenderingCompositePass* VelocityFlattenPass = Context.Graph.RegisterPass( new(FMemStack::Get()) FRCPassPostProcessVelocityFlatten() );
+						check(!VelocityFlattenPass);
+						VelocityFlattenPass = Context.Graph.RegisterPass( new(FMemStack::Get()) FRCPassPostProcessVelocityFlatten() );
 						VelocityFlattenPass->SetInput( ePId_Input0, VelocityInput );
 						VelocityFlattenPass->SetInput( ePId_Input1, SceneDepth );
 
@@ -1614,10 +1617,10 @@ void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, FViewInfo& V
 
 			OverrideRenderTarget(Context.FinalOutput, Temp, Desc);
 
-			// you can add multiple dependencies
-			CompositeContext.Root->AddDependency(Context.FinalOutput);
-
-			CompositeContext.Process(TEXT("PostProcessing"));
+			// We want this executed early as it uses AsyncCompute (where available e.g. XboxOne).
+			CompositeContext.Process(VelocityFlattenPass, TEXT("VelocityFlattenPass"));
+			// Now we process the remaining part of the graph.
+			CompositeContext.Process(Context.FinalOutput.GetPass(), TEXT("PostProcessing"));
 		}
 	}
 
@@ -2000,10 +2003,7 @@ void FPostProcessing::ProcessES2(FRHICommandListImmediate& RHICmdList, FViewInfo
 
 			OverrideRenderTarget(Context.FinalOutput, Temp, Desc);
 
-			// you can add multiple dependencies
-			CompositeContext.Root->AddDependency(Context.FinalOutput);
-
-			CompositeContext.Process(TEXT("PostProcessingES2"));
+			CompositeContext.Process(Context.FinalOutput.GetPass(), TEXT("PostProcessingES2"));
 		}
 	}
 }

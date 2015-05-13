@@ -299,6 +299,9 @@ void FEdModeFoliage::Enter()
 	FWorldDelegates::LevelAddedToWorld.AddSP(this, &FEdModeFoliage::NotifyLevelAddedToWorld);
 	FWorldDelegates::LevelRemovedFromWorld.AddSP(this, &FEdModeFoliage::NotifyLevelRemovedFromWorld);
 
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::GetModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+	AssetRegistryModule.Get().OnAssetRemoved().AddSP(this, &FEdModeFoliage::NotifyAssetRemoved);
+
 	// Force real-time viewports.  We'll back up the current viewport state so we can restore it when the
 	// user exits this mode.
 	const bool bWantRealTime = true;
@@ -347,6 +350,12 @@ void FEdModeFoliage::Exit()
 	FEditorDelegates::NewCurrentLevel.RemoveAll(this);
 	FWorldDelegates::LevelAddedToWorld.RemoveAll(this);
 	FWorldDelegates::LevelRemovedFromWorld.RemoveAll(this);
+
+	if (FModuleManager::Get().IsModuleLoaded(TEXT("AssetRegistry")))
+	{
+		FAssetRegistryModule& AssetRegistryModule = FModuleManager::GetModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+		AssetRegistryModule.Get().OnAssetRemoved().RemoveAll(this);
+	}
 
 	GEditor->OnObjectsReplaced().RemoveAll(this);
 	
@@ -411,6 +420,19 @@ void FEdModeFoliage::NotifyLevelAddedToWorld(ULevel* InLevel, UWorld* InWorld)
 void FEdModeFoliage::NotifyLevelRemovedFromWorld(ULevel* InLevel, UWorld* InWorld)
 {
 	PopulateFoliageMeshList();
+}
+
+void FEdModeFoliage::NotifyAssetRemoved(const FAssetData& AssetInfo)
+{
+	//TODO: This is not properly removing from the foliage actor. However, when we reload it will skip it.
+	//We need to properly fix this, but for now this prevents the crash
+	if(UFoliageType* FoliageType = Cast<UFoliageType>(AssetInfo.GetAsset()))
+	{
+		PopulateFoliageMeshList();	
+	}else if(UBlueprint* Blueprint = Cast<UBlueprint>(AssetInfo.GetAsset()))
+	{
+		PopulateFoliageMeshList();	
+	}
 }
 
 /** When the user changes the current tool in the UI */
@@ -2243,48 +2265,52 @@ bool FEdModeFoliage::GetStaticMeshVertexColorForHit(const UStaticMeshComponent* 
 
 void FEdModeFoliage::SnapSelectedInstancesToGround(UWorld* InWorld)
 {
-	bool bMovedInstance = false;
-	
-	const int32 NumLevels = InWorld->GetNumLevels();
-	for (int32 LevelIdx = 0; LevelIdx < NumLevels; ++LevelIdx)
+	GEditor->BeginTransaction(NSLOCTEXT("UnrealEd", "FoliageMode_EditTransaction", "Snap Foliage To Ground"));
 	{
-		ULevel* Level = InWorld->GetLevel(LevelIdx);
-		AInstancedFoliageActor* IFA = AInstancedFoliageActor::GetInstancedFoliageActorForLevel(Level);
-		if (IFA)
+		bool bMovedInstance = false;
+
+		const int32 NumLevels = InWorld->GetNumLevels();
+		for (int32 LevelIdx = 0; LevelIdx < NumLevels; ++LevelIdx)
 		{
-			bool bFoundSelection = false;
-
-			for (auto& MeshPair : IFA->FoliageMeshes)
+			ULevel* Level = InWorld->GetLevel(LevelIdx);
+			AInstancedFoliageActor* IFA = AInstancedFoliageActor::GetInstancedFoliageActorForLevel(Level);
+			if (IFA)
 			{
-				FFoliageMeshInfo& MeshInfo = *MeshPair.Value;
-				TArray<int32> SelectedIndices = MeshInfo.SelectedIndices.Array();
+				bool bFoundSelection = false;
 
-				if (SelectedIndices.Num() > 0)
+				for (auto& MeshPair : IFA->FoliageMeshes)
 				{
-					// Mark actor once we found selection
-					if (!bFoundSelection)
+					FFoliageMeshInfo& MeshInfo = *MeshPair.Value;
+					TArray<int32> SelectedIndices = MeshInfo.SelectedIndices.Array();
+
+					if (SelectedIndices.Num() > 0)
 					{
-						IFA->Modify();
-						bFoundSelection = true;
+						// Mark actor once we found selection
+						if (!bFoundSelection)
+						{
+							IFA->Modify();
+							bFoundSelection = true;
+						}
+
+						MeshInfo.PreMoveInstances(IFA, SelectedIndices);
+
+						for (int32 InstanceIndex : SelectedIndices)
+						{
+							bMovedInstance |= SnapInstanceToGround(IFA, MeshPair.Key->AlignMaxAngle, MeshInfo, InstanceIndex);
+						}
+
+						MeshInfo.PostMoveInstances(IFA, SelectedIndices);
 					}
-
-					MeshInfo.PreMoveInstances(IFA, SelectedIndices);
-
-					for (int32 InstanceIndex : SelectedIndices)
-					{
-						bMovedInstance|= SnapInstanceToGround(IFA, MeshPair.Key->AlignMaxAngle, MeshInfo, InstanceIndex);
-					}
-
-					MeshInfo.PostMoveInstances(IFA, SelectedIndices);
 				}
 			}
 		}
-	}
 
-	if (bMovedInstance)
-	{
-		UpdateWidgetLocationToInstanceSelection();
+		if (bMovedInstance)
+		{
+			UpdateWidgetLocationToInstanceSelection();
+		}
 	}
+	GEditor->EndTransaction();
 }
 
 void FEdModeFoliage::HandleOnActorSpawned(AActor* Actor)
@@ -2298,7 +2324,13 @@ void FEdModeFoliage::HandleOnActorSpawned(AActor* Actor)
 
 void FEdModeFoliage::HandleOnFoliageTypeMeshChanged(UFoliageType* FoliageType)
 {
-	StaticCastSharedPtr<FFoliageEdModeToolkit>(Toolkit)->NotifyFoliageTypeMeshChanged(FoliageType);
+	if(FoliageType->IsNotAssetOrBlueprint() && FoliageType->GetStaticMesh() == nullptr)
+	{
+		RemoveFoliageType(&FoliageType, 1);
+	}else
+	{
+		StaticCastSharedPtr<FFoliageEdModeToolkit>(Toolkit)->NotifyFoliageTypeMeshChanged(FoliageType);
+	}
 }
 
 bool FEdModeFoliage::SnapInstanceToGround(AInstancedFoliageActor* InIFA, float AlignMaxAngle, FFoliageMeshInfo& Mesh, int32 InstanceIdx)
@@ -2507,6 +2539,11 @@ bool FEdModeFoliage::CanPaint(const ULevel* InLevel)
 
 bool FEdModeFoliage::CanPaint(const UFoliageType* FoliageType, const ULevel* InLevel)
 {
+	if(FoliageType == nullptr)	//if asset has already been deleted we can't paint
+	{
+		return false;
+	}
+
 	// Non-shared objects can be painted only into their own level
 	// Assets can be painted everywhere
 	if (FoliageType->IsAsset() || FoliageType->GetOutermost() == InLevel->GetOutermost())
@@ -2761,8 +2798,7 @@ bool FEdModeFoliage::InputKey(FEditorViewportClient* ViewportClient, FViewport* 
 	}
 	
 	bool bHandled = false;
-	const bool bInSelectionMode = UISettings.GetReapplyToolSelected() || UISettings.GetLassoSelectToolSelected();
-	if (UISettings.GetPaintToolSelected() || bInSelectionMode)
+	if (UISettings.GetPaintToolSelected() || UISettings.GetReapplyToolSelected() || UISettings.GetLassoSelectToolSelected())
 	{
 		// Require Ctrl or not as per user preference
 		ELandscapeFoliageEditorControlType FoliageEditorControlType = GetDefault<ULevelEditorViewportSettings>()->FoliageEditorControlType;
@@ -2819,23 +2855,23 @@ bool FEdModeFoliage::InputKey(FEditorViewportClient* ViewportClient, FViewport* 
 				bHandled = true;
 			}
 		}
+	}
 
-		if (!bHandled && bInSelectionMode)
+	if (!bHandled && (UISettings.GetLassoSelectToolSelected() || UISettings.GetSelectToolSelected()))
+	{
+		if (Event == IE_Pressed)
 		{
-			if (Event == IE_Pressed)
+			if (Key == EKeys::Platform_Delete)
 			{
-				if (Key == EKeys::Platform_Delete)
-				{
-					RemoveSelectedInstances(GetWorld());
+				RemoveSelectedInstances(GetWorld());
 
-					bHandled = true;
-				}
-				else if (Key == EKeys::End)
-				{
-					SnapSelectedInstancesToGround(GetWorld());
+				bHandled = true;
+			}
+			else if (Key == EKeys::End)
+			{
+				SnapSelectedInstancesToGround(GetWorld());
 
-					bHandled = true;
-				}
+				bHandled = true;
 			}
 		}
 	}

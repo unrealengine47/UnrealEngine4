@@ -455,7 +455,7 @@ bool UCookCommandlet::SaveCookedPackage( UPackage* Package, uint32 SaveFlags, bo
 				const FString FullFilename = FPaths::ConvertRelativePathToFull( PlatFilename );
 				if( FullFilename.Len() >= PLATFORM_MAX_FILEPATH_LENGTH )
 				{
-					UE_LOG( LogCookCommandlet, Error, TEXT( "Couldn't save package, filename is too long :%s" ), *PlatFilename );
+					UE_LOG( LogCookCommandlet, Error, TEXT( "Couldn't save package, filename is too long :%s" ), *FullFilename );
 					bSavedCorrectly = false;
 				}
 				else
@@ -679,6 +679,7 @@ void UCookCommandlet::GenerateAssetRegistry(const TArray<ITargetPlatform*>& Plat
 		{
 			// write it out to a memory archive
 			FArrayWriter SerializedAssetRegistry;
+			SerializedAssetRegistry.SetFilterEditorOnly(true);
 			AssetRegistry.Serialize(SerializedAssetRegistry);
 			UE_LOG(LogCookCommandlet, Display, TEXT("Generated asset registry size is %5.2fkb"), (float)SerializedAssetRegistry.Num() / 1024.f);
 

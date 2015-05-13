@@ -368,38 +368,35 @@ void ULandscapeComponent::FixupWeightmaps()
 
 		if (Info)
 		{
-			TArray<ULandscapeLayerInfoObject*> DeletedLayers;
+			TArray<ULandscapeLayerInfoObject*> LayersToDelete;
 			bool bFixedLayerDeletion = false;
 
-			if (Info->Layers.Num() && Cast<ALandscape>(Proxy))
+			// LayerInfo Validation check...
+			for (const auto& Allocation : WeightmapLayerAllocations)
 			{
-				// LayerName Validation check...
-				for (int32 LayerIdx = 0; LayerIdx < WeightmapLayerAllocations.Num(); LayerIdx++)
+				if (!Allocation.LayerInfo
+					|| (Allocation.LayerInfo != ALandscapeProxy::VisibilityLayer && Info->GetLayerInfoIndex(Allocation.LayerInfo) == INDEX_NONE))
 				{
-					if (!WeightmapLayerAllocations[LayerIdx].LayerInfo
-						|| (WeightmapLayerAllocations[LayerIdx].LayerInfo != ALandscapeProxy::VisibilityLayer && Info->GetLayerInfoIndex(WeightmapLayerAllocations[LayerIdx].LayerInfo) == INDEX_NONE))
+					if (!bFixedLayerDeletion)
 					{
-						if (!bFixedLayerDeletion)
-						{
-							FFormatNamedArguments Arguments;
-							Arguments.Add(TEXT("LandscapeName"), FText::FromString(GetName()));
-							FMessageLog("MapCheck").Warning()
-								->AddToken(FTextToken::Create(FText::Format(LOCTEXT("MapCheck_Message_FixedUpDeletedLayerWeightmap", "{LandscapeName} : Fixed up deleted layer weightmap"), Arguments)))
-								->AddToken(FMapErrorToken::Create(FMapErrors::FixedUpDeletedLayerWeightmap));
-						}
-
-						bFixedLayerDeletion = true;
-						DeletedLayers.Add(WeightmapLayerAllocations[LayerIdx].LayerInfo);
+						FFormatNamedArguments Arguments;
+						Arguments.Add(TEXT("LandscapeName"), FText::FromString(GetName()));
+						FMessageLog("MapCheck").Warning()
+							->AddToken(FTextToken::Create(FText::Format(LOCTEXT("MapCheck_Message_FixedUpDeletedLayerWeightmap", "{LandscapeName} : Fixed up deleted layer weightmap"), Arguments)))
+							->AddToken(FMapErrorToken::Create(FMapErrors::FixedUpDeletedLayerWeightmap));
 					}
+
+					bFixedLayerDeletion = true;
+					LayersToDelete.Add(Allocation.LayerInfo);
 				}
 			}
 
 			if (bFixedLayerDeletion)
 			{
 				FLandscapeEditDataInterface LandscapeEdit(Info);
-				for (int32 Idx = 0; Idx < DeletedLayers.Num(); ++Idx)
+				for (int32 Idx = 0; Idx < LayersToDelete.Num(); ++Idx)
 				{
-					DeleteLayer(DeletedLayers[Idx], &LandscapeEdit);
+					DeleteLayer(LayersToDelete[Idx], &LandscapeEdit);
 				}
 			}
 
@@ -2020,7 +2017,7 @@ void ALandscapeProxy::Import(FGuid Guid, int32 VertsX, int32 VertsY,
 			// Weightmap is sized the same as the component
 			int32 WeightmapSize = (SubsectionSizeQuads + 1) * NumSubsections;
 			// Should be power of two
-			check(((WeightmapSize - 1) & WeightmapSize) == 0);
+			check(FMath::IsPowerOfTwo(WeightmapSize));
 
 			LandscapeComponent->WeightmapScaleBias = FVector4(1.0f / (float)WeightmapSize, 1.0f / (float)WeightmapSize, 0.5f / (float)WeightmapSize, 0.5f / (float)WeightmapSize);
 			LandscapeComponent->WeightmapSubsectionOffset = (float)(SubsectionSizeQuads + 1) / (float)WeightmapSize;

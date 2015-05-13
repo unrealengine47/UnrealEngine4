@@ -203,6 +203,7 @@ public class GUBP : BuildCommand
             public List<UnrealTargetPlatform> RemovePlatformFromPromotable = new List<UnrealTargetPlatform>();
             public List<string> PromotablesWithoutTools = new List<string>();
             public List<string> NodesToRemovePseudoDependencies = new List<string>();
+            public List<string> EnhanceAgentRequirements = new List<string>();
 			public bool bNoAutomatedTesting = false;
 			public bool bNoDocumentation = false;
 			public bool bNoInstalledEngine = false;
@@ -1164,6 +1165,17 @@ public class GUBP : BuildCommand
 						}
                     );
 				}
+
+				bool WithHTML5 = !bp.BranchOptions.PlatformsToRemove.Contains(UnrealTargetPlatform.HTML5);
+				if (WithHTML5)
+				{
+					Agenda.HTML5DotNetProjects.AddRange(
+						new string[]
+						{
+							CombinePaths(@"Engine\Source\Programs\HTML5\HTML5LaunchHelper\HTML5LaunchHelper.csproj"),
+						}
+					);
+				}
             }
 
             string AddArgs = "-nobuilduht -skipactionhistory -CopyAppBundleBackToDevice";
@@ -1757,7 +1769,15 @@ public class GUBP : BuildCommand
         public override bool DeleteBuildProducts()
         {
             return true;
-        }  
+        }
+        public override int AgentMemoryRequirement(GUBP bp)
+        {
+            if(bp.BranchOptions.EnhanceAgentRequirements.Contains(StaticGetFullName(HostPlatform, GameProj, TargetPlatform, WithXp, Precompiled)))
+            {
+                return 64;
+            }
+            return base.AgentMemoryRequirement(bp);
+        }
 
         public override int CISFrequencyQuantumShift(GUBP bp)
         {            
@@ -7303,7 +7323,10 @@ public class GUBP : BuildCommand
                         int MyIndex = MyChain.IndexOf(NodeToDo);
                         if (MyIndex > 0)
                         {
-                            PreConditionUncompletedEcDeps.Add(MyChain[MyIndex - 1]);
+                            if (!PreConditionUncompletedEcDeps.Contains(MyChain[MyIndex - 1]) && !NodeIsAlreadyComplete(MyChain[MyIndex - 1], LocalOnly))
+                            {
+                                PreConditionUncompletedEcDeps.Add(MyChain[MyIndex - 1]);
+                            }
                         }
                         else
                         {

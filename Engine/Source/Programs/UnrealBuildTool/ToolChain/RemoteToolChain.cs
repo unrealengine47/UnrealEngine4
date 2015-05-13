@@ -208,7 +208,12 @@ namespace UnrealBuildTool
 			if (Ini.GetBool("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "bUseRSync", out bUseRSync))
 			{
 				bUseRPCUtil = !bUseRSync;
-				Ini.GetString("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "RSyncUsername", out RSyncUsername);
+				string UserName = RSyncUsername;
+
+				if (Ini.GetString("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "RSyncUsername", out UserName))
+				{
+					RSyncUsername = UserName;
+				}
 				
 				if (Ini.GetString("/Script/IOSRuntimeSettings.IOSRuntimeSettings", "DeltaCopyInstallPath", out OverrideDeltaCopyInstallPath))
 				{
@@ -327,6 +332,7 @@ namespace UnrealBuildTool
 				{
 					Log.TraceError("Remote compiling requires a server name. Use the editor to set up your remote compilation settings.");
 					InitializationErrorCode = 99;
+					return InitializationErrorCode;
 				}
 
 				if (!bUseRPCUtil)

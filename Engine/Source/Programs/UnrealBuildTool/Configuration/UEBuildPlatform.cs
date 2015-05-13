@@ -436,7 +436,7 @@ namespace UnrealBuildTool
 					return ":";
 				case UnrealTargetPlatform.Win32:
 				case UnrealTargetPlatform.Win64:
-				case UnrealTargetPlatform.WinUAP:
+				case UnrealTargetPlatform.UWP:
 					return ";";
 				default:
 					Log.TraceWarning("PATH var delimiter unknown for platform " + BuildHostPlatform.Current.Platform.ToString() + " using ';'");
@@ -827,12 +827,6 @@ namespace UnrealBuildTool
 			if (Ini.GetBool("/Script/BuildSettings.BuildSettings", "bCompileCEF3", out bValue))
 			{
 				UEBuildConfiguration.bCompileCEF3 = bValue;
-			}
-
-			bValue = BuildConfiguration.bEnableShadowVariableWarning;
-			if (Ini.GetBool("/Script/BuildSettings.BuildSettings", "bEnableShadowVariableWarning", out bValue))
-			{
-				BuildConfiguration.bEnableShadowVariableWarning = bValue;
 			}
 		}
 

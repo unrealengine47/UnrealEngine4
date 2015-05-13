@@ -260,6 +260,9 @@ public:
 	/** Operator for serialization */
 	friend FArchive& operator<<(FArchive& Ar, FAssetData& AssetData)
 	{
+
+		//FNameAsStringProxyArchive Ar(InAr);
+
 		// serialize out the asset info
 		Ar << AssetData.ObjectPath;
 		Ar << AssetData.PackagePath;
@@ -271,7 +274,7 @@ public:
 		Ar << AssetData.AssetName;
 
 		static FName BlueprintClassName = TEXT("Blueprint");
-		if (AssetData.AssetClass == BlueprintClassName)
+		if (Ar.IsFilterEditorOnly() && AssetData.AssetClass == BlueprintClassName)
 		{
 			// Exclude FiB data from serialization
 			static FName FiBName = TEXT("FiB");
