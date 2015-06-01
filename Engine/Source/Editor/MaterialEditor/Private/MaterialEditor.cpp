@@ -214,6 +214,8 @@ void FMaterialEditor::RegisterTabSpawners(const TSharedRef<class FTabManager>& T
 		.SetDisplayName( LOCTEXT("HLSLCodeTab", "HLSL Code") )
 		.SetGroup( WorkspaceMenuCategoryRef )
 		.SetIcon(FSlateIcon(FEditorStyle::GetStyleSetName(), "MaterialEditor.Tabs.HLSLCode"));
+
+	OnRegisterTabSpawners().Broadcast(TabManager);
 }
 
 
@@ -228,6 +230,8 @@ void FMaterialEditor::UnregisterTabSpawners(const TSharedRef<class FTabManager>&
 	TabManager->UnregisterTabSpawner( StatsTabId );
 	TabManager->UnregisterTabSpawner( FindTabId );
 	TabManager->UnregisterTabSpawner( HLSLCodeTabId );
+
+	OnUnregisterTabSpawners().Broadcast(TabManager);
 }
 
 void FMaterialEditor::InitEditorForMaterial(UMaterial* InMaterial)
@@ -331,7 +335,6 @@ void FMaterialEditor::InitMaterialEditor( const EToolkitMode::Type Mode, const T
 	FEditorSupportDelegates::MaterialUsageFlagsChanged.AddRaw(this, &FMaterialEditor::OnMaterialUsageFlagsChanged);
 	FEditorSupportDelegates::VectorParameterDefaultChanged.AddRaw(this, &FMaterialEditor::OnVectorParameterDefaultChanged);
 	FEditorSupportDelegates::ScalarParameterDefaultChanged.AddRaw(this, &FMaterialEditor::OnScalarParameterDefaultChanged);
-	FEditorDelegates::OnAssetPostImport.AddRaw(this, &FMaterialEditor::OnAssetPostImport);
 
 	FAssetRegistryModule& AssetRegistryModule = FModuleManager::GetModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
 	
@@ -415,6 +418,8 @@ void FMaterialEditor::InitMaterialEditor( const EToolkitMode::Type Mode, const T
 	ObjectsToEdit.Add(ObjectToEdit);
 	ObjectsToEdit.Add(Material);
 	FAssetEditorToolkit::InitAssetEditor( Mode, InitToolkitHost, MaterialEditorAppIdentifier, StandaloneDefaultLayout, bCreateDefaultStandaloneMenu, bCreateDefaultToolbar, ObjectsToEdit, false );
+
+	AddMenuExtender(GetMenuExtensibilityManager()->GetAllExtenders(GetToolkitCommands(), GetEditingObjects()));
 
 	IMaterialEditorModule* MaterialEditorModule = &FModuleManager::LoadModuleChecked<IMaterialEditorModule>( "MaterialEditor" );
 	AddMenuExtender(MaterialEditorModule->GetMenuExtensibilityManager()->GetAllExtenders(GetToolkitCommands(), GetEditingObjects()));
@@ -531,11 +536,16 @@ FMaterialEditor::FMaterialEditor()
 	, bShowStats(true)
 	, bShowBuiltinStats(false)
 	, bShowMobileStats(false)
+	, MenuExtensibilityManager(new FExtensibilityManager)
+	, ToolBarExtensibilityManager(new FExtensibilityManager)
 {
 }
 
 FMaterialEditor::~FMaterialEditor()
 {
+	// Broadcast that this editor is going down to all listeners
+	OnMaterialEditorClosed().Broadcast();
+
 	for (int32 ParameterIndex = 0; ParameterIndex < OverriddenVectorParametersToRevert.Num(); ParameterIndex++)
 	{
 		SetVectorParameterDefaultOnDependentMaterials(OverriddenVectorParametersToRevert[ParameterIndex], FLinearColor::Black, false);
@@ -550,7 +560,6 @@ FMaterialEditor::~FMaterialEditor()
 	FEditorSupportDelegates::MaterialUsageFlagsChanged.RemoveAll(this);
 	FEditorSupportDelegates::VectorParameterDefaultChanged.RemoveAll(this);
 	FEditorSupportDelegates::ScalarParameterDefaultChanged.RemoveAll(this);
-	FEditorDelegates::OnAssetPostImport.RemoveAll(this);
 
 	// Null out the expression preview material so they can be GC'ed
 	ExpressionPreviewMaterial = NULL;
@@ -712,6 +721,14 @@ FText FMaterialEditor::GetToolkitName() const
 	return FText::Format( LOCTEXT("MaterialEditorAppLabel", "{ObjectName}{DirtyState}"), Args );
 }
 
+FText FMaterialEditor::GetToolkitToolTipText() const
+{
+	const UObject* EditingObject = GetEditingObjects()[0];
+
+	// Overridden to accommodate editing of multiple objects (original and preview materials)
+	return FAssetEditorToolkit::GetToolTipTextForObject(EditingObject);
+}
+
 FString FMaterialEditor::GetWorldCentricTabPrefix() const
 {
 	return LOCTEXT("WorldCentricTabPrefix", "Material ").ToString();
@@ -794,6 +811,8 @@ void FMaterialEditor::ExtendToolbar()
 		);
 	
 	AddToolbarExtender(ToolbarExtender);
+
+	AddToolbarExtender(GetToolBarExtensibilityManager()->GetAllExtenders(GetToolkitCommands(), GetEditingObjects()));
 
 	IMaterialEditorModule* MaterialEditorModule = &FModuleManager::LoadModuleChecked<IMaterialEditorModule>( "MaterialEditor" );
 	AddToolbarExtender(MaterialEditorModule->GetToolBarExtensibilityManager()->GetAllExtenders(GetToolkitCommands(), GetEditingObjects()));
@@ -2101,6 +2120,7 @@ void FMaterialEditor::OnConvertObjects()
 							NewTextureExpr->TextureObject = TextureSampleExpression->TextureObject;
 							NewTextureExpr->MipValue = TextureSampleExpression->MipValue;
 							NewTextureExpr->MipValueMode = TextureSampleExpression->MipValueMode;
+							NewGraphNode->ReconstructNode();
 						}
 						else if (ComponentMaskExpression)
 						{
@@ -2449,64 +2469,6 @@ void FMaterialEditor::RenameAssetFromRegistry(const FAssetData& InAddedAssetData
 	if(Asset->IsChildOf(UMaterialFunction::StaticClass()))
 	{
 		ForceRefreshExpressionPreviews();
-	}
-}
-
-
-void FMaterialEditor::OnAssetPostImport(UFactory* InFactory, UObject* InObject)
-{
-	UTexture* Texture = Cast<UTexture>(InObject);
-
-	if (InFactory->IsA(UTextureFactory::StaticClass()) && Texture != nullptr)
-	{
-		// When a texture which is referenced in the material is imported, update the preview material
-		for (UMaterialExpression* Expression : Material->Expressions)
-		{
-			if (UMaterialExpressionTextureBase* ExpressionTexture = Cast<UMaterialExpressionTextureBase>(Expression))
-			{
-				if (ExpressionTexture->Texture == Texture)
-				{
-					UpdateOriginalMaterial();
-					break;
-				}
-			}
-			else if (UMaterialExpressionMaterialFunctionCall* ExpressionFunctionCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression))
-			{
-				struct Local
-				{
-					static bool ReferencesImportedObject(UMaterialFunction* Function, UTexture* InTexture)
-					{
-						for (UMaterialExpression* MaterialExpression : Function->FunctionExpressions)
-						{
-							if (UMaterialExpressionTextureBase* MaterialExpressionTexture = Cast<UMaterialExpressionTextureBase>(MaterialExpression))
-							{
-								if (MaterialExpressionTexture->Texture == InTexture)
-								{
-									return true;
-								}
-							}
-							else if (UMaterialExpressionMaterialFunctionCall* MaterialExpressionFunctionCall = Cast<UMaterialExpressionMaterialFunctionCall>(MaterialExpression))
-							{
-								if (MaterialExpressionFunctionCall->MaterialFunction != nullptr &&
-									ReferencesImportedObject(MaterialExpressionFunctionCall->MaterialFunction, InTexture))
-								{
-									return true;
-								}
-							}
-						}
-
-						return false;
-					}
-				};
-
-				if (ExpressionFunctionCall->MaterialFunction != nullptr &&
-					Local::ReferencesImportedObject(ExpressionFunctionCall->MaterialFunction, Texture))
-				{
-					UpdateOriginalMaterial();
-					break;
-				}
-			}
-		}
 	}
 }
 

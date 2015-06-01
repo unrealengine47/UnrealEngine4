@@ -2,6 +2,9 @@
 
 #include "Paper2DEditorPrivatePCH.h"
 #include "EdModeTileMap.h"
+#include "PaperTileMapComponent.h"
+#include "PaperTileSet.h"
+
 #include "TileMapEdModeToolkit.h"
 #include "TileSetEditor/TileSetSelectorViewport.h"
 #include "SContentReference.h"
@@ -47,6 +50,15 @@ FText FTileMapEdModeToolkit::GetToolkitName() const
 		Args.Add(TEXT("TileSetName"), FText::FromString(CurrentTileSetPtr->GetName()));
 		Args.Add(TEXT("DirtyState"), bDirtyState ? FText::FromString( TEXT( "*" ) ) : FText::GetEmpty());
 		return FText::Format(LOCTEXT("TileMapEditAppLabel", "{TileSetName}{DirtyState}"), Args);
+	}
+	return GetBaseToolkitName();
+}
+
+FText FTileMapEdModeToolkit::GetToolkitToolTipText() const
+{
+	if (CurrentTileSetPtr.IsValid())
+	{
+		return FAssetEditorToolkit::GetToolTipTextForObject(CurrentTileSetPtr.Get());
 	}
 	return GetBaseToolkitName();
 }

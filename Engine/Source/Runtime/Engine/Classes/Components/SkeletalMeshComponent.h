@@ -611,6 +611,25 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Components|SkeletalMesh")
 	void ResetClothTeleportMode();
 
+	/** 
+	 * If this component has a valid MasterPoseComponent then this function makes cloth items on the slave component
+	 * take the transforms of the cloth items on the master component instead of simulating separately.
+	 * @Note This will FORCE any cloth actor on the master component to simulate in local space. Also
+	 * The meshes used in the components must be identical for the cloth to bind correctly
+	 */
+	UFUNCTION(BlueprintCallable, Category="Components|SkeletalMesh", meta=(UnsafeDuringActorConstruction="true"))
+	void BindClothToMasterPoseComponent();
+
+	/** 
+	 * If this component has a valid MasterPoseComponent and has previously had its cloth bound to the
+	 * MCP, this function will unbind the cloth and resume simulation.
+	 * @param bRestoreSimulationSpace if true and the master pose cloth was originally simulating in world
+	 * space, we will restore this setting. This will cause the master component to reset which may be
+	 * undesirable.
+	 */
+	UFUNCTION(BlueprintCallable, Category="Components|SkeletalMesh", meta=(UnsafeDuringActorConstruction="true"))
+	void UnbindClothFromMasterPoseComponent(bool bRestoreSimulationSpace = true);
+
 	/** We detach the Component once we are done playing it.
 	 *
 	 * @param	ParticleSystemComponent that finished
@@ -697,6 +716,11 @@ public:
 	/** precomputed actual cloth morph target data */
 	TArray<FClothMorphTargetData> ClothMorphTargets;
 
+	/** Whether or not we're taking cloth sim information from our master component */
+	bool bBindClothToMasterComponent;
+	/** The previous state of the master component simulation coord space, so we can restore on unbind */
+	bool bPrevMasterSimulateLocalSpace;
+
 #if WITH_CLOTH_COLLISION_DETECTION
 	/** increase every tick to update clothing collision  */
 	uint32 ClothingCollisionRevision; 
@@ -728,7 +752,7 @@ public:
 	void TickClothing(float DeltaTime);
 
 	/** Store cloth simulation data into OutClothSimData */
-	void GetUpdateClothSimulationData(TArray<FClothSimulData>& OutClothSimData);
+	void GetUpdateClothSimulationData(TArray<FClothSimulData>& OutClothSimData, USkeletalMeshComponent* OverrideLocalRootComponent = nullptr);
 	void ApplyWindForCloth(FClothingActor& ClothingActor);
 	void RemoveAllClothingActors();
 	void ReleaseAllClothingResources();
@@ -813,7 +837,8 @@ public:
 	virtual void UpdateBounds() override;
 	virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;
 	virtual bool IsAnySimulatingPhysics() const override;
-	virtual void OnUpdateTransform(bool bSkipPhysicsMove) override;
+	virtual void OnUpdateTransform(bool bSkipPhysicsMove, bool bTeleport = false) override;
+	virtual void UpdateOverlaps(TArray<FOverlapInfo> const* PendingOverlaps=NULL, bool bDoNotifies=true, const TArray<FOverlapInfo>* OverlapsAtEndLocation=NULL) override;
 	// End USceneComponent interface.
 
 	// Begin UPrimitiveComponent interface.
@@ -1038,7 +1063,13 @@ public:
 	 *	Iterate over each physics body in the physics for this mesh, and for each 'kinematic' (ie fixed or default if owner isn't simulating) one, update its
 	 *	transform based on the animated transform.
 	 */
-	void UpdateKinematicBonesToAnim(const TArray<FTransform>& InSpaceBases, bool bTeleport, bool bNeedsSkinning, bool bForceUpdate = false);
+	void UpdateKinematicBonesToAnim(const TArray<FTransform>& InSpaceBases, bool bTeleport, bool bNeedsSkinning);
+
+	DEPRECATED(4.9, "bForceUpdate is no longer used. Please use bTeleport")
+	void UpdateKinematicBonesToAnim(const TArray<FTransform>& InSpaceBases, bool bTeleport, bool bNeedsSkinning, bool bForceUpdate)
+	{
+		UpdateKinematicBonesToAnim(InSpaceBases, bTeleport || bForceUpdate, bNeedsSkinning);
+	}
 	
 	/**
 	 * Look up all bodies for broken constraints.

@@ -9,6 +9,7 @@
 #include "PaperGeomTools.h"
 #include "PaperSpriteComponent.h"
 #include "PaperFlipbookComponent.h"
+#include "PaperGroupedSpriteComponent.h"
 #include "SpriteDrawCall.h"
 
 #if WITH_EDITOR
@@ -428,29 +429,32 @@ public:
 	FSpriteReregisterContext(UPaperSprite* TargetAsset)
 	{
 		// Look at sprite components
-		for (TObjectIterator<UPaperSpriteComponent> SpriteIt; SpriteIt; ++SpriteIt)
+		for (UPaperSpriteComponent* TestComponent : TObjectRange<UPaperSpriteComponent>())
 		{
-			if (UPaperSpriteComponent* TestComponent = *SpriteIt)
+			if (TestComponent->GetSprite() == TargetAsset)
 			{
-				if (TestComponent->GetSprite() == TargetAsset)
+				AddComponentToRefresh(TestComponent);
+			}
+		}
+
+		// Look at flipbook components
+		for (UPaperFlipbookComponent* TestComponent : TObjectRange<UPaperFlipbookComponent>())
+		{
+			if (UPaperFlipbook* Flipbook = TestComponent->GetFlipbook())
+			{
+				if (Flipbook->ContainsSprite(TargetAsset))
 				{
 					AddComponentToRefresh(TestComponent);
 				}
 			}
 		}
 
-		// Look at flipbook components
-		for (TObjectIterator<UPaperFlipbookComponent> FlipbookIt; FlipbookIt; ++FlipbookIt)
+		// Look at grouped sprite components
+		for (UPaperGroupedSpriteComponent* TestComponent : TObjectRange<UPaperGroupedSpriteComponent>())
 		{
-			if (UPaperFlipbookComponent* TestComponent = *FlipbookIt)
+			if (TestComponent->ContainsSprite(TargetAsset))
 			{
-				if (UPaperFlipbook* Flipbook = TestComponent->GetFlipbook())
-				{
-					if (Flipbook->ContainsSprite(TargetAsset))
-					{
-						AddComponentToRefresh(TestComponent);
-					}
-				}
+				AddComponentToRefresh(TestComponent);
 			}
 		}
 	}
@@ -964,7 +968,14 @@ void UPaperSprite::RebuildRenderData()
 
 		new (BakedRenderData) FVector4(PivotSpacePos.X * UnitsPerPixel, PivotSpacePos.Y * UnitsPerPixel, UV.X * InverseWidth, UV.Y * InverseHeight);
 	}
+
 	check((BakedRenderData.Num() % 3) == 0);
+
+	// Swap the generated vertices so they end up in counterclockwise order
+	for (int32 SVT = 0; SVT < TriangluatedPoints.Num(); SVT += 3)
+	{
+		Swap(BakedRenderData[SVT + 2], BakedRenderData[SVT + 0]);
+	}
 }
 
 void UPaperSprite::FindTextureBoundingBox(float AlphaThreshold, /*out*/ FVector2D& OutBoxPosition, /*out*/ FVector2D& OutBoxSize)
@@ -1772,6 +1783,11 @@ void UPaperSprite::PostLoad()
 	if (PaperVer < FPaperCustomVersion::AddPivotSnapToPixelGrid)
 	{
 		bSnapPivotToPixelGrid = false;
+	}
+
+	if (PaperVer < FPaperCustomVersion::FixTangentGenerationForFrontFace)
+	{
+		bRebuildRenderData = true;
 	}
 
 	if (PaperVer < FPaperCustomVersion::AddPixelsPerUnrealUnit)

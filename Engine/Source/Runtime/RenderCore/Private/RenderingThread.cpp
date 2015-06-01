@@ -59,8 +59,8 @@ static void WaitAndResumeRendering()
 		FPlatformProcess::Sleep( 0.001f ); //@todo this should be a more principled wait
 	}
     
-    // set the thread back to real time mode
-    FPlatformProcess::SetRealTimeMode();
+	// set the thread back to real time mode
+	FPlatformProcess::SetRealTimeMode();
 }
 
 /**
@@ -69,6 +69,10 @@ static void WaitAndResumeRendering()
  */
 FSuspendRenderingThread::FSuspendRenderingThread( bool bInRecreateThread )
 {
+	// Suspend async loading thread so that it doesn't start queueing render commands 
+	// while the render thread is suspended.
+	SuspendAsyncLoading();
+
 	bRecreateThread = bInRecreateThread;
 	bUseRenderingThread = GUseThreadedRendering;
 	bWasRenderingThreadRunning = GIsThreadedRendering;
@@ -169,6 +173,7 @@ FSuspendRenderingThread::~FSuspendRenderingThread()
 		// Resume the render thread again. 
 		FPlatformAtomics::InterlockedDecrement( &GIsRenderingThreadSuspended );
 	}
+	ResumeAsyncLoading();
 }
 
 
@@ -381,9 +386,7 @@ public:
 #if !PLATFORM_SEH_EXCEPTIONS_DISABLED
 			__except( ReportCrash( GetExceptionInformation() ) )
 			{
-#if WITH_EDITORONLY_DATA
 				GRenderingThreadError = GErrorHist;
-#endif
 
 				// Use a memory barrier to ensure that the game thread sees the write to GRenderingThreadError before
 				// the write to GIsRenderingThreadHealthy.
@@ -639,9 +642,7 @@ void CheckRenderingThreadHealth()
 {
 	if(!GIsRenderingThreadHealthy)
 	{
-#if WITH_EDITORONLY_DATA
 		GErrorHist[0] = 0;
-#endif
 		GIsCriticalError = false;
 		UE_LOG(LogRendererCore, Fatal,TEXT("Rendering thread exception:\r\n%s"),*GRenderingThreadError);
 	}

@@ -11,21 +11,24 @@
 #include "LightPropagationVolume.h"
 #include "SceneUtils.h"
 #include "HdrCustomResolveShaders.h"
-
-
-// for LightPropagationVolume feature, could be exposed
-const int ReflectiveShadowMapResolution = 256;
+#include "Public/LightPropagationVolumeBlendable.h"
 
 IMPLEMENT_UNIFORM_BUFFER_STRUCT(FGBufferResourceStruct,TEXT("GBuffers"));
 
 static TAutoConsoleVariable<int32> CVarBasePassOutputsVelocityDebug(
 	TEXT("r.BasePassOutputsVelocityDebug"),
 	0,
-	TEXT("Debug settings for Base Pass outputting velocity.\n") \
-	TEXT("0 - Regular rendering\n") \
-	TEXT("1 - Skip setting GBufferVelocity RT\n") \
-	TEXT("2 - Set Color Mask 0 for GBufferVelocity RT\n"),
+	TEXT("Debug settings for Base Pass outputting velocity.\n")
+	TEXT("0 - Regular rendering\n")
+	TEXT("1 - Skip setting GBufferVelocity RT\n")
+	TEXT("2 - Set Color Mask 0 for GBufferVelocity RT"),
 	ECVF_RenderThreadSafe);
+
+static TAutoConsoleVariable<int32> CVarRSMResolution(
+	TEXT("r.LPV.RSMResolution"),
+	360,
+	TEXT("Reflective Shadow Map resolution (used for LPV) - higher values result in less aliasing artifacts, at the cost of performance"),
+	ECVF_Scalability | ECVF_RenderThreadSafe);
 
 static int32 GBasePassOutputsVelocityDebug = 0;
 
@@ -67,7 +70,8 @@ static TAutoConsoleVariable<int32> CVarCustomDepth(
 	1,
 	TEXT("0: feature is disabled\n")
 	TEXT("1: feature is enabled, texture is created on demand\n")
-	TEXT("2: feature is enabled, texture is not released until required (should be the project setting if the feature should not stall)"),
+	TEXT("2: feature is enabled, texture is not released until required (should be the project setting if the feature should not stall)\n")
+	TEXT("3: feature is enabled, stencil writes are enabled, texture is not released until required (should be the project setting if the feature should not stall)"),
 	ECVF_RenderThreadSafe
 	);
 
@@ -92,7 +96,157 @@ static TAutoConsoleVariable<int32> CVarGBufferFormat(
 	ECVF_RenderThreadSafe);
 
 /** The global render targets used for scene rendering. */
-TGlobalResource<FSceneRenderTargets> GSceneRenderTargets;
+static TGlobalResource<FSceneRenderTargets> SceneRenderTargetsSingleton;
+
+FSceneRenderTargets& FSceneRenderTargets::Get(FRHICommandList& RHICmdList)
+{
+	FSceneRenderTargets* SceneContext = (FSceneRenderTargets*)RHICmdList.GetRenderThreadContext(FRHICommandListBase::ERenderThreadContext::SceneRenderTargets);
+	if (!SceneContext)
+	{
+		return SceneRenderTargetsSingleton;
+	}
+	check(!RHICmdList.IsImmediate());
+	return *SceneContext;
+}
+
+FSceneRenderTargets& FSceneRenderTargets::Get(FRHICommandListImmediate& RHICmdList)
+{
+	check(IsInRenderingThread() && !RHICmdList.GetRenderThreadContext(FRHICommandListBase::ERenderThreadContext::SceneRenderTargets)
+		&& !FTaskGraphInterface::Get().IsThreadProcessingTasks(ENamedThreads::RenderThread_Local)); // if we are processing tasks on the local queue, it is assumed this are in support of async tasks, which cannot use the current state of the render targets. This can be relaxed if needed.
+	return SceneRenderTargetsSingleton;
+}
+
+FSceneRenderTargets& FSceneRenderTargets::Get_Todo_PassContext()
+{
+	check(IsInRenderingThread()
+		&& !FTaskGraphInterface::Get().IsThreadProcessingTasks(ENamedThreads::RenderThread_Local)); // if we are processing tasks on the local queue, it is assumed this are in support of async tasks, which cannot use the current state of the render targets. This can be relaxed if needed.
+	return SceneRenderTargetsSingleton;
+}
+
+FSceneRenderTargets& FSceneRenderTargets::Get_FrameConstantsOnly()
+{
+	return SceneRenderTargetsSingleton;
+}
+
+ FSceneRenderTargets* FSceneRenderTargets::CreateSnapshot(const FViewInfo& InView)
+{
+	QUICK_SCOPE_CYCLE_COUNTER(STAT_FSceneRenderTargets_CreateSnapshot);
+	check(IsInRenderingThread() && FMemStack::Get().GetNumMarks() == 1); // we do not want this popped before the end of the scene and it better be the scene allocator
+	FSceneRenderTargets* NewSnapshot = new (FMemStack::Get()) FSceneRenderTargets(InView, *this);
+	check(NewSnapshot->bSnapshot);
+	Snapshots.Add(NewSnapshot);
+	return NewSnapshot;
+}
+
+void FSceneRenderTargets::SetSnapshotOnCmdList(FRHICommandList& TargetCmdList)
+{
+	check(bSnapshot);
+	TargetCmdList.SetRenderThreadContext(this, FRHICommandListBase::ERenderThreadContext::SceneRenderTargets);
+}
+
+void FSceneRenderTargets::DestroyAllSnapshots()
+{
+	if (Snapshots.Num())
+	{
+		QUICK_SCOPE_CYCLE_COUNTER(STAT_FSceneRenderTargets_DestroyAllSnapshots);
+		check(IsInRenderingThread());
+		for (auto Snapshot : Snapshots)
+		{
+			Snapshot->~FSceneRenderTargets();
+		}
+		Snapshots.Reset();
+		GRenderTargetPool.DestructSnapshots();
+	}
+}
+
+
+
+template <size_t N>
+static void SnapshotArray(TRefCountPtr<IPooledRenderTarget> (&Dest)[N], const TRefCountPtr<IPooledRenderTarget> (&Src)[N])
+{
+	for (int32 Index = 0; Index < N; Index++)
+	{
+		Dest[Index] = GRenderTargetPool.MakeSnapshot(Src[Index]);
+	}
+}
+
+FSceneRenderTargets::FSceneRenderTargets(const FViewInfo& View, const FSceneRenderTargets& SnapshotSource)
+	: LightAttenuation(GRenderTargetPool.MakeSnapshot(SnapshotSource.LightAttenuation))
+	, LightAccumulation(GRenderTargetPool.MakeSnapshot(SnapshotSource.LightAccumulation))
+	, DirectionalOcclusion(GRenderTargetPool.MakeSnapshot(SnapshotSource.DirectionalOcclusion))
+	, SceneDepthZ(GRenderTargetPool.MakeSnapshot(SnapshotSource.SceneDepthZ))
+	, SceneAlphaCopy(GRenderTargetPool.MakeSnapshot(SnapshotSource.SceneAlphaCopy))
+	, AuxiliarySceneDepthZ(GRenderTargetPool.MakeSnapshot(SnapshotSource.AuxiliarySceneDepthZ))
+	, SmallDepthZ(GRenderTargetPool.MakeSnapshot(SnapshotSource.SmallDepthZ))
+	, GBufferA(GRenderTargetPool.MakeSnapshot(SnapshotSource.GBufferA))
+	, GBufferB(GRenderTargetPool.MakeSnapshot(SnapshotSource.GBufferB))
+	, GBufferC(GRenderTargetPool.MakeSnapshot(SnapshotSource.GBufferC))
+	, GBufferD(GRenderTargetPool.MakeSnapshot(SnapshotSource.GBufferD))
+	, GBufferE(GRenderTargetPool.MakeSnapshot(SnapshotSource.GBufferE))
+	, GBufferVelocity(GRenderTargetPool.MakeSnapshot(SnapshotSource.GBufferVelocity))
+	, DBufferA(GRenderTargetPool.MakeSnapshot(SnapshotSource.DBufferA))
+	, DBufferB(GRenderTargetPool.MakeSnapshot(SnapshotSource.DBufferB))
+	, DBufferC(GRenderTargetPool.MakeSnapshot(SnapshotSource.DBufferC))
+	, ScreenSpaceAO(GRenderTargetPool.MakeSnapshot(SnapshotSource.ScreenSpaceAO))
+	, CustomDepth(GRenderTargetPool.MakeSnapshot(SnapshotSource.CustomDepth))
+	, CustomStencilSRV(SnapshotSource.CustomStencilSRV)
+	, ShadowDepthZ(GRenderTargetPool.MakeSnapshot(SnapshotSource.ShadowDepthZ))
+	, OptionalShadowDepthColor(GRenderTargetPool.MakeSnapshot(SnapshotSource.OptionalShadowDepthColor))
+	, PreShadowCacheDepthZ(GRenderTargetPool.MakeSnapshot(SnapshotSource.PreShadowCacheDepthZ))
+	, ReflectiveShadowMapNormal(GRenderTargetPool.MakeSnapshot(SnapshotSource.ReflectiveShadowMapNormal))
+	, ReflectiveShadowMapDiffuse(GRenderTargetPool.MakeSnapshot(SnapshotSource.ReflectiveShadowMapDiffuse))
+	, ReflectiveShadowMapDepth(GRenderTargetPool.MakeSnapshot(SnapshotSource.ReflectiveShadowMapDepth))
+	, SkySHIrradianceMap(GRenderTargetPool.MakeSnapshot(SnapshotSource.SkySHIrradianceMap))
+	, EditorPrimitivesColor(GRenderTargetPool.MakeSnapshot(SnapshotSource.EditorPrimitivesColor))
+	, EditorPrimitivesDepth(GRenderTargetPool.MakeSnapshot(SnapshotSource.EditorPrimitivesDepth))
+	, bScreenSpaceAOIsValid(SnapshotSource.bScreenSpaceAOIsValid)
+	, bCustomDepthIsValid(SnapshotSource.bCustomDepthIsValid)
+	, bPreshadowCacheNewlyAllocated(SnapshotSource.bPreshadowCacheNewlyAllocated)
+	, GBufferRefCount(SnapshotSource.GBufferRefCount)
+	, LargestDesiredSizeThisFrame(SnapshotSource.LargestDesiredSizeThisFrame)
+	, LargestDesiredSizeLastFrame(SnapshotSource.LargestDesiredSizeLastFrame)
+	, ThisFrameNumber(SnapshotSource.ThisFrameNumber)
+	, bVelocityPass(SnapshotSource.bVelocityPass)
+	, GBufferResourcesUniformBuffer(SnapshotSource.GBufferResourcesUniformBuffer)
+	, BufferSize(SnapshotSource.BufferSize)
+	, SmallColorDepthDownsampleFactor(SnapshotSource.SmallColorDepthDownsampleFactor)
+	, bLightAttenuationEnabled(SnapshotSource.bLightAttenuationEnabled)
+	, bUseDownsizedOcclusionQueries(SnapshotSource.bUseDownsizedOcclusionQueries)
+	, CurrentGBufferFormat(SnapshotSource.CurrentGBufferFormat)
+	, CurrentSceneColorFormat(SnapshotSource.CurrentSceneColorFormat)
+	, bAllowStaticLighting(SnapshotSource.bAllowStaticLighting)
+	, CurrentMaxShadowResolution(SnapshotSource.CurrentMaxShadowResolution)
+	, CurrentRSMResolution(SnapshotSource.CurrentRSMResolution)
+	, CurrentTranslucencyLightingVolumeDim(SnapshotSource.CurrentTranslucencyLightingVolumeDim)
+	, CurrentMobile32bpp(SnapshotSource.CurrentMobile32bpp)
+	, CurrentMobileMSAA(SnapshotSource.CurrentMobileMSAA)
+	, CurrentMinShadowResolution(SnapshotSource.CurrentMinShadowResolution)
+	, bCurrentLightPropagationVolume(SnapshotSource.bCurrentLightPropagationVolume)
+	, CurrentFeatureLevel(SnapshotSource.CurrentFeatureLevel)
+	, CurrentShadingPath(SnapshotSource.CurrentShadingPath)
+	, bAllocateVelocityGBuffer(SnapshotSource.bAllocateVelocityGBuffer)
+	, bGBuffersCleared(SnapshotSource.bGBuffersCleared)
+	, GBufferClearColor(SnapshotSource.GBufferClearColor)
+	, bSceneDepthCleared(SnapshotSource.bSceneDepthCleared)
+	, SceneDepthClearValue(SnapshotSource.SceneDepthClearValue)
+	, bSnapshot(true)
+{
+	SnapshotArray(SceneColor, SnapshotSource.SceneColor);
+	SnapshotArray(TranslucencyShadowTransmission, SnapshotSource.TranslucencyShadowTransmission);
+	SnapshotArray(CubeShadowDepthZ, SnapshotSource.CubeShadowDepthZ);
+	SnapshotArray(ReflectionColorScratchCubemap, SnapshotSource.ReflectionColorScratchCubemap);
+	SnapshotArray(DiffuseIrradianceScratchCubemap, SnapshotSource.DiffuseIrradianceScratchCubemap);
+	SnapshotArray(ReflectionBrightness, SnapshotSource.ReflectionBrightness);
+	SnapshotArray(TranslucencyLightingVolumeAmbient, SnapshotSource.TranslucencyLightingVolumeAmbient);
+	SnapshotArray(TranslucencyLightingVolumeDirectional, SnapshotSource.TranslucencyLightingVolumeDirectional);
+
+	FSceneViewState* ViewState = (FSceneViewState*)View.State;
+	if (ViewState)
+	{
+		SeparateTranslucencyRT = GRenderTargetPool.MakeSnapshot(ViewState->SeparateTranslucencyRT);
+	}
+}
+
 
 inline const TCHAR* GetReflectionBrightnessTargetName(uint32 Index)
 {
@@ -235,6 +389,8 @@ void FSceneRenderTargets::Allocate(const FSceneViewFamily& ViewFamily)
 
 	int32 MaxShadowResolution = GetCachedScalabilityCVars().MaxShadowResolution;
 
+	int32 RSMResolution = FMath::Clamp(CVarRSMResolution.GetValueOnRenderThread(), 1, 2048);
+
 	if (ViewFamily.Scene->ShouldUseDeferredRenderer() == false)
 	{
 		// ensure there is always enough space for forward renderer's tiled shadow maps
@@ -269,6 +425,7 @@ void FSceneRenderTargets::Allocate(const FSceneViewFamily& ViewFamily)
 		(bAllowStaticLighting != bNewAllowStaticLighting) ||
 		(bUseDownsizedOcclusionQueries != bDownsampledOcclusionQueries) ||
 		(CurrentMaxShadowResolution != MaxShadowResolution) ||
+ 		(CurrentRSMResolution != RSMResolution) ||
 		(CurrentTranslucencyLightingVolumeDim != TranslucencyLightingVolumeDim) ||
 		(CurrentMobile32bpp != Mobile32bpp) ||
 		(CurrentMobileMSAA != MobileMSAA) ||
@@ -280,6 +437,7 @@ void FSceneRenderTargets::Allocate(const FSceneViewFamily& ViewFamily)
 		bAllowStaticLighting = bNewAllowStaticLighting;
 		bUseDownsizedOcclusionQueries = bDownsampledOcclusionQueries;
 		CurrentMaxShadowResolution = MaxShadowResolution;
+		CurrentRSMResolution = RSMResolution;
 		CurrentTranslucencyLightingVolumeDim = TranslucencyLightingVolumeDim;
 		CurrentMobile32bpp = Mobile32bpp;
 		CurrentMobileMSAA = MobileMSAA;
@@ -311,10 +469,10 @@ void FSceneRenderTargets::BeginRenderingSceneColor(FRHICommandList& RHICmdList, 
 int32 FSceneRenderTargets::GetGBufferRenderTargets(ERenderTargetLoadAction ColorLoadAction, FRHIRenderTargetView OutRenderTargets[MaxSimultaneousRenderTargets], int32& OutVelocityRTIndex)
 {
 	OutRenderTargets[0] = FRHIRenderTargetView(GetSceneColorSurface(), 0, -1, ColorLoadAction, ERenderTargetStoreAction::EStore);
-	OutRenderTargets[1] = FRHIRenderTargetView(GSceneRenderTargets.GBufferA->GetRenderTargetItem().TargetableTexture, 0, -1, ColorLoadAction, ERenderTargetStoreAction::EStore);
-	OutRenderTargets[2] = FRHIRenderTargetView(GSceneRenderTargets.GBufferB->GetRenderTargetItem().TargetableTexture, 0, -1, ColorLoadAction, ERenderTargetStoreAction::EStore);
-	OutRenderTargets[3] = FRHIRenderTargetView(GSceneRenderTargets.GBufferC->GetRenderTargetItem().TargetableTexture, 0, -1, ColorLoadAction, ERenderTargetStoreAction::EStore);
-	OutRenderTargets[4] = FRHIRenderTargetView(GSceneRenderTargets.GBufferD->GetRenderTargetItem().TargetableTexture, 0, -1, ColorLoadAction, ERenderTargetStoreAction::EStore);
+	OutRenderTargets[1] = FRHIRenderTargetView(GBufferA->GetRenderTargetItem().TargetableTexture, 0, -1, ColorLoadAction, ERenderTargetStoreAction::EStore);
+	OutRenderTargets[2] = FRHIRenderTargetView(GBufferB->GetRenderTargetItem().TargetableTexture, 0, -1, ColorLoadAction, ERenderTargetStoreAction::EStore);
+	OutRenderTargets[3] = FRHIRenderTargetView(GBufferC->GetRenderTargetItem().TargetableTexture, 0, -1, ColorLoadAction, ERenderTargetStoreAction::EStore);
+	OutRenderTargets[4] = FRHIRenderTargetView(GBufferD->GetRenderTargetItem().TargetableTexture, 0, -1, ColorLoadAction, ERenderTargetStoreAction::EStore);
 	int32 MRTCount = 5;	// Derived from previously used RenderTargets[]; would have been nice to keep a pointer while filling it but it's more confusing to use
 
 	OutVelocityRTIndex = -1;
@@ -322,7 +480,7 @@ int32 FSceneRenderTargets::GetGBufferRenderTargets(ERenderTargetLoadAction Color
 	if (bAllowStaticLighting)
 	{
 		check(MRTCount == GetGBufferEIndex());
-		OutRenderTargets[MRTCount] = FRHIRenderTargetView(GSceneRenderTargets.GBufferE->GetRenderTargetItem().TargetableTexture, 0, -1, ColorLoadAction, ERenderTargetStoreAction::EStore);
+		OutRenderTargets[MRTCount] = FRHIRenderTargetView(GBufferE->GetRenderTargetItem().TargetableTexture, 0, -1, ColorLoadAction, ERenderTargetStoreAction::EStore);
 		++MRTCount;
 	}
 
@@ -331,7 +489,7 @@ int32 FSceneRenderTargets::GetGBufferRenderTargets(ERenderTargetLoadAction Color
 		OutVelocityRTIndex = MRTCount;
 		++MRTCount;
 		check(OutVelocityRTIndex == GetGBufferVelocityIndex());
-		OutRenderTargets[OutVelocityRTIndex] = FRHIRenderTargetView(GSceneRenderTargets.GBufferVelocity->GetRenderTargetItem().TargetableTexture, 0, -1, ColorLoadAction, ERenderTargetStoreAction::EStore);
+		OutRenderTargets[OutVelocityRTIndex] = FRHIRenderTargetView(GBufferVelocity->GetRenderTargetItem().TargetableTexture, 0, -1, ColorLoadAction, ERenderTargetStoreAction::EStore);
 	}
 
 	check(MRTCount <= MaxSimultaneousRenderTargets);
@@ -797,7 +955,12 @@ bool FSceneRenderTargets::BeginRenderingCustomDepth(FRHICommandListImmediate& RH
 	{
 		SCOPED_DRAW_EVENT(RHICmdList, BeginRenderingCustomDepth);
 		
-		SetRenderTarget(RHICmdList, FTextureRHIRef(), CustomDepthRenderTarget->GetRenderTargetItem().ShaderResourceTexture);
+		FRHIDepthRenderTargetView DepthView(CustomDepthRenderTarget->GetRenderTargetItem().ShaderResourceTexture);
+		FRHISetRenderTargetsInfo Info(0, nullptr, DepthView);
+		Info.bClearStencil = IsCustomDepthPassWritingStencil();
+		Info.StencilClearValue = 0;
+
+		RHICmdList.SetRenderTargetsAndClear(Info);
 
 		return true;
 	}
@@ -809,8 +972,7 @@ void FSceneRenderTargets::FinishRenderingCustomDepth(FRHICommandListImmediate& R
 {
 	SCOPED_DRAW_EVENT(RHICmdList, FinishRenderingCustomDepth);
 
-	auto& CurrentSceneColor = GetSceneColor();
-	RHICmdList.CopyToResolveTarget(CurrentSceneColor->GetRenderTargetItem().TargetableTexture, CurrentSceneColor->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams(ResolveRect));
+	RHICmdList.CopyToResolveTarget(CustomDepth->GetRenderTargetItem().TargetableTexture, CustomDepth->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams(ResolveRect));
 
 	bCustomDepthIsValid = true;
 }
@@ -890,19 +1052,19 @@ void FSceneRenderTargets::ResolveGBufferSurfaces(FRHICommandList& RHICmdList, co
 	{
 		SCOPED_DRAW_EVENT(RHICmdList, ResolveGBufferSurfaces);
 
-		RHICmdList.CopyToResolveTarget(GSceneRenderTargets.GBufferA->GetRenderTargetItem().TargetableTexture, GSceneRenderTargets.GBufferA->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams(ResolveRect));
-		RHICmdList.CopyToResolveTarget(GSceneRenderTargets.GBufferB->GetRenderTargetItem().TargetableTexture, GSceneRenderTargets.GBufferB->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams(ResolveRect));
-		RHICmdList.CopyToResolveTarget(GSceneRenderTargets.GBufferC->GetRenderTargetItem().TargetableTexture, GSceneRenderTargets.GBufferC->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams(ResolveRect));
-		RHICmdList.CopyToResolveTarget(GSceneRenderTargets.GBufferD->GetRenderTargetItem().TargetableTexture, GSceneRenderTargets.GBufferD->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams(ResolveRect));
+		RHICmdList.CopyToResolveTarget(GBufferA->GetRenderTargetItem().TargetableTexture, GBufferA->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams(ResolveRect));
+		RHICmdList.CopyToResolveTarget(GBufferB->GetRenderTargetItem().TargetableTexture, GBufferB->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams(ResolveRect));
+		RHICmdList.CopyToResolveTarget(GBufferC->GetRenderTargetItem().TargetableTexture, GBufferC->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams(ResolveRect));
+		RHICmdList.CopyToResolveTarget(GBufferD->GetRenderTargetItem().TargetableTexture, GBufferD->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams(ResolveRect));
 		
 		if (bAllowStaticLighting)
 		{
-			RHICmdList.CopyToResolveTarget(GSceneRenderTargets.GBufferE->GetRenderTargetItem().TargetableTexture, GSceneRenderTargets.GBufferE->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams(ResolveRect));
+			RHICmdList.CopyToResolveTarget(GBufferE->GetRenderTargetItem().TargetableTexture, GBufferE->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams(ResolveRect));
 		}
 
 		if (bAllocateVelocityGBuffer)
 		{
-			RHICmdList.CopyToResolveTarget(GSceneRenderTargets.GBufferVelocity->GetRenderTargetItem().TargetableTexture, GSceneRenderTargets.GBufferVelocity->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams(ResolveRect));
+			RHICmdList.CopyToResolveTarget(GBufferVelocity->GetRenderTargetItem().TargetableTexture, GBufferVelocity->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams(ResolveRect));
 		}
 	}
 }
@@ -1020,7 +1182,7 @@ void FSceneRenderTargets::FinishRenderingCubeShadowDepth(FRHICommandList& RHICmd
 void FSceneRenderTargets::BeginRenderingSceneAlphaCopy(FRHICommandListImmediate& RHICmdList)
 {
 	SCOPED_DRAW_EVENT(RHICmdList, BeginRenderingSceneAlphaCopy);
-	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GSceneRenderTargets.SceneAlphaCopy);
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneAlphaCopy);
 	SetRenderTarget(RHICmdList, GetSceneAlphaCopySurface(), 0);
 }
 
@@ -1028,7 +1190,7 @@ void FSceneRenderTargets::FinishRenderingSceneAlphaCopy(FRHICommandListImmediate
 {
 	SCOPED_DRAW_EVENT(RHICmdList, FinishRenderingSceneAlphaCopy);
 	RHICmdList.CopyToResolveTarget(GetSceneAlphaCopySurface(), SceneAlphaCopy->GetRenderTargetItem().ShaderResourceTexture, false, FResolveParams(FResolveRect()));
-	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GSceneRenderTargets.SceneAlphaCopy);
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneAlphaCopy);
 }
 
 
@@ -1038,7 +1200,7 @@ void FSceneRenderTargets::BeginRenderingLightAttenuation(FRHICommandList& RHICmd
 
 	AllocLightAttenuation();
 
-	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GSceneRenderTargets.GetLightAttenuation());
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GetLightAttenuation());
 
 	// Set the light attenuation surface as the render target, and the scene depth buffer as the depth-stencil surface.
 	SetRenderTarget(RHICmdList, GetLightAttenuationSurface(), GetSceneDepthSurface(), bClearToWhite ? ESimpleRenderTargetMode::EClearColorToWhite : ESimpleRenderTargetMode::EExistingColorAndDepth, FExclusiveDepthStencil::DepthRead_StencilWrite);
@@ -1051,21 +1213,24 @@ void FSceneRenderTargets::FinishRenderingLightAttenuation(FRHICommandList& RHICm
 	// Resolve the light attenuation surface.
 	RHICmdList.CopyToResolveTarget(GetLightAttenuationSurface(), LightAttenuation->GetRenderTargetItem().ShaderResourceTexture, false, FResolveParams(FResolveRect()));
 	
-	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GSceneRenderTargets.GetLightAttenuation());
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GetLightAttenuation());
 }
 
 void FSceneRenderTargets::BeginRenderingTranslucency(FRHICommandList& RHICmdList, const FViewInfo& View)
 {
 	// Use the scene color buffer.
-	GSceneRenderTargets.BeginRenderingSceneColor(RHICmdList, ESimpleRenderTargetMode::EExistingColorAndDepth, FExclusiveDepthStencil::DepthRead_StencilWrite);
+	BeginRenderingSceneColor(RHICmdList, ESimpleRenderTargetMode::EExistingColorAndDepth, FExclusiveDepthStencil::DepthRead_StencilWrite);
 	
+	// Clear the stencil buffer for ResponsiveAA
+	RHICmdList.Clear(false, FLinearColor::White, false, (float)ERHIZBuffer::FarPlane, true, 0, FIntRect());
+		
 	// viewport to match view size
 	RHICmdList.SetViewport(View.ViewRect.Min.X, View.ViewRect.Min.Y, 0.0f, View.ViewRect.Max.X, View.ViewRect.Max.Y, 1.0f);
 }
 
 void FSceneRenderTargets::FinishRenderingTranslucency(FRHICommandListImmediate& RHICmdList, const class FViewInfo& View)
 {
-	GSceneRenderTargets.FinishRenderingSceneColor(RHICmdList, true);
+	FinishRenderingSceneColor(RHICmdList, true);
 }
 
 
@@ -1075,24 +1240,30 @@ bool FSceneRenderTargets::BeginRenderingSeparateTranslucency(FRHICommandList& RH
 	{
 		SCOPED_DRAW_EVENT(RHICmdList, BeginSeparateTranslucency);
 
-		FSceneViewState* ViewState = (FSceneViewState*)View.State;
-
-		// the RT should only be available for a short period during rendering
-		if(bFirstTimeThisFrame)
+		TRefCountPtr<IPooledRenderTarget>* SeparateTranslucency;
+		if (bSnapshot)
 		{
-			check(!ViewState->SeparateTranslucencyRT);
+			check(SeparateTranslucencyRT.GetReference());
+			SeparateTranslucency = &SeparateTranslucencyRT;
+		}
+		else
+		{
+			FSceneViewState* ViewState = (FSceneViewState*)View.State;
+			SeparateTranslucency = &ViewState->GetSeparateTranslucency(GetBufferSizeXY());
 		}
 
-		TRefCountPtr<IPooledRenderTarget>& SeparateTranslucency = ViewState->GetSeparateTranslucency(View);
+
 
 		// clear the render target the first time, re-use afterwards
-		SetRenderTarget(RHICmdList, SeparateTranslucency->GetRenderTargetItem().TargetableTexture, GetSceneDepthSurface(), 
+		SetRenderTarget(RHICmdList, (*SeparateTranslucency)->GetRenderTargetItem().TargetableTexture, GetSceneDepthSurface(), 
 			bFirstTimeThisFrame ? ESimpleRenderTargetMode::EClearColorToBlackWithFullAlpha : ESimpleRenderTargetMode::EExistingColorAndDepth, FExclusiveDepthStencil::DepthRead_StencilWrite);
 
 		if (!bFirstTimeThisFrame)
 		{
 			FLinearColor ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-			RHICmdList.BindClearMRTValues(true, 1, &ClearColor, false, (float)ERHIZBuffer::FarPlane, false, 0);
+			
+			// Clear the stencil buffer for ResponsiveAA
+			RHICmdList.BindClearMRTValues(true, 1, &ClearColor, false, (float)ERHIZBuffer::FarPlane, true, 0);
 		}
 
 		RHICmdList.SetViewport(View.ViewRect.Min.X, View.ViewRect.Min.Y, 0.0f, View.ViewRect.Max.X, View.ViewRect.Max.Y, 1.0f);
@@ -1109,10 +1280,19 @@ void FSceneRenderTargets::FinishRenderingSeparateTranslucency(FRHICommandList& R
 	{
 		SCOPED_DRAW_EVENT(RHICmdList, FinishSeparateTranslucency);
 
-		FSceneViewState* ViewState = (FSceneViewState*)View.State;
-		TRefCountPtr<IPooledRenderTarget>& SeparateTranslucency = ViewState->GetSeparateTranslucency(View);
+		TRefCountPtr<IPooledRenderTarget>* SeparateTranslucency;
+		if (bSnapshot)
+		{
+			check(SeparateTranslucencyRT.GetReference());
+			SeparateTranslucency = &SeparateTranslucencyRT;
+		}
+		else
+		{
+			FSceneViewState* ViewState = (FSceneViewState*)View.State;
+			SeparateTranslucency = &ViewState->GetSeparateTranslucency(GetBufferSizeXY());
+		}
 
-		RHICmdList.CopyToResolveTarget(SeparateTranslucency->GetRenderTargetItem().TargetableTexture, SeparateTranslucency->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams());
+		RHICmdList.CopyToResolveTarget((*SeparateTranslucency)->GetRenderTargetItem().TargetableTexture, (*SeparateTranslucency)->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams());
 	}
 }
 
@@ -1247,10 +1427,10 @@ void FSceneRenderTargets::InitEditorPrimitivesDepth()
 	GRenderTargetPool.FindFreeElement(Desc, EditorPrimitivesDepth, TEXT("EditorPrimitivesDepth"));
 }
 
-void FSceneRenderTargets::QuantizeBufferSize(int32& InOutBufferSizeX, int32& InOutBufferSizeY) const
+void FSceneRenderTargets::QuantizeBufferSize(int32& InOutBufferSizeX, int32& InOutBufferSizeY)
 {
 	// ensure sizes are dividable by DividableBy to get post processing effects with lower resolution working well
-	const uint32 DividableBy = 8;
+	const uint32 DividableBy = 4;
 
 	const uint32 Mask = ~(DividableBy - 1);
 	InOutBufferSizeX = (InOutBufferSizeX + DividableBy - 1) & Mask;
@@ -1449,7 +1629,7 @@ void FSceneRenderTargets::AllocateDeferredShadingPathRenderTargets()
 		{
 			const int32 SurfaceResolution = GetCubeShadowDepthZResolution(SurfaceIndex);
 
-			FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::CreateCubemapDesc(SurfaceResolution, PF_ShadowDepth, TexCreate_None, TexCreate_DepthStencilTargetable, false));
+			FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::CreateCubemapDesc(SurfaceResolution, PF_ShadowDepth, TexCreate_None, TexCreate_DepthStencilTargetable | TexCreate_NoFastClear, false));
 			GRenderTargetPool.FindFreeElement(Desc, CubeShadowDepthZ[SurfaceIndex], TEXT("CubeShadowDepthZ[]"));
 		}
 	}
@@ -1508,6 +1688,18 @@ void FSceneRenderTargets::AllocateDeferredShadingPathRenderTargets()
 		}
 	}
 
+	// LPV : Dynamic directional occlusion for diffuse and specular
+	if(UseLightPropagationVolumeRT(CurrentFeatureLevel))
+	{
+		FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(BufferSize, PF_R8G8, TexCreate_None, TexCreate_RenderTargetable, false));
+		GRenderTargetPool.FindFreeElement(Desc, DirectionalOcclusion, TEXT("DirectionalOcclusion"));
+	}
+
+	{
+		FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(BufferSize, GetSceneColorFormat(), TexCreate_None, TexCreate_RenderTargetable | TexCreate_UAV, false));
+		GRenderTargetPool.FindFreeElement(Desc, LightAccumulation, TEXT("LightAccumulation"));
+	}
+
 	AllocateReflectionTargets();
 
 	if (CurrentFeatureLevel >= ERHIFeatureLevel::SM5)
@@ -1515,18 +1707,21 @@ void FSceneRenderTargets::AllocateDeferredShadingPathRenderTargets()
 		// Create the reflective shadow map textures for LightPropagationVolume feature
 		if(bCurrentLightPropagationVolume)
 		{
+			int32 Res = GetReflectiveShadowMapResolution();
+			FIntPoint Extent = FIntPoint(Res, Res);
+
 			{
-				FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(GetReflectiveShadowMapTextureResolution(), PF_R8G8B8A8, TexCreate_None, TexCreate_RenderTargetable, false));
+				FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(Extent, PF_R8G8B8A8, TexCreate_None, TexCreate_RenderTargetable, false));
 				GRenderTargetPool.FindFreeElement(Desc, ReflectiveShadowMapNormal, TEXT("RSMNormal"));
 			}
 
 			{
-				FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(GetReflectiveShadowMapTextureResolution(), PF_FloatR11G11B10, TexCreate_None, TexCreate_RenderTargetable, false));
+				FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(Extent, PF_FloatR11G11B10, TexCreate_None, TexCreate_RenderTargetable, false));
 				GRenderTargetPool.FindFreeElement(Desc, ReflectiveShadowMapDiffuse, TEXT("RSMDiffuse"));
 			}
 
 			{
-				FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(GetReflectiveShadowMapTextureResolution(), PF_DepthStencil, TexCreate_None, TexCreate_DepthStencilTargetable , false));
+				FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(Extent, PF_DepthStencil, TexCreate_None, TexCreate_DepthStencilTargetable , false));
 				GRenderTargetPool.FindFreeElement(Desc, ReflectiveShadowMapDepth, TEXT("RSMDepth"));
 			}
 		}
@@ -1614,7 +1809,10 @@ void FSceneRenderTargets::ReleaseAllTargets()
 	DBufferC.SafeRelease();
 	ScreenSpaceAO.SafeRelease();
 	LightAttenuation.SafeRelease();
+	LightAccumulation.SafeRelease();
+	DirectionalOcclusion.SafeRelease();
 	CustomDepth.SafeRelease();
+	CustomStencilSRV.SafeRelease();
 	ReflectiveShadowMapNormal.SafeRelease();
 	ReflectiveShadowMapDiffuse.SafeRelease();
 	ReflectiveShadowMapDepth.SafeRelease();
@@ -1625,6 +1823,8 @@ void FSceneRenderTargets::ReleaseAllTargets()
 	}
 
 	ShadowDepthZ.SafeRelease();
+	OptionalShadowDepthColor.SafeRelease();
+
 	PreShadowCacheDepthZ.SafeRelease();
 	
 	for(int32 Index = 0; Index < NumCubeShadowDepthSurfaces; ++Index)
@@ -1674,9 +1874,11 @@ FIntPoint FSceneRenderTargets::GetShadowDepthTextureResolution() const
 	return ShadowBufferResolution;
 }
 
-FIntPoint FSceneRenderTargets::GetReflectiveShadowMapTextureResolution() const
+int32 FSceneRenderTargets::GetReflectiveShadowMapResolution() const
 {
-	return FIntPoint( ReflectiveShadowMapResolution, ReflectiveShadowMapResolution );
+	check(IsInRenderingThread());
+
+	return CurrentRSMResolution;
 }
 
 FIntPoint FSceneRenderTargets::GetPreShadowCacheTextureResolution() const
@@ -1731,14 +1933,21 @@ IPooledRenderTarget* FSceneRenderTargets::RequestCustomDepth(bool bPrimitives)
 {
 	int Value = CVarCustomDepth.GetValueOnRenderThread();
 
-	if((Value == 1  && bPrimitives) || Value == 2)
+	if((Value == 1  && bPrimitives) || Value == 2 || IsCustomDepthPassWritingStencil())
 	{
+		// Todo: Could check if writes stencil here and create min viable target
 		FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(BufferSize, PF_DepthStencil, TexCreate_None, TexCreate_DepthStencilTargetable, false));
 		GRenderTargetPool.FindFreeElement(Desc, CustomDepth, TEXT("CustomDepth"));
+		CustomStencilSRV = RHICreateShaderResourceView((FTexture2DRHIRef&)CustomDepth->GetRenderTargetItem().TargetableTexture, 0, 1, PF_X24_G8);
 		return CustomDepth;
 	}
 
 	return 0;
+}
+
+bool FSceneRenderTargets::IsCustomDepthPassWritingStencil() const
+{
+	return (CVarCustomDepth.GetValueOnRenderThread() == 3);
 }
 
 /** Returns an index in the range [0, NumCubeShadowDepthSurfaces) given an input resolution. */
@@ -1834,6 +2043,8 @@ void FSceneTextureShaderParameters::Bind(const FShaderParameterMap& ParameterMap
 	SceneColorSurfaceParameter.Bind(ParameterMap,TEXT("SceneColorSurface"));
 	// only used if Material has an expression that requires SceneColorTextureMSAA
 	SceneDepthSurfaceParameter.Bind(ParameterMap,TEXT("SceneDepthSurface"));
+	DirectionalOcclusionSampler.Bind(ParameterMap, TEXT("DirectionalOcclusionSampler"));
+	DirectionalOcclusionTexture.Bind(ParameterMap, TEXT("DirectionalOcclusionTexture"));
 }
 
 template< typename ShaderRHIParamRef >
@@ -1846,6 +2057,8 @@ void FSceneTextureShaderParameters::Set(
 {
 	if (TextureMode == ESceneRenderTargetsMode::SetTextures)
 	{
+		FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
+
 		// optimization possible: TShaderRHIParamRef is no param Ref
 		if (SceneColorTextureParameter.IsBound())
 		{
@@ -1876,11 +2089,11 @@ void FSceneTextureShaderParameters::Set(
 				SceneColorTextureParameter,
 				SceneColorTextureParameterSampler,
 				Filter,
-				GSceneRenderTargets.GetSceneColorTexture()
+				SceneContext.GetSceneColorTexture()
 				);
 		}
 
-		if (SceneAlphaCopyTextureParameter.IsBound() && GSceneRenderTargets.HasSceneAlphaCopyTexture())
+		if (SceneAlphaCopyTextureParameter.IsBound() && SceneContext.HasSceneAlphaCopyTexture())
 		{
 			FSamplerStateRHIRef Filter;
 			Filter = TStaticSamplerState<SF_Point,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI();
@@ -1890,13 +2103,13 @@ void FSceneTextureShaderParameters::Set(
 				SceneAlphaCopyTextureParameter,
 				SceneAlphaCopyTextureParameterSampler,
 				Filter,
-				GSceneRenderTargets.GetSceneAlphaCopyTexture()
+				SceneContext.GetSceneAlphaCopyTexture()
 				);
 		}
 
 		if(SceneDepthTextureParameter.IsBound() || SceneDepthTextureParameterSampler.IsBound())
 		{
-			const FTexture2DRHIRef* DepthTexture = GSceneRenderTargets.GetActualDepthTexture();
+			const FTexture2DRHIRef* DepthTexture = SceneContext.GetActualDepthTexture();
 			SetTextureParameter(
 				RHICmdList, 
 				ShaderRHI,
@@ -1911,7 +2124,7 @@ void FSceneTextureShaderParameters::Set(
 
 		if (FeatureLevel >= ERHIFeatureLevel::SM5)
 		{
-			SetTextureParameter(RHICmdList, ShaderRHI, SceneColorSurfaceParameter, GSceneRenderTargets.GetSceneColorSurface());
+			SetTextureParameter(RHICmdList, ShaderRHI, SceneColorSurfaceParameter, SceneContext.GetSceneColorSurface());
 		}
 		if (FeatureLevel >= ERHIFeatureLevel::SM4)
 		{
@@ -1919,22 +2132,22 @@ void FSceneTextureShaderParameters::Set(
 			{
 				if(SceneDepthSurfaceParameter.IsBound())
 				{
-					SetTextureParameter(RHICmdList, ShaderRHI, SceneDepthSurfaceParameter, GSceneRenderTargets.GetSceneDepthSurface());
+					SetTextureParameter(RHICmdList, ShaderRHI, SceneDepthSurfaceParameter, SceneContext.GetSceneDepthSurface());
 				}
 				if(SceneDepthTextureNonMS.IsBound())
 				{
-					SetTextureParameter(RHICmdList, ShaderRHI, SceneDepthTextureNonMS, GSceneRenderTargets.GetSceneDepthTexture());
+					SetTextureParameter(RHICmdList, ShaderRHI, SceneDepthTextureNonMS, SceneContext.GetSceneDepthTexture());
 				}
 			}
 			else
 			{
 				if(SceneDepthSurfaceParameter.IsBound())
 				{
-					SetTextureParameter(RHICmdList, ShaderRHI, SceneDepthSurfaceParameter, GSceneRenderTargets.GetAuxiliarySceneDepthSurface());
+					SetTextureParameter(RHICmdList, ShaderRHI, SceneDepthSurfaceParameter, SceneContext.GetAuxiliarySceneDepthSurface());
 				}
 				if(SceneDepthTextureNonMS.IsBound())
 				{
-					SetTextureParameter(RHICmdList, ShaderRHI, SceneDepthTextureNonMS, GSceneRenderTargets.GetAuxiliarySceneDepthSurface());
+					SetTextureParameter(RHICmdList, ShaderRHI, SceneDepthTextureNonMS, SceneContext.GetAuxiliarySceneDepthSurface());
 				}
 			}
 		}
@@ -1965,6 +2178,44 @@ void FSceneTextureShaderParameters::Set(
 		SetTextureParameter(RHICmdList, ShaderRHI, SceneColorSurfaceParameter, GBlackTexture->TextureRHI);
 		SetTextureParameter(RHICmdList, ShaderRHI, SceneDepthSurfaceParameter, GBlackTexture->TextureRHI);
 	}
+
+	if( DirectionalOcclusionSampler.IsBound() )
+	{
+		bool bDirectionalOcclusion = false;
+		FSceneViewState* ViewState = (FSceneViewState*)View.State;
+
+		const FLightPropagationVolumeSettings& LPVSettings = View.FinalPostProcessSettings.BlendableManager.GetSingleFinalDataConst<FLightPropagationVolumeSettings>();
+
+		if ( ViewState != nullptr && ViewState->GetLightPropagationVolume() != nullptr && LPVSettings.LPVIntensity > 0.0f )
+		{
+			if ( LPVSettings.LPVDirectionalOcclusionIntensity > 0.0001f )
+			{
+				bDirectionalOcclusion = true;
+			}
+		}
+
+		FTextureRHIParamRef DirectionalOcclusion = nullptr;
+		if( bDirectionalOcclusion )
+		{
+			FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
+			DirectionalOcclusion = SceneContext.GetDirectionalOcclusionTexture();
+		}
+		else
+		{
+			DirectionalOcclusion = GWhiteTexture->TextureRHI;
+		}
+
+		FSamplerStateRHIRef Filter;
+		Filter = TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI();
+		SetTextureParameter(
+			RHICmdList,
+			ShaderRHI,
+			DirectionalOcclusionTexture,
+			DirectionalOcclusionSampler,
+			Filter,
+			DirectionalOcclusion
+			);
+	}
 }
 
 #define IMPLEMENT_SCENE_TEXTURE_PARAM_SET( ShaderRHIParamRef ) \
@@ -1994,6 +2245,8 @@ FArchive& operator<<(FArchive& Ar,FSceneTextureShaderParameters& Parameters)
 	Ar << Parameters.SceneDepthTextureParameterSampler;
 	Ar << Parameters.SceneDepthSurfaceParameter;
 	Ar << Parameters.SceneDepthTextureNonMS;
+	Ar << Parameters.DirectionalOcclusionSampler;
+	Ar << Parameters.DirectionalOcclusionTexture;
 	return Ar;
 }
 
@@ -2022,6 +2275,7 @@ void FDeferredPixelShaderParameters::Bind(const FShaderParameterMap& ParameterMa
 	ScreenSpaceAOTextureSampler.Bind(ParameterMap,TEXT("ScreenSpaceAOTextureSampler"));
 	CustomDepthTexture.Bind(ParameterMap,TEXT("CustomDepthTexture"));
 	CustomDepthTextureSampler.Bind(ParameterMap,TEXT("CustomDepthTextureSampler"));
+	CustomStencilTexture.Bind(ParameterMap,TEXT("CustomStencilTexture"));
 }
 
 bool IsDBufferEnabled();
@@ -2029,15 +2283,16 @@ bool IsDBufferEnabled();
 template< typename ShaderRHIParamRef >
 void FDeferredPixelShaderParameters::Set(FRHICommandList& RHICmdList, const ShaderRHIParamRef ShaderRHI, const FSceneView& View, ESceneRenderTargetsMode::Type TextureMode) const
 {
+	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 	// This is needed on PC ES2 for SceneAlphaCopy, probably should be refactored for performance.
 	SceneTextureParameters.Set(RHICmdList, ShaderRHI, View, TextureMode, SF_Point);
 
 	// if() is purely an optimization and could be removed
 	if(IsDBufferEnabled())
 	{
-		IPooledRenderTarget* DBufferA = GSceneRenderTargets.DBufferA ? GSceneRenderTargets.DBufferA : GSystemTextures.BlackDummy;
-		IPooledRenderTarget* DBufferB = GSceneRenderTargets.DBufferB ? GSceneRenderTargets.DBufferB : GSystemTextures.BlackDummy;
-		IPooledRenderTarget* DBufferC = GSceneRenderTargets.DBufferC ? GSceneRenderTargets.DBufferC : GSystemTextures.BlackDummy;
+		IPooledRenderTarget* DBufferA = SceneContext.DBufferA ? SceneContext.DBufferA : GSystemTextures.BlackDummy;
+		IPooledRenderTarget* DBufferB = SceneContext.DBufferB ? SceneContext.DBufferB : GSystemTextures.BlackDummy;
+		IPooledRenderTarget* DBufferC = SceneContext.DBufferC ? SceneContext.DBufferC : GSystemTextures.BlackDummy;
 
 		// todo: optimize out when not needed
 		SetTextureParameter(RHICmdList, ShaderRHI, DBufferATexture, DBufferATextureSampler, TStaticSamplerState<>::GetRHI(), DBufferA->GetRenderTargetItem().ShaderResourceTexture);
@@ -2056,14 +2311,14 @@ void FDeferredPixelShaderParameters::Set(FRHICommandList& RHICmdList, const Shad
 	if (TextureMode == ESceneRenderTargetsMode::SetTextures && FeatureLevel >= ERHIFeatureLevel::SM4)
 	{
 		// if there is no ambient occlusion it's better to have white there
-		IPooledRenderTarget* ScreenSpaceAO = GSceneRenderTargets.ScreenSpaceAO;
-		if(!GSceneRenderTargets.bScreenSpaceAOIsValid)
+		IPooledRenderTarget* ScreenSpaceAO = SceneContext.ScreenSpaceAO;
+		if(!SceneContext.bScreenSpaceAOIsValid)
 		{
 			ScreenSpaceAO = GSystemTextures.WhiteDummy;
 		}
 
 		// if there is no custom depth it's better to have the far distance there
-		IPooledRenderTarget* CustomDepth = GSceneRenderTargets.bCustomDepthIsValid ? GSceneRenderTargets.CustomDepth.GetReference() : 0;
+		IPooledRenderTarget* CustomDepth = SceneContext.bCustomDepthIsValid ? SceneContext.CustomDepth.GetReference() : 0;
 		if(!CustomDepth)
 		{
 			CustomDepth = GSystemTextures.BlackDummy;
@@ -2073,7 +2328,7 @@ void FDeferredPixelShaderParameters::Set(FRHICommandList& RHICmdList, const Shad
 		{
 			if (GBufferResources.IsBound())
 			{
-				SetUniformBufferParameter(RHICmdList, ShaderRHI, GBufferResources, GSceneRenderTargets.GetGBufferResourcesUniformBuffer());
+				SetUniformBufferParameter(RHICmdList, ShaderRHI, GBufferResources, SceneContext.GetGBufferResourcesUniformBuffer());
 			}
 
 			SetTextureParameter(RHICmdList, ShaderRHI, ScreenSpaceAOTexture, ScreenSpaceAOTextureSampler, TStaticSamplerState<>::GetRHI(), ScreenSpaceAO->GetRenderTargetItem().ShaderResourceTexture);
@@ -2082,6 +2337,18 @@ void FDeferredPixelShaderParameters::Set(FRHICommandList& RHICmdList, const Shad
 
 			SetTextureParameter(RHICmdList, ShaderRHI, CustomDepthTexture, CustomDepthTextureSampler, TStaticSamplerState<>::GetRHI(), CustomDepth->GetRenderTargetItem().ShaderResourceTexture);
 			SetTextureParameter(RHICmdList, ShaderRHI, CustomDepthTextureNonMS, CustomDepth->GetRenderTargetItem().ShaderResourceTexture);
+
+			if (CustomStencilTexture.IsBound())
+			{
+				if (SceneContext.bCustomDepthIsValid && SceneContext.CustomStencilSRV.GetReference())
+				{
+					SetSRVParameter(RHICmdList, ShaderRHI, CustomStencilTexture, SceneContext.CustomStencilSRV);
+				}
+				else
+				{
+					SetTextureParameter(RHICmdList, ShaderRHI, CustomStencilTexture, GSystemTextures.BlackDummy->GetRenderTargetItem().ShaderResourceTexture);
+				}
+			}
 		}
 	}
 	else if (TextureMode == ESceneRenderTargetsMode::DontSet ||
@@ -2131,6 +2398,7 @@ FArchive& operator<<(FArchive& Ar,FDeferredPixelShaderParameters& Parameters)
 	Ar << Parameters.ScreenSpaceAOTextureSampler;
 	Ar << Parameters.CustomDepthTexture;
 	Ar << Parameters.CustomDepthTextureSampler;
+	Ar << Parameters.CustomStencilTexture;
 
 	return Ar;
 }

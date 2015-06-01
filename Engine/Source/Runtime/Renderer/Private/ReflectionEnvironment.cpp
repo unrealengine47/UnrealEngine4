@@ -18,11 +18,14 @@
 #include "ShaderParameterUtils.h"
 #include "LightRendering.h"
 #include "SceneUtils.h"
+#include "LightPropagationVolumeBlendable.h"
 
 /** Tile size for the reflection environment compute shader, tweaked for 680 GTX. */
 const int32 GReflectionEnvironmentTileSizeX = 16;
 const int32 GReflectionEnvironmentTileSizeY = 16;
 extern ENGINE_API int32 GReflectionCaptureSize;
+
+extern TAutoConsoleVariable<int32> CVarLPVMixing;
 
 static TAutoConsoleVariable<int32> CVarDiffuseFromCaptures(
 	TEXT("r.DiffuseFromCaptures"),
@@ -72,10 +75,13 @@ static int GetReflectionEnvironmentCVar()
 
 bool IsReflectionEnvironmentAvailable(ERHIFeatureLevel::Type InFeatureLevel)
 {
-	static const auto AllowStaticLightingVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.AllowStaticLighting"));
-	const bool bAllowStaticLighting = (!AllowStaticLightingVar || AllowStaticLightingVar->GetValueOnAnyThread() != 0);
+	return (InFeatureLevel >= ERHIFeatureLevel::SM4) && (GetReflectionEnvironmentCVar() != 0);
+}
 
-	return (InFeatureLevel >= ERHIFeatureLevel::SM4) && (GetReflectionEnvironmentCVar() != 0) && bAllowStaticLighting;
+bool IsReflectionCaptureAvailable()
+{
+	static IConsoleVariable* AllowStaticLightingVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.AllowStaticLighting"));
+	return (!AllowStaticLightingVar || AllowStaticLightingVar->GetInt() != 0);
 }
 
 void FReflectionEnvironmentCubemapArray::InitDynamicRHI()
@@ -274,7 +280,7 @@ public:
 
 		SetTextureParameter(RHICmdList, ShaderRHI, ScreenSpaceReflections, SSRTexture );
 
-		SetTextureParameter(RHICmdList, ShaderRHI, InSceneColor, GSceneRenderTargets.GetSceneColor()->GetRenderTargetItem().ShaderResourceTexture );
+		SetTextureParameter(RHICmdList, ShaderRHI, InSceneColor, FSceneRenderTargets::Get(RHICmdList).GetSceneColor()->GetRenderTargetItem().ShaderResourceTexture );
 		OutSceneColor.SetTexture(RHICmdList, ShaderRHI, NULL, OutSceneColorUAV);
 
 		SetShaderValue(RHICmdList, ShaderRHI, ViewDimensionsParameter, View.ViewRect);
@@ -632,7 +638,8 @@ IMPLEMENT_SHADER_TYPE(template<>,TStandardDeferredReflectionPS<false>,TEXT("Refl
 
 void FDeferredShadingSceneRenderer::RenderReflectionCaptureSpecularBounceForAllViews(FRHICommandListImmediate& RHICmdList)
 {
-	GSceneRenderTargets.BeginRenderingSceneColor(RHICmdList, ESimpleRenderTargetMode::EUninitializedColorExistingDepth, FExclusiveDepthStencil::DepthRead_StencilWrite);
+	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
+	SceneContext.BeginRenderingSceneColor(RHICmdList, ESimpleRenderTargetMode::EUninitializedColorExistingDepth, FExclusiveDepthStencil::DepthRead_StencilWrite);
 	RHICmdList.SetRasterizerState(TStaticRasterizerState< FM_Solid, CM_None >::GetRHI());
 	RHICmdList.SetDepthStencilState(TStaticDepthStencilState< false, CF_Always >::GetRHI());
 	RHICmdList.SetBlendState(TStaticBlendState< CW_RGB, BO_Add, BF_One, BF_One >::GetRHI());
@@ -661,12 +668,12 @@ void FDeferredShadingSceneRenderer::RenderReflectionCaptureSpecularBounceForAllV
 			0, 0,
 			View.ViewRect.Width(), View.ViewRect.Height(),
 			FIntPoint(View.ViewRect.Width(), View.ViewRect.Height()),
-			GSceneRenderTargets.GetBufferSizeXY(),
+			SceneContext.GetBufferSizeXY(),
 			*VertexShader,
 			EDRF_UseTriangleOptimization);
 	}
 
-	GSceneRenderTargets.FinishRenderingSceneColor(RHICmdList);
+	SceneContext.FinishRenderingSceneColor(RHICmdList);
 }
 
 bool FDeferredShadingSceneRenderer::ShouldDoReflectionEnvironment() const
@@ -829,15 +836,18 @@ FReflectionEnvironmentTiledDeferredCS* SelectReflectionEnvironmentTiledDeferredC
 
 void FDeferredShadingSceneRenderer::RenderTiledDeferredImageBasedReflections(FRHICommandListImmediate& RHICmdList, const TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO)
 {
-	const bool bUseLightmaps = CVarDiffuseFromCaptures.GetValueOnRenderThread() == 0;
-	const uint32 bHalfRes = CVarHalfResReflections.GetValueOnRenderThread() != 0;
+	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
+	static const auto AllowStaticLightingVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.AllowStaticLighting"));
+	const bool bUseLightmaps = (AllowStaticLightingVar->GetValueOnRenderThread() == 1) && (CVarDiffuseFromCaptures.GetValueOnRenderThread() == 0);
+	const bool bHalfRes = CVarHalfResReflections.GetValueOnRenderThread() != 0;
 
 	TRefCountPtr<IPooledRenderTarget> NewSceneColor;
 	{
-		GSceneRenderTargets.ResolveSceneColor(RHICmdList, FResolveRect(0, 0, ViewFamily.FamilySizeX, ViewFamily.FamilySizeY));
+		SceneContext.ResolveSceneColor(RHICmdList, FResolveRect(0, 0, ViewFamily.FamilySizeX, ViewFamily.FamilySizeY));
 
-		FPooledRenderTargetDesc Desc = GSceneRenderTargets.GetSceneColor()->GetDesc();
+		FPooledRenderTargetDesc Desc = SceneContext.GetSceneColor()->GetDesc();
 		Desc.TargetableFlags |= TexCreate_UAV;
+		Desc.TargetableFlags |= TexCreate_NoFastClear;
 
 		// we don't create a new name to make it easier to use "vis SceneColor" and get the last HDRSceneColor
 		GRenderTargetPool.FindFreeElement( Desc, NewSceneColor, TEXT("SceneColor") );
@@ -892,12 +902,17 @@ void FDeferredShadingSceneRenderer::RenderTiledDeferredImageBasedReflections(FRH
 		}
 	}
 
-	GSceneRenderTargets.SetSceneColor(NewSceneColor);
-	check(GSceneRenderTargets.GetSceneColor());
+	SceneContext.SetSceneColor(NewSceneColor);
+	check(SceneContext.GetSceneColor());
 }
 
 void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(FRHICommandListImmediate& RHICmdList, bool bReflectionEnv, const TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO)
 {
+	if(!ViewFamily.EngineShowFlags.Lighting)
+	{
+		return;
+	}
+
 	const bool bSkyLight = Scene->SkyLight
 		&& Scene->SkyLight->ProcessedTexture
 		&& ViewFamily.EngineShowFlags.SkyLighting;
@@ -952,13 +967,29 @@ void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(
 
 		SortData.Sort();
 	}
+	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
 	// Use standard deferred shading to composite reflection capture contribution
 	for (int32 ViewIndex = 0, Num = Views.Num(); ViewIndex < Num; ViewIndex++)
 	{
 		FViewInfo& View = Views[ViewIndex];
 
-		bool bRequiresApply = bSkyLight;
+		bool bLPV = false;
+		FSceneViewState* ViewState = (FSceneViewState*)View.State;
+		
+		const FLightPropagationVolumeSettings& LPVSettings = View.FinalPostProcessSettings.BlendableManager.GetSingleFinalDataConst<FLightPropagationVolumeSettings>();
+
+		if ( ViewState != nullptr && ViewState->GetLightPropagationVolume() != nullptr && LPVSettings.LPVIntensity > 0.0f )
+		{
+			bLPV = true;
+		} 
+		
+		bool bAmbient = View.FinalPostProcessSettings.ContributingCubemaps.Num() > 0;
+		bool bMixing = CVarLPVMixing.GetValueOnRenderThread() != 0;
+		bool bEnvironmentMixing = bMixing && (bAmbient || bLPV);
+		bool bRequiresApply = bSkyLight
+			// If Reflection Environment is active and mixed with indirect lighting (Ambient + LPV), apply is required!
+			|| (View.Family->EngineShowFlags.ReflectionEnvironment && (bReflectionEnv || bEnvironmentMixing) );
 
 		const bool bSSR = DoScreenSpaceReflections(View);
 
@@ -970,7 +1001,14 @@ void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(
 			ScreenSpaceReflections(RHICmdList, View, SSROutput);
 		}
 
-		TRefCountPtr<IPooledRenderTarget> LightAccumulation;
+	    /* Light Accumulation moved to SceneRenderTargets */
+	    TRefCountPtr<IPooledRenderTarget> LightAccumulation = SceneContext.LightAccumulation;
+
+		if (!LightAccumulation)
+		{
+			// should never be used but during debugging it can happen
+			LightAccumulation = GSystemTextures.WhiteDummy;
+		}
 
 		if (bReflectionEnv)
 		{
@@ -979,14 +1017,17 @@ void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(
 			SCOPED_DRAW_EVENT(RHICmdList, StandardDeferredReflectionEnvironment);
 
 			{
-				FPooledRenderTargetDesc Desc = GSceneRenderTargets.GetSceneColor()->GetDesc();
-				// Make sure we get an alpha channel
-				Desc.Format = PF_FloatRGBA;
-				GRenderTargetPool.FindFreeElement(Desc, LightAccumulation, TEXT("LightAccumulation"));
+				// Clear to no reflection contribution, alpha of 1 indicates full background contribution
+				ESimpleRenderTargetMode SimpleRenderTargetMode = ESimpleRenderTargetMode::EExistingColorAndDepth;
+
+				// If Reflection Environment is mixed with indirect lighting (Ambient + LPV), skip clear!
+				if (!bMixing)
+				{
+					SimpleRenderTargetMode = ESimpleRenderTargetMode::EClearColorToBlackWithFullAlpha;
+				}
+				SetRenderTarget(RHICmdList, LightAccumulation->GetRenderTargetItem().TargetableTexture, NULL, SimpleRenderTargetMode);
 			}
 
-			// Clear to no reflection contribution, alpha of 1 indicates full background contribution
-			SetRenderTarget(RHICmdList, LightAccumulation->GetRenderTargetItem().TargetableTexture, NULL, ESimpleRenderTargetMode::EClearColorToBlackWithFullAlpha);
 
 			RHICmdList.SetViewport(View.ViewRect.Min.X, View.ViewRect.Min.Y, 0.0f, View.ViewRect.Max.X, View.ViewRect.Max.Y, 1.0f);
 
@@ -1039,7 +1080,7 @@ void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(
 			// Apply reflections to screen
 			SCOPED_DRAW_EVENT(RHICmdList, ReflectionApply);
 
-			GSceneRenderTargets.BeginRenderingSceneColor(RHICmdList, ESimpleRenderTargetMode::EUninitializedColorExistingDepth, FExclusiveDepthStencil::DepthRead_StencilWrite);
+			SceneContext.BeginRenderingSceneColor(RHICmdList, ESimpleRenderTargetMode::EUninitializedColorExistingDepth, FExclusiveDepthStencil::DepthRead_StencilWrite);
 
 			RHICmdList.SetViewport(View.ViewRect.Min.X, View.ViewRect.Min.Y, 0.0f, View.ViewRect.Max.X, View.ViewRect.Max.Y, 1.0f);
 			RHICmdList.SetRasterizerState(TStaticRasterizerState<FM_Solid, CM_None>::GetRHI());
@@ -1058,11 +1099,9 @@ void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(
 
 			TShaderMapRef< FPostProcessVS >		VertexShader(View.ShaderMap);
 
-			if (!LightAccumulation)
-			{
-				// should never be used but during debugging it can happen
-				LightAccumulation = GSystemTextures.WhiteDummy;
-			}
+			// Activate Reflection Environment if we choose to mix it with indirect lighting (Ambient + LPV)
+			// todo: refactor (we abuse another boolean to pass the data through)
+			bReflectionEnv = bReflectionEnv || bEnvironmentMixing;
 
 #define CASE(A,B,C) \
 			case ((A << 2) | (B << 1) | C) : \
@@ -1094,10 +1133,10 @@ void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(
 				View.ViewRect.Min.X, View.ViewRect.Min.Y,
 				View.ViewRect.Width(), View.ViewRect.Height(),
 				FIntPoint(View.ViewRect.Width(), View.ViewRect.Height()),
-				GSceneRenderTargets.GetBufferSizeXY(),
+				SceneContext.GetBufferSizeXY(),
 				*VertexShader);
 
-			GSceneRenderTargets.FinishRenderingSceneColor(RHICmdList);
+			SceneContext.FinishRenderingSceneColor(RHICmdList);
 		}
 	}
 }

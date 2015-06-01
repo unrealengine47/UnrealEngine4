@@ -107,7 +107,7 @@ public:
 
 	// Begin USceneComponent interface.
 	virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;
-	virtual void OnUpdateTransform(bool bSkipPhysicsMove) override;
+	virtual void OnUpdateTransform(bool bSkipPhysicsMove, bool bTeleport = false) override;
 	virtual void Activate(bool bReset=false) override;
 	virtual void Deactivate() override;
 	// End USceneComponent interface.
@@ -221,6 +221,12 @@ private:
 	void SetChunksWorldTM(const TArray<FUpdateChunksInfo>& UpdateInfos);
 
 	bool IsFracturedOrInitiallyStatic() const;
+
+	/** Obtains the appropriate PhysX scene lock for READING and executes the passed in lambda. */
+	bool ExecuteOnPhysicsReadOnly(TFunctionRef<void()> Func) const;
+
+	/** Obtains the appropriate PhysX scene lock for WRITING and executes the passed in lambda. */
+	bool ExecuteOnPhysicsReadWrite(TFunctionRef<void()> Func) const;
 
 	/** Collision response used for chunks */
 	FCollisionResponse LargeChunkCollisionResponse;

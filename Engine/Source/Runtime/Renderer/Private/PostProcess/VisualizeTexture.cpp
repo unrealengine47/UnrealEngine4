@@ -15,7 +15,7 @@
 
 
 /** A pixel shader which filters a texture. */
-// @param TextureType 0:Cube, 1:1D(not yet supported), 2:2D, 3:3D, 4:Cube[], 5:2D MSAA
+// @param TextureType 0:Cube, 1:1D(not yet supported), 2:2D no MSAA, 3:3D, 4:Cube[], 5:2D MSAA, 6:2D DepthStencil no MSAA (needed to avoid D3DDebug error)
 template<uint32 TextureType>
 class VisualizeTexturePS : public FGlobalShader
 {
@@ -141,7 +141,7 @@ protected:
 #define VARIATION1(A) typedef VisualizeTexturePS<A> VisualizeTexturePS##A; \
 	IMPLEMENT_SHADER_TYPE2(VisualizeTexturePS##A, SF_Pixel);
 
-VARIATION1(0)			VARIATION1(2)			VARIATION1(3)			VARIATION1(4)			VARIATION1(5)
+VARIATION1(0)			VARIATION1(2)			VARIATION1(3)			VARIATION1(4)			VARIATION1(5)			VARIATION1(6)
 #undef VARIATION1
 
 
@@ -202,19 +202,20 @@ template<uint32 TextureType> void VisualizeTextureForTextureType(FRHICommandList
 
 	SetGlobalBoundShaderState(RHICmdList, FeatureLevel, BoundShaderState, GFilterVertexDeclaration.VertexDeclarationRHI, *VertexShader, *PixelShader);
 	PixelShader->SetParameters(RHICmdList, Data);
+	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
 	DrawRectangle(
 		RHICmdList,
 		// XY
 		0, 0,
 		// SizeXY
-		GSceneRenderTargets.GetBufferSizeXY().X, GSceneRenderTargets.GetBufferSizeXY().Y,
+		SceneContext.GetBufferSizeXY().X, SceneContext.GetBufferSizeXY().Y,
 		// UV
 		Data.Tex00.X, Data.Tex00.Y,
 		// SizeUV
 		Data.Tex11.X - Data.Tex00.X, Data.Tex11.Y - Data.Tex00.Y,
 		// TargetSize
-		GSceneRenderTargets.GetBufferSizeXY(),
+		SceneContext.GetBufferSizeXY(),
 		// TextureSize
 		FIntPoint(1, 1),
 		*VertexShader,
@@ -234,8 +235,16 @@ void RenderVisualizeTexture(FRHICommandListImmediate& RHICmdList, ERHIFeatureLev
 		}
 		else
 		{
-			// non MSAA
-			VisualizeTextureForTextureType<2>(RHICmdList, FeatureLevel, Data);
+			if(Data.Desc.Format == PF_DepthStencil)
+			{
+				// DepthStencil non MSAA (needed to avoid D3DDebug error)
+				VisualizeTextureForTextureType<6>(RHICmdList, FeatureLevel, Data);
+			}
+			else
+			{
+				// non MSAA
+				VisualizeTextureForTextureType<2>(RHICmdList, FeatureLevel, Data);
+			}
 		}
 	}
 	else if(Data.Desc.Is3DTexture())
@@ -353,7 +362,7 @@ void FVisualizeTexture::GenerateContent(FRHICommandListImmediate& RHICmdList, co
 	RHICmdList.SetRasterizerState(TStaticRasterizerState<>::GetRHI());
 	RHICmdList.SetDepthStencilState(TStaticDepthStencilState<false, CF_Always>::GetRHI());
 
-	FIntPoint RTExtent = GSceneRenderTargets.GetBufferSizeXY();
+	FIntPoint RTExtent = FSceneRenderTargets::Get(RHICmdList).GetBufferSizeXY();
 
 	FVector2D Tex00 = FVector2D(0, 0);
 	FVector2D Tex11 = FVector2D(1, 1);
@@ -608,7 +617,7 @@ void FVisualizeTexture::PresentContent(FRHICommandListImmediate& RHICmdList, con
 		Canvas.DrawShadowedString( X + 10, Y += YStep, *Line, GetStatsFont(), FLinearColor(1, 1, 1));
 	}
 	{
-		FString Line = FString::Printf(TEXT("  BufferSize:(%d,%d)"), GSceneRenderTargets.GetBufferSizeXY().X, GSceneRenderTargets.GetBufferSizeXY().Y);
+		FString Line = FString::Printf(TEXT("  BufferSize:(%d,%d)"), FSceneRenderTargets::Get(RHICmdList).GetBufferSizeXY().X, FSceneRenderTargets::Get(RHICmdList).GetBufferSizeXY().Y);
 		Canvas.DrawShadowedString( X + 10, Y += YStep, *Line, GetStatsFont(), FLinearColor(1, 1, 1));
 	}
 

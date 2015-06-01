@@ -504,9 +504,13 @@ class ENGINE_API UKismetMathLibrary : public UBlueprintFunctionLibrary
 	static float NormalizeToRange(float Value, float RangeMin, float RangeMax);
 
 	/** Returns Value mapped from one range into another.  (e.g. 20 normalized from the range 10->50 to 20->40 would result in 25) */
-	UFUNCTION(BlueprintPure, Category="Math|Float")
-	static float MapRange(float Value, float InRangeA, float InRangeB, float OutRangeA, float OutRangeB);
+	UFUNCTION(BlueprintPure, Category="Math|Float", meta=(Keywords = "get mapped value"))
+	static float MapRangeUnclamped(float Value, float InRangeA, float InRangeB, float OutRangeA, float OutRangeB);
 
+	/** Returns Value mapped from one range into another where the Value is clamped to the Input Range.  (e.g. 0.5 normalized from the range 0->1 to 0->50 would result in 25) */
+	UFUNCTION(BlueprintPure, Category="Math|Float", meta=(Keywords = "get mapped value"))
+	static float MapRangeClamped(float Value, float InRangeA, float InRangeB, float OutRangeA, float OutRangeB);
+	
 	/** Multiplies the input value by pi. */
 	UFUNCTION(BlueprintPure, meta=(Keywords = "* multiply"), Category="Math|Float")
 	static float MultiplyByPi(float Value);
@@ -786,6 +790,14 @@ class ENGINE_API UKismetMathLibrary : public UBlueprintFunctionLibrary
 	// DateTime functions.
 	//
 
+	/* Makes a DateTime struct */
+	UFUNCTION(BlueprintPure, Category="Math|DateTime", meta=(NativeMakeFunc, AdvancedDisplay = "3"))
+	static FDateTime MakeDateTime(int32 Year, int32 Month, int32 Day, int32 Hour = 0, int32 Minute = 0, int32 Second = 0, int32 Millisecond = 0);
+
+	/* Breaks a DateTime into its components */
+	UFUNCTION(BlueprintPure, Category="Math|DateTime", meta=(NativeBreakFunc))
+	static void BreakDateTime(FDateTime InDateTime, int32& Year, int32& Month, int32& Day, int32& Hour, int32& Minute, int32& Second, int32& Millisecond);
+
 	/* Addition (A + B) */
 	UFUNCTION(BlueprintPure, meta=(DisplayName="DateTime + Timespan", CompactNodeTitle="+", Keywords="+ add plus"), Category="Math|DateTime")
 	static FDateTime Add_DateTimeTimespan( FDateTime A, FTimespan B );
@@ -909,6 +921,14 @@ class ENGINE_API UKismetMathLibrary : public UBlueprintFunctionLibrary
 	//
 	// Timespan functions.
 	//
+
+	/* Makes a Timespan struct */
+	UFUNCTION(BlueprintPure, Category="Math|Timespan", meta=(NativeMakeFunc))
+	static FTimespan MakeTimespan(int32 Days, int32 Hours, int32 Minutes, int32 Seconds, int32 Milliseconds);
+
+	/* Breaks a Timespan into its components */
+	UFUNCTION(BlueprintPure, Category="Math|Timespan", meta=(NativeBreakFunc))
+	static void BreakTimespan(FTimespan InTimespan, int32& Days, int32& Hours, int32& Minutes, int32& Seconds, int32& Milliseconds);
 
 	/* Addition (A + B) */
 	UFUNCTION(BlueprintPure, meta=(DisplayName="Timespan + Timespan", CompactNodeTitle="+", Keywords="+ add plus"), Category="Math|Timespan")
@@ -1124,7 +1144,7 @@ class ENGINE_API UKismetMathLibrary : public UBlueprintFunctionLibrary
 	UFUNCTION(BlueprintPure, Category="Math|Vector", meta=(Keywords="rotation rotate"))
 	static FVector GetUpVector(FRotator InRot);
 
-	/** Makes a rotator {Pitch, Yaw, Roll} */
+	/** Makes a rotator {Pitch, Yaw, Roll} from rotation values supplied in degrees */
 	UFUNCTION(BlueprintPure, Category="Math|Rotator", meta=(Keywords="construct build rotation rotate rotator makerotator", NativeMakeFunc))
 	static FRotator MakeRot(float Pitch, float Yaw, float Roll);
 	
@@ -1168,7 +1188,7 @@ class ENGINE_API UKismetMathLibrary : public UBlueprintFunctionLibrary
 	UFUNCTION(BlueprintPure, Category="Math|Rotator", meta=(Keywords="construct build rotation rotate rotator makerotator"))
 	static FRotator MakeRotFromZY(const FVector& Z, const FVector& Y);
 
-	/** Breaks apart a rotator into Pitch, Yaw, Roll */
+	/** Breaks apart a rotator into Pitch, Yaw, Roll angles in degrees*/
 	UFUNCTION(BlueprintPure, Category="Math|Rotator", meta=(Keywords="rotation rotate rotator breakrotator", NativeBreakFunc))
 	static void BreakRot(FRotator InRot, float& Pitch, float& Yaw, float& Roll);
 

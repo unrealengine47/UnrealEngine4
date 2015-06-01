@@ -214,6 +214,7 @@ public:
 	virtual FName GetToolkitFName() const override;
 	virtual FText GetBaseToolkitName() const override;
 	virtual FText GetToolkitName() const override;
+	virtual FText GetToolkitToolTipText() const override;
 	virtual FString GetWorldCentricTabPrefix() const override;
 
 	/** @return the documentation location for this editor */
@@ -325,6 +326,10 @@ public:
 
 
 	void UpdateStatsMaterials();
+
+	/** Gets the extensibility managers for outside entities to extend material editor's menus and toolbars */
+	virtual TSharedPtr<FExtensibilityManager> GetMenuExtensibilityManager() { return MenuExtensibilityManager; }
+	virtual TSharedPtr<FExtensibilityManager> GetToolBarExtensibilityManager() { return ToolBarExtensibilityManager; }
 
 public:
 	/** Set to true when modifications have been made to the material */
@@ -692,6 +697,9 @@ private:
 
 	/** Command list for this editor */
 	TSharedPtr<FUICommandList> GraphEditorCommands;
+
+	TSharedPtr<FExtensibilityManager> MenuExtensibilityManager;
+	TSharedPtr<FExtensibilityManager> ToolBarExtensibilityManager;
 
 	/**	The tab ids for the material editor */
 	static const FName PreviewTabId;		

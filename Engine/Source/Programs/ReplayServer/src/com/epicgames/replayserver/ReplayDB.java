@@ -34,13 +34,13 @@ public class ReplayDB
 			{
 				final String app = "testApp";
 				
-				final String sessionName = createSession( app, 0, 0, "friendlyName" );
+				final String sessionName = createSession( app, 0, 0, "friendlyName", null );
 				
 				if ( i % 10 == 0 )
 				{
 					for ( int t = 0; t < 10; t++ )
 					{
-						createViewer( sessionName );
+						createViewer( sessionName, "fakeUser" );
 					}
 				}
 
@@ -116,14 +116,14 @@ public class ReplayDB
 		return true;
 	}
 
-	static String createSession( final String appName, final int version, final int changelist, final String friendlyName ) throws ReplayException
+	static String createSession( final String appName, final int version, final int changelist, final String friendlyName, final String metaString ) throws ReplayException
 	{
 		final UUID sessionId = java.util.UUID.randomUUID();
 		final String sessionName = sessionId.toString();
 
 		try
 		{				
-			baseDB.createSession( appName, version, changelist, sessionName, friendlyName );
+			baseDB.createSession( appName, version, changelist, sessionName, friendlyName, metaString );
 			return sessionName; 
 		}
 		catch ( ReplayException e )
@@ -157,14 +157,12 @@ public class ReplayDB
 		refreshSession( SessionName, false, false, NumChunks, DemoTimeInMS, 0 );
 	}
 
-	static String createViewer( final String sessionName ) throws ReplayException
+	static String createViewer( final String sessionName, final String userName ) throws ReplayException
 	{
-		final UUID sessionId = java.util.UUID.randomUUID();
-		final String viewerName = sessionId.toString();
-
 		try
 		{				
-			baseDB.createViewer( sessionName, viewerName );
+			final String viewerName = java.util.UUID.randomUUID().toString();
+			baseDB.createViewer( sessionName, viewerName, userName );
 			return viewerName; 
 		}
 		catch ( ReplayException e )
@@ -233,9 +231,14 @@ public class ReplayDB
 		return baseDB.getNumSessions( appName, version, changelist );
 	}
 
-	static List<ReplaySessionInfo> discoverSessions(  final String appName, final int version, final int changelist, final int limit )
+	static List<ReplaySessionInfo> discoverSessions(  final String appName, final int version, final int changelist, final String metaString, final int limit )
 	{
-		return baseDB.discoverSessions( appName, version, changelist, limit );
+		return baseDB.discoverSessions( appName, version, changelist, metaString, limit );
+	}
+
+	static List<ReplaySessionInfo> getRecentSessions( final String appName, final int version, final int changelist, final String userName, final int limit )
+	{
+		return baseDB.getRecentSessions( appName, version, changelist, userName, limit );
 	}
 	
 	static void log( final Level level, final String str )

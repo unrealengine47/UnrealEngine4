@@ -17,6 +17,7 @@ enum EShowFlagGroup
 	SFG_CollisionModes,
 	SFG_Developer,
 	SFG_Visualize,
+	SFG_LightTypes,
 	SFG_LightingComponents,
 	SFG_LightingFeatures,
 	SFG_Hidden,
@@ -274,7 +275,6 @@ private:
 		SetVisualizeHDR(false);
 		SetOverrideDiffuseAndSpecular(false);
 		SetReflectionOverride(false);
-		SetLpvLightingOnly(false);
 		SetVisualizeBuffer(false);
 		SetVectorFields(false);
 		SetGBufferHints(false);

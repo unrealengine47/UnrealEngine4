@@ -587,7 +587,7 @@ void FBodyInstance::CreateDOFLock()
 		DOFConstraint->bTwistLimitSoft = false;
 		DOFConstraint->bLinearLimitSoft = false;
 
-		const FTransform TM = GetUnrealWorldTransform();
+		const FTransform TM = GetUnrealWorldTransform(false);
 		FVector Normal = FVector(1, 0, 0);
 		FVector Sec = FVector(0, 1, 0);
 
@@ -741,87 +741,94 @@ void FBodyInstance::UpdatePhysicsShapeFilterData(uint32 SkelMeshCompID, bool bUs
 				}
 			}
 
-			PShape->setSimulationFilterData(PSimFilterData);
 
-			// If query collision is enabled..
-			if (UseCollisionEnabled != ECollisionEnabled::NoCollision)
+			ExecuteOnPxShapeWrite(this, PShape, [&](PxShape* PGivenShape)
 			{
-				const bool bQueryEnabled = ((UseCollisionEnabled == ECollisionEnabled::QueryAndPhysics) || (UseCollisionEnabled == ECollisionEnabled::QueryOnly));
+				PGivenShape->setSimulationFilterData(PSimFilterData);
 
-				// Only perform scene queries in the synchronous scene for static shapes
-				if (bPhysicsStatic)
+				// If query collision is enabled..
+				if (UseCollisionEnabled != ECollisionEnabled::NoCollision)
 				{
-					bool bIsSyncShape = (ShapeIdx < NumSyncShapes);
-					PShape->setFlag(PxShapeFlag::eSCENE_QUERY_SHAPE, bIsSyncShape && bQueryEnabled);
-				}
-				// If non-static, enable scene queries if requested
-				else
-				{
-					PShape->setFlag(PxShapeFlag::eSCENE_QUERY_SHAPE, bQueryEnabled);
-				}
+					const bool bQueryEnabled = ((UseCollisionEnabled == ECollisionEnabled::QueryAndPhysics) || (UseCollisionEnabled == ECollisionEnabled::QueryOnly));
 
-				// See if we want physics collision
-				const bool bSimCollision = ((UseCollisionEnabled == ECollisionEnabled::QueryAndPhysics) || (UseCollisionEnabled == ECollisionEnabled::PhysicsOnly));
-
-				// Triangle mesh is 'complex' geom
-				if (PShape->getGeometryType() == PxGeometryType::eTRIANGLEMESH)
-				{
-					PShape->setQueryFilterData(PComplexQueryData);
-
-					// on dynamic objects and objects which don't use complex as simple, tri mesh not used for sim
-					if (!bSimCollision || !bUseComplexAsSimple)
+					// Only perform scene queries in the synchronous scene for static shapes
+					if (bPhysicsStatic)
 					{
-						PShape->setFlag(PxShapeFlag::eSIMULATION_SHAPE, false);
+						bool bIsSyncShape = (ShapeIdx < NumSyncShapes);
+						PGivenShape->setFlag(PxShapeFlag::eSCENE_QUERY_SHAPE, bIsSyncShape && bQueryEnabled);
 					}
+					// If non-static, enable scene queries if requested
 					else
 					{
-						PShape->setFlag(PxShapeFlag::eSIMULATION_SHAPE, true);
+						PGivenShape->setFlag(PxShapeFlag::eSCENE_QUERY_SHAPE, bQueryEnabled);
 					}
 
-					if (OwnerPrimitiveComponent == NULL || !OwnerPrimitiveComponent->IsA(UModelComponent::StaticClass()))
+					// See if we want physics collision
+					const bool bSimCollision = ((UseCollisionEnabled == ECollisionEnabled::QueryAndPhysics) || (UseCollisionEnabled == ECollisionEnabled::PhysicsOnly));
+
+					// Triangle mesh is 'complex' geom
+					if (PGivenShape->getGeometryType() == PxGeometryType::eTRIANGLEMESH)
 					{
-						PShape->setFlag(PxShapeFlag::eVISUALIZATION, false); // dont draw the tri mesh, we can see it anyway, and its slow
+						PGivenShape->setQueryFilterData(PComplexQueryData);
+
+						// on dynamic objects and objects which don't use complex as simple, tri mesh not used for sim
+						if (!bSimCollision || !bUseComplexAsSimple)
+						{
+							PGivenShape->setFlag(PxShapeFlag::eSIMULATION_SHAPE, false);
+						}
+						else
+						{
+							PGivenShape->setFlag(PxShapeFlag::eSIMULATION_SHAPE, true);
+						}
+
+						if (OwnerPrimitiveComponent == NULL || !OwnerPrimitiveComponent->IsA(UModelComponent::StaticClass()))
+						{
+							PGivenShape->setFlag(PxShapeFlag::eVISUALIZATION, false); // dont draw the tri mesh, we can see it anyway, and its slow
+						}
+					}
+					// Everything else is 'simple'
+					else
+					{
+						PGivenShape->setQueryFilterData(PSimpleQueryData);
+
+						// See if we currently have sim collision
+						const bool bCurrentSimCollision = (PGivenShape->getFlags() & PxShapeFlag::eSIMULATION_SHAPE);
+						// Enable sim collision
+						if (bSimCollision && !bCurrentSimCollision)
+						{
+							bUpdateMassProperties = true;
+							PGivenShape->setFlag(PxShapeFlag::eSIMULATION_SHAPE, true);
+						}
+						// Disable sim collision
+						else if (!bSimCollision && bCurrentSimCollision)
+						{
+							bUpdateMassProperties = true;
+							PGivenShape->setFlag(PxShapeFlag::eSIMULATION_SHAPE, false);
+						}
+
+						// enable swept bounds for CCD for this shape
+						PxRigidBody* PBody = PActor->is<PxRigidBody>();
+						if (bSimCollision && !bPhysicsStatic && bUseCCD && PBody)
+						{
+							PBody->setRigidBodyFlag(PxRigidBodyFlag::eENABLE_CCD, true);
+						}
+						else if (PBody)
+						{
+
+							PBody->setRigidBodyFlag(PxRigidBodyFlag::eENABLE_CCD, false);
+						}
 					}
 				}
-				// Everything else is 'simple'
+				// No collision enabled
 				else
 				{
-					PShape->setQueryFilterData(PSimpleQueryData);
-
-					// See if we currently have sim collision
-					const bool bCurrentSimCollision = (PShape->getFlags() & PxShapeFlag::eSIMULATION_SHAPE);
-					// Enable sim collision
-					if (bSimCollision && !bCurrentSimCollision)
-					{
-						bUpdateMassProperties = true;
-						PShape->setFlag(PxShapeFlag::eSIMULATION_SHAPE, true);
-					}
-					// Disable sim collision
-					else if (!bSimCollision && bCurrentSimCollision)
-					{
-						bUpdateMassProperties = true;
-						PShape->setFlag(PxShapeFlag::eSIMULATION_SHAPE, false);
-					}
-
-					// enable swept bounds for CCD for this shape
-					PxRigidBody* PBody = PActor->is<PxRigidBody>();
-					if (bSimCollision && !bPhysicsStatic && bUseCCD && PBody)
-					{
-						PBody->setRigidBodyFlag(PxRigidBodyFlag::eENABLE_CCD, true);
-					}
-					else if (PBody)
-					{
-
-						PBody->setRigidBodyFlag(PxRigidBodyFlag::eENABLE_CCD, false);
-					}
+					PGivenShape->setFlag(PxShapeFlag::eSIMULATION_SHAPE, false);
+					PGivenShape->setFlag(PxShapeFlag::eSCENE_QUERY_SHAPE, false);
 				}
-			}
-			// No collision enabled
-			else
-			{
-				PShape->setFlag(PxShapeFlag::eSIMULATION_SHAPE, false);
-				PShape->setFlag(PxShapeFlag::eSCENE_QUERY_SHAPE, false);
-			}
+			});
+
+
+			
 		}
 
 		if (bUpdateMassProperties)
@@ -834,7 +841,7 @@ void FBodyInstance::UpdatePhysicsShapeFilterData(uint32 SkelMeshCompID, bool bUs
 #endif
 
 /** Update the filter data on the physics shapes, based on the owning component flags. */
-void FBodyInstance::UpdatePhysicsFilterData(bool bForceSimpleAsComplex)
+void FBodyInstance::UpdatePhysicsFilterData()
 {
 	SCOPE_CYCLE_COUNTER(STAT_UpdatePhysFilter);
 
@@ -922,8 +929,8 @@ void FBodyInstance::UpdatePhysicsFilterData(bool bForceSimpleAsComplex)
 	}
 #endif
 
-	const bool bUseComplexAsSimple = !bForceSimpleAsComplex && (BodySetup.Get()->CollisionTraceFlag == CTF_UseComplexAsSimple);
-	const bool bUseSimpleAsComplex = bForceSimpleAsComplex || (BodySetup.Get()->CollisionTraceFlag == CTF_UseSimpleAsComplex);
+	const bool bUseComplexAsSimple = (BodySetup.Get()->GetCollisionTraceFlag() == CTF_UseComplexAsSimple);
+	const bool bUseSimpleAsComplex = (BodySetup.Get()->GetCollisionTraceFlag() == CTF_UseSimpleAsComplex);
 
 #if WITH_PHYSX
 	const TEnumAsByte<ECollisionEnabled::Type>* CollisionEnabledOverride = bUseCollisionEnabledOverride ? &UseCollisionEnabled : NULL;
@@ -1055,7 +1062,7 @@ struct FInitBodiesHelper
 
 	physx::PxRigidActor* CreateActor_PhysX_AssumesLocked(FBodyInstance* Instance, const PxTransform& PTransform) const
 	{
-		physx::PxRigidActor* PNewDynamic = nullptr;
+		physx::PxRigidDynamic* PNewDynamic = nullptr;
 
 		if (bCompileStatic || bStatic)
 		{
@@ -1076,6 +1083,11 @@ struct FInitBodiesHelper
 			{
 				Instance->RigidActorSync = PNewDynamic;
 			}
+
+			if(!Instance->ShouldInstanceSimulatingPhysics())
+			{
+				PNewDynamic->setRigidDynamicFlag(PxRigidDynamicFlag::eKINEMATIC, true);
+			}
 		}
 
 		return PNewDynamic;
@@ -1089,7 +1101,7 @@ struct FInitBodiesHelper
 
 		FShapeData ShapeData;
 		Instance->GetFilterData_AssumesLocked(ShapeData);
-		Instance->GetShapeFlags_AssumesLocked(ShapeData, ShapeData.CollisionEnabled, BodySetup->CollisionTraceFlag == CTF_UseComplexAsSimple);
+		Instance->GetShapeFlags_AssumesLocked(ShapeData, ShapeData.CollisionEnabled, BodySetup->GetCollisionTraceFlag() == CTF_UseComplexAsSimple);
 
 		if (!bCompileStatic && PNewDynamic)
 		{
@@ -1834,7 +1846,7 @@ bool FBodyInstance::Weld(FBodyInstance* TheirBody, const FTransform& TheirTM)
 #if WITH_PHYSX
 	TArray<PxShape *> PNewShapes;
 
-	FTransform MyTM = GetUnrealWorldTransform();
+	FTransform MyTM = GetUnrealWorldTransform(false);
 	MyTM.SetScale3D(Scale3D);	//physx doesn't store 3d so set it here
 
 	FTransform RelativeTM = TheirTM.GetRelativeTransform(MyTM);
@@ -1852,7 +1864,7 @@ bool FBodyInstance::Weld(FBodyInstance* TheirBody, const FTransform& TheirTM)
 
 	FShapeData ShapeData;
 	GetFilterData_AssumesLocked(ShapeData);
-	GetShapeFlags_AssumesLocked(ShapeData, ShapeData.CollisionEnabled, BodySetup->CollisionTraceFlag == CTF_UseComplexAsSimple);
+	GetShapeFlags_AssumesLocked(ShapeData, ShapeData.CollisionEnabled, BodySetup->GetCollisionTraceFlag() == CTF_UseComplexAsSimple);
 
 	//child body gets placed into the same scenes as parent body
 	if (PxRigidActor* MyBody = RigidActorSync)
@@ -1949,7 +1961,7 @@ void FBodyInstance::PostShapeChange()
 	UpdatePhysicalMaterials();
 
 	// Set the filter data on the shapes (call this after setting BodyData because it uses that pointer)
-	UpdatePhysicsFilterData(true);
+	UpdatePhysicsFilterData();
 
 	UpdateMassProperties();
 	// Update damping
@@ -2259,40 +2271,33 @@ bool FBodyInstance::UpdateBodyScale(const FVector& InScale3D)
 				{
 					PShape->getTriangleMeshGeometry(PTriMeshGeom);
 
-					// Create tri-mesh shape
-					if (BodySetup.IsValid() && (BodySetup->TriMesh != NULL || BodySetup->TriMeshNegX != NULL))
+					// find which trimesh elems it is
+					// it would be nice to know if the order of PShapes array index is in the order of createShape
+					if (BodySetup.IsValid())
 					{
 						// Please note that this one we don't inverse old scale, but just set new one (but still adjust for scale mode)
 						FVector NewScale3D = RelativeScale3D * OldScale3D;
-						FVector Scale3DAbs(FMath::Abs(NewScale3D.X), FMath::Abs(NewScale3D.Y), FMath::Abs(NewScale3D.Z)); // magnitude of scale (sign removed)
 
-						PxTransform PNewLocalPose;
-						bool bUseNegX = CalcMeshNegScaleCompensation(NewScale3D, PNewLocalPose);
-
-						// Only case where TriMeshNegX should be null is BSP, which should not require negX version
-						if (bUseNegX && BodySetup->TriMeshNegX == NULL)
+						for (PxTriangleMesh* TriMesh : BodySetup->TriMeshes)
 						{
-							UE_LOG(LogPhysics, Warning, TEXT("FBodyInstance::UpdateBodyScale: Want to use NegX but it doesn't exist! %s"), *BodySetup->GetPathName());
-						}
-
-						PxTriangleMesh* UseTriMesh = bUseNegX ? BodySetup->TriMeshNegX : BodySetup->TriMesh;
-						if (UseTriMesh != NULL)
-						{
-							PTriMeshGeom.triangleMesh = bUseNegX ? BodySetup->TriMeshNegX : BodySetup->TriMesh;
-							PTriMeshGeom.scale.scale = U2PVector(Scale3DAbs);
-
-							if (PTriMeshGeom.isValid())
+							// found it
+							if (TriMesh == PTriMeshGeom.triangleMesh)
 							{
-								UpdatedGeometry = &PTriMeshGeom;
-								bSuccess = true;
+								PTriMeshGeom.scale.scale = U2PVector(Scale3D);
 
-							}
-							else
-							{
-								bInvalid = true;
+								if (PTriMeshGeom.isValid())
+								{
+									UpdatedGeometry = &PTriMeshGeom;
+									bSuccess = true;
+								}
+								else
+								{
+									bInvalid = true;
+								}
 							}
 						}
 					}
+
 					break;
 				}
 				case PxGeometryType::eHEIGHTFIELD:
@@ -2518,7 +2523,7 @@ bool FBodyInstance::IsValidBodyInstance() const
 }
 
 template <bool NeedsLock>
-FTransform GetUnrealWorldTransformImp(const FBodyInstance* BodyInstance)
+FTransform GetUnrealWorldTransformImp(const FBodyInstance* BodyInstance, bool bWithProjection)
 {
 	FTransform WorldTM = FTransform::Identity;
 #if WITH_PHYSX
@@ -2526,6 +2531,11 @@ FTransform GetUnrealWorldTransformImp(const FBodyInstance* BodyInstance)
 	{
 		PxTransform PTM = PActor->getGlobalPose();
 		WorldTM = P2UTransform(PTM);
+
+		if(bWithProjection)
+		{
+			BodyInstance->OnCalculateCustomProjection.ExecuteIfBound(BodyInstance, WorldTM);
+		}
 	});
 #endif // WITH_PHYSX
 
@@ -2539,21 +2549,26 @@ FTransform GetUnrealWorldTransformImp(const FBodyInstance* BodyInstance)
 		const FRotator Rotation3D(FMath::RadiansToDegrees(RotationInRadians), 0.0f, 0.0f); //@TODO: BOX2D: Should be moved to FPhysicsIntegration2D
 
 		WorldTM = FTransform(Rotation3D, Translation3D, BodyInstance->Scale3D);
+
+		if (bWithProjection)
+		{
+			BodyInstance->OnCalculateCustomProjection.ExecuteIfBound(BodyInstance, WorldTM);
+		}
 	}
 #endif
 
 	return WorldTM;
 }
 
-FTransform FBodyInstance::GetUnrealWorldTransform() const
+FTransform FBodyInstance::GetUnrealWorldTransform(bool bWithProjection /* = true*/) const
 {
-	return GetUnrealWorldTransformImp<true>(this);
+	return GetUnrealWorldTransformImp<true>(this, bWithProjection);
 }
 
 
-FTransform FBodyInstance::GetUnrealWorldTransform_AssumesLocked() const
+FTransform FBodyInstance::GetUnrealWorldTransform_AssumesLocked(bool bWithProjection /* = true*/) const
 {
-	return GetUnrealWorldTransformImp<false>(this);
+	return GetUnrealWorldTransformImp<false>(this, bWithProjection);
 }
 
 void FBodyInstance::SetBodyTransform(const FTransform& NewTransform, bool bTeleport)
@@ -2869,7 +2884,8 @@ void FBodyInstance::ExecuteOnPhysicsReadOnly(TFunctionRef<void()> Func) const
 	//Because of this our read operations are typically on a dynamic or the sync actor
 
 #if WITH_PHYSX
-	const int32 SceneIndex = RigidActorSync ? SceneIndexSync : SceneIndexAsync;
+	const FBodyInstance* BI = WeldParent ? WeldParent : this;
+	const int32 SceneIndex = BI->RigidActorSync ? BI->SceneIndexSync : BI->SceneIndexAsync;
 	SCOPED_SCENE_READ_LOCK(GetPhysXSceneFromIndex(SceneIndex));
 	Func();
 #endif
@@ -2881,26 +2897,27 @@ void FBodyInstance::ExecuteOnPhysicsReadWrite(TFunctionRef<void()> Func) const
 	//Because of that write operations on static actors are more expensive and require both locks.
 
 #if WITH_PHYSX
-	if(RigidActorSync)
+	const FBodyInstance* BI = WeldParent ? WeldParent : this;
+	if(BI->RigidActorSync)
 	{
-		SCENE_LOCK_WRITE(GetPhysXSceneFromIndex(SceneIndexSync));
+		SCENE_LOCK_WRITE(GetPhysXSceneFromIndex(BI->SceneIndexSync));
 	}
 	
-	if (RigidActorAsync)
+	if (BI->RigidActorAsync)
 	{
-		SCENE_LOCK_WRITE(GetPhysXSceneFromIndex(SceneIndexAsync));
+		SCENE_LOCK_WRITE(GetPhysXSceneFromIndex(BI->SceneIndexAsync));
 	}
 
 	Func();
 
-	if (RigidActorSync)
+	if (BI->RigidActorSync)
 	{
-		SCENE_UNLOCK_WRITE(GetPhysXSceneFromIndex(SceneIndexSync));
+		SCENE_UNLOCK_WRITE(GetPhysXSceneFromIndex(BI->SceneIndexSync));
 	}
 
-	if (RigidActorAsync)
+	if (BI->RigidActorAsync)
 	{
-		SCENE_UNLOCK_WRITE(GetPhysXSceneFromIndex(SceneIndexAsync));
+		SCENE_UNLOCK_WRITE(GetPhysXSceneFromIndex(BI->SceneIndexAsync));
 	}
 #endif
 }
@@ -4012,20 +4029,21 @@ float FBodyInstance::GetDistanceToBody(const FVector& Point, FVector& OutPointOn
 	//@TODO: BOX2D: Implement DistanceToBody
 }
 
-bool FBodyInstance::OverlapTestForBodies(const FVector& Pos, const FQuat& Rot, const TArray<FBodyInstance*>& Bodies) const
+template <typename AllocatorType>
+bool FBodyInstance::OverlapTestForBodiesImpl(const FVector& Pos, const FQuat& Rot, const TArray<FBodyInstance*, AllocatorType>& Bodies) const
 {
 	bool bHaveOverlap = false;
 #if WITH_PHYSX
 
-	ExecuteOnPxRigidBodyReadOnly(this, [&] (const PxRigidBody* TargetRigidBody)
+	ExecuteOnPxRigidActorReadOnly(this, [&] (const PxRigidActor* TargetRigidActor)
 	{
 		// calculate the test global pose of the rigid body
 		PxTransform PTestGlobalPose = U2PTransform(FTransform(Rot, Pos));
 
 		// Get all the shapes from the actor
 		TArray<PxShape*, TInlineAllocator<16>> PTargetShapes;
-		PTargetShapes.AddUninitialized(TargetRigidBody->getNbShapes());
-		int32 NumTargetShapes = TargetRigidBody->getShapes(PTargetShapes.GetData(), PTargetShapes.Num());
+		PTargetShapes.AddUninitialized(TargetRigidActor->getNbShapes());
+		int32 NumTargetShapes = TargetRigidActor->getShapes(PTargetShapes.GetData(), PTargetShapes.Num());
 
 		for (int32 TargetShapeIdx = 0; TargetShapeIdx < PTargetShapes.Num(); ++TargetShapeIdx)
 		{
@@ -4052,6 +4070,11 @@ bool FBodyInstance::OverlapTestForBodies(const FVector& Pos, const FQuat& Rot, c
 #endif //WITH_PHYSX
 	return bHaveOverlap;
 }
+
+// Explicit template instantiation for the above.
+template bool FBodyInstance::OverlapTestForBodiesImpl(const FVector& Pos, const FQuat& Rot, const TArray<FBodyInstance*>& Bodies) const;
+template bool FBodyInstance::OverlapTestForBodiesImpl(const FVector& Pos, const FQuat& Rot, const TArray<FBodyInstance*, TInlineAllocator<1>>& Bodies) const;
+
 
 bool FBodyInstance::OverlapTest(const FVector& Position, const FQuat& Rotation, const struct FCollisionShape& CollisionShape, FMTDResult* OutMTD) const
 {
@@ -4576,8 +4599,8 @@ void FBodyInstance::GetFilterData_AssumesLocked(FShapeData& ShapeData, bool bFor
 	}
 #endif
 
-	const bool bUseComplexAsSimple = !bForceSimpleAsComplex && (BodySetup.Get()->CollisionTraceFlag == CTF_UseComplexAsSimple);
-	const bool bUseSimpleAsComplex = bForceSimpleAsComplex || (BodySetup.Get()->CollisionTraceFlag == CTF_UseSimpleAsComplex);
+	const bool bUseComplexAsSimple = !bForceSimpleAsComplex && (BodySetup.Get()->GetCollisionTraceFlag() == CTF_UseComplexAsSimple);
+	const bool bUseSimpleAsComplex = bForceSimpleAsComplex || (BodySetup.Get()->GetCollisionTraceFlag() == CTF_UseSimpleAsComplex);
 
 	if(GetPxRigidActor_AssumesLocked())
 	{

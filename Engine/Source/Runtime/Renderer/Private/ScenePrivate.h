@@ -69,6 +69,7 @@ bool IsMobileHDR32bpp();
 #include "ScopedPointer.h"
 #include "ClearQuad.h"
 #include "AtmosphereRendering.h"
+#include "GlobalDistanceFieldParameters.h"
 
 #if WITH_SLI || PLATFORM_SHOULD_BUFFER_QUERIES
 #define BUFFERED_OCCLUSION_QUERIES 1
@@ -398,9 +399,6 @@ private:
 /** Random table for occlusion **/
 extern FOcclusionRandomStream GOcclusionRandomStream;
 
-/** Must match global distance field shaders. */
-const int32 GMaxGlobalDistanceFieldClipmaps = 4;
-
 /**
  * The scene manager's private implementation of persistent view state.
  * This class is associated with a particular camera across multiple frames by the game thread.
@@ -547,7 +545,7 @@ public:
 	TRefCountPtr<IPooledRenderTarget> MobileAaColor0;
 	TRefCountPtr<IPooledRenderTarget> MobileAaColor1;
 
-	// cache for selection outline to a avoid reallocations of the SRV, Key is to detect if the object has changed
+	// cache for stencil reads to a avoid reallocations of the SRV, Key is to detect if the object has changed
 	FTextureRHIRef SelectionOutlineCacheKey;
 	TRefCountPtr<FRHIShaderResourceView> SelectionOutlineCacheValue;
 
@@ -683,19 +681,23 @@ public:
 
 	TRefCountPtr<IPooledRenderTarget>& GetEyeAdaptation()
 	{
-		// Create the texture needed for EyeAdaptation
-		FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(FIntPoint(1, 1), PF_R32_FLOAT, TexCreate_None, TexCreate_RenderTargetable, false));
-		GRenderTargetPool.FindFreeElement(Desc, EyeAdaptationRT, TEXT("EyeAdaptation"));
-
+		if (!EyeAdaptationRT)
+		{
+			// Create the texture needed for EyeAdaptation
+			FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(FIntPoint(1, 1), PF_R32_FLOAT, TexCreate_None, TexCreate_RenderTargetable, false));
+			GRenderTargetPool.FindFreeElement(Desc, EyeAdaptationRT, TEXT("EyeAdaptation"));
+		}
 		return EyeAdaptationRT;
 	}
 
-	TRefCountPtr<IPooledRenderTarget>& GetSeparateTranslucency(const FViewInfo& View)
+	TRefCountPtr<IPooledRenderTarget>& GetSeparateTranslucency(FIntPoint Size)
 	{
-		// Create the SeparateTranslucency render target (alpha is needed to lerping)
-		FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(GSceneRenderTargets.GetBufferSizeXY(), PF_FloatRGBA, TexCreate_None, TexCreate_RenderTargetable, false));
-		GRenderTargetPool.FindFreeElement(Desc, SeparateTranslucencyRT, TEXT("SeparateTranslucency"));
-
+		if (!SeparateTranslucencyRT || SeparateTranslucencyRT->GetDesc().Extent != Size)
+		{
+			// Create the SeparateTranslucency render target (alpha is needed to lerping)
+			FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(Size, PF_FloatRGBA, TexCreate_None, TexCreate_RenderTargetable, false));
+			GRenderTargetPool.FindFreeElement(Desc, SeparateTranslucencyRT, TEXT("SeparateTranslucency"));
+		}
 		return SeparateTranslucencyRT;
 	}
 
@@ -772,12 +774,10 @@ public:
 	virtual void OnStartPostProcessing(FSceneView& CurrentView) override
 	{
 		check(IsInGameThread());
-
-		if(CurrentView.Family->Views[0] == &CurrentView)
-		{
-			// Needs to be done once for all views, otherwise garbage collection goes wrong
-			MIDUsedCount = 0;
-		}
+		
+		// Needs to be done once for all viewstates.  If multiple FSceneViews are sharing the same ViewState, this will cause problems.
+		// Sharing should be illegal right now though.
+		MIDUsedCount = 0;
 	}
 
 	// Note: OnStartPostProcessing() needs to be called each frame for each view
@@ -1644,6 +1644,7 @@ public:
 	virtual void RemoveExponentialHeightFog(UExponentialHeightFogComponent* FogComponent) override;
 	virtual void AddAtmosphericFog(UAtmosphericFogComponent* FogComponent) override;
 	virtual void RemoveAtmosphericFog(UAtmosphericFogComponent* FogComponent) override;
+	virtual void RemoveAtmosphericFogResource_RenderThread(FRenderResource* FogResource) override;
 	virtual FAtmosphericFogSceneInfo* GetAtmosphericFogSceneInfo() override { return AtmosphericFog; }
 	virtual void AddWindSource(UWindDirectionalSourceComponent* WindComponent) override;
 	virtual void RemoveWindSource(UWindDirectionalSourceComponent* WindComponent) override;

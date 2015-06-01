@@ -11,6 +11,10 @@
 const static int32 GAOMaxSupportedLevel = 6;
 /** Number of cone traced directions. */
 const int32 NumConeSampleDirections = 9;
+
+/** Base downsample factor that all distance field AO operations are done at. */
+const int32 GAODownsampleFactor = 2;
+
 extern const uint32 UpdateObjectsGroupSize;
 
 const float GDefaultDFAOMaxOcclusionDistance = 600.0f;
@@ -19,6 +23,8 @@ inline bool DoesPlatformSupportDistanceFieldAO(EShaderPlatform Platform)
 {
 	return Platform == SP_PCD3D_SM5 || Platform == SP_PS4;
 }
+
+extern FIntPoint GetBufferSizeForAO();
 
 class FDistanceFieldAOParameters
 {
@@ -336,7 +342,6 @@ public:
 		TileConeAxisAndCos.Release();
 		TileConeDepthRanges.Release();
 		TileHeadDataUnpacked.Release();
-		TileHeadData.Release();
 		TileArrayData.Release();
 		TileArrayNextAllocation.Release();
 	}
@@ -346,13 +351,12 @@ public:
 	FRWBuffer TileConeAxisAndCos;
 	FRWBuffer TileConeDepthRanges;
 	FRWBuffer TileHeadDataUnpacked;
-	FRWBuffer TileHeadData;
 	FRWBuffer TileArrayData;
 	FRWBuffer TileArrayNextAllocation;
 
 	size_t GetSizeBytes() const
 	{
-		return TileConeAxisAndCos.NumBytes + TileConeDepthRanges.NumBytes + TileHeadDataUnpacked.NumBytes + TileHeadData.NumBytes + TileArrayData.NumBytes + TileArrayNextAllocation.NumBytes;
+		return TileConeAxisAndCos.NumBytes + TileConeDepthRanges.NumBytes + TileHeadDataUnpacked.NumBytes + TileArrayData.NumBytes + TileArrayNextAllocation.NumBytes;
 	}
 };
 
@@ -566,7 +570,8 @@ public:
 		SetShaderValue(RHICmdList, ShaderRHI, CurrentLevelDownsampleFactor, CurrentLevelDownsampleFactorValue);
 
 		// Round up, to match render target allocation
-		const FVector2D AOBufferSizeValue = FIntPoint::DivideAndRoundUp(GSceneRenderTargets.GetBufferSizeXY(), CurrentLevelDownsampleFactorValue);
+		FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
+		const FVector2D AOBufferSizeValue = FIntPoint::DivideAndRoundUp(SceneContext.GetBufferSizeXY(), CurrentLevelDownsampleFactorValue);
 		SetShaderValue(RHICmdList, ShaderRHI, AOBufferSize, AOBufferSizeValue);
 
 		SetShaderValue(RHICmdList, ShaderRHI, DownsampleFactorToBaseLevel, CurrentLevelDownsampleFactorValue / GAODownsampleFactor);

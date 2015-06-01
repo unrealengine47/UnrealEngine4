@@ -23,6 +23,11 @@ struct FProfilerServiceAuthorize
 	FGuid InstanceId;
 
 	/**
+	 */
+	UPROPERTY()
+	TArray<uint8> Data;
+
+	/**
 	 * Default constructor.
 	 */
 	FProfilerServiceAuthorize( ) { }
@@ -30,86 +35,13 @@ struct FProfilerServiceAuthorize
 	/**
 	 * Creates and initializes a new instance.
 	 */
-	FProfilerServiceAuthorize( const FGuid& InSessionId, const FGuid& InInstanceId )
-		: SessionId(InSessionId)
-		, InstanceId(InInstanceId)
-	{
-	}
-
-};
-
-
-/**
- */
-USTRUCT()
-struct FProfilerServiceAuthorize2
-{
-	GENERATED_USTRUCT_BODY()
-
-	/**
-	 */
-	UPROPERTY()
-	FGuid SessionId;
-
-	/**
-	 */
-	UPROPERTY()
-	FGuid InstanceId;
-
-	/**
-	 */
-	UPROPERTY()
-	TArray<uint8> Data;
-
-	/**
-	 * Default constructor.
-	 */
-	FProfilerServiceAuthorize2( ) { }
-
-	/**
-	 * Creates and initializes a new instance.
-	 */
-	FProfilerServiceAuthorize2( const FGuid& InSessionId, const FGuid& InInstanceId, const TArray<uint8>& InData )
+	FProfilerServiceAuthorize( const FGuid& InSessionId, const FGuid& InInstanceId, const TArray<uint8>& InData )
 		: SessionId(InSessionId)
 		, InstanceId(InInstanceId)
 	{
 		Data.Append(InData);
 	}
 
-};
-
-
-/**
- */
-USTRUCT()
-struct FProfilerServiceData
-{
-	GENERATED_USTRUCT_BODY()
-
-	/**
-	 */
-	UPROPERTY()
-	FGuid InstanceId;
-
-	/**
-	 */
-	UPROPERTY()
-	TArray<uint8> Data;
-
-
-	/**
-	 * Default constructor.
-	 */
-	FProfilerServiceData( ) { }
-
-	/**
-	 * Creates and initializes a new instance.
-	 */
-	FProfilerServiceData( const FGuid& InInstance, const TArray<uint8>& InData )
-		: InstanceId(InInstance)
-	{
-		Data.Append(InData);
-	}
 };
 
 
@@ -128,10 +60,15 @@ struct FProfilerServiceData2
 	UPROPERTY()
 	int64 Frame;
 
-	/**
-	 */
 	UPROPERTY()
-	TArray<uint8> Data;
+	int32 CompressedSize;
+	
+	UPROPERTY()
+	int32 UncompressedSize;
+
+	/** Profiler data encoded as string of hexes, cannot use TArray<uint8> because of the Message Bus limitation. */
+	UPROPERTY()
+	FString HexData;
 
 
 	/**
@@ -142,11 +79,13 @@ struct FProfilerServiceData2
 	/**
 	 * Creates and initializes a new instance.
 	 */
-	FProfilerServiceData2( const FGuid& InInstance, int64 InFrame, const TArray<uint8>& InData )
-		: InstanceId(InInstance)
-		, Frame(InFrame)
+	FProfilerServiceData2( const FGuid& InInstance, int64 InFrame, const FString& InHexData, int32 InCompressedSize, int32 InUncompressedSize )
+		: InstanceId( InInstance )
+		, Frame( InFrame )
+		, CompressedSize( InCompressedSize )
+		, UncompressedSize( InUncompressedSize )
+		, HexData( MoveTemp( InHexData ) )
 	{
-		Data.Append(InData);
 	}
 };
 
@@ -163,10 +102,6 @@ struct FProfilerServicePreviewAck
 	UPROPERTY()
 	FGuid InstanceId;
 
-	UPROPERTY()
-	int64 Frame;
-
-
 	/**
 	 * Default constructor.
 	 */
@@ -175,9 +110,8 @@ struct FProfilerServicePreviewAck
 	/**
 	 * Creates and initializes a new instance.
 	 */
-	FProfilerServicePreviewAck( const FGuid& InInstance, int64 InFrame )
+	FProfilerServicePreviewAck( const FGuid& InInstance )
 		: InstanceId(InInstance)
-		, Frame(InFrame)
 	{
 	}
 };

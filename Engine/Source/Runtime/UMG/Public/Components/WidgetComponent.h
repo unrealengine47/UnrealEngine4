@@ -15,6 +15,14 @@ enum class EWidgetSpace : uint8
 	Screen
 };
 
+UENUM()
+enum class EWidgetBlendMode : uint8
+{
+	Opaque,
+	Masked,
+	Transparent
+};
+
 /**
  * Beware! This feature is experimental and may be substantially changed or removed in future releases.
  * A 3D instance of a Widget Blueprint that can be interacted with in the world.
@@ -68,7 +76,7 @@ public:
 	 * @param HitResult The hit on this widget in the world
 	 * @param (Out) The transformed 2D hit location on the widget
 	 */
-	void GetLocalHitLocation(const FHitResult& HitResult, FVector2D& OutLocalHitLocation) const;
+	void GetLocalHitLocation(FVector WorldHitLocation, FVector2D& OutLocalHitLocation) const;
 
 	/** @return The class of the user widget displayed by this component */
 	TSubclassOf<UUserWidget> GetWidgetClass() const { return WidgetClass; }
@@ -78,7 +86,7 @@ public:
 	UUserWidget* GetUserWidgetObject() const;
 
 	/** @return List of widgets with their geometry and the cursor position transformed into this Widget component's space. */
-	TArray<FWidgetAndPointer> GetHitWidgetPath( const FHitResult& HitResult, bool bIgnoreEnabledStatus, float CursorRadius = 0.0f );
+	TArray<FWidgetAndPointer> GetHitWidgetPath(FVector WorldHitLocation, bool bIgnoreEnabledStatus, float CursorRadius = 0.0f);
 
 	/** @return The render target to which the user widget is rendered */
 	UTextureRenderTarget2D* GetRenderTarget() const { return RenderTarget; }
@@ -117,13 +125,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category=UI)
 	void SetMaxInteractionDistance(float Distance);
 
-	/** @return True if the component is opaque */
-	bool IsOpaque() const { return bIsOpaque; }
+	/** Gets the blend mode for the widget. */
+	EWidgetBlendMode GetBlendMode() const { return BlendMode; }
 
 	/** @return The pivot point where the UI is rendered about the origin. */
 	FVector2D GetPivot() const { return Pivot; }
+
+	/** Get the fake window we create for widgets displayed in the world. */
+	TSharedPtr< SWindow > GetVirtualWindow() const;
 	
-private:
+protected:
 	/** The coordinate space in which to render the widget */
 	UPROPERTY(EditAnywhere, Category=UI)
 	EWidgetSpace Space;
@@ -159,23 +170,35 @@ private:
 	UPROPERTY(EditAnywhere, Category=Rendering)
 	FLinearColor BackgroundColor;
 
-	/** 
-	 * Should the component be rendered opaque? 
-	 * This improves aliasing of the UI in the world.
-	 */
+	/** The blend mode for the widget. */
 	UPROPERTY(EditAnywhere, Category=Rendering)
-	bool bIsOpaque;
+	EWidgetBlendMode BlendMode;
+
+	UPROPERTY()
+	bool bIsOpaque_DEPRECATED;
 
 	/** Is the component visible from behind? */
 	UPROPERTY(EditAnywhere, Category=Rendering)
 	bool bIsTwoSided;
+	
+	/**
+	 * When enabled, distorts the UI along a parabola shape giving the UI the appearance 
+	 * that it's on a curved surface in front of the users face.  This only works for UI 
+	 * rendered to a render target.
+	 */
+	UPROPERTY(EditAnywhere, Category=Rendering)
+	float ParabolaDistortion;
+
+	/** Should the component tick the widget when it's off screen? */
+	UPROPERTY(EditAnywhere, Category=Animation)
+	bool TickWhenOffscreen;
 
 	/** The User Widget object displayed and managed by this component */
-	UPROPERTY(transient, duplicatetransient)
+	UPROPERTY(Transient, DuplicateTransient)
 	UUserWidget* Widget;
 
 	/** The body setup of the displayed quad */
-	UPROPERTY(transient, duplicatetransient)
+	UPROPERTY(Transient, DuplicateTransient)
 	class UBodySetup* BodySetup;
 
 	/** The material instance for translucent widget components */
@@ -194,13 +217,23 @@ private:
 	UPROPERTY()
 	UMaterialInterface* OpaqueMaterial_OneSided;
 
+	/** The material instance for masked widget components. */
+	UPROPERTY()
+	UMaterialInterface* MaskedMaterial;
+
+	/** The material instance for masked, one-sided widget components. */
+	UPROPERTY()
+	UMaterialInterface* MaskedMaterial_OneSided;
+
 	/** The target to which the user widget is rendered */
-	UPROPERTY(transient, duplicatetransient)
+	UPROPERTY(Transient, DuplicateTransient)
 	UTextureRenderTarget2D* RenderTarget;
 
 	/** The dynamic instance of the material that the render target is attached to */
-	UPROPERTY(transient, duplicatetransient)
+	UPROPERTY(Transient, DuplicateTransient)
 	UMaterialInstanceDynamic* MaterialInstance;
+
+protected:
 
 	/** The grid used to find actual hit actual widgets once input has been translated to the components local space */
 	TSharedPtr<class FHittestGrid> HitTestGrid;

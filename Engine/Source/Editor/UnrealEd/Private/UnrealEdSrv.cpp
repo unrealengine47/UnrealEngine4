@@ -1102,20 +1102,27 @@ bool UUnrealEdEngine::Exec( UWorld* InWorld, const TCHAR* Stream, FOutputDevice&
 		{
 			static bool RemoveSourcePath( UAssetImportData* Data, const TArray<FString>& SearchTerms )
 			{
-				const FString& SourceFilePath = Data->SourceFilePath;
-				if( !SourceFilePath.IsEmpty() )
+				FAssetImportInfo AssetImportInfo;
+
+				bool bModified = false;
+				for (const auto& File : Data->GetSourceFileData())
 				{
-					for (const FString& SearchTerm : SearchTerms)
+					if( !File.RelativeFilename.IsEmpty() && !SearchTerms.ContainsByPredicate([&](const FString& SearchTerm){ return File.RelativeFilename.Contains(SearchTerm); }) )
 					{
-						if (SourceFilePath.Contains(SearchTerm))
-						{
-							Data->Modify();
-							UE_LOG(LogUnrealEdSrv, Log, TEXT("Removing Path: %s"), *SourceFilePath);
-							Data->SourceFilePath.Empty();
-							Data->SourceFileTimestamp.Empty();
-							return true;
-						}
+						AssetImportInfo.Insert(File);
 					}
+					else
+					{
+						UE_LOG(LogUnrealEdSrv, Log, TEXT("Removing Path: %s"), *File.RelativeFilename);
+						bModified = true;
+					}
+				}
+
+				if (bModified)
+				{
+					Data->Modify();
+					Data->CopyFrom(AssetImportInfo);
+					return true;
 				}
 
 				return false;
@@ -1745,45 +1752,23 @@ static void MirrorActors(const FVector& MirrorScale)
 		ABrush* Brush = Cast< ABrush >( Actor );
 		if( Brush && Brush->Brush )
 		{
+			// Brushes have to reverse their poly vertex order and recalculate the normal as negating one of the scale axes
+			// changes the handedness of the local transform.
 			Brush->Modify();
 			Brush->Brush->Modify();
 			Brush->Brush->Polys->Modify();
-
-			const FVector LocalToWorldOffset = ( Brush->GetActorLocation() - PivotLocation );
-			const FVector LocationOffset = ( LocalToWorldOffset * MirrorScale ) - LocalToWorldOffset;
-
-			Brush->SetActorLocation( Brush->GetActorLocation() + LocationOffset, false );
-			Brush->SetPrePivot( Brush->GetPrePivot() * MirrorScale );
 
 			for( int32 poly = 0 ; poly < Brush->Brush->Polys->Element.Num() ; poly++ )
 			{
 				FPoly* Poly = &(Brush->Brush->Polys->Element[poly]);
 
-				Poly->TextureU *= MirrorScale;
-				Poly->TextureV *= MirrorScale;
-
-				Poly->Base += LocalToWorldOffset;
-				Poly->Base *= MirrorScale;
-				Poly->Base -= LocalToWorldOffset;
-				Poly->Base -= LocationOffset;
-
-				for( int32 vtx = 0 ; vtx < Poly->Vertices.Num(); vtx++ )
-				{
-					Poly->Vertices[vtx] += LocalToWorldOffset;
-					Poly->Vertices[vtx] *= MirrorScale;
-					Poly->Vertices[vtx] -= LocalToWorldOffset;
-					Poly->Vertices[vtx] -= LocationOffset;
-				}
-
 				Poly->Reverse();
 				Poly->CalcNormal();
 			}
 		}
-		else
-		{
-			Actor->Modify();
-			Actor->EditorApplyMirror( MirrorScale, PivotLocation );
-		}
+
+		Actor->Modify();
+		Actor->EditorApplyMirror( MirrorScale, PivotLocation );
 
 		Actor->InvalidateLightingCache();
 		Actor->PostEditMove( true );
@@ -1836,11 +1821,11 @@ TArray<FPoly*> GetSelectedPolygons()
 					int32 NumLods = StaticMesh->GetNumLODs();
 					if ( NumLods )
 					{
-						FStaticMeshLODResources& MeshLodZero = StaticMesh->GetLODForExport(0);
+						const FStaticMeshLODResources& MeshLodZero = StaticMesh->GetLODForExport(0);
 						int32 NumTriangles = MeshLodZero.GetNumTriangles();
 						int32 NumVertices = MeshLodZero.GetNumVertices();
 			
-						FPositionVertexBuffer& PositionVertexBuffer = MeshLodZero.PositionVertexBuffer;
+						const FPositionVertexBuffer& PositionVertexBuffer = MeshLodZero.PositionVertexBuffer;
 						FIndexArrayView Indices = MeshLodZero.DepthOnlyIndexBuffer.GetArrayView();
 
 						for ( int32 TriangleIndex = 0; TriangleIndex < NumTriangles; TriangleIndex++ )

@@ -5,15 +5,47 @@
 #include "DataTableUtils.h"
 #include "DataTableCSV.h"
 #include "DataTableJSON.h"
+#include "EditorFramework/AssetImportData.h"
 
 DEFINE_LOG_CATEGORY(LogDataTable);
 
 ENGINE_API const FString FDataTableRowHandle::Unknown(TEXT("UNKNOWN"));
 ENGINE_API const FString FDataTableCategoryHandle::Unknown(TEXT("UNKNOWN"));
 
+#if WITH_EDITORONLY_DATA
+namespace
+{
+	void GatherDataTableForLocalization(const UObject* const Object, TArray<FGatherableTextData>& GatherableTextDataArray)
+	{
+		const UDataTable* const DataTable = CastChecked<UDataTable>(Object);
+
+		const FString PathToObject = DataTable->GetPathName();
+		for (const auto& Pair : DataTable->RowMap)
+		{
+			const FString PathToRow = PathToObject + TEXT(".") + Pair.Key.ToString();
+			for (TFieldIterator<UProperty> PropIt(DataTable->RowStruct, EFieldIteratorFlags::IncludeSuper, EFieldIteratorFlags::ExcludeDeprecated, EFieldIteratorFlags::IncludeInterfaces); PropIt; ++PropIt)
+			{
+				GatherLocalizationDataFromChildTextProperies(PathToRow, *PropIt, PropIt->ContainerPtrToValuePtr<void>(Pair.Value), GatherableTextDataArray, false);
+			}
+		}
+	}
+}
+#endif
+
 UDataTable::UDataTable(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
+#if WITH_EDITORONLY_DATA
+	struct FAutomaticRegistrationOfLocalizationGatherer
+	{
+		FAutomaticRegistrationOfLocalizationGatherer()
+		{
+			UPackage::GetTypeSpecificLocalizationDataGatheringCallbacks().Add(UDataTable::StaticClass(), &GatherDataTableForLocalization);
+		}
+	} AutomaticRegistrationOfLocalizationGatherer;
+
+	AssetImportData = CreateEditorOnlyDefaultSubobject<UAssetImportData>(TEXT("AssetImportData"));
+#endif
 }
 
 void UDataTable::LoadStructData(FArchive& Ar)
@@ -131,9 +163,23 @@ void UDataTable::FinishDestroy()
 #if WITH_EDITORONLY_DATA
 void UDataTable::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const
 {
-	OutTags.Add( FAssetRegistryTag(SourceFileTagName(), ImportPath, FAssetRegistryTag::TT_Hidden) );
+	if (AssetImportData)
+	{
+		OutTags.Add( FAssetRegistryTag(SourceFileTagName(), AssetImportData->ToJson(), FAssetRegistryTag::TT_Hidden) );
+	}
 
 	Super::GetAssetRegistryTags(OutTags);
+}
+
+void UDataTable::PostLoad()
+{
+	Super::PostLoad();
+	if (!ImportPath_DEPRECATED.IsEmpty() && AssetImportData)
+	{
+		FAssetImportInfo Info;
+		Info.Insert(FAssetImportInfo::FSourceFile(ImportPath_DEPRECATED));
+		AssetImportData->CopyFrom(Info);
+	}
 }
 #endif
 

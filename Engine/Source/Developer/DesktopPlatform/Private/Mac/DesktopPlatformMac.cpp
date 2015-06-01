@@ -516,9 +516,11 @@ bool FDesktopPlatformMac::FileDialogShared(bool bSave, const void* ParentWindowH
 				}
 
 				// Make sure all filenames gathered have their paths normalized
-				for (auto FilenameIt = OutFilenames.CreateIterator(); FilenameIt; ++FilenameIt)
+				for (auto OutFilenameIt = OutFilenames.CreateIterator(); OutFilenameIt; ++OutFilenameIt)
 				{
-					FPaths::NormalizeFilename(*FilenameIt);
+					FString& OutFilename = *OutFilenameIt;
+					OutFilename = IFileManager::Get().ConvertToRelativePath(*OutFilename);
+					FPaths::NormalizeFilename(OutFilename);
 				}
 
 				bOkPressed = true;

@@ -22,6 +22,8 @@
 #include "Components/BrushComponent.h"
 #include "Components/DestructibleComponent.h"
 
+#include "Engine/DemoNetDriver.h"
+
 DEFINE_LOG_CATEGORY_STATIC(LogCharacterMovement, Log, All);
 DEFINE_LOG_CATEGORY_STATIC(LogNavMeshMovement, Log, All);
 
@@ -33,6 +35,8 @@ DECLARE_STATS_GROUP(TEXT("Character"), STATGROUP_Character, STATCAT_Advanced);
 DECLARE_CYCLE_STAT(TEXT("Char Movement Tick"), STAT_CharacterMovementTick, STATGROUP_Character);
 DECLARE_CYCLE_STAT(TEXT("Char Movement Authority Time"), STAT_CharacterMovementAuthority, STATGROUP_Character);
 DECLARE_CYCLE_STAT(TEXT("Char Movement Simulated Time"), STAT_CharacterMovementSimulated, STATGROUP_Character);
+DECLARE_CYCLE_STAT(TEXT("Char CombineNetMove"), STAT_CharacterMovementCombineNetMove, STATGROUP_Character);
+DECLARE_CYCLE_STAT(TEXT("Char SmoothClientPosition"), STAT_CharacterMovementSmoothClientPosition, STATGROUP_Character);
 DECLARE_CYCLE_STAT(TEXT("Char Physics Interation"), STAT_CharPhysicsInteraction, STATGROUP_Character);
 DECLARE_CYCLE_STAT(TEXT("Char StepUp"), STAT_CharStepUp, STATGROUP_Character);
 DECLARE_CYCLE_STAT(TEXT("Char AdjustFloorHeight"), STAT_CharAdjustFloorHeight, STATGROUP_Character);
@@ -54,6 +58,20 @@ const float UCharacterMovementComponent::MIN_FLOOR_DIST = 1.9f;
 const float UCharacterMovementComponent::MAX_FLOOR_DIST = 2.4f;
 const float UCharacterMovementComponent::BRAKE_TO_STOP_VELOCITY = 10.f;
 const float UCharacterMovementComponent::SWEEP_EDGE_REJECT_DISTANCE = 0.15f;
+
+// Statics
+namespace CharacterMovementComponentStatics
+{
+	static const FName CrouchTraceName = FName(TEXT("CrouchTrace"));
+	static const FName FindWaterLineName = FName(TEXT("FindWaterLine"));
+	static const FName FallingTraceParamsTag = FName(TEXT("PhysFalling"));
+	static const FName CheckLedgeDirectionName = FName(TEXT("CheckLedgeDirection"));
+	static const FName ProjectLocationName = FName(TEXT("NavProjectLocation"));
+	static const FName CheckWaterJumpName = FName(TEXT("CheckWaterJump"));
+	static const FName ComputeFloorDistName = FName(TEXT("ComputeFloorDistSweep"));
+	static const FName FloorLineTraceName = FName(TEXT("ComputeFloorDistLineTrace"));
+	static const FName ImmersionDepthName = FName(TEXT("MovementComp_Character_ImmersionDepth"));
+}
 
 // CVars
 static TAutoConsoleVariable<int32> CVarNetEnableMoveCombining(
@@ -846,6 +864,7 @@ void UCharacterMovementComponent::PerformAirControlForPathFollowing(FVector Dire
 
 void UCharacterMovementComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction)
 {
+	SCOPE_CYCLE_COUNTER(STAT_CharacterMovement);
 	SCOPE_CYCLE_COUNTER(STAT_CharacterMovementTick);
 
 	const FVector InputVector = ConsumeInputVector();
@@ -1006,7 +1025,6 @@ void UCharacterMovementComponent::AdjustProxyCapsuleSize()
 
 void UCharacterMovementComponent::SimulatedTick(float DeltaSeconds)
 {
-	SCOPE_CYCLE_COUNTER(STAT_CharacterMovement);
 	SCOPE_CYCLE_COUNTER(STAT_CharacterMovementSimulated);
 
 	// If we are playing a RootMotion AnimMontage.
@@ -1056,6 +1074,7 @@ void UCharacterMovementComponent::SimulatedTick(float DeltaSeconds)
 			CharacterOwner->SimulatedRootMotionPositionFixup(DeltaSeconds);
 		}
 	}
+	// Not playing RootMotion AnimMontage
 	else
 	{
 		// if we were simulating root motion, we've been ignoring regular ReplicatedMovement updates.
@@ -1072,15 +1091,18 @@ void UCharacterMovementComponent::SimulatedTick(float DeltaSeconds)
 			}
 		}
 
-		if( UpdatedComponent->IsSimulatingPhysics() 
-			|| (CharacterOwner && CharacterOwner->IsMatineeControlled()) 
-			|| (CharacterOwner && CharacterOwner->IsPlayingRootMotion()))
+		if (CharacterOwner->bReplicateMovement)
 		{
-			PerformMovement(DeltaSeconds);
-		}
-		else
-		{
-			SimulateMovement(DeltaSeconds);
+			if ((UpdatedComponent->IsSimulatingPhysics()
+				|| (CharacterOwner && CharacterOwner->IsMatineeControlled())
+				|| (CharacterOwner && CharacterOwner->IsPlayingRootMotion())))
+			{
+				PerformMovement(DeltaSeconds);
+			}
+			else
+			{
+				SimulateMovement(DeltaSeconds);
+			}
 		}
 	}
 
@@ -1486,7 +1508,6 @@ void UCharacterMovementComponent::DisableMovement()
 
 void UCharacterMovementComponent::PerformMovement(float DeltaSeconds)
 {
-	SCOPE_CYCLE_COUNTER(STAT_CharacterMovement);
 	SCOPE_CYCLE_COUNTER(STAT_CharacterMovementAuthority);
 
 	if (!HasValidData())
@@ -1766,8 +1787,7 @@ void UCharacterMovementComponent::Crouch(bool bClientSimulation)
 		// Crouching to a larger height? (this is rare)
 		if (CrouchedHalfHeight > OldUnscaledHalfHeight)
 		{
-			static const FName NAME_CrouchTrace = FName(TEXT("CrouchTrace"));
-			FCollisionQueryParams CapsuleParams(NAME_CrouchTrace, false, CharacterOwner);
+			FCollisionQueryParams CapsuleParams(CharacterMovementComponentStatics::CrouchTraceName, false, CharacterOwner);
 			FCollisionResponseParams ResponseParam;
 			InitCollisionParams(CapsuleParams, ResponseParam);
 			const bool bEncroached = GetWorld()->OverlapBlockingTestByChannel(UpdatedComponent->GetComponentLocation() - FVector(0.f,0.f,ScaledHalfHeightAdjust), FQuat::Identity,
@@ -1839,9 +1859,8 @@ void UCharacterMovementComponent::UnCrouch(bool bClientSimulation)
 	if( !bClientSimulation )
 	{
 		// Try to stay in place and see if the larger capsule fits. We use a slightly taller capsule to avoid penetration.
-		static const FName NAME_CrouchTrace = FName(TEXT("CrouchTrace"));
 		const float SweepInflation = KINDA_SMALL_NUMBER * 10.f;
-		FCollisionQueryParams CapsuleParams(NAME_CrouchTrace, false, CharacterOwner);
+		FCollisionQueryParams CapsuleParams(CharacterMovementComponentStatics::CrouchTraceName, false, CharacterOwner);
 		FCollisionResponseParams ResponseParam;
 		InitCollisionParams(CapsuleParams, ResponseParam);
 		const FCollisionShape StandingCapsuleShape = GetPawnCapsuleCollisionShape(SHRINK_HeightCustom, -SweepInflation); // Shrink by negative amount, so actually grow it.
@@ -2195,9 +2214,7 @@ float UCharacterMovementComponent::ImmersionDepth()
 				const FVector TraceStart = UpdatedComponent->GetComponentLocation() + FVector(0.f,0.f,CollisionHalfHeight);
 				const FVector TraceEnd = UpdatedComponent->GetComponentLocation() - FVector(0.f,0.f,CollisionHalfHeight);
 
-				const static FName MovementComp_Character_ImmersionDepthName(TEXT("MovementComp_Character_ImmersionDepth"));
-				FCollisionQueryParams NewTraceParams( MovementComp_Character_ImmersionDepthName, true );
-
+				FCollisionQueryParams NewTraceParams(CharacterMovementComponentStatics::ImmersionDepthName, true);
 				VolumeBrushComp->LineTraceComponent( Hit, TraceStart, TraceEnd, NewTraceParams );
 			}
 
@@ -2951,8 +2968,7 @@ FVector UCharacterMovementComponent::FindWaterLine(FVector InWater, FVector Outo
 	FVector Result = OutofWater;
 
 	TArray<FHitResult> Hits;
-	static const FName NAME_FindWaterLine = FName(TEXT("FindWaterLine"));
-	GetWorld()->LineTraceMultiByChannel(Hits, OutofWater, InWater, UpdatedComponent->GetCollisionObjectType(), FCollisionQueryParams(NAME_FindWaterLine, true, CharacterOwner));
+	GetWorld()->LineTraceMultiByChannel(Hits, OutofWater, InWater, UpdatedComponent->GetCollisionObjectType(), FCollisionQueryParams(CharacterMovementComponentStatics::FindWaterLineName, true, CharacterOwner));
 
 	for( int32 HitIdx = 0; HitIdx < Hits.Num(); HitIdx++ )
 	{
@@ -3288,8 +3304,7 @@ bool UCharacterMovementComponent::FindAirControlImpact(float DeltaTime, float Ad
 	
 	if (!TestWalk.IsZero())
 	{
-		static const FName FallingTraceParamsTag = FName(TEXT("PhysFalling"));
-		FCollisionQueryParams CapsuleQuery(FallingTraceParamsTag, false, CharacterOwner);
+		FCollisionQueryParams CapsuleQuery(CharacterMovementComponentStatics::FallingTraceParamsTag, false, CharacterOwner);
 		FCollisionResponseParams ResponseParam;
 		InitCollisionParams(CapsuleQuery, ResponseParam);
 		const FVector CapsuleLocation = UpdatedComponent->GetComponentLocation();
@@ -3334,8 +3349,7 @@ FVector UCharacterMovementComponent::LimitAirControl(float DeltaTime, const FVec
 bool UCharacterMovementComponent::CheckLedgeDirection(const FVector& OldLocation, const FVector& SideStep, const FVector& GravDir)
 {
 	FVector SideDest = OldLocation + SideStep;
-	static const FName CheckLedgeDirectionName(TEXT("CheckLedgeDirection"));
-	FCollisionQueryParams CapsuleParams(CheckLedgeDirectionName, false, CharacterOwner);
+	FCollisionQueryParams CapsuleParams(CharacterMovementComponentStatics::CheckLedgeDirectionName, false, CharacterOwner);
 	FCollisionResponseParams ResponseParam;
 	InitCollisionParams(CapsuleParams, ResponseParam);
 	FCollisionShape CapsuleShape = GetPawnCapsuleCollisionShape(SHRINK_None);
@@ -4000,8 +4014,7 @@ FVector UCharacterMovementComponent::ProjectLocationFromNavMesh(float DeltaSecon
 			// raycast to underlying mesh to allow us to more closely follow geometry
 			// we use static objects here as a best approximation to accept only objects that
 			// influence navmesh generation
-			static const FName ProjectLocationName(TEXT("NavProjectLocation"));
-			FCollisionQueryParams Params(ProjectLocationName, false);
+			FCollisionQueryParams Params(CharacterMovementComponentStatics::ProjectLocationName, false);
 			FCollisionResponseParams ResponseParams(ECR_Ignore); // ignore everything
 			ResponseParams.CollisionResponse.SetResponse(ECC_WorldStatic, ECR_Block); // get blocked only by WorldStatic
 			GetWorld()->LineTraceSingleByChannel(CachedProjectedNavMeshHitResult, TraceStart, TraceEnd, ECC_WorldStatic, Params, ResponseParams);
@@ -4380,32 +4393,28 @@ void UCharacterMovementComponent::PhysicsRotation(float DeltaTime)
 	
 	// Accumulate a desired new rotation.
 	const float AngleTolerance = 1e-3f;
-	bool bRotationChanged = false;
 
-	// PITCH
-	if ((DeltaRot.Pitch != 0.f) && !FMath::IsNearlyEqual(CurrentRotation.Pitch, DesiredRotation.Pitch, AngleTolerance))
+	if (!CurrentRotation.Equals(DesiredRotation, AngleTolerance))
 	{
-		DesiredRotation.Pitch = FMath::FixedTurn(CurrentRotation.Pitch, DesiredRotation.Pitch, DeltaRot.Pitch);
-		bRotationChanged = true;
-	}
+		// PITCH
+		if (!FMath::IsNearlyEqual(CurrentRotation.Pitch, DesiredRotation.Pitch, AngleTolerance))
+		{
+			DesiredRotation.Pitch = FMath::FixedTurn(CurrentRotation.Pitch, DesiredRotation.Pitch, DeltaRot.Pitch);
+		}
 
-	// YAW
-	if ((DeltaRot.Yaw != 0.f) && !FMath::IsNearlyEqual(CurrentRotation.Yaw, DesiredRotation.Yaw, AngleTolerance))
-	{
-		DesiredRotation.Yaw = FMath::FixedTurn(CurrentRotation.Yaw, DesiredRotation.Yaw, DeltaRot.Yaw);
-		bRotationChanged = true;
-	}
+		// YAW
+		if (!FMath::IsNearlyEqual(CurrentRotation.Yaw, DesiredRotation.Yaw, AngleTolerance))
+		{
+			DesiredRotation.Yaw = FMath::FixedTurn(CurrentRotation.Yaw, DesiredRotation.Yaw, DeltaRot.Yaw);
+		}
 
-	// ROLL
-	if ((DeltaRot.Roll != 0.f) && !FMath::IsNearlyEqual(CurrentRotation.Roll, DesiredRotation.Roll, AngleTolerance))
-	{
-		DesiredRotation.Roll = FMath::FixedTurn(CurrentRotation.Roll, DesiredRotation.Roll, DeltaRot.Roll);
-		bRotationChanged = true;
-	}
+		// ROLL
+		if (!FMath::IsNearlyEqual(CurrentRotation.Roll, DesiredRotation.Roll, AngleTolerance))
+		{
+			DesiredRotation.Roll = FMath::FixedTurn(CurrentRotation.Roll, DesiredRotation.Roll, DeltaRot.Roll);
+		}
 
-	// Set the new rotation.
-	if (bRotationChanged)
-	{
+		// Set the new rotation.
 		MoveUpdatedComponent( FVector::ZeroVector, DesiredRotation, true );
 	}
 }
@@ -4484,8 +4493,7 @@ bool UCharacterMovementComponent::CheckWaterJump(FVector CheckPoint, FVector& Wa
 	CheckPoint = UpdatedComponent->GetComponentLocation() + 1.2f * PawnCapsuleRadius * CheckNorm;
 	FVector Extent(PawnCapsuleRadius, PawnCapsuleRadius, PawnCapsuleHalfHeight);
 	FHitResult HitInfo(1.f);
-	static const FName CheckWaterJumpName(TEXT("CheckWaterJump"));
-	FCollisionQueryParams CapsuleParams(CheckWaterJumpName, false, CharacterOwner);
+	FCollisionQueryParams CapsuleParams(CharacterMovementComponentStatics::CheckWaterJumpName, false, CharacterOwner);
 	FCollisionResponseParams ResponseParam;
 	InitCollisionParams(CapsuleParams, ResponseParam);
 	FCollisionShape CapsuleShape = GetPawnCapsuleCollisionShape(SHRINK_None);
@@ -4499,7 +4507,7 @@ bool UCharacterMovementComponent::CheckWaterJump(FVector CheckPoint, FVector& Wa
 		FVector Start = UpdatedComponent->GetComponentLocation();
 		Start.Z += MaxOutOfWaterStepHeight;
 		CheckPoint = Start + 3.2f * PawnCapsuleRadius * WallNormal;
-		FCollisionQueryParams LineParams(CheckWaterJumpName, true, CharacterOwner);
+		FCollisionQueryParams LineParams(CharacterMovementComponentStatics::CheckWaterJumpName, true, CharacterOwner);
 		FCollisionResponseParams LineResponseParam;
 		InitCollisionParams(LineParams, LineResponseParam);
 		bHit = GetWorld()->LineTraceSingleByChannel( HitInfo, Start, CheckPoint, CollisionChannel, LineParams, LineResponseParam );
@@ -4737,9 +4745,7 @@ void UCharacterMovementComponent::ComputeFloorDist(const FVector& CapsuleLocatio
 		const float ShrinkScaleOverlap = 0.1f;
 		float ShrinkHeight = (PawnHalfHeight - PawnRadius) * (1.f - ShrinkScale);
 		float TraceDist = SweepDistance + ShrinkHeight;
-
-		static const FName ComputeFloorDistName(TEXT("ComputeFloorDistSweep"));
-		QueryParams.TraceTag = ComputeFloorDistName;
+		QueryParams.TraceTag = CharacterMovementComponentStatics::ComputeFloorDistName;
 		FCollisionShape CapsuleShape = FCollisionShape::MakeCapsule(SweepRadius, PawnHalfHeight - ShrinkHeight);
 
 		FHitResult Hit(1.f);
@@ -4794,9 +4800,7 @@ void UCharacterMovementComponent::ComputeFloorDist(const FVector& CapsuleLocatio
 		const FVector LineTraceStart = CapsuleLocation;	
 		const float TraceDist = LineDistance + ShrinkHeight;
 		const FVector Down = FVector(0.f, 0.f, -TraceDist);
-
-		static const FName FloorLineTraceName = FName(TEXT("ComputeFloorDistLineTrace"));
-		QueryParams.TraceTag = FloorLineTraceName;
+		QueryParams.TraceTag = CharacterMovementComponentStatics::FloorLineTraceName;
 
 		FHitResult Hit(1.f);
 		bBlockingHit = GetWorld()->LineTraceSingleByChannel(Hit, LineTraceStart, LineTraceStart + Down, CollisionChannel, QueryParams, ResponseParam);
@@ -5609,6 +5613,16 @@ void UCharacterMovementComponent::SmoothCorrection(const FVector& OldLocation, c
 	FNetworkPredictionData_Client_Character* ClientData = GetPredictionData_Client_Character();
 	if (ClientData && ClientData->bSmoothNetUpdates)
 	{
+		if (!ClientData->bUseLinearSmoothing && GetWorld() && GetWorld()->DemoNetDriver && GetWorld()->DemoNetDriver->ServerConnection)
+		{
+			ClientData->bUseLinearSmoothing	= true;
+
+			// Really large since we want to smooth most of the time during playback
+			// We do however want to compensate for large deltas (like teleporting, etc)
+			ClientData->MaxSmoothNetUpdateDist	= 512.0f;
+			ClientData->NoSmoothNetUpdateDist	= 512.0f;
+		}
+
 		float DistSq = (OldLocation - UpdatedComponent->GetComponentLocation()).SizeSquared();
 		if (DistSq > FMath::Square(ClientData->MaxSmoothNetUpdateDist))
 		{
@@ -5623,12 +5637,21 @@ void UCharacterMovementComponent::SmoothCorrection(const FVector& OldLocation, c
 
 		// Take difference between where we were rotated before, and where we're going
 		ClientData->MeshRotationOffset = (UpdatedComponent->GetComponentQuat().Inverse() * OldRotation) * ClientData->MeshRotationOffset;
+
+		if (ClientData->bUseLinearSmoothing)
+		{
+			ClientData->OriginalMeshTranslationOffset	= ClientData->MeshTranslationOffset;
+			ClientData->OriginalMeshRotationOffset		= ClientData->MeshRotationOffset;
+			ClientData->LastCorrectionDelta				= ClientData->CurrentSmoothTime;
+			ClientData->CurrentSmoothTime				= 0;
+		}
 	}
 }
 
 
 void UCharacterMovementComponent::SmoothClientPosition(float DeltaSeconds)
 {
+	SCOPE_CYCLE_COUNTER(STAT_CharacterMovementSmoothClientPosition);
 	if (!HasValidData() || GetNetMode() != NM_Client)
 	{
 		return;
@@ -5637,26 +5660,51 @@ void UCharacterMovementComponent::SmoothClientPosition(float DeltaSeconds)
 	FNetworkPredictionData_Client_Character* ClientData = GetPredictionData_Client_Character();
 	if (ClientData && ClientData->bSmoothNetUpdates && CharacterOwner->GetMesh() && !CharacterOwner->GetMesh()->IsSimulatingPhysics())
 	{
-		// smooth interpolation of mesh translation to avoid popping of other client pawns unless under a low tick rate
-		if (DeltaSeconds < ClientData->SmoothNetUpdateTime)
+		if (ClientData->bUseLinearSmoothing)
 		{
-			// Slowly decay translation offset
-			ClientData->MeshTranslationOffset = (ClientData->MeshTranslationOffset * (1.f - DeltaSeconds / ClientData->SmoothNetUpdateTime));
-		}
-		else
-		{
-			ClientData->MeshTranslationOffset = FVector::ZeroVector;
-		}
+			ClientData->CurrentSmoothTime += DeltaSeconds;
 
-		// Smooth rotation
-		if (DeltaSeconds < ClientData->SmoothNetUpdateRotationTime)
-		{
-			// Slowly decay rotation offset
-			ClientData->MeshRotationOffset = FQuat::Slerp( ClientData->MeshRotationOffset, FQuat::Identity, DeltaSeconds / ClientData->SmoothNetUpdateRotationTime );
+			if (ClientData->LastCorrectionDelta < SMALL_NUMBER || ClientData->CurrentSmoothTime >= ClientData->LastCorrectionDelta)
+			{
+				// This is either:
+				//	1. The very first update
+				//	2. Time between updates was really small
+				//  3. We've arrived at the target position
+				ClientData->MeshTranslationOffset	= FVector::ZeroVector;
+				ClientData->MeshRotationOffset		= FQuat::Identity;
+			}
+			else
+			{
+				// Linearly interpolate between correction updates
+				const float LerpPercent	= ClientData->CurrentSmoothTime / ClientData->LastCorrectionDelta;
+
+				ClientData->MeshTranslationOffset	= FMath::Lerp( ClientData->OriginalMeshTranslationOffset, FVector::ZeroVector, LerpPercent );
+				ClientData->MeshRotationOffset		= FQuat::Slerp( ClientData->OriginalMeshRotationOffset, FQuat::Identity, LerpPercent );
+			}
 		}
 		else
 		{
-			ClientData->MeshRotationOffset = FQuat::Identity;
+			// smooth interpolation of mesh translation to avoid popping of other client pawns unless under a low tick rate
+			if (DeltaSeconds < ClientData->SmoothNetUpdateTime)
+			{
+				// Slowly decay translation offset
+				ClientData->MeshTranslationOffset = (ClientData->MeshTranslationOffset * (1.f - DeltaSeconds / ClientData->SmoothNetUpdateTime));
+			}
+			else
+			{
+				ClientData->MeshTranslationOffset = FVector::ZeroVector;
+			}
+
+			// Smooth rotation
+			if (DeltaSeconds < ClientData->SmoothNetUpdateRotationTime)
+			{
+				// Slowly decay rotation offset
+				ClientData->MeshRotationOffset = FQuat::Slerp( ClientData->MeshRotationOffset, FQuat::Identity, DeltaSeconds / ClientData->SmoothNetUpdateRotationTime );
+			}
+			else
+			{
+				ClientData->MeshRotationOffset = FQuat::Identity;
+			}
 		}
 
 		if (IsMovingOnGround())
@@ -5665,7 +5713,7 @@ void UCharacterMovementComponent::SmoothClientPosition(float DeltaSeconds)
 			ClientData->MeshTranslationOffset.Z = 0;
 		}
 
-		const FVector NewRelTranslation = CharacterOwner->GetMesh()->GetComponentToWorld().InverseTransformVectorNoScale(ClientData->MeshTranslationOffset) + CharacterOwner->GetBaseTranslationOffset();
+		const FVector NewRelTranslation = UpdatedComponent->GetComponentToWorld().InverseTransformVectorNoScale(ClientData->MeshTranslationOffset) + CharacterOwner->GetBaseTranslationOffset();
 		const FQuat NewRelRotation = ClientData->MeshRotationOffset * CharacterOwner->GetBaseRotationOffset();
 		CharacterOwner->GetMesh()->SetRelativeLocationAndRotation(NewRelTranslation, NewRelRotation);
 	}
@@ -5913,6 +5961,8 @@ void UCharacterMovementComponent::ReplicateMoveToServer(float DeltaTime, const F
 	// do not combine moves which have different TimeStamps (before and after reset).
 	if( ClientData->PendingMove.IsValid() && !ClientData->PendingMove->bOldTimeStampBeforeReset && ClientData->PendingMove->CanCombineWith(NewMove, CharacterOwner, ClientData->MaxResponseTime * CharacterOwner->GetWorldSettings()->GetEffectiveTimeDilation()))
 	{
+		SCOPE_CYCLE_COUNTER(STAT_CharacterMovementCombineNetMove);
+
 		// Only combine and move back to the start location if we don't move back in to a spot that would make us collide with something new.
 		const FVector OldStartLocation = ClientData->PendingMove->GetRevertedLocation();
 		if (!OverlapTest(OldStartLocation, ClientData->PendingMove->StartRotation.Quaternion(), UpdatedComponent->GetCollisionObjectType(), GetPawnCapsuleCollisionShape(SHRINK_None), CharacterOwner))
@@ -5966,45 +6016,49 @@ void UCharacterMovementComponent::ReplicateMoveToServer(float DeltaTime, const F
 	NewMove->PostUpdate(CharacterOwner, FSavedMove_Character::PostUpdate_Record);
 
 	// Add NewMove to the list
-	ClientData->SavedMoves.Push(NewMove);
-
-	const bool bCanDelayMove = (CVarNetEnableMoveCombining.GetValueOnGameThread() != 0) && CanDelaySendingMove(NewMove);
-
-	if (bCanDelayMove && ClientData->PendingMove.IsValid() == false)
+	if (CharacterOwner->bReplicateMovement)
 	{
-		// Decide whether to hold off on move
-		// send moves more frequently in small games where server isn't likely to be saturated
-		float NetMoveDelta;
-		UPlayer* Player = (PC ? PC->Player : NULL);
+		ClientData->SavedMoves.Push(NewMove);
 
-		if (Player && (Player->CurrentNetSpeed > 10000) && (GetWorld()->GameState != NULL) && (GetWorld()->GameState->PlayerArray.Num() <= 10))
+		const bool bCanDelayMove = (CVarNetEnableMoveCombining.GetValueOnGameThread() != 0) && CanDelaySendingMove(NewMove);
+
+		if (bCanDelayMove && ClientData->PendingMove.IsValid() == false)
 		{
-			NetMoveDelta = 0.011f;
-		}
-		else if (Player && CharacterOwner->GetWorldSettings()->GameNetworkManagerClass) 
-		{
-			NetMoveDelta = FMath::Max(0.0222f,2 * GetDefault<AGameNetworkManager>(CharacterOwner->GetWorldSettings()->GameNetworkManagerClass)->MoveRepSize/Player->CurrentNetSpeed);
-		}
-		else
-		{
-			NetMoveDelta = 0.011f;
+			// Decide whether to hold off on move
+			// send moves more frequently in small games where server isn't likely to be saturated
+			float NetMoveDelta;
+			UPlayer* Player = (PC ? PC->Player : NULL);
+
+			if (Player && (Player->CurrentNetSpeed > 10000) && (GetWorld()->GameState != NULL) && (GetWorld()->GameState->PlayerArray.Num() <= 10))
+			{
+				NetMoveDelta = 0.011f;
+			}
+			else if (Player && CharacterOwner->GetWorldSettings()->GameNetworkManagerClass) 
+			{
+				NetMoveDelta = FMath::Max(0.0222f,2 * GetDefault<AGameNetworkManager>(CharacterOwner->GetWorldSettings()->GameNetworkManagerClass)->MoveRepSize/Player->CurrentNetSpeed);
+			}
+			else
+			{
+				NetMoveDelta = 0.011f;
+			}
+
+			if ((GetWorld()->TimeSeconds - ClientData->ClientUpdateTime) * CharacterOwner->GetWorldSettings()->GetEffectiveTimeDilation() < NetMoveDelta)
+			{
+				// Delay sending this move.
+				ClientData->PendingMove = NewMove;
+				return;
+			}
 		}
 
-		if ((GetWorld()->TimeSeconds - ClientData->ClientUpdateTime) * CharacterOwner->GetWorldSettings()->GetEffectiveTimeDilation() < NetMoveDelta)
-		{
-			// Delay sending this move.
-			ClientData->PendingMove = NewMove;
-			return;
-		}
+		ClientData->ClientUpdateTime = GetWorld()->TimeSeconds;
+
+		UE_LOG(LogNetPlayerMovement, Verbose, TEXT("Client ReplicateMove Time %f Acceleration %s Position %s DeltaTime %f"),
+			NewMove->TimeStamp, *NewMove->Acceleration.ToString(), *UpdatedComponent->GetComponentLocation().ToString(), DeltaTime);
+
+		// Send move to server if this character is replicating movement
+		CallServerMove(NewMove.Get(), OldMove.Get());
 	}
 
-	ClientData->ClientUpdateTime = GetWorld()->TimeSeconds;
-
-	UE_LOG(LogNetPlayerMovement, Verbose, TEXT("Client ReplicateMove Time %f Acceleration %s Position %s DeltaTime %f"),
-		NewMove->TimeStamp, *NewMove->Acceleration.ToString(), *UpdatedComponent->GetComponentLocation().ToString(), DeltaTime);
-
-	// Send to the server
-	CallServerMove( NewMove.Get(), OldMove.Get() );
 	ClientData->PendingMove = NULL;
 }
 
@@ -7077,6 +7131,11 @@ FNetworkPredictionData_Client_Character::FNetworkPredictionData_Client_Character
 	, bSmoothNetUpdates(false)
 	, MeshTranslationOffset(ForceInitToZero)
 	, MeshRotationOffset(FQuat::Identity)
+	, OriginalMeshTranslationOffset(ForceInitToZero)
+	, OriginalMeshRotationOffset(FQuat::Identity)
+	, LastCorrectionDelta(0.f)
+	, CurrentSmoothTime(0.f)
+	, bUseLinearSmoothing(false)
 	, MaxSmoothNetUpdateDist(0.f)
 	, NoSmoothNetUpdateDist(0.f)
 	, SmoothNetUpdateTime(0.f)

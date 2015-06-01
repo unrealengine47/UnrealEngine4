@@ -873,6 +873,14 @@ void UActorComponent::UnregisterComponent()
 
 void UActorComponent::DestroyComponent(bool bPromoteChildren/*= false*/)
 {
+	// Avoid re-entrancy
+	if (bIsBeingDestroyed)
+	{
+		return;
+	}
+
+	bIsBeingDestroyed = true;
+
 	if (bHasBegunPlay)
 	{
 		EndPlay(EEndPlayReason::Destroyed);
@@ -1407,6 +1415,15 @@ bool UActorComponent::GetIsReplicated() const
 bool UActorComponent::ReplicateSubobjects(class UActorChannel *Channel, class FOutBunch *Bunch, FReplicationFlags *RepFlags)
 {
 	return false;
+}
+
+void UActorComponent::PreReplication(IRepChangedPropertyTracker & ChangedPropertyTracker)
+{
+	UBlueprintGeneratedClass* BPClass = Cast<UBlueprintGeneratedClass>(GetClass());
+	if (BPClass != NULL)
+	{
+		BPClass->InstancePreReplication(ChangedPropertyTracker);
+	}
 }
 
 bool UActorComponent::GetComponentClassCanReplicate() const

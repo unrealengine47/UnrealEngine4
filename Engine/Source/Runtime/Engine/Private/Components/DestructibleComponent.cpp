@@ -127,10 +127,10 @@ bool IsImpactDamageEnabled(const UDestructibleMesh* TheDestructibleMesh, int32 L
 	}
 }
 
-void UDestructibleComponent::OnUpdateTransform(bool bSkipPhysicsMove)
+void UDestructibleComponent::OnUpdateTransform(bool bSkipPhysicsMove, bool bTeleport)
 {
 	// We are handling the physics move below, so don't handle it at higher levels
-	Super::OnUpdateTransform(true);
+	Super::OnUpdateTransform(true, bTeleport);
 
 	if (SkeletalMesh == NULL)
 	{
@@ -159,10 +159,17 @@ void UDestructibleComponent::OnUpdateTransform(bool bSkipPhysicsMove)
 #endif
 
 #if WITH_APEX
-	if (ApexDestructibleActor != NULL && !BodyInstance.bSimulatePhysics)
+	if (ApexDestructibleActor)
 	{
+		PxRigidDynamic* PRootActor = ApexDestructibleActor->getChunkPhysXActor(0);
 		PxMat44 GlobalPose(PxMat33(U2PQuat(CurrentLocalToWorld.GetRotation())), U2PVector(CurrentLocalToWorld.GetTranslation()));
-		ApexDestructibleActor->setGlobalPose(GlobalPose);
+		if(!PRootActor || PRootActor->getScene())	//either root chunk is null meaning fractured (so there's a scene), or the root has a scene
+		{
+			ApexDestructibleActor->setGlobalPose(GlobalPose);	//this assumes ignores bTeleport and treats it like it's true 
+		}else
+		{
+			PRootActor->setGlobalPose(PxTransform(GlobalPose));	//we're not in a scene yet, so place the root actor in this new position
+		}
 	}
 #endif // #if WITH_APEX
 }
@@ -443,67 +450,56 @@ bool UDestructibleComponent::CanEditSimulatePhysics()
 void UDestructibleComponent::AddImpulse( FVector Impulse, FName BoneName /*= NAME_None*/, bool bVelChange /*= false*/ )
 {
 #if WITH_APEX
-	if ( ApexDestructibleActor )
+	ExecuteOnPhysicsReadWrite([&]
 	{
-		int32 ChunkIdx = BoneIdxToChunkIdx(GetBoneIndex(BoneName));
-		PxRigidDynamic* PActor = ApexDestructibleActor->getChunkPhysXActor(ChunkIdx);
-
-		if ( PActor != NULL )
+		const int32 ChunkIdx = BoneIdxToChunkIdx(GetBoneIndex(BoneName));
+		if(PxRigidDynamic* Actor = ApexDestructibleActor->getChunkPhysXActor(ChunkIdx))
 		{
-			SCOPED_SCENE_WRITE_LOCK(PActor->getScene());
-
-			PActor->addForce(U2PVector(Impulse), bVelChange ? PxForceMode::eVELOCITY_CHANGE : PxForceMode::eIMPULSE);
+			Actor->addForce(U2PVector(Impulse), bVelChange ? PxForceMode::eVELOCITY_CHANGE : PxForceMode::eIMPULSE);
 		}
-	}
+	});
 #endif
 }
-
 
 void UDestructibleComponent::AddImpulseAtLocation( FVector Impulse, FVector Position, FName BoneName /*= NAME_None*/ )
 {
 #if WITH_APEX
-	if (ApexDestructibleActor)
+	ExecuteOnPhysicsReadWrite([&]
 	{
-		int32 ChunkIdx = NxModuleDestructibleConst::INVALID_CHUNK_INDEX;
-		if (BoneName != NAME_None)
+		const int32 ChunkIdx = BoneIdxToChunkIdx(GetBoneIndex(BoneName));
+		if (PxRigidDynamic* Actor = ApexDestructibleActor->getChunkPhysXActor(ChunkIdx))
 		{
-			ChunkIdx = BoneIdxToChunkIdx(GetBoneIndex(BoneName));
+			PxRigidBodyExt::addForceAtPos(*Actor, U2PVector(Impulse), U2PVector(Position), PxForceMode::eIMPULSE);
 		}
-
-		PxRigidDynamic* Actor = ApexDestructibleActor->getChunkPhysXActor(ChunkIdx);
-		Actor->addForce(U2PVector(Impulse), PxForceMode::eIMPULSE);
-	}
+	});
 #endif
 }
 
 void UDestructibleComponent::AddForce( FVector Force, FName BoneName /*= NAME_None*/, bool bAccelChange /* = false */ )
 {
 #if WITH_APEX
-	int32 ChunkIdx = NxModuleDestructibleConst::INVALID_CHUNK_INDEX;
-	if (BoneName != NAME_None)
+	ExecuteOnPhysicsReadWrite([&]
 	{
-		ChunkIdx = BoneIdxToChunkIdx(GetBoneIndex(BoneName));
-	}
-
-	PxRigidDynamic* Actor = ApexDestructibleActor->getChunkPhysXActor(ChunkIdx);
-	Actor->addForce(U2PVector(Force), bAccelChange ? PxForceMode::eACCELERATION : PxForceMode::eFORCE);
+		const int32 ChunkIdx = BoneIdxToChunkIdx(GetBoneIndex(BoneName));
+		if (PxRigidDynamic* Actor = ApexDestructibleActor->getChunkPhysXActor(ChunkIdx))
+		{
+			Actor->addForce(U2PVector(Force), bAccelChange ? PxForceMode::eACCELERATION : PxForceMode::eFORCE);
+		}
+	});
 #endif
 }
 
 void UDestructibleComponent::AddForceAtLocation( FVector Force, FVector Location, FName BoneName /*= NAME_None*/ )
 {
 #if WITH_APEX
-	if (ApexDestructibleActor)
+	ExecuteOnPhysicsReadWrite([&]
 	{
-		int32 ChunkIdx = NxModuleDestructibleConst::INVALID_CHUNK_INDEX;
-		if (BoneName != NAME_None)
+		int32 ChunkIdx = BoneIdxToChunkIdx(GetBoneIndex(BoneName));
+		if (PxRigidDynamic* Actor = ApexDestructibleActor->getChunkPhysXActor(ChunkIdx))
 		{
-			ChunkIdx = BoneIdxToChunkIdx(GetBoneIndex(BoneName));
+			PxRigidBodyExt::addForceAtPos(*Actor, U2PVector(Force), U2PVector(Location), PxForceMode::eFORCE);
 		}
-
-		PxRigidDynamic* Actor = ApexDestructibleActor->getChunkPhysXActor(ChunkIdx);
-		Actor->addForce(U2PVector(Force), PxForceMode::eFORCE);
-	}
+	});
 #endif
 }
 
@@ -557,6 +553,11 @@ void UDestructibleComponent::AddRadialForce(FVector Origin, float Radius, float 
 {
 #if WITH_APEX
 	if(bIgnoreRadialForce)
+	{
+		return;
+	}
+
+	if (ApexDestructibleActor == NULL)
 	{
 		return;
 	}
@@ -725,6 +726,46 @@ bool UDestructibleComponent::IsFracturedOrInitiallyStatic() const
 	}
 #endif
 	return bFractured || bInitiallyStatic;
+}
+
+bool UDestructibleComponent::ExecuteOnPhysicsReadOnly(TFunctionRef<void()> Func) const
+{
+#if WITH_APEX
+	if (ApexDestructibleActor)
+	{
+		FPhysScene* PhysScene = GetWorld()->GetPhysicsScene();
+		// Destructibles are always dynamic or kinematic, and therefore only go into one of the scenes
+		const uint32 SceneType = BodyInstance.UseAsyncScene(PhysScene) ? PST_Async : PST_Sync;
+		PxScene* PScene = PhysScene->GetPhysXScene(SceneType);
+
+		SCOPED_SCENE_READ_LOCK(PScene);
+		Func();
+
+		return true;
+	}
+#endif
+
+	return false;
+}
+
+bool UDestructibleComponent::ExecuteOnPhysicsReadWrite(TFunctionRef<void()> Func) const
+{
+#if WITH_APEX
+	if (ApexDestructibleActor)
+	{
+		FPhysScene* PhysScene = GetWorld()->GetPhysicsScene();
+		// Destructibles are always dynamic or kinematic, and therefore only go into one of the scenes
+		const uint32 SceneType = BodyInstance.UseAsyncScene(PhysScene) ? PST_Async : PST_Sync;
+		PxScene* PScene = PhysScene->GetPhysXScene(SceneType);
+
+		SCOPED_SCENE_WRITE_LOCK(PScene);
+		Func();
+
+		return true;
+	}
+#endif
+
+	return false;
 }
 
 void UDestructibleComponent::RefreshBoneTransforms(FActorComponentTickFunction* TickFunction)

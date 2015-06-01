@@ -162,8 +162,10 @@ int32 SMultiLineEditableText::FTextSelectionRunRenderer::OnPaint( const FPaintAr
 	// The block size and offset values are pre-scaled, so we need to account for that when converting the block offsets into paint geometry
 	const float InverseScale = Inverse(AllottedGeometry.Scale);
 
-	const float HighlightWidth = Block->GetSize().X;
-	if (HighlightWidth)
+	// We still want to show a small selection outline on empty lines to make it clear that the line itself is selected despite being empty
+	const float MinHighlightWidth = (Line.Range.IsEmpty()) ? 4.0f * AllottedGeometry.Scale : 0.0f;
+	const float HighlightWidth = FMath::Max(Block->GetSize().X, MinHighlightWidth);
+	if (HighlightWidth > 0.0f)
 	{
 		// Draw the actual highlight rectangle
 		FSlateDrawElement::MakeBox(
@@ -275,6 +277,7 @@ void SMultiLineEditableText::Construct( const FArguments& InArgs )
 	bRevertTextOnEscape = InArgs._RevertTextOnEscape;
 	OnHScrollBarUserScrolled = InArgs._OnHScrollBarUserScrolled;
 	OnVScrollBarUserScrolled = InArgs._OnVScrollBarUserScrolled;
+	OnKeyDownHandler = InArgs._OnKeyDownHandler;
 
 	Marshaller = InArgs._Marshaller;
 	if (!Marshaller.IsValid())
@@ -318,7 +321,8 @@ void SMultiLineEditableText::Construct( const FArguments& InArgs )
 	// Map UI commands to delegates which are called when the command should be executed
 	UICommandList->MapAction(FGenericCommands::Get().Undo,
 		FExecuteAction::CreateSP(this, &SMultiLineEditableText::Undo),
-		FCanExecuteAction::CreateSP(this, &SMultiLineEditableText::CanExecuteUndo));
+		FCanExecuteAction::CreateSP(this, &SMultiLineEditableText::CanExecuteUndo),
+		EUIActionRepeatMode::RepeatEnabled);
 
 	UICommandList->MapAction(FGenericCommands::Get().Cut,
 		FExecuteAction::CreateSP(this, &SMultiLineEditableText::CutSelectedTextToClipboard),
@@ -326,7 +330,8 @@ void SMultiLineEditableText::Construct( const FArguments& InArgs )
 
 	UICommandList->MapAction(FGenericCommands::Get().Paste,
 		FExecuteAction::CreateSP(this, &SMultiLineEditableText::PasteTextFromClipboard),
-		FCanExecuteAction::CreateSP(this, &SMultiLineEditableText::CanExecutePaste));
+		FCanExecuteAction::CreateSP(this, &SMultiLineEditableText::CanExecutePaste),
+		EUIActionRepeatMode::RepeatEnabled);
 
 	UICommandList->MapAction(FGenericCommands::Get().Copy,
 		FExecuteAction::CreateSP(this, &SMultiLineEditableText::CopySelectedTextToClipboard),
@@ -599,6 +604,12 @@ void SMultiLineEditableText::OnFocusLost( const FFocusEvent& InFocusEvent )
 			}
 		}
 
+		// Clear selection unless activating a new window (otherwise can't copy and past on right click)
+		if (InFocusEvent.GetCause() != EFocusCause::WindowActivate)
+		{
+			ClearSelection();
+		}
+
 		// When focus is lost let anyone who is interested that text was committed
 		// See if user explicitly tabbed away or moved focus
 		ETextCommit::Type TextAction;
@@ -624,11 +635,6 @@ void SMultiLineEditableText::OnFocusLost( const FFocusEvent& InFocusEvent )
 		const FText EditedText = GetEditableText();
 
 		OnTextCommitted.ExecuteIfBound(EditedText, TextAction);
-
-		if(bClearKeyboardFocusOnCommit.Get())
-		{
-			ClearSelection();
-		}
 
 		UpdateCursorHighlight();
 
@@ -810,15 +816,10 @@ void SMultiLineEditableText::DeleteChar()
 			//If we are at the very beginning of the line...
 			if (Line.Text->Len() == 0)
 			{
-				//And if the current line isn't the very first line then...
-				if (CursorInteractionPosition.GetLineIndex() > 0)
+				//And if the current line isn't the very last line then...
+				if (Lines.IsValidIndex(CursorInteractionPosition.GetLineIndex() + 1))
 				{
-					if (TextLayout->RemoveLine(CursorInteractionPosition.GetLineIndex()))
-					{
-						//Update the cursor so it appears at the end of the previous line,
-						//as we're going to delete the imaginary \n separating them
-						FinalCursorLocation = FTextLocation(CursorInteractionPosition.GetLineIndex() - 1, Lines[CursorInteractionPosition.GetLineIndex() - 1].Text->Len());
-					}
+					TextLayout->RemoveLine(CursorInteractionPosition.GetLineIndex());
 				}
 				//else do nothing as the FinalCursorLocation is already correct
 			}
@@ -1146,10 +1147,7 @@ void SMultiLineEditableText::UpdateCursorHighlight()
 		if ( SelectionBeginningLineIndex == SelectionEndLineIndex )
 		{
 			const FTextRange Range(SelectionBeginningLineOffset, SelectionEndLineOffset);
-			if (!Range.IsEmpty())
-			{
-				TextLayout->AddRunRenderer(FTextRunRenderer(SelectionBeginningLineIndex, Range, TextSelectionRunRenderer.ToSharedRef()));
-			}
+			TextLayout->AddRunRenderer(FTextRunRenderer(SelectionBeginningLineIndex, Range, TextSelectionRunRenderer.ToSharedRef()));
 		}
 		else
 		{
@@ -1160,26 +1158,17 @@ void SMultiLineEditableText::UpdateCursorHighlight()
 				if ( LineIndex == SelectionBeginningLineIndex )
 				{
 					const FTextRange Range(SelectionBeginningLineOffset, Lines[LineIndex].Text->Len());
-					if (!Range.IsEmpty())
-					{
-						TextLayout->AddRunRenderer(FTextRunRenderer(LineIndex, Range, TextSelectionRunRenderer.ToSharedRef()));
-					}
+					TextLayout->AddRunRenderer(FTextRunRenderer(LineIndex, Range, TextSelectionRunRenderer.ToSharedRef()));
 				}
 				else if ( LineIndex == SelectionEndLineIndex )
 				{
 					const FTextRange Range(0, SelectionEndLineOffset);
-					if (!Range.IsEmpty())
-					{
-						TextLayout->AddRunRenderer(FTextRunRenderer(LineIndex, Range, TextSelectionRunRenderer.ToSharedRef()));
-					}
+					TextLayout->AddRunRenderer(FTextRunRenderer(LineIndex, Range, TextSelectionRunRenderer.ToSharedRef()));
 				}
 				else
 				{
 					const FTextRange Range(0, Lines[LineIndex].Text->Len());
-					if (!Range.IsEmpty())
-					{
-						TextLayout->AddRunRenderer(FTextRunRenderer(LineIndex, Range, TextSelectionRunRenderer.ToSharedRef()));
-					}
+					TextLayout->AddRunRenderer(FTextRunRenderer(LineIndex, Range, TextSelectionRunRenderer.ToSharedRef()));
 				}
 			}
 		}
@@ -1936,16 +1925,25 @@ bool SMultiLineEditableText::IsTextSelectedAt( const FGeometry& MyGeometry, cons
 	int32 SelectionEndLineIndex = Selection.GetEnd().GetLineIndex();
 	int32 SelectionEndLineOffset = Selection.GetEnd().GetOffset();
 
+	if (SelectionBeginningLineIndex == SelectionEndLineIndex)
+	{
+		return ClickedPosition.GetLineIndex() == SelectionBeginningLineIndex
+			&& SelectionBeginningLineOffset <= ClickedPosition.GetOffset()
+			&& SelectionEndLineOffset >= ClickedPosition.GetOffset();
+	}
+
 	if (SelectionBeginningLineIndex == ClickedPosition.GetLineIndex())
 	{
-		return SelectionBeginningLineOffset >= ClickedPosition.GetOffset();
+		return SelectionBeginningLineOffset <= ClickedPosition.GetOffset();
 	}
-	else if (SelectionEndLineIndex == ClickedPosition.GetLineIndex())
+
+	if (SelectionEndLineIndex == ClickedPosition.GetLineIndex())
 	{
-		return SelectionEndLineOffset < ClickedPosition.GetOffset();
+		return SelectionEndLineOffset >= ClickedPosition.GetOffset();
 	}
 	
-	return SelectionBeginningLineIndex < ClickedPosition.GetLineIndex() && SelectionEndLineIndex > ClickedPosition.GetLineIndex();
+	return SelectionBeginningLineIndex < ClickedPosition.GetLineIndex()
+		&& SelectionEndLineIndex > ClickedPosition.GetLineIndex();
 }
 
 void SMultiLineEditableText::SetWasFocusedByLastMouseDown( bool Value )
@@ -1986,11 +1984,6 @@ FReply SMultiLineEditableText::OnEscape()
 		if(bRevertTextOnEscape.Get() && HasTextChangedFromOriginal())
 		{
 			RestoreOriginalText();
-			// Release input focus
-			if(bClearKeyboardFocusOnCommit.Get())
-			{
-				FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::Cleared);
-			}
 			MyReply = FReply::Handled();
 		}
 	}
@@ -2019,7 +2012,6 @@ void SMultiLineEditableText::OnEnter()
 		// Release input focus
 		if(bClearKeyboardFocusOnCommit.Get())
 		{
-			ClearSelection();
 			FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::Cleared);
 		}
 	}
@@ -2589,8 +2581,6 @@ void SMultiLineEditableText::CacheDesiredSize(float LayoutScaleMultiplier)
 	// Get the wrapping width and font to see if they have changed
 	float WrappingWidth = WrapTextAt.Get();
 
-	const FMargin& OurMargin = Margin.Get();
-
 	// Text wrapping can either be used defined (WrapTextAt), automatic (AutoWrapText), or a mixture of both
 	// Take whichever has the smallest value (>1)
 	if(AutoWrapText.Get() && CachedSize.X >= 1.0f)
@@ -2600,7 +2590,7 @@ void SMultiLineEditableText::CacheDesiredSize(float LayoutScaleMultiplier)
 
 	TextLayout->SetScale( LayoutScaleMultiplier );
 	TextLayout->SetWrappingWidth( WrappingWidth );
-	TextLayout->SetMargin( OurMargin );
+	TextLayout->SetMargin( Margin.Get() * TextLayout->GetScale() );
 	TextLayout->SetLineHeightPercentage( LineHeightPercentage.Get() );
 	TextLayout->SetJustification( Justification.Get() );
 	TextLayout->SetVisibleRegion( CachedSize, ScrollOffset * TextLayout->GetScale() );
@@ -2684,12 +2674,23 @@ FReply SMultiLineEditableText::OnKeyChar( const FGeometry& MyGeometry,const FCha
 
 FReply SMultiLineEditableText::OnKeyDown( const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent )
 {
-	FReply Reply = FTextEditHelper::OnKeyDown( InKeyEvent, SharedThis( this ) );
+	FReply Reply = FReply::Unhandled();
 
-	// Process keybindings if the event wasn't already handled
-	if (!Reply.IsEventHandled() && UICommandList->ProcessCommandBindings(InKeyEvent))
+	// First call the user defined key handler, there might be overrides to normal functionality
+	if (OnKeyDownHandler.IsBound())
 	{
-		Reply = FReply::Handled();
+		Reply = OnKeyDownHandler.Execute(MyGeometry, InKeyEvent);
+	}
+
+	if( !Reply.IsEventHandled() )
+	{
+		Reply = FTextEditHelper::OnKeyDown( InKeyEvent, SharedThis( this ) );
+
+		// Process keybindings if the event wasn't already handled
+		if (!Reply.IsEventHandled() && UICommandList->ProcessCommandBindings(InKeyEvent))
+		{
+			Reply = FReply::Handled();
+		}
 	}
 
 	return Reply;

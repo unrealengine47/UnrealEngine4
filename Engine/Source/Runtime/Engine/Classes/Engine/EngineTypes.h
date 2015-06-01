@@ -183,6 +183,15 @@ enum ETrailWidthMode
 	ETrailWidthMode_FromSecond UMETA(DisplayName = "From Second Socket"),
 };
 
+UENUM()
+namespace EParticleCollisionMode
+{
+	enum Type
+	{
+		SceneDepth UMETA(DisplayName="Scene Depth"),
+		DistanceField UMETA(DisplayName="Distance Field")
+	};
+}
 
 // Note: Check UMaterialInstance::Serialize if changed!!
 UENUM()
@@ -1182,6 +1191,13 @@ struct FLightmassPrimitiveSettings
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Lightmass)
 	uint32 bUseEmissiveForStaticLighting:1;
 
+	/** 
+	 * Typically the triangle normal is used for hemisphere gathering which prevents incorrect self-shadowing from artist-tweaked vertex normals. 
+	 * However in the case of foliage whose vertex normal has been setup to match the underlying terrain, gathering in the direction of the vertex normal is desired.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Lightmass)
+	uint32 bUseVertexNormalForHemisphereGather:1;
+
 	/** Direct lighting falloff exponent for mesh area lights created from emissive areas on this primitive. */
 	UPROPERTY()
 	float EmissiveLightFalloffExponent;
@@ -1211,6 +1227,7 @@ struct FLightmassPrimitiveSettings
 		bUseTwoSidedLighting = false;
 		bShadowIndirectOnly = false;
 		bUseEmissiveForStaticLighting = false;
+		bUseVertexNormalForHemisphereGather = false;
 		EmissiveLightFalloffExponent = 8.0f;
 		EmissiveLightExplicitInfluenceRadius = 0.0f;
 		EmissiveBoost = 1.0f;
@@ -1224,6 +1241,7 @@ struct FLightmassPrimitiveSettings
 		if ((A.bUseTwoSidedLighting != B.bUseTwoSidedLighting) ||
 			(A.bShadowIndirectOnly != B.bShadowIndirectOnly) || 
 			(A.bUseEmissiveForStaticLighting != B.bUseEmissiveForStaticLighting) || 
+			(A.bUseVertexNormalForHemisphereGather != B.bUseVertexNormalForHemisphereGather) || 
 			(fabsf(A.EmissiveLightFalloffExponent - B.EmissiveLightFalloffExponent) > SMALL_NUMBER) ||
 			(fabsf(A.EmissiveLightExplicitInfluenceRadius - B.EmissiveLightExplicitInfluenceRadius) > SMALL_NUMBER) ||
 			(fabsf(A.EmissiveBoost - B.EmissiveBoost) > SMALL_NUMBER) ||
@@ -1790,6 +1808,24 @@ public:
 	/** The delta time of the last tick */
 	float ThisTickDelta;
 
+	/** Rate of animation evaluation when non rendered (off screen and dedicated servers).
+	 * a value of 4 means evaluated 1 frame, then 3 frames skipped */
+	UPROPERTY()
+	int32 BaseNonRenderedUpdateRate;
+
+	/** Array of MaxDistanceFactor to use for AnimUpdateRate when mesh is visible (rendered).
+	 * MaxDistanceFactor is size on screen, as used by LODs
+	 * Example:
+	 *		BaseVisibleDistanceFactorThesholds.Add(0.4f)
+	 *		BaseVisibleDistanceFactorThesholds.Add(0.2f)
+	 * means:
+	 *		0 frame skip, MaxDistanceFactor > 0.4f
+	 *		1 frame skip, MaxDistanceFactor > 0.2f
+	 *		2 frame skip, MaxDistanceFactor > 0.0f
+	 */
+	UPROPERTY()
+	TArray<float> BaseVisibleDistanceFactorThesholds;
+
 public:
 
 	/** Default constructor. */
@@ -1802,7 +1838,11 @@ public:
 		, TickedPoseOffestTime(0.f)
 		, AdditionalTime(0.f)
 		, ThisTickDelta(0.f)
-	{ }
+		, BaseNonRenderedUpdateRate(4)
+	{ 
+		BaseVisibleDistanceFactorThesholds.Add(0.4f);
+		BaseVisibleDistanceFactorThesholds.Add(0.2f);
+	}
 
 	/** Set parameters and verify inputs for Trail Mode (original behaviour - skip frames, track skipped time and then catch up afterwards).
 	 * @param : UpdateShiftRate. Shift our update frames so that updates across all skinned components are staggered
@@ -1851,12 +1891,12 @@ public:
 	{
 		if (OptimizeMode == TrailMode)
 		{
-			/*switch (UpdateRate)
+			switch (UpdateRate)
 			{
 			case 1: return FColor::Red;
 			case 2: return FColor::Green;
 			case 3: return FColor::Blue;
-			}*/
+			}
 			return FColor::Black;
 		}
 		else

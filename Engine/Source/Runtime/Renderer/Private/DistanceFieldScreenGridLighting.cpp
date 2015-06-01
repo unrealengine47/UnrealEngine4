@@ -103,7 +103,6 @@ public:
 		AOParameters.Bind(Initializer.ParameterMap);
 		ScreenGridParameters.Bind(Initializer.ParameterMap);
 		GlobalDistanceFieldParameters.Bind(Initializer.ParameterMap);
-		TileHeadData.Bind(Initializer.ParameterMap, TEXT("TileHeadData"));
 		TileHeadDataUnpacked.Bind(Initializer.ParameterMap, TEXT("TileHeadDataUnpacked"));
 		TileArrayData.Bind(Initializer.ParameterMap, TEXT("TileArrayData"));
 		TileConeDepthRanges.Bind(Initializer.ParameterMap, TEXT("TileConeDepthRanges"));
@@ -135,7 +134,7 @@ public:
 
 		if (bUseGlobalDistanceField)
 		{
-			GlobalDistanceFieldParameters.Set(RHICmdList, ShaderRHI, GlobalDistanceFieldInfo);
+			GlobalDistanceFieldParameters.Set(RHICmdList, ShaderRHI, GlobalDistanceFieldInfo.ParameterData);
 		}
 
 		FAOSampleData2 AOSampleData;
@@ -153,7 +152,6 @@ public:
 		FTileIntersectionResources* TileIntersectionResources = View.ViewState->AOTileIntersectionResources;
 
 		SetSRVParameter(RHICmdList, ShaderRHI, TileHeadDataUnpacked, TileIntersectionResources->TileHeadDataUnpacked.SRV);
-		SetSRVParameter(RHICmdList, ShaderRHI, TileHeadData, TileIntersectionResources->TileHeadData.SRV);
 		SetSRVParameter(RHICmdList, ShaderRHI, TileArrayData, TileIntersectionResources->TileArrayData.SRV);
 		SetSRVParameter(RHICmdList, ShaderRHI, TileConeDepthRanges, TileIntersectionResources->TileConeDepthRanges.SRV);
 
@@ -197,7 +195,6 @@ public:
 		Ar << ScreenGridParameters;
 		Ar << GlobalDistanceFieldParameters;
 		Ar << TileHeadDataUnpacked;
-		Ar << TileHeadData;
 		Ar << TileArrayData;
 		Ar << TileConeDepthRanges;
 		Ar << TileListGroupSize;
@@ -216,7 +213,6 @@ private:
 	FScreenGridParameters ScreenGridParameters;
 	FGlobalDistanceFieldParameters GlobalDistanceFieldParameters;
 	FShaderResourceParameter TileHeadDataUnpacked;
-	FShaderResourceParameter TileHeadData;
 	FShaderResourceParameter TileArrayData;
 	FShaderResourceParameter TileConeDepthRanges;
 	FShaderParameter TileListGroupSize;
@@ -269,7 +265,6 @@ public:
 		AOParameters.Bind(Initializer.ParameterMap);
 		ScreenGridParameters.Bind(Initializer.ParameterMap);
 		GlobalDistanceFieldParameters.Bind(Initializer.ParameterMap);
-		TileHeadData.Bind(Initializer.ParameterMap, TEXT("TileHeadData"));
 		TileHeadDataUnpacked.Bind(Initializer.ParameterMap, TEXT("TileHeadDataUnpacked"));
 		TileArrayData.Bind(Initializer.ParameterMap, TEXT("TileArrayData"));
 		TileConeDepthRanges.Bind(Initializer.ParameterMap, TEXT("TileConeDepthRanges"));
@@ -297,7 +292,7 @@ public:
 		ObjectParameters.Set(RHICmdList, ShaderRHI, GAOCulledObjectBuffers.Buffers);
 		AOParameters.Set(RHICmdList, ShaderRHI, Parameters);
 		ScreenGridParameters.Set(RHICmdList, ShaderRHI, View, DistanceFieldNormal);
-		GlobalDistanceFieldParameters.Set(RHICmdList, ShaderRHI, GlobalDistanceFieldInfo);
+		GlobalDistanceFieldParameters.Set(RHICmdList, ShaderRHI, GlobalDistanceFieldInfo.ParameterData);
 
 		FAOSampleData2 AOSampleData;
 
@@ -314,7 +309,6 @@ public:
 		FTileIntersectionResources* TileIntersectionResources = View.ViewState->AOTileIntersectionResources;
 
 		SetSRVParameter(RHICmdList, ShaderRHI, TileHeadDataUnpacked, TileIntersectionResources->TileHeadDataUnpacked.SRV);
-		SetSRVParameter(RHICmdList, ShaderRHI, TileHeadData, TileIntersectionResources->TileHeadData.SRV);
 		SetSRVParameter(RHICmdList, ShaderRHI, TileArrayData, TileIntersectionResources->TileArrayData.SRV);
 		SetSRVParameter(RHICmdList, ShaderRHI, TileConeDepthRanges, TileIntersectionResources->TileConeDepthRanges.SRV);
 
@@ -352,7 +346,6 @@ public:
 		Ar << ScreenGridParameters;
 		Ar << GlobalDistanceFieldParameters;
 		Ar << TileHeadDataUnpacked;
-		Ar << TileHeadData;
 		Ar << TileArrayData;
 		Ar << TileConeDepthRanges;
 		Ar << TileListGroupSize;
@@ -370,7 +363,6 @@ private:
 	FScreenGridParameters ScreenGridParameters;
 	FGlobalDistanceFieldParameters GlobalDistanceFieldParameters;
 	FShaderResourceParameter TileHeadDataUnpacked;
-	FShaderResourceParameter TileHeadData;
 	FShaderResourceParameter TileArrayData;
 	FShaderResourceParameter TileConeDepthRanges;
 	FShaderParameter TileListGroupSize;
@@ -643,6 +635,7 @@ void PostProcessBentNormalAOScreenGrid(
 	TRefCountPtr<IPooledRenderTarget>& BentNormalOutput,
 	TRefCountPtr<IPooledRenderTarget>& IrradianceOutput)
 {
+	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 	const bool bUseDistanceFieldGI = IsDistanceFieldGIAllowed(View);
 
 	TRefCountPtr<IPooledRenderTarget> DistanceFieldAOBentNormal;
@@ -699,7 +692,7 @@ void PostProcessBentNormalAOScreenGrid(
 				0, 0, 
 				View.ViewRect.Width() / GAODownsampleFactor, View.ViewRect.Height() / GAODownsampleFactor,
 				FIntPoint(View.ViewRect.Width() / GAODownsampleFactor, View.ViewRect.Height() / GAODownsampleFactor),
-				GSceneRenderTargets.GetBufferSizeXY() / FIntPoint(GAODownsampleFactor, GAODownsampleFactor),
+				SceneContext.GetBufferSizeXY() / FIntPoint(GAODownsampleFactor, GAODownsampleFactor),
 				*VertexShader);
 		}
 

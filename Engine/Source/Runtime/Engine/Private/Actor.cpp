@@ -10,6 +10,7 @@
 #include "LatentActions.h"
 #include "MessageLog.h"
 #include "Net/UnrealNetwork.h"
+#include "Net/RepLayout.h"
 #include "DisplayDebugHelpers.h"
 #include "Matinee/MatineeActor.h"
 #include "Matinee/InterpGroup.h"
@@ -91,7 +92,6 @@ void AActor::InitializeDefaults()
 	InputConsumeOption_DEPRECATED = ICO_ConsumeBoundKeys;
 	bBlockInput = false;
 	bCanBeDamaged = true;
-	bPendingKillPending = false;
 	bFindCameraComponentWhenViewTarget = true;
 	bAllowReceiveTickEventOnDedicatedServer = true;
 	bRelevantForNetworkReplays = true;
@@ -539,7 +539,19 @@ void AActor::ApplyWorldOffset(const FVector& InOffset, bool bWorldShift)
 	}
 }
 
-static AActor* GTestRegisterTickFunctions = NULL;
+/** Thread safe container for actor related global variables */
+class FActorThreadContext : public TThreadSingleton<FActorThreadContext>
+{
+	friend TThreadSingleton<FActorThreadContext>;
+
+	FActorThreadContext()
+		: TestRegisterTickFunctions(nullptr)
+	{
+	}
+public:
+	/** Tests tick function registration */
+	AActor* TestRegisterTickFunctions;
+};
 
 void AActor::RegisterActorTickFunctions(bool bRegister)
 {
@@ -562,17 +574,18 @@ void AActor::RegisterActorTickFunctions(bool bRegister)
 		}
 	}
 
-	GTestRegisterTickFunctions = this; // we will verify the super call chain is intact. Don't copy and paste this to another actor class!
+	FActorThreadContext::Get().TestRegisterTickFunctions = this; // we will verify the super call chain is intact. Don't copy and paste this to another actor class!
 }
 
 void AActor::RegisterAllActorTickFunctions(bool bRegister, bool bDoComponents)
 {
 	if(!IsTemplate())
 	{
-		check(GTestRegisterTickFunctions == NULL);
+		FActorThreadContext& ThreadContext = FActorThreadContext::Get();
+		check(ThreadContext.TestRegisterTickFunctions == nullptr);
 		RegisterActorTickFunctions(bRegister);
-		checkf(GTestRegisterTickFunctions == this, TEXT("Failed to route Actor RegisterTickFunctions (%s)"), *GetFullName());
-		GTestRegisterTickFunctions = NULL;
+		checkf(ThreadContext.TestRegisterTickFunctions == this, TEXT("Failed to route Actor RegisterTickFunctions (%s)"), *GetFullName());
+		ThreadContext.TestRegisterTickFunctions = nullptr;
 
 		if (bDoComponents)
 		{
@@ -665,6 +678,7 @@ void AActor::Tick( float DeltaSeconds )
 		ReceiveTick(DeltaSeconds);
 	}
 
+
 	// Update any latent actions we have for this actor
 	GetWorld()->GetLatentActionManager().ProcessLatentActions(this, DeltaSeconds);
 
@@ -730,6 +744,16 @@ void AActor::PreReplication( IRepChangedPropertyTracker & ChangedPropertyTracker
 	if (BPClass != NULL)
 	{
 		BPClass->InstancePreReplication(ChangedPropertyTracker);
+	}
+
+	// Call PreReplication on all owned components that are replicated
+	for (UActorComponent* Component : OwnedComponents)
+	{
+		// Only call on components that aren't pending kill
+		if (Component && !Component->IsPendingKill() && Component->GetIsReplicated())
+		{
+			Component->PreReplication(*GetNetDriver()->FindOrCreateRepChangedPropertyTracker(Component).Get());
+		}
 	}
 }
 
@@ -1236,22 +1260,14 @@ void AActor::OnRep_AttachmentReplication()
 	{
 		if (RootComponent)
 		{
-			USceneComponent* ParentComponent = AttachmentReplication.AttachParent->GetRootComponent();
-			
-			if (AttachmentReplication.AttachComponent != NULL)
-			{
-				ParentComponent = AttachmentReplication.AttachComponent;
-			}
+			USceneComponent* ParentComponent = (AttachmentReplication.AttachComponent ? AttachmentReplication.AttachComponent : AttachmentReplication.AttachParent->GetRootComponent());
 
 			if (ParentComponent)
 			{
-				RootComponent->AttachTo(ParentComponent, AttachmentReplication.AttachSocket);
 				RootComponent->RelativeLocation = AttachmentReplication.LocationOffset;
 				RootComponent->RelativeRotation = AttachmentReplication.RotationOffset;
 				RootComponent->RelativeScale3D = AttachmentReplication.RelativeScale3D;
-
-				RootComponent->UpdateComponentToWorld();
-
+				RootComponent->AttachTo(ParentComponent, AttachmentReplication.AttachSocket);
 			}
 		}
 	}
@@ -1576,6 +1592,8 @@ void AActor::PrestreamTextures( float Seconds, bool bEnableStreaming, int32 Cine
 }
 
 void AActor::OnRep_Instigator() {}
+
+void AActor::OnRep_ReplicateMovement() {}
 
 void AActor::RouteEndPlay(const EEndPlayReason::Type EndPlayReason)
 {
@@ -2483,7 +2501,7 @@ void AActor::PostActorConstruction()
 	}
 
 	// Components are all there and we've begun play, init overlapping state
-	if (GetWorld()->HasBegunPlay() && !deferBeginPlayAndUpdateOverlaps)
+	if (!deferBeginPlayAndUpdateOverlaps)
 	{
 		UpdateOverlaps();
 	}
@@ -2508,6 +2526,11 @@ void AActor::SetReplicates(bool bInReplicates)
 	{
 		UE_LOG(LogActor, Warning, TEXT("SetReplicates called on actor '%s' that is not valid for having its role modified."), *GetName());
 	}
+}
+
+void AActor::SetReplicateMovement(bool bInReplicateMovement)
+{
+	bReplicateMovement = bInReplicateMovement;
 }
 
 void AActor::SetAutonomousProxy(bool bInAutonomousProxy)

@@ -111,7 +111,7 @@ void FKismet2CompilerModule::CompileBlueprintInner(class UBlueprint* Blueprint, 
 			{
 				for (auto CurrentBP : StoredDependentBlueprints)
 				{
-					Reinstancer->EnlistDependentBlueprintToRecompile(CurrentBP, !CurrentBP->IsPossiblyDirty());
+					Reinstancer->EnlistDependentBlueprintToRecompile(CurrentBP, !(CurrentBP->IsPossiblyDirty() || CurrentBP->Status == BS_Error));
 				}
 			}
 		}
@@ -140,10 +140,11 @@ void FKismet2CompilerModule::CompileBlueprint(class UBlueprint* Blueprint, const
 
 	for ( IBlueprintCompiler* Compiler : Compilers )
 	{
-		Compiler->PreCompile(Blueprint);
+		Compiler->PreCompile(Blueprint, CompileOptions);
 	}
 
-	if (CompileOptions.CompileType != EKismetCompileType::Cpp)
+	if (CompileOptions.CompileType != EKismetCompileType::Cpp
+		&& CompileOptions.CompileType != EKismetCompileType::BytecodeOnly )
 	{
 		BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_CompileSkeletonClass);
 		auto SkeletonReinstancer = FBlueprintCompileReinstancer::Create(Blueprint->SkeletonGeneratedClass);
@@ -218,7 +219,7 @@ void FKismet2CompilerModule::CompileBlueprint(class UBlueprint* Blueprint, const
 
 	for ( IBlueprintCompiler* Compiler : Compilers )
 	{
-		Compiler->PostCompile(Blueprint);
+		Compiler->PostCompile(Blueprint, CompileOptions);
 	}
 
 	UPackage* Package = Blueprint->GetOutermost();

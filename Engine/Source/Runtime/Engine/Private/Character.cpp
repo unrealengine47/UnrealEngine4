@@ -285,6 +285,23 @@ void ACharacter::OnRep_IsCrouched()
 	}
 }
 
+void ACharacter::SetReplicateMovement(bool bInReplicateMovement)
+{
+	Super::SetReplicateMovement(bInReplicateMovement);
+
+	if (CharacterMovement != nullptr)
+	{
+		// Set prediction data time stamp to current time to stop extrapolating
+		// from time bReplicateMovement was turned off to when it was turned on again
+		FNetworkPredictionData_Server* NetworkPrediction = CharacterMovement->GetPredictionData_Server();
+
+		if (NetworkPrediction != nullptr)
+		{
+			NetworkPrediction->ServerTimeStamp = GetWorld()->GetTimeSeconds();
+		}
+	}
+}
+
 bool ACharacter::CanCrouch()
 {
 	return !bIsCrouched && CharacterMovement && CharacterMovement->CanEverCrouch() && GetRootComponent() && !GetRootComponent()->IsSimulatingPhysics();
@@ -1167,13 +1184,19 @@ void ACharacter::UpdateSimulatedPosition(const FVector& NewLocation, const FRota
 	if( (NewLocation != GetActorLocation()) || (CreationTime == GetWorld()->TimeSeconds) )
 	{
 		FVector FinalLocation = NewLocation;
-		if( GetWorld()->EncroachingBlockingGeometry(this, NewLocation, NewRotation) )
+
+		// Only need to check for encroachment when teleported without any velocity.
+		// Normal movement pops the character out of geometry anyway, no use doing it before and after (with different rules).
+		if (CharacterMovement && CharacterMovement->Velocity.IsZero())
 		{
-			bSimGravityDisabled = true;
-		}
-		else
-		{
-			bSimGravityDisabled = false;
+			if (GetWorld()->EncroachingBlockingGeometry(this, NewLocation, NewRotation))
+			{
+				bSimGravityDisabled = true;
+			}
+			else
+			{
+				bSimGravityDisabled = false;
+			}
 		}
 		
 		// Don't use TeleportTo(), that clears our base.

@@ -249,6 +249,24 @@ void FVisualLogger::EventLog(const class UObject* Object, const FName EventTag1,
 	CurrentEntry->Events[Index].EventTags.Remove(NAME_None);
 }
 
+void FVisualLogger::NavigationDataDump(const class UObject* Object, const struct FLogCategoryBase& Category, ELogVerbosity::Type Verbosity, int32 UniqueLogId, const FBox& Box)
+{
+	SCOPE_CYCLE_COUNTER(STAT_VisualLog);
+	UWorld *World = nullptr;
+	FVisualLogEntry *CurrentEntry = nullptr;
+	if (CheckVisualLogInputInternal(Object, Category, Verbosity, &World, &CurrentEntry) == false)
+	{
+		return;
+	}
+
+	const ANavigationData* MainNavData = World ? UNavigationSystem::GetNavigationSystem(World)->GetMainNavData(FNavigationSystem::ECreateIfEmpty::DontCreate) : nullptr;
+	const FNavDataGenerator* Generator = MainNavData ? MainNavData->GetGenerator() : nullptr;
+	if (Generator)
+	{
+		Generator->GrabDebugSnapshot(CurrentEntry, FMath::IsNearlyZero(Box.GetVolume()) ? MainNavData->GetBounds() : Box, Category, Verbosity);
+	}
+}
+
 
 FVisualLogger::FVisualLogger()
 {
@@ -264,24 +282,32 @@ FVisualLogger::FVisualLogger()
 	}
 }
 
-UWorld* FVisualLogger::GetWorld(const class UObject* Object)
+namespace
 {
-	UWorld* World = Object ? GEngine->GetWorldFromContextObject(Object, false) : nullptr;
-#if WITH_EDITOR
-	UEditorEngine *EEngine = Cast<UEditorEngine>(GEngine);
-	if (GIsEditor && EEngine != nullptr && World == nullptr)
+	static UWorld* GetWorldForVisualLogger(const class UObject* Object)
 	{
-		// lets use PlayWorld during PIE/Simulate and regular world from editor otherwise, to draw debug information
-		World = EEngine->PlayWorld != nullptr ? EEngine->PlayWorld : EEngine->GetEditorWorldContext().World();
-	}
+		UWorld* World = Object ? GEngine->GetWorldFromContextObject(Object, false) : nullptr;
+#if WITH_EDITOR
+		UEditorEngine *EEngine = Cast<UEditorEngine>(GEngine);
+		if (GIsEditor && EEngine != nullptr && World == nullptr)
+		{
+			// lets use PlayWorld during PIE/Simulate and regular world from editor otherwise, to draw debug information
+			World = EEngine->PlayWorld != nullptr ? EEngine->PlayWorld : EEngine->GetEditorWorldContext().World();
+		}
 
 #endif
-	if (!GIsEditor && World == nullptr)
-	{
-		World = GEngine->GetWorld();
-	}
+		if (!GIsEditor && World == nullptr)
+		{
+			World = GEngine->GetWorld();
+		}
 
-	return World;
+		return World;
+	}
+}
+
+UWorld* FVisualLogger::GetWorld(const class UObject* Object)
+{
+	return GetWorldForVisualLogger(Object);
 }
 
 void FVisualLogger::Shutdown()
@@ -365,6 +391,10 @@ class UObject* FVisualLogger::FindRedirection(const UObject* Object)
 
 void FVisualLogger::SetIsRecording(bool InIsRecording) 
 { 
+	if (InIsRecording == false && InIsRecording != !!bIsRecording && FParse::Param(FCommandLine::Get(), TEXT("LogNavOctree")))
+	{
+		FVisualLogger::NavigationDataDump(GetWorld(nullptr), LogNavigation, ELogVerbosity::Log, INDEX_NONE, FBox());
+	}
 	if (IsRecordingToFile())
 	{
 		SetIsRecordingToFile(false);
@@ -448,7 +478,7 @@ public:
 				{
 					FString Category = FParse::Token(Cmd, 1);
 					FVisualLogger::Get().BlockAllCategories(true);
-					FVisualLogger::Get().GetWhiteList().AddUnique(*Category);
+					FVisualLogger::Get().AddCategortyToWhiteList(*Category);
 					return true;
 				}
 #if WITH_EDITOR
@@ -462,6 +492,10 @@ public:
 			UE_LOG(LogVisual, Warning, TEXT("Unable to open LogVisualizer - logs are disabled"));
 #endif
 			}
+		}
+		else if (FParse::Command(&Cmd, TEXT("LogNavOctree")))
+		{
+			FVisualLogger::NavigationDataDump(GetWorldForVisualLogger(nullptr), LogNavigation, ELogVerbosity::Log, INDEX_NONE, FBox());
 		}
 		return false;
 	}

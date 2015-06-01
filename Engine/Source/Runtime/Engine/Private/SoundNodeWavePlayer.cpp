@@ -7,11 +7,6 @@
 
 #define LOCTEXT_NAMESPACE "SoundNodeWavePlayer"
 
-USoundNodeWavePlayer::USoundNodeWavePlayer(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
-{
-}
-
 void USoundNodeWavePlayer::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
 {
 	USoundNodeWavePlayer* This = CastChecked<USoundNodeWavePlayer>(InThis);
@@ -20,9 +15,32 @@ void USoundNodeWavePlayer::AddReferencedObjects(UObject* InThis, FReferenceColle
 	Collector.AddReferencedObject(This->SoundWave);
 }
 
-void USoundNodeWavePlayer::LoadSoundWave()
+void USoundNodeWavePlayer::LoadAsset()
 {
-	SoundWave = SoundWaveAssetPtr.LoadSynchronous();
+	if (IsAsyncLoading())
+	{
+		SoundWave = SoundWaveAssetPtr.Get();
+		if (SoundWave == nullptr)
+		{
+			const FString LongPackageName = SoundWaveAssetPtr.GetLongPackageName();
+			if (!LongPackageName.IsEmpty())
+			{
+				LoadPackageAsync(LongPackageName, FLoadPackageAsyncDelegate::CreateUObject(this, &USoundNodeWavePlayer::OnSoundWaveLoaded));
+			}
+		}
+	}
+	else
+	{
+		SoundWave = SoundWaveAssetPtr.LoadSynchronous();
+	}
+}
+
+void USoundNodeWavePlayer::OnSoundWaveLoaded(const FName& PackageName, UPackage * Package, EAsyncLoadingResult::Type Result)
+{
+	if (Result == EAsyncLoadingResult::Succeeded)
+	{
+		SoundWave = SoundWaveAssetPtr.Get();
+	}
 }
 
 void USoundNodeWavePlayer::SetSoundWave(USoundWave* InSoundWave)
@@ -36,7 +54,7 @@ void USoundNodeWavePlayer::PostEditChangeProperty(FPropertyChangedEvent& Propert
 {
 	if (PropertyChangedEvent.Property && PropertyChangedEvent.Property->GetFName() == GET_MEMBER_NAME_CHECKED(USoundNodeWavePlayer, SoundWaveAssetPtr))
 	{
-		LoadSoundWave();
+		LoadAsset();
 	}
 }
 #endif

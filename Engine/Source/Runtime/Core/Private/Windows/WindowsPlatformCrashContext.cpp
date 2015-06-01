@@ -314,7 +314,8 @@ int32 ReportCrashUsingCrashReportClient(EXCEPTION_POINTERS* ExceptionInfo, const
 			WerReportSubmit( ReportHandle, WerConsentAlwaysPrompt, WER_SUBMIT_QUEUE | WER_SUBMIT_BYPASS_DATA_THROTTLING, &SubmitResult );
 
 			// Cleanup
-			WerReportCloseHandle( ReportHandle );
+			// This method sometimes calls WndProc during an ensure causing an assert.
+			//WerReportCloseHandle( ReportHandle );
 		}
 
 		// Build machines do not upload these automatically since it is not okay to have lingering processes after the build completes.
@@ -330,13 +331,6 @@ int32 ReportCrashUsingCrashReportClient(EXCEPTION_POINTERS* ExceptionInfo, const
 		if( bNoDialog )
 		{
 			CrashReportClientArguments += TEXT( " -Unattended" );
-		}
-
-		if( FApp::IsInstalled() )
-		{
-			// Temporary workaround for CrashReportClient being built in Development, not Shipping (TTP328030). The
-			// following ensures that logs are saved to the user directory when UE4 is installed.
-			CrashReportClientArguments += TEXT( " -Installed" );
 		}
 
 		CrashReportClientArguments += FString( TEXT( " -AppName=" ) ) + ReportInformation.wzApplicationName;
@@ -472,7 +466,6 @@ int32 ReportCrash( LPEXCEPTION_POINTERS ExceptionInfo )
 
 	FCoreDelegates::OnHandleSystemError.Broadcast();
 
-	// Note: ReportCrashUsingCrashReportClient reads the callstack from GErrorHist
 	const SIZE_T StackTraceSize = 65535;
 	ANSICHAR* StackTrace = (ANSICHAR*) GMalloc->Malloc( StackTraceSize );
 	StackTrace[0] = 0;

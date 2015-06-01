@@ -10,7 +10,22 @@ FPackageFileSummary::FPackageFileSummary()
 
 FArchive& operator<<( FArchive& Ar, FPackageFileSummary& Sum )
 {
-	Ar << Sum.Tag;
+	bool bCanStartSerializing = true;
+	int64 ArchiveSize = 0;
+	if (Ar.IsLoading())
+	{
+		// Sanity checks before we even start serializing the archive
+		ArchiveSize = Ar.TotalSize();
+		const int64 MinimumPackageSize = 32; // That should get us safely to Sum.TotalHeaderSize
+		bCanStartSerializing = ArchiveSize >= MinimumPackageSize;
+		UE_CLOG(!bCanStartSerializing, LogLinker, Warning,
+			TEXT("Failed to read package file summary, the file \"%s\" is too small (%lld bytes, expected at least %lld bytes)"),
+			*Ar.GetArchiveName(), ArchiveSize, MinimumPackageSize);
+	}
+	if (bCanStartSerializing)
+	{
+		Ar << Sum.Tag;
+	}
 	// only keep loading if we match the magic
 	if( Sum.Tag == PACKAGE_FILE_TAG || Sum.Tag == PACKAGE_FILE_TAG_SWAPPED )
 	{
@@ -118,9 +133,13 @@ FArchive& operator<<( FArchive& Ar, FPackageFileSummary& Sum )
 		{
 			Ar.SetFilterEditorOnly(true);
 		}
-		Ar << Sum.NameCount     << Sum.NameOffset;
-		Ar << Sum.ExportCount   << Sum.ExportOffset;
-		Ar << Sum.ImportCount   << Sum.ImportOffset;
+		Ar << Sum.NameCount					<< Sum.NameOffset;
+		if (Sum.FileVersionUE4 >= VER_UE4_SERIALIZE_TEXT_IN_PACKAGES)
+		{
+			Ar << Sum.GatherableTextDataCount	<< Sum.GatherableTextDataOffset;
+		}
+		Ar << Sum.ExportCount				<< Sum.ExportOffset;
+		Ar << Sum.ImportCount				<< Sum.ImportOffset;
 		Ar << Sum.DependsOffset;
 
 		if (Ar.IsLoading() && (Sum.FileVersionUE4 < VER_UE4_OLDEST_LOADABLE_PACKAGE || Sum.FileVersionUE4 > GPackageFileUE4Version))

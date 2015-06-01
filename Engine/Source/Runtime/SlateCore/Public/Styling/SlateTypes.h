@@ -35,6 +35,18 @@ namespace ESlateCheckBoxType
 	};
 }
 
+/** Current state of the check box */
+UENUM(BlueprintType)
+enum class ECheckBoxState : uint8
+{
+	/** Unchecked */
+	Unchecked,
+	/** Checked */
+	Checked,
+	/** Neither checked nor unchecked */
+	Undetermined
+};
+
 /**
  * Represents the appearance of an SCheckBox
  */
@@ -496,11 +508,6 @@ struct SLATECORE_API FEditableTextStyle : public FSlateWidgetStyle
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Appearance)
 	FSlateBrush BackgroundImageSelected;
 	FEditableTextStyle& SetBackgroundImageSelected( const FSlateBrush& InBackgroundImageSelected ){ BackgroundImageSelected = InBackgroundImageSelected; return *this; }
-
-	/** Background image for the selection targeting effect */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Appearance)
-	FSlateBrush BackgroundImageSelectionTarget;
-	FEditableTextStyle& SetBackgroundImageSelectionTarget( const FSlateBrush& InBackgroundImageSelectionTarget ){ BackgroundImageSelectionTarget = InBackgroundImageSelectionTarget; return *this; }
 
 	/** Background image for the selected text */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Appearance)

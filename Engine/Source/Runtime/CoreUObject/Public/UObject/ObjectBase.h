@@ -23,6 +23,15 @@ typedef	uint64 ScriptPointerType;
 /** Set this to 0 to disable UObject thread safety features */
 #define THREADSAFE_UOBJECTS 1
 
+// 1 = old IsA behavior
+// 2 = new IsA behavior
+// 3 = old IsA behavior with checks against the new behavior
+#if 0//!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+	#define UCLASS_FAST_ISA_IMPL 3
+#else
+	#define UCLASS_FAST_ISA_IMPL 2
+#endif
+
 /*-----------------------------------------------------------------------------
 	Core enumerations.
 -----------------------------------------------------------------------------*/
@@ -68,6 +77,7 @@ enum ESaveFlags
 //
 enum EPackageFlags
 {
+	PKG_None						= 0x00000000,	// No flags
 	PKG_NewlyCreated				= 0x00000001,	// Newly created package, not saved yet. In editor only.
 	PKG_ClientOptional				= 0x00000002,	// Purely optional for clients.
 	PKG_ServerSideOnly				= 0x00000004,   // Only needed on the server side.
@@ -93,6 +103,7 @@ enum EPackageFlags
 
 	PKG_InMemoryOnly				= PKG_CompiledIn | PKG_NewlyCreated, // Flag mask that indicates if this package is a package that exists in memory only.
 };
+ENUM_CLASS_FLAGS(EPackageFlags);
 
 //
 // Internal enums.

@@ -3,10 +3,13 @@
 #pragma once
 
 #include "PaperSprite.h"
+#include "PaperTileMap.h"
 #include "PaperTileLayer.h"
 #include "PaperTileMapComponent.generated.h"
 
 class FPaperTileMapRenderSceneProxy;
+struct FSpriteRenderSection;
+struct FPaperSpriteVertex;
 
 /**
  * A component that handles rendering and collision for a single instance of a UPaperTileMap asset.
@@ -50,7 +53,7 @@ private:
 	UMaterialInterface* Material_DEPRECATED;
 
 	UPROPERTY()
-	TArray<class UPaperTileLayer*> TileLayers_DEPRECATED;
+	TArray<UPaperTileLayer*> TileLayers_DEPRECATED;
 
 	// The color of the tile map (multiplied with the per-layer color and passed to the material as a vertex color)
 	UPROPERTY(EditAnywhere, Category=Materials)
@@ -94,7 +97,7 @@ public:
 protected:
 	friend FPaperTileMapRenderSceneProxy;
 
-	void RebuildRenderData(FPaperTileMapRenderSceneProxy* Proxy);
+	void RebuildRenderData(TArray<FSpriteRenderSection>& Sections, TArray<FPaperSpriteVertex>& Vertices);
 
 public:
 	// UObject interface
@@ -140,7 +143,7 @@ public:
 
 	/** Change the PaperTileMap used by this instance. */
 	UFUNCTION(BlueprintCallable, Category="Sprite")
-	virtual bool SetTileMap(class UPaperTileMap* NewTileMap);
+	virtual bool SetTileMap(UPaperTileMap* NewTileMap);
 
 	// Returns the size of the tile map
 	UFUNCTION(BlueprintCallable, Category="Sprite")
@@ -161,7 +164,7 @@ public:
 	// Creates and adds a new layer to the tile map
 	// Note: This will only work on components that own their own tile map (OwnsTileMap returns true), you cannot modify standalone tile map assets
 	UFUNCTION(BlueprintCallable, Category="Sprite")
-	class UPaperTileLayer* AddNewLayer();
+	UPaperTileLayer* AddNewLayer();
 
 	// Gets the tile map global color multiplier (multiplied with the per-layer color and passed to the material as a vertex color)
 	UFUNCTION(BlueprintPure, Category="Sprite")

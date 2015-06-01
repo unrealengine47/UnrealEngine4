@@ -399,11 +399,11 @@ PxFilterFlags PhysXSimFilterShader(	PxFilterObjectAttributes attributes0, PxFilt
 		pairFlags |= (PxPairFlag::eNOTIFY_TOUCH_FOUND | PxPairFlag::eNOTIFY_TOUCH_PERSISTS | PxPairFlag::eNOTIFY_CONTACT_POINTS );
 	}
 
-	//TODO: have to temporarily turn this off while getting a fix for shared shape crash
-	/*if ((FilterFlags0&EPDF_ModifyContacts) || (FilterFlags1&EPDF_ModifyContacts))
+
+	if ((FilterFlags0&EPDF_ModifyContacts) || (FilterFlags1&EPDF_ModifyContacts))
 	{
 		pairFlags |= (PxPairFlag::eMODIFY_CONTACTS);
-	}*/	
+	}
 
 	return PxFilterFlags();
 }
@@ -473,8 +473,11 @@ void FPhysXSimEventCallback::onContact(const PxContactPairHeader& PairHeader, co
 	FPhysScene* PhysScene = FPhysxUserData::Get<FPhysScene>(PScene->userData);
 	check(PhysScene);
 
-	uint32 PreAddingCollisionNotify = PhysScene->PendingCollisionNotifies.Num() - 1;
-	TArray<int32> PairNotifyMapping = FBodyInstance::AddCollisionNotifyInfo(BodyInst0, BodyInst1, Pairs, NumPairs, PhysScene->PendingCollisionNotifies);
+	const EPhysicsSceneType SceneType = PhysScene->GetPhysXScene(PST_Sync) == PScene ? PST_Sync : PST_Async;
+	TArray<FCollisionNotifyInfo>& PendingCollisionNotifies = PhysScene->GetPendingCollisionNotifies(SceneType);
+
+	uint32 PreAddingCollisionNotify = PendingCollisionNotifies.Num() - 1;
+	TArray<int32> PairNotifyMapping = FBodyInstance::AddCollisionNotifyInfo(BodyInst0, BodyInst1, Pairs, NumPairs, PendingCollisionNotifies);
 
 	// Iterate through contact points
 	for(uint32 PairIdx=0; PairIdx<NumPairs; PairIdx++)
@@ -485,7 +488,7 @@ void FPhysXSimEventCallback::onContact(const PxContactPairHeader& PairHeader, co
 			continue;
 		}
 
-		FCollisionNotifyInfo * NotifyInfo = &PhysScene->PendingCollisionNotifies[NotifyIdx];
+		FCollisionNotifyInfo * NotifyInfo = &PendingCollisionNotifies[NotifyIdx];
 		FCollisionImpactData* ImpactInfo = &(NotifyInfo->RigidCollisionData);
 
 		const PxContactPair* Pair = Pairs + PairIdx;
@@ -525,14 +528,14 @@ void FPhysXSimEventCallback::onContact(const PxContactPairHeader& PairHeader, co
 		}	
 	}
 
-	for (int32 NotifyIdx = PreAddingCollisionNotify + 1; NotifyIdx < PhysScene->PendingCollisionNotifies.Num(); NotifyIdx++)
+	for (int32 NotifyIdx = PreAddingCollisionNotify + 1; NotifyIdx < PendingCollisionNotifies.Num(); NotifyIdx++)
 	{
-		FCollisionNotifyInfo * NotifyInfo = &PhysScene->PendingCollisionNotifies[NotifyIdx];
+		FCollisionNotifyInfo * NotifyInfo = &PendingCollisionNotifies[NotifyIdx];
 		FCollisionImpactData* ImpactInfo = &(NotifyInfo->RigidCollisionData);
 		// Discard pairs that don't generate any force (eg. have been rejected through a modify contact callback).
 		if (ImpactInfo->TotalNormalImpulse.SizeSquared() < KINDA_SMALL_NUMBER)
 		{
-			PhysScene->PendingCollisionNotifies.RemoveAt(NotifyIdx);
+			PendingCollisionNotifies.RemoveAt(NotifyIdx);
 			NotifyIdx--;
 		}
 	}
@@ -641,8 +644,6 @@ PxU32 FPhysXCPUDispatcherSingleThread::getWorkerCount() const
 // FPhysXFormatDataReader
 
 FPhysXFormatDataReader::FPhysXFormatDataReader( FByteBulkData& InBulkData )
-	: TriMesh( NULL )
-	, TriMeshNegX( NULL )
 {
 	// Read cooked physics data
 	uint8* DataPtr = (uint8*)InBulkData.Lock( LOCK_READ_ONLY );
@@ -651,41 +652,33 @@ FPhysXFormatDataReader::FPhysXFormatDataReader( FByteBulkData& InBulkData )
 	uint8 bLittleEndian = true;
 	int32 NumConvexElementsCooked = 0;
 	int32 NumMirroredElementsCooked = 0;
-	uint8 bTriMeshCooked = false;
-	uint8 bMirroredTriMeshCooked = false;
+	int32 NumTriMeshesCooked = 0;
 
 	Ar << bLittleEndian;
 	Ar.SetByteSwapping( PLATFORM_LITTLE_ENDIAN ? !bLittleEndian : !!bLittleEndian );
 	Ar << NumConvexElementsCooked;	
 	Ar << NumMirroredElementsCooked;
-	Ar << bTriMeshCooked;
-	Ar << bMirroredTriMeshCooked;
+	Ar << NumTriMeshesCooked;
 	
-	ConvexMeshes.Empty( NumConvexElementsCooked );
-	ConvexMeshesNegX.Empty( NumMirroredElementsCooked );
-
+	ConvexMeshes.Empty(NumConvexElementsCooked);
 	for( int32 ElementIndex = 0; ElementIndex < NumConvexElementsCooked; ElementIndex++ )
 	{
 		PxConvexMesh* ConvexMesh = ReadConvexMesh( Ar, DataPtr, InBulkData.GetBulkDataSize() );
 		ConvexMeshes.Add( ConvexMesh );
 	}
 
+	ConvexMeshesNegX.Empty(NumMirroredElementsCooked);
 	for( int32 ElementIndex = 0; ElementIndex < NumMirroredElementsCooked; ElementIndex++ )
 	{
 		PxConvexMesh* ConvexMeshNegX = ReadConvexMesh( Ar, DataPtr, InBulkData.GetBulkDataSize() );
 		ConvexMeshesNegX.Add( ConvexMeshNegX );
 	}
 
-	if( bTriMeshCooked )
+	TriMeshes.Empty(NumTriMeshesCooked);
+	for(int32 ElementIndex = 0; ElementIndex < NumTriMeshesCooked; ++ElementIndex)
 	{
-		TriMesh = ReadTriMesh( Ar, DataPtr, InBulkData.GetBulkDataSize() );
-		check(TriMesh);	
-	}
-
-	if( bMirroredTriMeshCooked )
-	{
-		TriMeshNegX = ReadTriMesh( Ar, DataPtr, InBulkData.GetBulkDataSize() );
-		check(TriMeshNegX);	
+		PxTriangleMesh* TriMesh = ReadTriMesh( Ar, DataPtr, InBulkData.GetBulkDataSize() );
+		TriMeshes.Add(TriMesh);
 	}
 
 	InBulkData.Unlock();
@@ -783,11 +776,21 @@ physx::PxPairFlags FApexPhysX3Interface::getContactReportFlags(const physx::PxSh
 
 #endif	// WITH_APEX
 
+FPhysxSharedData* FPhysxSharedData::Singleton = nullptr;
 
-FPhysxSharedData& FPhysxSharedData::Get()
+void FPhysxSharedData::Initialize()
 {
-	static FPhysxSharedData s_SharedData; 
-	return s_SharedData;
+	check(Singleton == nullptr);
+	Singleton = new FPhysxSharedData();
+}
+
+void FPhysxSharedData::Terminate()
+{
+	if (Singleton)
+	{
+		delete Singleton;
+		Singleton = nullptr;
+	}
 }
 
 void FPhysxSharedData::Add( PxBase* Obj )
@@ -910,8 +913,10 @@ PxCollection* MakePhysXCollection(const TArray<UPhysicalMaterial*>& PhysicalMate
 
 	for (UBodySetup* BodySetup : BodySetups)
 	{
-		AddToCollection(PCollection, BodySetup->TriMesh);
-		AddToCollection(PCollection, BodySetup->TriMeshNegX);
+		for(PxTriangleMesh* TriMesh : BodySetup->TriMeshes)
+		{
+			AddToCollection(PCollection, TriMesh);
+		}
 
 		for (const FKConvexElem& ConvexElem : BodySetup->AggGeom.ConvexElems)
 		{

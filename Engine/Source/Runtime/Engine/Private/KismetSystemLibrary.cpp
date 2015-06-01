@@ -13,6 +13,7 @@
 #include "Camera/CameraComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "SlateCore.h"
+#include "Engine/StreamableManager.h"
 
 //////////////////////////////////////////////////////////////////////////
 // UKismetSystemLibrary
@@ -666,6 +667,36 @@ void UKismetSystemLibrary::SetNamePropertyByName(UObject* Object, FName Property
 	}
 }
 
+void UKismetSystemLibrary::SetAssetPropertyByName(UObject* Object, FName PropertyName, const TAssetPtr<UObject>& Value)
+{
+	if (Object != NULL)
+	{
+		auto ObjectProp = FindField<UAssetObjectProperty>(Object->GetClass(), PropertyName);
+		auto AssetPtr = (const FAssetPtr*)(&Value);
+		ObjectProp->SetPropertyValue_InContainer(Object, *AssetPtr);
+	}
+}
+
+void UKismetSystemLibrary::SetAssetClassPropertyByName(UObject* Object, FName PropertyName, const TAssetSubclassOf<UObject>& Value)
+{
+	if (Object != NULL)
+	{
+		auto ObjectProp = FindField<UAssetClassProperty>(Object->GetClass(), PropertyName);
+		auto AssetPtr = (const FAssetPtr*)(&Value);
+		ObjectProp->SetPropertyValue_InContainer(Object, *AssetPtr);
+	}
+}
+
+UObject* UKismetSystemLibrary::Conv_AssetToObject(const TAssetPtr<UObject>& Asset)
+{
+	return ((const FAssetPtr*)&Asset)->Get();
+}
+
+TSubclassOf<UObject> UKismetSystemLibrary::Conv_AssetClassToClass(const TAssetSubclassOf<UObject>& AssetClass)
+{
+	return Cast<UClass>(((const FAssetPtr*)&AssetClass)->Get());
+}
+
 void UKismetSystemLibrary::SetTextPropertyByName(UObject* Object, FName PropertyName, const FText& Value)
 {
 	if(Object != NULL)
@@ -768,7 +799,6 @@ void UKismetSystemLibrary::GetActorListFromComponentList(const TArray<UPrimitive
 		}
 	}
 }
-
 
 bool UKismetSystemLibrary::SphereOverlapActors_DEPRECATED(UObject* WorldContextObject, const FVector SpherePos, float SphereRadius, EOverlapFilterOption Filter, UClass* ActorClassFilter, const TArray<AActor*>& ActorsToIgnore, TArray<AActor*>& OutActors)
 {
@@ -2014,7 +2044,7 @@ bool UKismetSystemLibrary::SphereTraceSingleByObject_DEPRECATED(UObject* WorldCo
 		{
 			// no hit means all red
 			::DrawDebugSweptSphere(World, Start, End, Radius, FColor::Red, bPersistent, LifeTime);
-        }
+		}
 	}
 
 	return bHit;
@@ -2843,11 +2873,31 @@ int32 UKismetSystemLibrary::GetRenderingMaterialQualityLevel()
 	return Ret;
 }
 
+bool UKismetSystemLibrary::GetSupportedFullscreenResolutions(TArray<FIntPoint>& Resolutions)
+{
+	FScreenResolutionArray SupportedResolutions;
+	if ( RHIGetAvailableResolutions(SupportedResolutions, true) )
+	{
+		for ( const FScreenResolutionRHI& SupportedResolution : SupportedResolutions )
+		{
+			FIntPoint Resolution;
+			Resolution.X = SupportedResolution.Width;
+			Resolution.Y = SupportedResolution.Height;
+
+			Resolutions.Add(Resolution);
+		}
+
+		return true;
+	}
+
+	return false;
+}
+
 void UKismetSystemLibrary::LaunchURL(const FString& URL)
 {
 	if (!URL.IsEmpty())
 	{
-		FPlatformProcess::LaunchURL(*URL, NULL, NULL);
+		FPlatformProcess::LaunchURL(*URL, nullptr, nullptr);
 	}
 }
 
@@ -2937,4 +2987,114 @@ void UKismetSystemLibrary::SetSupressViewportTransitionMessage(UObject* WorldCon
 		World->GetFirstLocalPlayerFromController()->ViewportClient->SetSuppressTransitionMessage(bState);
 	}
 }
+struct FLoadAssetActionBase : public FPendingLatentAction, public FGCObject
+{
+	// @TODO: it would be good to have static/global manager? 
 
+public:
+	FStringAssetReference AssetReference;
+	FStreamableManager StreamableManager;
+	FName ExecutionFunction;
+	int32 OutputLink;
+	FWeakObjectPtr CallbackTarget;
+
+	virtual void OnLoaded() PURE_VIRTUAL(FLoadAssetActionBase::OnLoaded, );
+
+	FLoadAssetActionBase(const FStringAssetReference& InAssetReference, const FLatentActionInfo& InLatentInfo)
+		: AssetReference(InAssetReference)
+		, ExecutionFunction(InLatentInfo.ExecutionFunction)
+		, OutputLink(InLatentInfo.Linkage)
+		, CallbackTarget(InLatentInfo.CallbackTarget)
+	{
+		StreamableManager.SimpleAsyncLoad(AssetReference);
+	}
+
+	virtual ~FLoadAssetActionBase()
+	{
+		StreamableManager.Unload(AssetReference);
+	}
+
+	virtual void UpdateOperation(FLatentResponse& Response) override
+	{
+		const bool bLoaded = StreamableManager.IsAsyncLoadComplete(AssetReference);
+		if (bLoaded)
+		{
+			OnLoaded();
+		}
+		Response.FinishAndTriggerIf(bLoaded, ExecutionFunction, OutputLink, CallbackTarget);
+	}
+
+#if WITH_EDITOR
+	virtual FString GetDescription() const override
+	{
+		return FString::Printf(TEXT("Load Asset Action Base: %s"), *AssetReference.ToString());
+	}
+#endif
+
+	virtual void AddReferencedObjects(FReferenceCollector& Collector) override
+	{
+		StreamableManager.AddStructReferencedObjects(Collector);
+	}
+};
+
+void UKismetSystemLibrary::LoadAsset(UObject* WorldContextObject, const TAssetPtr<UObject>& Asset, UKismetSystemLibrary::FOnAssetLoaded OnLoaded, FLatentActionInfo LatentInfo)
+{
+	struct FLoadAssetAction : public FLoadAssetActionBase
+	{
+	public:
+		UKismetSystemLibrary::FOnAssetLoaded OnLoadedCallback;
+
+		FLoadAssetAction(const FStringAssetReference& InAssetReference, UKismetSystemLibrary::FOnAssetLoaded InOnLoadedCallback, const FLatentActionInfo& InLatentInfo)
+			: FLoadAssetActionBase(InAssetReference, InLatentInfo)
+			, OnLoadedCallback(InOnLoadedCallback)
+		{}
+
+		virtual void OnLoaded() override
+		{
+			UObject* LoadedObject = AssetReference.ResolveObject();
+			OnLoadedCallback.ExecuteIfBound(LoadedObject);
+		}
+	};
+
+	UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject);
+	if (World != nullptr)
+	{
+		FLatentActionManager& LatentManager = World->GetLatentActionManager();
+		if (LatentManager.FindExistingAction<FLoadAssetAction>(LatentInfo.CallbackTarget, LatentInfo.UUID) == nullptr)
+		{
+			auto NewAction = new FLoadAssetAction(Asset.ToStringReference(), OnLoaded, LatentInfo);
+			LatentManager.AddNewAction(LatentInfo.CallbackTarget, LatentInfo.UUID, NewAction);
+		}
+	}
+}
+
+void UKismetSystemLibrary::LoadAssetClass(UObject* WorldContextObject, const TAssetSubclassOf<UObject>& AssetClass, UKismetSystemLibrary::FOnAssetClassLoaded OnLoaded, FLatentActionInfo LatentInfo)
+{
+	struct FLoadAssetClassAction : public FLoadAssetActionBase
+	{
+	public:
+		UKismetSystemLibrary::FOnAssetClassLoaded OnLoadedCallback;
+
+		FLoadAssetClassAction(const FStringAssetReference& InAssetReference, UKismetSystemLibrary::FOnAssetClassLoaded InOnLoadedCallback, const FLatentActionInfo& InLatentInfo)
+			: FLoadAssetActionBase(InAssetReference, InLatentInfo)
+			, OnLoadedCallback(InOnLoadedCallback)
+		{}
+
+		virtual void OnLoaded() override
+		{
+			auto LoadedObject = Cast<UClass>(AssetReference.ResolveObject());
+			OnLoadedCallback.ExecuteIfBound(LoadedObject);
+		}
+	};
+
+	UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject);
+	if (World != nullptr)
+	{
+		FLatentActionManager& LatentManager = World->GetLatentActionManager();
+		if (LatentManager.FindExistingAction<FLoadAssetClassAction>(LatentInfo.CallbackTarget, LatentInfo.UUID) == nullptr)
+		{
+			auto NewAction = new FLoadAssetClassAction(AssetClass.ToStringReference(), OnLoaded, LatentInfo);
+			LatentManager.AddNewAction(LatentInfo.CallbackTarget, LatentInfo.UUID, NewAction);
+		}
+	}
+}

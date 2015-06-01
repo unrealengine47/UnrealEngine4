@@ -551,10 +551,7 @@ void FAssetTypeActions_SkeletalMesh::GetResolvedSourceFilePaths(const TArray<UOb
 	for (auto& Asset : TypeAssets)
 	{
 		const auto SkeletalMesh = CastChecked<USkeletalMesh>(Asset);
-		if (SkeletalMesh->AssetImportData)
-		{
-			OutSourceFilePaths.Add(FReimportManager::ResolveImportFilename(SkeletalMesh->AssetImportData->SourceFilePath, SkeletalMesh));
-		}
+		SkeletalMesh->AssetImportData->ExtractFilenames(OutSourceFilePaths);
 	}
 }
 

@@ -1233,6 +1233,7 @@ UStaticMesh::UStaticMesh(const FObjectInitializer& ObjectInitializer)
 #if WITH_EDITORONLY_DATA
 	AutoLODPixelError = 1.0f;
 	bAutoComputeLODScreenSize=true;
+	AssetImportData = CreateEditorOnlyDefaultSubobject<UAssetImportData>(TEXT("AssetImportData"));
 #endif // #if WITH_EDITORONLY_DATA
 	LightMapResolution = 4;
 	LpvBiasMultiplier = 1.0f;
@@ -1539,7 +1540,7 @@ void UStaticMesh::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const
 #if WITH_EDITORONLY_DATA
 	if (AssetImportData)
 	{
-		OutTags.Add( FAssetRegistryTag(SourceFileTagName(), AssetImportData->SourceFilePath, FAssetRegistryTag::TT_Hidden) );
+		OutTags.Add( FAssetRegistryTag(SourceFileTagName(), AssetImportData->ToJson(), FAssetRegistryTag::TT_Hidden) );
 	}
 #endif
 
@@ -1873,16 +1874,20 @@ void UStaticMesh::Serialize(FArchive& Ar)
 	}
 
 #if WITH_EDITORONLY_DATA
-	// SourceFilePath and SourceFileTimestamp were moved into a subobject
-	if ( Ar.IsLoading() && Ar.UE4Ver() < VER_UE4_ADDED_FBX_ASSET_IMPORT_DATA )
+	if ( Ar.IsLoading() && Ar.UE4Ver() < VER_UE4_ASSET_IMPORT_DATA_AS_JSON && !AssetImportData)
 	{
-		if ( AssetImportData == NULL )
-		{
-			AssetImportData = NewObject<UAssetImportData>(this);
-		}
-
-		AssetImportData->SourceFilePath = SourceFilePath_DEPRECATED;
-		AssetImportData->SourceFileTimestamp = SourceFileTimestamp_DEPRECATED;
+		// AssetImportData should always be valid
+		AssetImportData = NewObject<UAssetImportData>(this, TEXT("AssetImportData"));
+	}
+	
+	// SourceFilePath and SourceFileTimestamp were moved into a subobject
+	if ( Ar.IsLoading() && Ar.UE4Ver() < VER_UE4_ADDED_FBX_ASSET_IMPORT_DATA && AssetImportData )
+	{
+		// AssetImportData should always have been set up in the constructor where this is relevant
+		FAssetImportInfo Info;
+		Info.Insert(FAssetImportInfo::FSourceFile(SourceFilePath_DEPRECATED));
+		AssetImportData->CopyFrom(Info);
+		
 		SourceFilePath_DEPRECATED = TEXT("");
 		SourceFileTimestamp_DEPRECATED = TEXT("");
 	}
@@ -2520,7 +2525,7 @@ UMaterialInterface* UStaticMesh::GetMaterial(int32 MaterialIndex) const
  * Returns the render data to use for exporting the specified LOD. This method should always
  * be called when exporting a static mesh.
  */
-FStaticMeshLODResources& UStaticMesh::GetLODForExport( int32 LODIndex )
+const FStaticMeshLODResources& UStaticMesh::GetLODForExport(int32 LODIndex) const
 {
 	check(RenderData);
 	LODIndex = FMath::Clamp<int32>( LODIndex, 0, RenderData->LODResources.Num()-1 );
@@ -2684,8 +2689,11 @@ bool UStaticMeshSocket::AttachActor(AActor* Actor,  UStaticMeshComponent* MeshCo
 			Actor->GetRootComponent()->SnapTo( MeshComp, SocketName );
 
 #if WITH_EDITOR
-			Actor->PreEditChange( NULL );
-			Actor->PostEditChange();
+			if (GIsEditor)
+			{
+				Actor->PreEditChange(NULL);
+				Actor->PostEditChange();
+			}
 #endif // WITH_EDITOR
 
 			bAttached = true;

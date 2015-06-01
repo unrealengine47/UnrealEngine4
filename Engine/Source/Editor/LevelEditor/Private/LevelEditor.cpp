@@ -270,22 +270,6 @@ void FLevelEditorModule::ShutdownModule()
 	FLevelViewportCommands::Unregister();
 }
 
-void FLevelEditorModule::PreUnloadCallback()
-{
-	// Disable the "tab closed" delegate that closes the editor if the level editor tab is closed
-	IMainFrameModule& MainFrameModule = FModuleManager::LoadModuleChecked<IMainFrameModule>( MainFrame );
-	MainFrameModule.DisableTabClosedDelegate();
-}
-
-void FLevelEditorModule::PostLoadCallback()
-{
-	// Re-open the level editor tab and re-enable the "tab closed" delegate
-	IMainFrameModule& MainFrameModule = FModuleManager::LoadModuleChecked<IMainFrameModule>( MainFrame );
-	TSharedRef<SDockTab> LevelEditorTab = FGlobalTabmanager::Get()->InvokeTab(FTabId("LevelEditor"));
-	MainFrameModule.SetMainTab(LevelEditorTab);
-	MainFrameModule.EnableTabClosedDelegate();
-}
-
 /**
  * Spawns a new property viewer
  * @todo This only works with the first level editor. Fix it.
@@ -744,9 +728,40 @@ void FLevelEditorModule::BindGlobalLevelEditorCommands()
 		);
 
 	ActionList.MapAction(
-		Commands.SnapToLayer2D,
-		FExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::SnapToLayer2D_Clicked),
-		FCanExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::CanSnapToLayer2D)
+		Commands.SnapTo2DLayer,
+		FExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::SnapTo2DLayer_Clicked),
+		FCanExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::CanSnapTo2DLayer)
+		);
+
+	ActionList.MapAction(
+		Commands.MoveSelectionUpIn2DLayers,
+		FExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::MoveSelectionToDifferent2DLayer_Clicked, /*bGoingUp=*/ true, /*bForceToTopOrBottom=*/ false),
+		FCanExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::CanMoveSelectionToDifferent2DLayer, /*bGoingUp=*/ true)
+		);
+	ActionList.MapAction(
+		Commands.MoveSelectionDownIn2DLayers,
+		FExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::MoveSelectionToDifferent2DLayer_Clicked, /*bGoingUp=*/ false, /*bForceToTopOrBottom=*/ false),
+		FCanExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::CanMoveSelectionToDifferent2DLayer, /*bGoingUp=*/ false)
+		);
+	ActionList.MapAction(
+		Commands.MoveSelectionToTop2DLayer,
+		FExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::MoveSelectionToDifferent2DLayer_Clicked, /*bGoingUp=*/ true, /*bForceToTopOrBottom=*/ true),
+		FCanExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::CanMoveSelectionToDifferent2DLayer, /*bGoingUp=*/ true)
+		);
+	ActionList.MapAction(
+		Commands.MoveSelectionToBottom2DLayer,
+		FExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::MoveSelectionToDifferent2DLayer_Clicked, /*bGoingUp=*/ false, /*bForceToTopOrBottom=*/ true),
+		FCanExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::CanMoveSelectionToDifferent2DLayer, /*bGoingUp=*/ false)
+		);
+
+
+	ActionList.MapAction(
+		Commands.Select2DLayerAbove,
+		FExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::Select2DLayerDeltaAway_Clicked, -1)
+		);
+	ActionList.MapAction(
+		Commands.Select2DLayerBelow,
+		FExecuteAction::CreateStatic(&FLevelEditorActionCallbacks::Select2DLayerDeltaAway_Clicked, 1)
 		);
 
 	bAlign = false;

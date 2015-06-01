@@ -37,11 +37,11 @@
 #include "HotReloadInterface.h"
 #include "PerformanceMonitor.h"
 #include "Engine/WorldComposition.h"
-#include "FeaturePack.h"
 #include "GameMapsSettings.h"
 #include "GeneralProjectSettings.h"
 #include "Lightmass/LightmappedSurfaceCollection.h"
 #include "IProjectManager.h"
+#include "FeaturePackContentSource.h"
 
 #define LOCTEXT_NAMESPACE "UnrealEd"
 
@@ -260,8 +260,7 @@ void FUnrealEdMisc::OnInit()
 		bool bMapLoaded = false;
 
 		// Insert any feature packs if required. We need to do this before we try and load a map since any pack may contain a map
-		FFeaturePack FeaturePackHandler;
-		FeaturePackHandler.ImportPendingPacks();
+		FFeaturePackContentSource::ImportPendingPacks();
 
 		FString ParsedMapName;
 		if ( FParse::Token(ParsedCmdLine, ParsedMapName, false) && 
@@ -354,6 +353,10 @@ void FUnrealEdMisc::OnInit()
 		if ( FParse::Bool( ParsedCmdLine, TEXT("IgnoreBuildErrors="), ParsedBool ) )
 		{
 			AutomatedBuildSettings.BuildErrorBehavior = ParsedBool ? FEditorBuildUtils::ABB_ProceedOnError : FEditorBuildUtils::ABB_FailOnError;
+		}
+		if ( FParse::Bool( ParsedCmdLine, TEXT("UseSCC="), ParsedBool ) )
+		{
+			AutomatedBuildSettings.bUseSCC = ParsedBool;
 		}
 		if ( FParse::Bool( ParsedCmdLine, TEXT("IgnoreSCCErrors="), ParsedBool ) )
 		{

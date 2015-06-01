@@ -432,7 +432,7 @@ bool FChunkManifestGenerator::LoadAssetRegistry(const FString& SandboxPath, cons
 		{
 			AssetRegistry.LoadRegistryData(*AssetRegistryReader, SavedAssetRegistryData);
 		}
-		for (FAssetData LoadedAssetData : AssetRegistryData)
+		for (auto& LoadedAssetData : AssetRegistryData)
 		{
 			if (PackagesToKeep &&
 				PackagesToKeep->Contains(LoadedAssetData.PackageName) == false)
@@ -453,7 +453,10 @@ bool FChunkManifestGenerator::LoadAssetRegistry(const FString& SandboxPath, cons
 		for (const auto& SavedAsset : SavedAssetRegistryData)
 		{
 			if (PackagesToKeep && PackagesToKeep->Contains(SavedAsset.Value->PackageName))
-			AssetRegistryData.Add(*SavedAsset.Value);
+			{ 
+				AssetRegistryData.Add(*SavedAsset.Value);
+			}
+			
 			delete SavedAsset.Value;
 		}
 		SavedAssetRegistryData.Empty();

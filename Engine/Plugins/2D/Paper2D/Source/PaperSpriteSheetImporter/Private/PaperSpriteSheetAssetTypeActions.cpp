@@ -1,7 +1,7 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "PaperSpriteSheetImporterPrivatePCH.h"
-#include "Paper2DClasses.h"
+#include "PaperFlipbook.h"
 #include "PaperSpriteSheet.h"
 #include "PaperSpriteSheetAssetTypeActions.h"
 #include "AssetToolsModule.h"
@@ -48,7 +48,7 @@ void FPaperSpriteSheetAssetTypeActions::GetResolvedSourceFilePaths(const TArray<
 		const auto SpriteSheet = CastChecked<UPaperSpriteSheet>(Asset);
 		if (SpriteSheet->AssetImportData)
 		{
-			OutSourceFilePaths.Add(FReimportManager::ResolveImportFilename(SpriteSheet->AssetImportData->SourceFilePath, SpriteSheet));
+			SpriteSheet->AssetImportData->ExtractFilenames(OutSourceFilePaths);
 		}
 	}
 }

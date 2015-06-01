@@ -108,6 +108,9 @@ public:
 		/** Called when the cursor is moved within the text area */
 		SLATE_EVENT(FOnCursorMoved, OnCursorMoved)
 
+		/** Callback delegate to have first chance handling of the OnKeyDown event */
+		SLATE_EVENT(FOnKeyDown, OnKeyDownHandler)
+
 		/** Menu extender for the right-click context menu */
 		SLATE_EVENT(FMenuExtensionDelegate, ContextMenuExtender)
 
@@ -182,6 +185,16 @@ public:
 
 	/** Returns whether the current text varies from the original */
 	bool HasTextChangedFromOriginal() const;
+
+	/**
+	 * Sets the OnKeyDownHandler to provide first chance handling of the OnKeyDown event
+	 *
+	 * @param InOnKeyDownHandler			Delegate to call during OnKeyDown event
+	 */
+	void SetOnKeyDownHandler(FOnKeyDown InOnKeyDownHandler)
+	{
+		OnKeyDownHandler = InOnKeyDownHandler;
+	}
 
 private:
 	
@@ -748,6 +761,9 @@ private:
 
 	/**	The current position of the software cursor */
 	FVector2D SoftwareCursorPosition;
+
+	/** Callback delegate to have first chance handling of the OnKeyDown event */
+	FOnKeyDown OnKeyDownHandler;
 };
 
 

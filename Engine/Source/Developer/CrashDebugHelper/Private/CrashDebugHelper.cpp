@@ -92,14 +92,7 @@ bool ICrashDebugHelper::Init()
 	const bool bCanUseSearchPatterns = Branches.Num() == ExecutablePathPatterns.Num() && ExecutablePathPatterns.Num() == SymbolPathPatterns.Num() && Branches.Num() > 0;
 	UE_CLOG( !bCanUseSearchPatterns, LogCrashDebugHelper, Warning, TEXT( "Search patterns don't match" ) );
 
-	GConfig->GetString( TEXT( "Engine.CrashDebugHelper" ), TEXT( "DepotRoot" ), DepotRoot, GEngineIni );
-	ICrashDebugHelper::SetDepotIndex( DepotRoot );
-
-	const bool bHasDepotRoot = IFileManager::Get().DirectoryExists( *DepotRoot );
-	UE_CLOG( !bHasDepotRoot, LogCrashDebugHelper, Warning, TEXT( "DepotRoot: %s is not valid" ), *DepotRoot );
-	UE_LOG( LogCrashDebugHelper, Log, TEXT( "DepotRoot: %s" ), *DepotRoot );
-
-	if( bCanUseSearchPatterns && bHasDepotRoot )
+	if (bCanUseSearchPatterns)
 	{
 		FPDBCache::Get().Init();
 	}
@@ -200,6 +193,8 @@ bool ICrashDebugHelper::SyncModules()
 			// Find all symbols.
 			TArray<FString> NetworkSymbols;
 			IFileManager::Get().FindFilesRecursive( NetworkSymbols, *CrashInfo.SymbolsPath, TEXT( "*.pdb" ), true, false, false );
+			IFileManager::Get().FindFilesRecursive( NetworkSymbols, *CrashInfo.SymbolsPath, TEXT( "*.dll" ), true, false, false );
+			IFileManager::Get().FindFilesRecursive( NetworkSymbols, *CrashInfo.SymbolsPath, TEXT( "*.exe" ), true, false, false );
 
 			// From=Full pathname
 			// To=Relative pathname
@@ -279,7 +274,7 @@ bool ICrashDebugHelper::SyncModules()
 				for( const auto& PDBPath : PDBPaths )
 				{
 					const FString PDBRelativePath = PDBPath.Replace( *CrashInfo.DepotName, TEXT( "" ) ).Replace( UESymbols, TEXT( "" ) );
-					const FString PDBFullpath = DepotRoot / PDBPath.Replace( P4_DEPOT_PREFIX, TEXT( "" ) );
+					const FString PDBFullpath = FPDBCache::Get().GetDepotRoot() / PDBPath.Replace( P4_DEPOT_PREFIX, TEXT( "" ) );
 
 					const FString PDBMatch = PDBRelativePath.Replace( TEXT( "pdb" ), TEXT( "" ) );
 					const FString NetworkRelativePath = NetworkExecutableFullpath.Replace( *CrashInfo.ExecutablesPath, TEXT( "" ) );
@@ -379,7 +374,7 @@ bool ICrashDebugHelper::SyncModules()
 			}
 
 			// Initialize and add a new PDB Cache entry to the database.
-			CrashInfo.PDBCacheEntry = FPDBCache::Get().CreateAndAddPDBCacheEntry( CrashInfo.LabelName, DepotRoot, CrashInfo.DepotName, FilesToBeCached );
+			CrashInfo.PDBCacheEntry = FPDBCache::Get().CreateAndAddPDBCacheEntry( CrashInfo.LabelName, CrashInfo.DepotName, FilesToBeCached );
 		}
 	}
 	else
@@ -411,14 +406,24 @@ bool ICrashDebugHelper::SyncSourceFile()
 
 bool ICrashDebugHelper::ReadSourceFile( TArray<FString>& OutStrings )
 {
-	const FString FilePath = CrashInfo.DepotName.Replace( P4_DEPOT_PREFIX, *DepotRoot ) / CrashInfo.SourceFile;
+	const bool bUsePDBCache = FPDBCache::Get().UsePDBCache();
+
+	FString FilePath;
+	if (bUsePDBCache)
+	{
+		FilePath = CrashInfo.DepotName.Replace( P4_DEPOT_PREFIX, *FPDBCache::Get().GetDepotRoot() ) / CrashInfo.SourceFile;
+	}
+	else
+	{
+		FilePath = FPaths::RootDir() / CrashInfo.SourceFile;
+	}
 
 	FString Line;
-	if( FFileHelper::LoadFileToString( Line, *FilePath ) )
+	if (FFileHelper::LoadFileToString( Line, *FilePath ))
 	{
 		Line = Line.Replace( TEXT( "\r" ), TEXT( "" ) );
 		Line.ParseIntoArray( OutStrings, TEXT( "\n" ), false );
-		UE_LOG( LogCrashDebugHelper, Log, TEXT( "Reading a single source file: %s" ), *FilePath );		
+		UE_LOG( LogCrashDebugHelper, Log, TEXT( "Reading a single source file: %s" ), *FilePath );
 		return true;
 	}
 	else

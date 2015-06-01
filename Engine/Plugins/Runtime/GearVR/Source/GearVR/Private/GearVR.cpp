@@ -27,13 +27,17 @@ do \
 int err; \
 	while ((err = glGetError()) != GL_NO_ERROR) \
 	{ \
-UE_LOG(LogHMD, Warning, TEXT("%s:%d GL error (%#x)\n"), ANSI_TO_TCHAR(__FILE__), __LINE__, err); \
+		UE_LOG(LogHMD, Warning, TEXT("%s:%d GL error (#%x)\n"), ANSI_TO_TCHAR(__FILE__), __LINE__, err); \
 	} \
 } while (0) 
 
 #else // #if !UE_BUILD_SHIPPING
 #define GL_CHECK_ERROR (void)0
 #endif // #if !UE_BUILD_SHIPPING
+
+
+// call out to JNI to see if the application was packaged for GearVR
+extern bool AndroidThunkCpp_IsGearVRApplication();
 
 
 //---------------------------------------------------
@@ -59,6 +63,12 @@ IMPLEMENT_MODULE( FGearVRPlugin, GearVR )
 TSharedPtr< class IHeadMountedDisplay, ESPMode::ThreadSafe > FGearVRPlugin::CreateHeadMountedDisplay()
 {
 #if GEARVR_SUPPORTED_PLATFORMS
+	if (!AndroidThunkCpp_IsGearVRApplication())
+	{
+		// don't do anything if we aren't packaged for GearVR
+		return NULL;
+	}
+
 	TSharedPtr< FGearVR, ESPMode::ThreadSafe > GearVR(new FGearVR());
 	if (GearVR->IsInitialized())
 	{
@@ -71,6 +81,12 @@ TSharedPtr< class IHeadMountedDisplay, ESPMode::ThreadSafe > FGearVRPlugin::Crea
 void FGearVRPlugin::PreInit()
 {
 #if GEARVR_SUPPORTED_PLATFORMS
+	if (!AndroidThunkCpp_IsGearVRApplication())
+	{
+		// don't do anything if we aren't packaged for GearVR
+		return;
+	}
+
 	FGearVR::PreInit();
 #endif//GEARVR_SUPPORTED_PLATFORMS
 }
@@ -952,7 +968,7 @@ void FViewExtension::PreRenderViewFamily_RenderThread(FRHICommandListImmediate& 
 	}
 }
 
-void FGearVR::CalculateRenderTargetSize(const FViewport& Viewport, uint32& InOutSizeX, uint32& InOutSizeY) const
+void FGearVR::CalculateRenderTargetSize(const FViewport& Viewport, uint32& InOutSizeX, uint32& InOutSizeY)
 {
 	check(IsInGameThread());
 
@@ -968,7 +984,7 @@ void FGearVR::GetOrthoProjection(int32 RTWidth, int32 RTHeight, float OrthoDista
 	OrthoProjection[1] = FTranslationMatrix(FVector(OrthoProjection[1].M[0][3] * RTWidth * .25 + RTWidth * .5, 0 , 0));
 }
 
-bool FGearVR::NeedReAllocateViewportRenderTarget(const FViewport& Viewport) const
+bool FGearVR::NeedReAllocateViewportRenderTarget(const FViewport& Viewport)
 {
 	check(IsInGameThread());
 
@@ -1263,7 +1279,7 @@ void FGearVRCustomPresent::UpdateViewport(const FViewport& Viewport, FRHIViewpor
 
 
 
-bool FGearVRCustomPresent::Present(int SyncInterval)
+bool FGearVRCustomPresent::Present(int& SyncInterval)
 {
 	check(IsInRenderingThread());
 

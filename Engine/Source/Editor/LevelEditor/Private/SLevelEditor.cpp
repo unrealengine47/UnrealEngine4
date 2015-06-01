@@ -1045,6 +1045,9 @@ TSharedRef<SWidget> SLevelEditor::RestoreContentArea( const TSharedRef<SDockTab>
 				.SetGroup( MenuStructure.GetLevelEditorCategory() )
 				.SetIcon( WorldPropertiesIcon );
 		}
+
+		FTabSpawnerEntry& BuildAndSubmitEntry = LevelEditorTabManager->RegisterTabSpawner(LevelEditorBuildAndSubmitTab, FOnSpawnTab::CreateSP<SLevelEditor, FName, FString>(this, &SLevelEditor::SpawnLevelEditorTab, LevelEditorBuildAndSubmitTab, FString()));
+		BuildAndSubmitEntry.SetAutoGenerateMenuEntry(false);
 	}
 
 	// Rebuild the editor mode commands and their tab spawners before we restore the layout,
@@ -1369,6 +1372,11 @@ TArray< TSharedPtr< ILevelViewport > > SLevelEditor::GetViewports() const
 	return OutViewports;
 }
  
+TSharedPtr<ILevelViewport> SLevelEditor::GetActiveViewportInterface()
+{
+	return GetActiveViewport();
+}
+
 TSharedPtr< class FAssetThumbnailPool > SLevelEditor::GetThumbnailPool() const
 {
 	return ThumbnailPool;

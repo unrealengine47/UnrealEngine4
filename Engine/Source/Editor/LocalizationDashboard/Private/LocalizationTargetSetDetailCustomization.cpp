@@ -10,38 +10,41 @@
 #include "IDetailsView.h"
 #include "LocalizationCommandletTasks.h"
 #include "ObjectEditorUtils.h"
+#include "ILocalizationServiceProvider.h"
+#include "ILocalizationServiceModule.h"
+#include "ILocalizationDashboardModule.h"
 
 #define LOCTEXT_NAMESPACE "LocalizationDashboard"
 
 FLocalizationTargetSetDetailCustomization::FLocalizationTargetSetDetailCustomization()
 	: DetailLayoutBuilder(nullptr)
-	//, ServiceProviderCategoryBuilder(nullptr)
+	, ServiceProviderCategoryBuilder(nullptr)
 	, NewEntryIndexToBeInitialized(INDEX_NONE)
 {
-	//TArray<ILocalizationServiceProvider*> ActualProviders = ILocalizationDashboardModule::Get().GetLocalizationServiceProviders();
-	//for (ILocalizationServiceProvider* ActualProvider : ActualProviders)
-	//{
-	//	TSharedPtr<FLocalizationServiceProviderWrapper> Provider = MakeShareable(new FLocalizationServiceProviderWrapper(ActualProvider));
-	//	Providers.Add(Provider);
-	//}
+	TArray<ILocalizationServiceProvider*> ActualProviders = ILocalizationDashboardModule::Get().GetLocalizationServiceProviders();
+	for (ILocalizationServiceProvider* ActualProvider : ActualProviders)
+	{
+		TSharedPtr<FLocalizationServiceProviderWrapper> Provider = MakeShareable(new FLocalizationServiceProviderWrapper(ActualProvider));
+		Providers.Add(Provider);
+	}
 }
 
-//class FindProviderPredicate
-//{
-//public:
-//	FindProviderPredicate(ILocalizationServiceProvider* const InActualProvider)
-//		: ActualProvider(InActualProvider)
-//	{
-//	}
+class FindProviderPredicate
+{
+public:
+	FindProviderPredicate(ILocalizationServiceProvider* const InActualProvider)
+		: ActualProvider(InActualProvider)
+	{
+	}
 
-//	bool operator()(const TSharedPtr<FLocalizationServiceProviderWrapper>& Provider)
-//	{
-//		return Provider->Provider == ActualProvider;
-//	}
+	bool operator()(const TSharedPtr<FLocalizationServiceProviderWrapper>& Provider)
+	{
+		return Provider->Provider == ActualProvider;
+	}
 
-//private:
-//	ILocalizationServiceProvider* ActualProvider;
-//};
+private:
+	ILocalizationServiceProvider* ActualProvider;
+};
 
 namespace
 {
@@ -56,6 +59,7 @@ namespace
 		TSharedPtr<FUICommandInfo> GatherAllTargets;
 		TSharedPtr<FUICommandInfo> ImportAllTargets;
 		TSharedPtr<FUICommandInfo> ExportAllTargets;
+		TSharedPtr<FUICommandInfo> CountWordsForAllTargets;
 		TSharedPtr<FUICommandInfo> CompileAllTargets;
 
 		/** Initialize commands */
@@ -67,6 +71,7 @@ namespace
 		UI_COMMAND( GatherAllTargets, "Gather All", "Gathers text for all targets in the project.", EUserInterfaceActionType::Button, FInputChord() );
 		UI_COMMAND( ImportAllTargets, "Import All", "Imports translations for all cultures of all targets in the project.", EUserInterfaceActionType::Button, FInputChord() );
 		UI_COMMAND( ExportAllTargets, "Export All", "Exports translations for all cultures of all targets in the project.", EUserInterfaceActionType::Button, FInputChord() );
+		UI_COMMAND( CountWordsForAllTargets, "Count Words All", "Counts translations for all targets in the project.", EUserInterfaceActionType::Button, FInputChord() );
 		UI_COMMAND( CompileAllTargets, "Compile All", "Compiles translations for all targets in the project.", EUserInterfaceActionType::Button, FInputChord() );
 	}
 }
@@ -95,17 +100,24 @@ void FLocalizationTargetSetDetailCustomization::CustomizeDetails(IDetailLayoutBu
 			const TSharedRef< FUICommandList > CommandList = MakeShareable(new FUICommandList);
 			FToolBarBuilder ToolBarBuilder( CommandList, FMultiBoxCustomization::AllowCustomization("LocalizationDashboard") );
 
-			CommandList->MapAction( FLocalizationDashboardCommands::Get().GatherAllTargets, FExecuteAction::CreateSP(this, &FLocalizationTargetSetDetailCustomization::GatherAllTargets));
-			ToolBarBuilder.AddToolBarButton(FLocalizationDashboardCommands::Get().GatherAllTargets, NAME_None, TAttribute<FText>(), TAttribute<FText>(), FSlateIcon(FEditorStyle::GetStyleSetName(), "LocalizationDashboard.GatherAllTargets"));
+			TAttribute<FText> GatherAllTargetsToolTipTextAttribute = TAttribute<FText>::Create(TAttribute<FText>::FGetter::CreateLambda([this]() -> FText
+				{
+					return CanGatherAllTargets() ? FLocalizationDashboardCommands::Get().GatherAllTargets->GetDescription() : LOCTEXT("GatherAllTargetsDisabledToolTip", "At least one target must have a native culture specified in order to gather.");
+				}));
+			CommandList->MapAction( FLocalizationDashboardCommands::Get().GatherAllTargets, FExecuteAction::CreateSP(this, &FLocalizationTargetSetDetailCustomization::GatherAllTargets), FCanExecuteAction::CreateSP(this, &FLocalizationTargetSetDetailCustomization::CanGatherAllTargets));
+			ToolBarBuilder.AddToolBarButton(FLocalizationDashboardCommands::Get().GatherAllTargets, NAME_None, TAttribute<FText>(), GatherAllTargetsToolTipTextAttribute, FSlateIcon(FEditorStyle::GetStyleSetName(), "LocalizationDashboard.GatherAllTargets"));
 
-			CommandList->MapAction( FLocalizationDashboardCommands::Get().ImportAllTargets, FExecuteAction::CreateSP(this, &FLocalizationTargetSetDetailCustomization::ImportAllTargets));
-			ToolBarBuilder.AddToolBarButton(FLocalizationDashboardCommands::Get().ImportAllTargets, NAME_None, TAttribute<FText>(), TAttribute<FText>(), FSlateIcon(FEditorStyle::GetStyleSetName(), "LocalizationDashboard.ImportForAllTargetsCultures"));
+			CommandList->MapAction( FLocalizationDashboardCommands::Get().ImportAllTargets, FExecuteAction::CreateSP(this, &FLocalizationTargetSetDetailCustomization::ImportAllTargets), FCanExecuteAction::CreateSP(this, &FLocalizationTargetSetDetailCustomization::CanImportAllTargets));
+			ToolBarBuilder.AddToolBarButton(FLocalizationDashboardCommands::Get().ImportAllTargets, NAME_None, TAttribute<FText>(), TAttribute<FText>(), FSlateIcon(FEditorStyle::GetStyleSetName(), "LocalizationDashboard.ImportAllTargetsAllCultures"));
 
-			CommandList->MapAction( FLocalizationDashboardCommands::Get().ExportAllTargets, FExecuteAction::CreateSP(this, &FLocalizationTargetSetDetailCustomization::ExportAllTargets));
-			ToolBarBuilder.AddToolBarButton(FLocalizationDashboardCommands::Get().ExportAllTargets, NAME_None, TAttribute<FText>(), TAttribute<FText>(), FSlateIcon(FEditorStyle::GetStyleSetName(), "LocalizationDashboard.ExportForAllTargetsCultures"));
+			CommandList->MapAction( FLocalizationDashboardCommands::Get().ExportAllTargets, FExecuteAction::CreateSP(this, &FLocalizationTargetSetDetailCustomization::ExportAllTargets), FCanExecuteAction::CreateSP(this, &FLocalizationTargetSetDetailCustomization::CanExportAllTargets));
+			ToolBarBuilder.AddToolBarButton(FLocalizationDashboardCommands::Get().ExportAllTargets, NAME_None, TAttribute<FText>(), TAttribute<FText>(), FSlateIcon(FEditorStyle::GetStyleSetName(), "LocalizationDashboard.ExportAllTargetsAllCultures"));
 
-			CommandList->MapAction( FLocalizationDashboardCommands::Get().CompileAllTargets, FExecuteAction::CreateSP(this, &FLocalizationTargetSetDetailCustomization::CompileAllTargets));
-			ToolBarBuilder.AddToolBarButton(FLocalizationDashboardCommands::Get().CompileAllTargets, NAME_None, TAttribute<FText>(), TAttribute<FText>(), FSlateIcon(FEditorStyle::GetStyleSetName(), "LocalizationDashboard.CompileAllTargets"));
+			CommandList->MapAction( FLocalizationDashboardCommands::Get().CountWordsForAllTargets, FExecuteAction::CreateSP(this, &FLocalizationTargetSetDetailCustomization::CountWordsForAllTargets), FCanExecuteAction::CreateSP(this, &FLocalizationTargetSetDetailCustomization::CanCountWordsForAllTargets));
+			ToolBarBuilder.AddToolBarButton(FLocalizationDashboardCommands::Get().CountWordsForAllTargets, NAME_None, TAttribute<FText>(), TAttribute<FText>(), FSlateIcon(FEditorStyle::GetStyleSetName(), "LocalizationDashboard.CountWordsForAllTargets"));
+
+			CommandList->MapAction( FLocalizationDashboardCommands::Get().CompileAllTargets, FExecuteAction::CreateSP(this, &FLocalizationTargetSetDetailCustomization::CompileAllTargets), FCanExecuteAction::CreateSP(this, &FLocalizationTargetSetDetailCustomization::CanCompileAllTargets));
+			ToolBarBuilder.AddToolBarButton(FLocalizationDashboardCommands::Get().CompileAllTargets, NAME_None, TAttribute<FText>(), TAttribute<FText>(), FSlateIcon(FEditorStyle::GetStyleSetName(), "LocalizationDashboard.CompileAllTargetsAllCultures"));
 
 			BuildTargetsList();
 
@@ -165,6 +177,49 @@ void FLocalizationTargetSetDetailCustomization::CustomizeDetails(IDetailLayoutBu
 						]
 				];
 		}
+	}
+
+	ServiceProviderCategoryBuilder = &(DetailLayoutBuilder->EditCategory("ServiceProvider", LOCTEXT("LocalizationServiceProvider", "Localization Service Provider"), ECategoryPriority::Important));
+	FDetailWidgetRow& DetailWidgetRow = ServiceProviderCategoryBuilder->AddCustomRow(LOCTEXT("Selected LocalizationServiceProvider", "Selected Localization Service Provider"));
+
+	int32 CurrentlySelectedProviderIndex = 0;
+
+	for (int ProviderIndex = 0; ProviderIndex < Providers.Num(); ++ProviderIndex)
+	{
+		FName CurrentlySelectedProviderName = ILocalizationServiceModule::Get().GetProvider().GetName();
+		if (Providers[ProviderIndex].IsValid() && Providers[ProviderIndex]->Provider && Providers[ProviderIndex]->Provider->GetName() == CurrentlySelectedProviderName)
+		{
+			CurrentlySelectedProviderIndex = ProviderIndex;
+			break;
+		}
+	}
+
+	DetailWidgetRow.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(LOCTEXT("LocalizationServiceProvider", "Localization Service Provider"))
+		];
+	DetailWidgetRow.ValueContent()
+		[
+			SNew(SComboBox< TSharedPtr<FLocalizationServiceProviderWrapper>>)
+			.OptionsSource(&(Providers))
+			.OnSelectionChanged(this, &FLocalizationTargetSetDetailCustomization::ServiceProviderComboBox_OnSelectionChanged)
+			.OnGenerateWidget(this, &FLocalizationTargetSetDetailCustomization::ServiceProviderComboBox_OnGenerateWidget)
+			.InitiallySelectedItem(Providers[CurrentlySelectedProviderIndex])
+			.Content()
+			[
+				SNew(STextBlock)
+				.Text_Lambda([]()
+				{
+					return ILocalizationServiceModule::Get().GetProvider().GetDisplayName();
+				})
+			]
+		];
+
+	const ILocalizationServiceProvider& LSP = ILocalizationServiceModule::Get().GetProvider();
+	if (ServiceProviderCategoryBuilder != nullptr)
+	{
+		LSP.CustomizeSettingsDetails(*ServiceProviderCategoryBuilder);
 	}
 }
 
@@ -228,71 +283,106 @@ void FLocalizationTargetSetDetailCustomization::RebuildTargetsList()
 	}
 }
 
-//FText FLocalizationTargetSetDetailCustomization::GetCurrentServiceProviderDisplayName() const
-//{
-//	ILocalizationServiceProvider* const LSP = ILocalizationDashboardModule::Get().GetCurrentLocalizationServiceProvider();
-//	return LSP ? LSP->GetDisplayName() : LOCTEXT("NoServiceProviderName", "None");
-//}
-//
-//TSharedRef<SWidget> FLocalizationTargetSetDetailCustomization::ServiceProviderComboBox_OnGenerateWidget(TSharedPtr<FLocalizationServiceProviderWrapper> LSPWrapper) const
-//{
-//	ILocalizationServiceProvider* const LSP = LSPWrapper->Provider;
-//	return	SNew(STextBlock)
-//		.Text(LSP ? LSP->GetDisplayName() : LOCTEXT("NoServiceProviderName", "None"));
-//}
-//
-//void FLocalizationTargetSetDetailCustomization::ServiceProviderComboBox_OnSelectionChanged(TSharedPtr<FLocalizationServiceProviderWrapper> LSPWrapper, ESelectInfo::Type SelectInfo)
-//{
-//	ILocalizationServiceProvider* const LSP = LSPWrapper->Provider;
-//	FString ServiceProviderName = LSP ? LSP->GetName().ToString() : TEXT("None");
-//	ServiceProviderPropertyHandle->SetValue(ServiceProviderName);
-//
-//	if (LSP)
-//	{
-//		LSP->CustomizeSettingsDetails(*ServiceProviderCategoryBuilder);
-//	}
-//	DetailLayoutBuilder->ForceRefreshDetails();
-//}
+FText FLocalizationTargetSetDetailCustomization::GetCurrentServiceProviderDisplayName() const
+{
+	const ILocalizationServiceProvider& LSP = ILocalizationServiceModule::Get().GetProvider();
+	return LSP.GetDisplayName();
+}
 
-void FLocalizationTargetSetDetailCustomization::GatherAllTargets()
+TSharedRef<SWidget> FLocalizationTargetSetDetailCustomization::ServiceProviderComboBox_OnGenerateWidget(TSharedPtr<FLocalizationServiceProviderWrapper> LSPWrapper) const
+{
+	ILocalizationServiceProvider* LSP = LSPWrapper.IsValid() ? LSPWrapper->Provider : nullptr;
+
+	return	SNew(STextBlock)
+		.Text(LSP ? LSP->GetDisplayName() : LOCTEXT("NoServiceProviderName", "None"));
+}
+
+void FLocalizationTargetSetDetailCustomization::ServiceProviderComboBox_OnSelectionChanged(TSharedPtr<FLocalizationServiceProviderWrapper> LSPWrapper, ESelectInfo::Type SelectInfo)
+{
+	ILocalizationServiceProvider* LSP = LSPWrapper.IsValid() ? LSPWrapper->Provider : nullptr;
+
+	FName ServiceProviderName = LSP ? LSP->GetName() : FName(TEXT("None"));
+	ILocalizationServiceModule::Get().SetProvider(ServiceProviderName);
+
+	if (LSP && ServiceProviderCategoryBuilder)
+	{
+		LSP->CustomizeSettingsDetails(*ServiceProviderCategoryBuilder);
+	}
+	DetailLayoutBuilder->ForceRefreshDetails();
+}
+
+bool FLocalizationTargetSetDetailCustomization::CanGatherAllTargets() const
 {
 	for (ULocalizationTarget* const LocalizationTarget : TargetSet->TargetObjects)
 	{
-		// Save unsaved packages.
-		const bool bPromptUserToSave = true;
-		const bool bSaveMapPackages = true;
-		const bool bSaveContentPackages = true;
-		const bool bFastSave = false;
-		const bool bNotifyNoPackagesSaved = false;
-		const bool bCanBeDeclined = true;
-		bool DidPackagesNeedSaving;
-		const bool WerePackagesSaved = FEditorFileUtils::SaveDirtyPackages(bPromptUserToSave, bSaveMapPackages, bSaveContentPackages, bFastSave, bNotifyNoPackagesSaved, bCanBeDeclined, &DidPackagesNeedSaving);
-
-		if (DidPackagesNeedSaving && !WerePackagesSaved)
+		// If any target can be gathered, then gathering all can be executed.
+		if (LocalizationTarget && LocalizationTarget->Settings.SupportedCulturesStatistics.Num() > 0 && LocalizationTarget->Settings.SupportedCulturesStatistics.IsValidIndex(LocalizationTarget->Settings.NativeCultureIndex))
 		{
-			// Give warning dialog.
-			const FText MessageText = NSLOCTEXT("LocalizationCultureActions", "UnsavedPackagesWarningDialogMessage", "There are unsaved changes. These changes may not be gathered from correctly.");
-			const FText TitleText = NSLOCTEXT("LocalizationCultureActions", "UnsavedPackagesWarningDialogTitle", "Unsaved Changes Before Gather");
-			switch(FMessageDialog::Open(EAppMsgType::OkCancel, MessageText, &TitleText))
-			{
-			case EAppReturnType::Cancel:
-				{
-					return;
-				}
-				break;
-			}
+			return true;
 		}
+	}
 
+	return false;
+}
+
+void FLocalizationTargetSetDetailCustomization::GatherAllTargets()
+{
+	// Save unsaved packages.
+	const bool bPromptUserToSave = true;
+	const bool bSaveMapPackages = true;
+	const bool bSaveContentPackages = true;
+	const bool bFastSave = false;
+	const bool bNotifyNoPackagesSaved = false;
+	const bool bCanBeDeclined = true;
+	bool DidPackagesNeedSaving;
+	const bool WerePackagesSaved = FEditorFileUtils::SaveDirtyPackages(bPromptUserToSave, bSaveMapPackages, bSaveContentPackages, bFastSave, bNotifyNoPackagesSaved, bCanBeDeclined, &DidPackagesNeedSaving);
+
+	if (DidPackagesNeedSaving && !WerePackagesSaved)
+	{
+		// Give warning dialog.
+		const FText MessageText = NSLOCTEXT("LocalizationCultureActions", "UnsavedPackagesWarningDialogMessage", "There are unsaved changes. These changes may not be gathered from correctly.");
+		const FText TitleText = NSLOCTEXT("LocalizationCultureActions", "UnsavedPackagesWarningDialogTitle", "Unsaved Changes Before Gather");
+		switch(FMessageDialog::Open(EAppMsgType::OkCancel, MessageText, &TitleText))
+		{
+		case EAppReturnType::Cancel:
+			{
+				return;
+			}
+			break;
+		}
+	}
+
+	TArray<ULocalizationTarget*> TargetObjectsToProcess;
+	for (ULocalizationTarget* const LocalizationTarget : TargetSet->TargetObjects)
+	{
+		if (LocalizationTarget && LocalizationTarget->Settings.SupportedCulturesStatistics.Num() > 0 && LocalizationTarget->Settings.SupportedCulturesStatistics.IsValidIndex(LocalizationTarget->Settings.NativeCultureIndex))
+		{
+			TargetObjectsToProcess.Add(LocalizationTarget);
+		}
 	}
 
 	// Execute gather.
 	const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(DetailLayoutBuilder->GetDetailsView().AsShared());
-	LocalizationCommandletTasks::GatherTargets(ParentWindow.ToSharedRef(), TargetSet->TargetObjects);
+	LocalizationCommandletTasks::GatherTargets(ParentWindow.ToSharedRef(), TargetObjectsToProcess);
 
-	for (ULocalizationTarget* const LocalizationTarget : TargetSet->TargetObjects)
+	for (ULocalizationTarget* const LocalizationTarget : TargetObjectsToProcess)
 	{
 		UpdateTargetFromReports(LocalizationTarget);
 	}
+}
+
+bool FLocalizationTargetSetDetailCustomization::CanImportAllTargets() const
+{
+	for (ULocalizationTarget* const LocalizationTarget : TargetSet->TargetObjects)
+	{
+		// If any target can be imported, then importing all can be executed.
+		if (LocalizationTarget && LocalizationTarget->Settings.SupportedCulturesStatistics.Num() > 0)
+		{
+			return true;
+		}
+	}
+
+	return false;
 }
 
 void FLocalizationTargetSetDetailCustomization::ImportAllTargets()
@@ -314,14 +404,37 @@ void FLocalizationTargetSetDetailCustomization::ImportAllTargets()
 		FString OutputDirectory;
 		if (DesktopPlatform->OpenDirectoryDialog(ParentWindowWindowHandle, LOCTEXT("ImportAllTranslationsDialogTitle", "Import All Translations from Directory").ToString(), DefaultPath, OutputDirectory))
 		{
-			LocalizationCommandletTasks::ImportTargets(ParentWindow.ToSharedRef(), TargetSet->TargetObjects, TOptional<FString>(OutputDirectory));
-
+			TArray<ULocalizationTarget*> TargetObjectsToProcess;
 			for (ULocalizationTarget* const LocalizationTarget : TargetSet->TargetObjects)
+			{
+				if (LocalizationTarget && LocalizationTarget->Settings.SupportedCulturesStatistics.Num() > 0)
+				{
+					TargetObjectsToProcess.Add(LocalizationTarget);
+				}
+			}
+
+			LocalizationCommandletTasks::ImportTargets(ParentWindow.ToSharedRef(), TargetObjectsToProcess, TOptional<FString>(OutputDirectory));
+
+			for (ULocalizationTarget* const LocalizationTarget : TargetObjectsToProcess)
 			{
 				UpdateTargetFromReports(LocalizationTarget);
 			}
 		}
 	}
+}
+
+bool FLocalizationTargetSetDetailCustomization::CanExportAllTargets() const
+{
+	for (ULocalizationTarget* const LocalizationTarget : TargetSet->TargetObjects)
+	{
+		// If any target can be imported, then exporting all can be executed.
+		if (LocalizationTarget && LocalizationTarget->Settings.SupportedCulturesStatistics.Num() > 0)
+		{
+			return true;
+		}
+	}
+
+	return false;
 }
 
 void FLocalizationTargetSetDetailCustomization::ExportAllTargets()
@@ -342,9 +455,78 @@ void FLocalizationTargetSetDetailCustomization::ExportAllTargets()
 		FString OutputDirectory;
 		if (DesktopPlatform->OpenDirectoryDialog(ParentWindowWindowHandle, LOCTEXT("ExportAllTranslationsDialogTitle", "Export All Translations to Directory").ToString(), DefaultPath, OutputDirectory))
 		{
-			LocalizationCommandletTasks::ExportTargets(ParentWindow.ToSharedRef(), TargetSet->TargetObjects, TOptional<FString>(OutputDirectory));
+			TArray<ULocalizationTarget*> TargetObjectsToProcess;
+			for (ULocalizationTarget* const LocalizationTarget : TargetSet->TargetObjects)
+			{
+				if (LocalizationTarget && LocalizationTarget->Settings.SupportedCulturesStatistics.Num() > 0)
+				{
+					TargetObjectsToProcess.Add(LocalizationTarget);
+				}
+			}
+
+			LocalizationCommandletTasks::ExportTargets(ParentWindow.ToSharedRef(), TargetObjectsToProcess, TOptional<FString>(OutputDirectory));
 		}
 	}
+}
+
+bool FLocalizationTargetSetDetailCustomization::CanCountWordsForAllTargets() const
+{
+	for (ULocalizationTarget* const LocalizationTarget : TargetSet->TargetObjects)
+	{
+		// If any target can be imported, then counting words for all can be executed.
+		if (LocalizationTarget && LocalizationTarget->Settings.SupportedCulturesStatistics.Num() > 0)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void FLocalizationTargetSetDetailCustomization::CountWordsForAllTargets()
+{
+	TArray<ULocalizationTarget*> TargetObjectsToProcess;
+	for (ULocalizationTarget* const LocalizationTarget : TargetSet->TargetObjects)
+	{
+		if (LocalizationTarget && LocalizationTarget->Settings.SupportedCulturesStatistics.Num() > 0)
+		{
+			TargetObjectsToProcess.Add(LocalizationTarget);
+		}
+	}
+
+	// Execute compile.
+	const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(DetailLayoutBuilder->GetDetailsView().AsShared());
+	LocalizationCommandletTasks::GenerateWordCountReportsForTargets(ParentWindow.ToSharedRef(), TargetObjectsToProcess);
+}
+
+bool FLocalizationTargetSetDetailCustomization::CanCompileAllTargets() const
+{
+	for (ULocalizationTarget* const LocalizationTarget : TargetSet->TargetObjects)
+	{
+		// If any target can be imported, then compiling all can be executed.
+		if (LocalizationTarget && LocalizationTarget->Settings.SupportedCulturesStatistics.Num() > 0)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void FLocalizationTargetSetDetailCustomization::CompileAllTargets()
+{
+	TArray<ULocalizationTarget*> TargetObjectsToProcess;
+	for (ULocalizationTarget* const LocalizationTarget : TargetSet->TargetObjects)
+	{
+		if (LocalizationTarget && LocalizationTarget->Settings.SupportedCulturesStatistics.Num() > 0)
+		{
+			TargetObjectsToProcess.Add(LocalizationTarget);
+		}
+	}
+
+	// Execute compile.
+	const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(DetailLayoutBuilder->GetDetailsView().AsShared());
+	LocalizationCommandletTasks::CompileTargets(ParentWindow.ToSharedRef(), TargetObjectsToProcess);
 }
 
 void FLocalizationTargetSetDetailCustomization::UpdateTargetFromReports(ULocalizationTarget* const LocalizationTarget)
@@ -394,13 +576,6 @@ void FLocalizationTargetSetDetailCustomization::UpdateTargetFromReports(ULocaliz
 	//{
 	//	WordCountPropertyHandle->NotifyPostChange();
 	//}
-}
-
-void FLocalizationTargetSetDetailCustomization::CompileAllTargets()
-{
-	// Execute compile.
-	const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(DetailLayoutBuilder->GetDetailsView().AsShared());
-	LocalizationCommandletTasks::CompileTargets(ParentWindow.ToSharedRef(), TargetSet->TargetObjects);
 }
 
 TSharedRef<ITableRow> FLocalizationTargetSetDetailCustomization::OnGenerateRow(TSharedPtr<IPropertyHandle> TargetObjectPropertyHandle, const TSharedRef<STableViewBase>& Table)

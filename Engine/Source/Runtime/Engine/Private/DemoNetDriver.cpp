@@ -836,10 +836,8 @@ void UDemoNetDriver::SaveCheckpoint()
 		DemoReplicateActor( World->GetWorldSettings(), CheckpointConnection, false );
 	}
 
-	for ( int32 i = 0; i < World->NetworkActors.Num(); i++ )
+	for ( AActor* Actor : World->NetworkActors )
 	{
-		AActor* Actor = World->NetworkActors[i];
-
 		if ( CheckpointConnection->ActorChannels.Contains( Actor ) )
 		{
 			Actor->PreReplication( *FindOrCreateRepChangedPropertyTracker( Actor ).Get() );
@@ -940,9 +938,21 @@ void UDemoNetDriver::TickDemoRecord( float DeltaSeconds )
 
 	DemoReplicateActor( World->GetWorldSettings(), ClientConnections[0], IsNetClient );
 
-	for ( int32 i = 0; i < World->NetworkActors.Num(); i++ )
+	for ( TSet<AActor*>::TIterator ActorIt = World->NetworkActors.CreateIterator(); ActorIt; ++ActorIt)
 	{
-		AActor* Actor = World->NetworkActors[i];
+		AActor* Actor = *ActorIt;
+		
+		if ( Actor->IsPendingKill() )
+		{
+			ActorIt.RemoveCurrent();
+			continue;
+		}
+
+		if ( Actor->GetRemoteRole() == ROLE_None )
+		{
+			ActorIt.RemoveCurrent();
+			continue;
+		}
 
 		Actor->PreReplication( *FindOrCreateRepChangedPropertyTracker( Actor ).Get() );
 		DemoReplicateActor( Actor, ClientConnections[0], IsNetClient );
@@ -1343,7 +1353,7 @@ void UDemoNetDriver::TickDemoPlayback( float DeltaSeconds )
 				{
 					for (auto& ReplicatorPair : ChannelPair.Value->ReplicationMap)
 					{
-						ReplicatorPair.Value->CallRepNotifies();
+						ReplicatorPair.Value->CallRepNotifies(true);
 					}
 				}
 			}
@@ -1498,14 +1508,17 @@ void UDemoNetDriver::LoadCheckpoint()
 			AddNonQueuedActorForScrubbing(*It);
 		}
 		
-		if ( *It == SpectatorController )
+		if ( SpectatorController != nullptr )
 		{
-			continue;
-		}
+			if ( *It == SpectatorController || *It == SpectatorController->GetSpectatorPawn() )
+			{
+				continue;
+			}
 
-		if ( It->GetOwner() == SpectatorController )
-		{
-			continue;
+			if ( It->GetOwner() == SpectatorController )
+			{
+				continue;
+			}
 		}
 
 		if ( It->IsNetStartupActor() )
@@ -1700,12 +1713,12 @@ UDemoNetConnection::UDemoNetConnection( const FObjectInitializer& ObjectInitiali
 	InternalAck = true;
 }
 
-void UDemoNetConnection::InitConnection( UNetDriver* InDriver, EConnectionState InState, const FURL& InURL, int32 InConnectionSpeed )
+void UDemoNetConnection::InitConnection( UNetDriver* InDriver, EConnectionState InState, const FURL& InURL, int32 InConnectionSpeed, int32 InMaxPacket)
 {
 	// default implementation
 	Super::InitConnection( InDriver, InState, InURL, InConnectionSpeed );
 
-	MaxPacket = MAX_DEMO_READ_WRITE_BUFFER;
+	MaxPacket = (InMaxPacket == 0 || InMaxPacket > MAX_DEMO_READ_WRITE_BUFFER) ? MAX_DEMO_READ_WRITE_BUFFER : InMaxPacket;
 	InternalAck = true;
 
 	InitSendBuffer();

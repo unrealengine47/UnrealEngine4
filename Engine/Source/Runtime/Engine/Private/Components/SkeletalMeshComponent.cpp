@@ -27,6 +27,12 @@
 #include "PhysicsEngine/PhysicsSettings.h"
 #include "PhysicsEngine/PhysicsAsset.h"
 
+#if WITH_APEX_CLOTHING
+#include "PhysicsEngine/PhysXSupport.h"
+#include "NxClothingActor.h"
+#include "NxClothingAsset.h"
+#endif
+
 TAutoConsoleVariable<int32> CVarUseParallelAnimationEvaluation(TEXT("a.ParallelAnimEvaluation"), 1, TEXT("If 1, animation evaluation will be run across the task graph system. If 0, evaluation will run purely on the game thread"));
 
 DECLARE_CYCLE_STAT_EXTERN(TEXT("Anim Instance Spawn Time"), STAT_AnimSpawnTime, STATGROUP_Anim, );
@@ -130,6 +136,8 @@ USkeletalMeshComponent::USkeletalMeshComponent(const FObjectInitializer& ObjectI
 	bNeedTeleportAndResetOnceMore = false;
 	ClothBlendWeight = 1.0f;
 	bPreparedClothMorphTargets = false;
+	bBindClothToMasterComponent = false;
+	bPrevMasterSimulateLocalSpace = false;
 #if WITH_CLOTH_COLLISION_DETECTION
 	ClothingCollisionRevision = 0;
 #endif// #if WITH_CLOTH_COLLISION_DETECTION
@@ -948,12 +956,16 @@ void USkeletalMeshComponent::EvaluateAnimation(const USkeletalMesh* InSkeletalMe
 			InAnimInstance->EvaluateAnimation(EvaluationContext);
 
 			// can we avoid that copy?
-			if( EvaluationContext.Pose.Bones.Num() > 0 )
+			if( EvaluationContext.Pose.GetNumBones() > 0 )
 			{
-				OutLocalAtoms = EvaluationContext.Pose.Bones;
-
 				// Make sure rotations are normalized to account for accumulation of errors.
-				FAnimationRuntime::NormalizeRotations(OutLocalAtoms);
+				EvaluationContext.Pose.NormalizeRotations();
+
+				for (const FCompactPoseBoneIndex BoneIndex : EvaluationContext.Pose.ForEachBoneIndex())
+				{
+					FMeshPoseBoneIndex MeshPoseBoneIndex = EvaluationContext.Pose.GetBoneContainer().MakeMeshPoseIndex(BoneIndex);
+					OutLocalAtoms[MeshPoseBoneIndex.GetInt()] = EvaluationContext.Pose[BoneIndex];
+				}
 			}
 			else
 			{
@@ -1821,14 +1833,6 @@ FTransform USkeletalMeshComponent::ConvertLocalRootMotionToWorld(const FTransfor
 		UpdateComponentToWorld();
 	}
 
-	/*check(ComponentToWorld.IsRotationNormalized());
-	check(InTransform.IsRotationNormalized());
-	const FTransform NewWorldTransform = InTransform * ComponentToWorld;
-	check(NewWorldTransform.IsRotationNormalized());
-	const FVector DeltaWorldTranslation = NewWorldTransform.GetTranslation() - ComponentToWorld.GetTranslation();
-	const FQuat DeltaWorldRotation = ComponentToWorld.GetRotation().Inverse() * NewWorldTransform.GetRotation();
-	check(DeltaWorldRotation.IsNormalized());*/
-
 	const FTransform NewWorldTransform = InTransform * ComponentToWorld;
 	const FQuat NewWorldRotation = ComponentToWorld.GetRotation() * InTransform.GetRotation();
 	const FVector DeltaWorldTranslation = NewWorldTransform.GetTranslation() - ComponentToWorld.GetTranslation();
@@ -2171,4 +2175,93 @@ bool USkeletalMeshComponent::IsRunningParallelEvaluation(bool bBlockOnTask, bool
 		return true;
 	}
 	return false;
+}
+
+void USkeletalMeshComponent::BindClothToMasterPoseComponent()
+{
+#if WITH_APEX_CLOTHING
+	if(USkeletalMeshComponent* MasterComp = Cast<USkeletalMeshComponent>(MasterPoseComponent.Get()))
+	{
+		if(SkeletalMesh != MasterComp->SkeletalMesh)
+		{
+			// Not the same mesh, can't bind
+			return;
+		}
+
+		ValidateClothingActors();
+		MasterComp->ValidateClothingActors();
+
+		int32 NumClothingActors = ClothingActors.Num();
+		
+		for(int32 ActorIdx = 0 ; ActorIdx < NumClothingActors ; ++ActorIdx)
+		{
+			FClothingActor& Actor = ClothingActors[ActorIdx];
+			FClothingActor& MasterActor = MasterComp->ClothingActors[ActorIdx];
+			NxClothingActor* ApexActor = Actor.ApexClothingActor;
+			NxClothingActor* MasterApexActor = MasterActor.ApexClothingActor;
+			if(ApexActor && MasterApexActor)
+			{
+				// Disable our actors
+				ApexActor->setFrozen(true);
+
+				// Force local space simulation
+				NxParameterized::Interface* MasterActorInterface = MasterApexActor->getActorDesc();
+				verify(NxParameterized::setParamBool(*MasterActorInterface, "localSpaceSim", true));
+
+				// Make sure the master component starts extracting in local space
+				bPrevMasterSimulateLocalSpace = MasterComp->bLocalSpaceSimulation;
+				MasterComp->bLocalSpaceSimulation = true;
+			}
+			else
+			{
+				// Something has gone wrong here, don't attempt to extract cloth positions
+				UE_LOG(LogAnimation, Warning, TEXT("BindClothToMasterPoseComponent: Failed to bind to master component, missing actor."));
+				bBindClothToMasterComponent = false;
+				return;
+			}
+		}
+
+		// When we extract positions from now we'll just take the master components positions
+		bBindClothToMasterComponent = true;
+	}
+#endif
+}
+
+void USkeletalMeshComponent::UnbindClothFromMasterPoseComponent(bool bRestoreSimulationSpace)
+{
+#if WITH_APEX_CLOTHING
+	USkeletalMeshComponent* MasterComp = Cast<USkeletalMeshComponent>(MasterPoseComponent.Get());
+	if(MasterComp && bBindClothToMasterComponent)
+	{
+		bBindClothToMasterComponent = false;
+
+		int32 NumClothingActors = ClothingActors.Num();
+
+		for(int32 ActorIdx = 0 ; ActorIdx < NumClothingActors ; ++ActorIdx)
+		{
+			FClothingActor& Actor = ClothingActors[ActorIdx];
+			NxClothingActor* ApexActor = Actor.ApexClothingActor;
+
+			if(ApexActor)
+			{
+				ApexActor->setFrozen(false);
+
+				bool bMasterPoseSpaceChanged = (MasterComp->bLocalSpaceSimulation && !bPrevMasterSimulateLocalSpace);
+				if(bMasterPoseSpaceChanged && bRestoreSimulationSpace)
+				{
+					// Need to undo local space
+					FClothingActor& MasterActor = MasterComp->ClothingActors[ActorIdx];
+					NxClothingActor* MasterApexActor = MasterActor.ApexClothingActor;
+					if(MasterApexActor)
+					{
+						NxParameterized::Interface* MasterActorInterface = MasterApexActor->getActorDesc();
+						verify(NxParameterized::setParamBool(*MasterActorInterface, "localSpaceSim", false));
+
+						MasterComp->bLocalSpaceSimulation = false;
+					}
+				}
+			}
+		}
+	}
+#endif
 }

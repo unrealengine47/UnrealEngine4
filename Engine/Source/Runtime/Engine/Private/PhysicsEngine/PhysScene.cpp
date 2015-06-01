@@ -795,7 +795,7 @@ void FPhysScene::SyncComponentsToBodies_AssumesLocked(uint32 SceneType)
 		if (!NewTransform.EqualsNoScale(BodyInstance->OwnerComponent->ComponentToWorld))
 		{
 			const FVector MoveBy = NewTransform.GetLocation() - BodyInstance->OwnerComponent->ComponentToWorld.GetLocation();
-			const FRotator NewRotation = NewTransform.Rotator();
+			const FQuat NewRotation = NewTransform.GetRotation();
 
 			//@warning: do not reference BodyInstance again after calling MoveComponent() - events from the move could have made it unusable (destroying the actor, SetPhysics(), etc)
 			BodyInstance->OwnerComponent->MoveComponent(MoveBy, NewRotation, false, NULL, MOVECOMP_SkipPhysicsMove);
@@ -820,8 +820,10 @@ void FPhysScene::DispatchPhysNotifications_AssumesLocked()
 {
 	SCOPE_CYCLE_COUNTER(STAT_PhysicsEventTime);
 
-	//Collision notification
+	for(int32 SceneType = 0; SceneType < PST_MAX; ++SceneType)
 	{
+		TArray<FCollisionNotifyInfo>& PendingCollisionNotifies = GetPendingCollisionNotifies(SceneType);
+
 		// Let the game-specific PhysicsCollisionHandler process any physics collisions that took place
 		if (OwningWorld != NULL && OwningWorld->PhysicsCollisionHandler != NULL)
 		{

@@ -96,6 +96,11 @@ public:
 	static void RefreshAllNodes(UBlueprint* Blueprint);
 
 	/**
+	 * Reconstructs all nodes in the blueprint, node reconstruction order determined by FCompareNodePriority.
+	 */
+	static void ReconstructAllNodes(UBlueprint* Blueprint);
+
+	/**
 	 * Optimized refresh of nodes that depend on external blueprints.  Refreshes the nodes, but does not recompile the skeleton class
 	 */
 	static void RefreshExternalBlueprintDependencyNodes(UBlueprint* Blueprint, UStruct* RefreshOnlyChild = NULL);
@@ -897,6 +902,9 @@ public:
 
 	/** Set RepNotify function of variable */
 	static void SetBlueprintVariableRepNotifyFunc(UBlueprint* Blueprint, const FName& VarName, const FName& RepNotifyFunc);
+
+	/** Returns TRUE if the variable was created by the Blueprint */
+	static bool IsVariableCreatedByBlueprint(UBlueprint* InBlueprint, UProperty* InVariableProperty);
 
 	/**
 	 * Find the index of a variable first declared in this blueprint. Returns INDEX_NONE if not found.

@@ -1975,6 +1975,7 @@ class COREUOBJECT_API UAssetObjectProperty : public TUObjectPropertyBase<FAssetP
 	// UHT interface
 	virtual FString GetCPPMacroType( FString& ExtendedTypeText ) const  override;
 	virtual FString GetCPPType( FString* ExtendedTypeText, uint32 CPPExportFlags ) const override;
+	virtual FString GetCPPTypeForwardDeclaration() const override;
 	// End of UHT interface
 
 	// UProperty interface
@@ -1997,6 +1998,28 @@ class COREUOBJECT_API UAssetObjectProperty : public TUObjectPropertyBase<FAssetP
 	virtual bool AllowCrossLevel() const override
 	{
 		return true;
+	}
+
+	// ScriptVM should store Asset as FAssetPtr not as UObject.
+
+	virtual void CopySingleValueToScriptVM(void* Dest, void const* Src) const override
+	{
+		CopySingleValue(Dest, Src);
+	}
+
+	virtual void CopyCompleteValueToScriptVM(void* Dest, void const* Src) const override
+	{
+		CopyCompleteValue(Dest, Src);
+	}
+
+	virtual void CopySingleValueFromScriptVM(void* Dest, void const* Src) const override
+	{
+		CopySingleValue(Dest, Src);
+	}
+
+	virtual void CopyCompleteValueFromScriptVM(void* Dest, void const* Src) const override
+	{
+		CopyCompleteValue(Dest, Src);
 	}
 	// End of UObjectProperty interface
 };
@@ -2090,6 +2113,7 @@ public:
 	// UHT interface
 	virtual FString GetCPPMacroType( FString& ExtendedTypeText ) const  override;
 	virtual FString GetCPPType( FString* ExtendedTypeText, uint32 CPPExportFlags ) const override;
+	virtual FString GetCPPTypeForwardDeclaration() const override;
 	// End of UHT interface
 
 	// UObject interface

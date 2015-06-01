@@ -9,6 +9,7 @@
 
 // for MaterialExpressionDepthOfFieldFunction
 #include "DepthOfFieldCommon.usf"
+#include "GlobalDistanceFieldShared.usf"
 
 #if USES_SPEEDTREE
 	#include "SpeedTreeCommon.usf"
@@ -20,6 +21,8 @@
 #if MATERIAL_ATMOSPHERIC_FOG
 	#include "AtmosphereCommon.usf"
 #endif
+
+#include "PaniniProjection.usf"
 
 #ifndef USE_DITHERED_LOD_TRANSITION
 	#define USE_DITHERED_LOD_TRANSITION 0
@@ -333,8 +336,6 @@ struct FMaterialVertexParameters
 	}
 #endif //DECAL_RENDERSTAGE
 
-#if HAS_PRIMITIVE_UNIFORM_BUFFER
-
 /** Transforms a vector from tangent space to world space, prescaling by an amount calculated previously */
 MaterialFloat3 TransformTangentVectorToWorld_PreScaled(FMaterialTessellationParameters Parameters, MaterialFloat3 InTangentVector)
 {
@@ -350,12 +351,16 @@ MaterialFloat3 TransformTangentVectorToWorld_PreScaled(FMaterialTessellationPara
 #endif // #if FEATURE_LEVEL_SM5
 }
 
+#if HAS_PRIMITIVE_UNIFORM_BUFFER
+
 /** Transforms a vector from tangent space to local space */
 MaterialFloat3 TransformTangentVectorToLocal(FMaterialPixelParameters Parameters, MaterialFloat3 InTangentVector)
 {
 	// Transform to world space and then to local space
 	return mul(mul(InTangentVector, Parameters.TangentToWorld), (MaterialFloat3x3)Primitive.WorldToLocal);
 }
+
+#endif
 
 /** Transforms a vector from tangent space to view space */
 MaterialFloat3 TransformTangentVectorToView(FMaterialPixelParameters Parameters, MaterialFloat3 InTangentVector)
@@ -393,6 +398,8 @@ MaterialFloat3 TransformLocalVectorToView(MaterialFloat3 InLocalVector)
 	return mul(mul(InLocalVector, GetLocalToWorld3x3()), (MaterialFloat3x3)View.TranslatedWorldToView);
 }
 
+#if HAS_PRIMITIVE_UNIFORM_BUFFER
+
 /** Transforms a vector from world space to local space */
 MaterialFloat3 TransformWorldVectorToLocal(MaterialFloat3 InWorldVector)
 {
@@ -404,6 +411,22 @@ MaterialFloat3 TransformViewVectorToLocal(MaterialFloat3 InViewVector)
 {
 	return mul(mul(InViewVector, (MaterialFloat3x3)View.ViewToTranslatedWorld), (MaterialFloat3x3)Primitive.WorldToLocal);
 }
+
+#endif
+
+/** Transforms a vector from view space to world space */
+MaterialFloat3 TransformViewVectorToWorld(MaterialFloat3 InViewVector)
+{
+	return mul(InViewVector, (MaterialFloat3x3)View.ViewToTranslatedWorld);
+}
+
+/** Transforms a vector from world space to view space */
+MaterialFloat3 TransformWorldVectorToView(MaterialFloat3 InWorldVector)
+{
+	return mul(InWorldVector, (MaterialFloat3x3)View.TranslatedWorldToView);
+}
+
+#if HAS_PRIMITIVE_UNIFORM_BUFFER
 
 /** Transforms a position from local space to absolute world space */
 float3 TransformLocalPositionToWorld(FMaterialPixelParameters Parameters,float3 InLocalPosition)
@@ -427,6 +450,22 @@ float3 TransformWorldPositionToLocal(float3 InWorldPosition)
 	return mul(float4(InWorldPosition, 1), Primitive.WorldToLocal).xyz;
 }
 
+#endif
+
+/** Transforms a position from view space to world space */
+MaterialFloat3 TransformViewPositionToWorld(MaterialFloat3 InViewPosition)
+{
+	return mul(MaterialFloat4(InViewPosition, 1), View.ViewToTranslatedWorld).xyz - View.PreViewTranslation.xyz;
+}
+
+/** Transforms a position from world space to view space */
+MaterialFloat3 TransformWorldPositionToView(MaterialFloat3 InWorldPosition)
+{
+	return mul(MaterialFloat4(InWorldPosition + View.PreViewTranslation.xyz, 1), View.TranslatedWorldToView).xyz;
+}
+
+#if HAS_PRIMITIVE_UNIFORM_BUFFER
+
 /** Return the object's position in world space */
 float3 GetObjectWorldPosition(FMaterialPixelParameters Parameters)
 {
@@ -447,6 +486,8 @@ float3 GetObjectWorldPosition(FMaterialVertexParameters Parameters)
 		return Primitive.ObjectWorldPositionAndRadius.xyz;
 	#endif
 }
+
+#endif
 
 /** Get the per-instance random value when instancing */
 float GetPerInstanceRandom(FMaterialVertexParameters Parameters)
@@ -491,20 +532,6 @@ float GetPerInstanceFadeAmount(FMaterialVertexParameters Parameters)
 MaterialFloat GetDistanceCullFade()
 {
 	return saturate( View.RealTime * PrimitiveFade.FadeTimeScaleBias.x + PrimitiveFade.FadeTimeScaleBias.y );
-}
-
-#endif // #if HAS_PRIMITIVE_UNIFORM_BUFFER
-
-/** Transforms a vector from view space to world space */
-MaterialFloat3 TransformViewVectorToWorld(MaterialFloat3 InViewVector)
-{
-	return mul(InViewVector, (MaterialFloat3x3)View.ViewToTranslatedWorld);
-}
-
-/** Transforms a vector from world space to view space */
-MaterialFloat3 TransformWorldVectorToView(MaterialFloat3 InWorldVector)
-{
-	return mul(InWorldVector, (MaterialFloat3x3)View.TranslatedWorldToView);
 }
 
 /** Rotates Position about the given axis by the given angle, in radians, and returns the offset to Position. */
@@ -1054,6 +1081,7 @@ float4 SceneTextureLookup(float2 UV, int SceneTextureIndex, bool bFiltered)
 	else if (SceneTextureIndex == 21)	return ScreenSpaceData.GBuffer.DecalMask;
 	else if (SceneTextureIndex == 22)	return float4(GetShadingModelColor(ScreenSpaceData.GBuffer), 1);
 	else if (SceneTextureIndex == 23)	return ScreenSpaceData.AmbientOcclusion;
+	else if (SceneTextureIndex == 24)	return ScreenSpaceData.GBuffer.CustomStencil;
 #else
 	switch(SceneTextureIndex)
 	{
@@ -1111,6 +1139,8 @@ float4 SceneTextureLookup(float2 UV, int SceneTextureIndex, bool bFiltered)
 		case 22: return float4(GetShadingModelColor(ScreenSpaceData.GBuffer), 1);
 		// PPI_AmbientOcclusion
 		case 23: return ScreenSpaceData.AmbientOcclusion;
+		// PPI_CustomStencil
+		case 24: return ScreenSpaceData.GBuffer.CustomStencil;
 		default:
 			return float4(0, 0, 0, 0);
 	}
@@ -1329,6 +1359,11 @@ float3 GetMaterialPreviousWorldPositionOffset(FMaterialVertexParameters Paramete
 }
 
 half3 GetMaterialWorldDisplacement(FMaterialTessellationParameters Parameters)
+{
+%s;
+}
+
+half GetMaterialMaxDisplacement()
 {
 %s;
 }

@@ -51,6 +51,7 @@
 	#include "SlateBasics.h"
 	#include "Editor/Kismet/Public/FindInBlueprintManager.h"
 	#include "Editor/UnrealEd/Classes/Editor/UnrealEdTypes.h"
+	#include "Editor/UnrealEd/Classes/Settings/LevelEditorPlaySettings.h"
 #endif
 
 #include "MallocProfiler.h"
@@ -1320,9 +1321,9 @@ void UWorld::UpdateCullDistanceVolumes(AActor* ActorToUpdate, UPrimitiveComponen
 		}
 		else
 		{
-			for( FActorIterator It(this); It; ++It )
+			for( AActor* Actor : FActorRange(this) )
 			{
-				TInlineComponentArray<UPrimitiveComponent*> PrimitiveComponents(*It);
+				TInlineComponentArray<UPrimitiveComponent*> PrimitiveComponents(Actor);
 				for (UPrimitiveComponent* PrimitiveComponent : PrimitiveComponents)
 				{
 					if (ACullDistanceVolume::CanBeAffectedByVolumes(PrimitiveComponent))
@@ -1331,7 +1332,7 @@ void UWorld::UpdateCullDistanceVolumes(AActor* ActorToUpdate, UPrimitiveComponen
 					}
 				}
 
-				ACullDistanceVolume* CullDistanceVolume = Cast<ACullDistanceVolume>(*It);
+				ACullDistanceVolume* CullDistanceVolume = Cast<ACullDistanceVolume>(Actor);
 				if (CullDistanceVolume)
 				{
 					CullDistanceVolumes.Add(CullDistanceVolume);
@@ -3261,7 +3262,7 @@ void UWorld::AddNetworkActor( AActor* Actor )
 		return;
 	}
 
-	NetworkActors.AddUnique( Actor );
+	NetworkActors.Add( Actor );
 }
 
 void UWorld::RemoveNetworkActor( AActor* Actor )
@@ -3271,7 +3272,7 @@ void UWorld::RemoveNetworkActor( AActor* Actor )
 		return;
 	}
 
-	NetworkActors.RemoveSingleSwap( Actor );
+	NetworkActors.Remove( Actor );
 }
 
 FDelegateHandle UWorld::AddOnActorSpawnedHandler( const FOnActorSpawned::FDelegate& InHandler )
@@ -4392,7 +4393,9 @@ bool FSeamlessTravelHandler::StartTravel(UWorld* InCurrentWorld, const FURL& InU
 
 				// first, load the entry level package
 				LoadPackageAsync(TransitionMap, 
-					FLoadPackageAsyncDelegate::CreateRaw(this, &FSeamlessTravelHandler::SeamlessTravelLoadCallback)
+					FLoadPackageAsyncDelegate::CreateRaw(this, &FSeamlessTravelHandler::SeamlessTravelLoadCallback),
+					0, 
+					(CurrentWorld->WorldType == EWorldType::PIE ? PKG_PlayInEditor : PKG_None)
 					);
 			}
 
@@ -4496,17 +4499,20 @@ void FSeamlessTravelHandler::StartLoadingDestination()
 		// In PIE we might want to mangle MapPackageName when traveling to a map loaded in the editor
 		FString URLMapPackageName = PendingTravelURL.Map;
 		FString URLMapPackageToLoadFrom = PendingTravelURL.Map;
-		uint32 PackageFlags = 0;
+		EPackageFlags PackageFlags = PKG_None;
 		int32 PIEInstanceID = INDEX_NONE;
 		
 #if WITH_EDITOR
 		if (GIsEditor)
 		{
+			FWorldContext &WorldContext = GEngine->GetWorldContextFromHandleChecked(WorldContextHandle);
+			if (WorldContext.WorldType == EWorldType::PIE)
+			{
+				PackageFlags |= PKG_PlayInEditor;
+			}
 			UPackage* EditorLevelPackage = (UPackage*)StaticFindObjectFast(UPackage::StaticClass(), NULL, URLMapFName, 0, 0, RF_PendingKill);
 			if (EditorLevelPackage)
 			{
-				FWorldContext &WorldContext = GEngine->GetWorldContextFromHandleChecked(WorldContextHandle);
-				PackageFlags |= PKG_PlayInEditor;
 				PIEInstanceID = WorldContext.PIEInstance;
 				URLMapPackageName = UWorld::ConvertToPIEPackageName(URLMapPackageName, PIEInstanceID);
 			}
@@ -4531,6 +4537,8 @@ void FSeamlessTravelHandler::StartLoadingDestination()
 
 void FSeamlessTravelHandler::CopyWorldData()
 {
+	CurrentWorld->DestroyDemoNetDriver();
+
 	UNetDriver* const NetDriver = CurrentWorld->GetNetDriver();
 	LoadedWorld->SetNetDriver(NetDriver);
 	if (NetDriver != NULL)
@@ -5362,8 +5370,89 @@ ENetMode UWorld::GetNetMode() const
 		return DemoNetDriver->GetNetMode();
 	}
 
+// PIE: NetDriver is not initialized so use PlayInSettings
+// to determine the Net Mode
+#if WITH_EDITOR
+	return AttemptDeriveFromPlayInSettings();
+#endif
+
+	// Use NextURL or PendingNetURL to derive NetMode
+	return AttemptDeriveFromURL();
+
+	//return NM_Standalone;
+}
+
+#if WITH_EDITOR
+ENetMode UWorld::AttemptDeriveFromPlayInSettings() const
+{
+	if (WorldType == EWorldType::PIE)
+	{
+		const ULevelEditorPlaySettings* PlayInSettings = GetDefault<ULevelEditorPlaySettings>();
+		if (PlayInSettings)
+		{
+			EPlayNetMode PlayNetMode;
+			PlayInSettings->GetPlayNetMode(PlayNetMode);
+
+			switch (PlayNetMode)
+			{
+			case EPlayNetMode::PIE_Client:
+				return NM_Client;
+			case EPlayNetMode::PIE_ListenServer:
+				return NM_ListenServer;
+			case EPlayNetMode::PIE_Standalone:
+				return NM_Standalone;
+			default:
+				break;
+			}
+		}
+	}
 	return NM_Standalone;
 }
+#endif
+
+ENetMode UWorld::AttemptDeriveFromURL() const
+{
+	if (GEngine != nullptr)
+	{
+		FWorldContext* WorldContext = GEngine->GetWorldContextFromWorld(this);
+
+		if (WorldContext != nullptr)
+		{
+			// NetMode can be derived from the NextURL if it exists
+			if (NextURL.Len() > 0)
+			{
+				FURL NextLevelURL(&WorldContext->LastURL, *NextURL, NextTravelType);
+
+				if (NextLevelURL.Valid)
+				{
+					if (NextLevelURL.HasOption(TEXT("listen")))
+					{
+						return NM_ListenServer;
+					}
+					else if (NextLevelURL.Host.Len() > 0)
+					{
+						return NM_Client;
+					}
+				}
+			}
+			// NetMode can be derived from the PendingNetURL if it exists
+			else if (WorldContext->PendingNetGame != nullptr && WorldContext->PendingNetGame->URL.Valid)
+			{
+				if (WorldContext->PendingNetGame->URL.HasOption(TEXT("listen")))
+				{
+					return NM_ListenServer;
+				}
+				else if (WorldContext->PendingNetGame->URL.Host.Len() > 0)
+				{
+					return NM_Client;
+				}
+			}
+		}
+	}
+
+	return NM_Standalone;
+}
+
 
 void UWorld::CopyGameState(AGameMode* FromGameMode, AGameState* FromGameState)
 {

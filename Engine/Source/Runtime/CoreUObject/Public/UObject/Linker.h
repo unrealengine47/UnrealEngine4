@@ -4,6 +4,7 @@
 
 #include "ObjectBase.h"
 #include "EngineVersion.h"
+#include "GatherableTextData.h"
 
 
 DECLARE_LOG_CATEGORY_EXTERN(LogLinker, Log, All);
@@ -97,6 +98,23 @@ public:
 		return Index != Other.Index;
 	}
 
+	/** Compare package indecies **/
+	FORCEINLINE bool operator<(const FPackageIndex& Other) const
+	{
+		return Index < Other.Index;
+	}
+	FORCEINLINE bool operator>(const FPackageIndex& Other) const
+	{
+		return Index > Other.Index;
+	}
+	FORCEINLINE bool operator<=(const FPackageIndex& Other) const
+	{
+		return Index <= Other.Index;
+	}
+	FORCEINLINE bool operator>=(const FPackageIndex& Other) const
+	{
+		return Index >= Other.Index;
+	}
 	/**
 	 * Serializes a package index value from or into an archive.
 	 *
@@ -159,6 +177,13 @@ struct FObjectExport : public FObjectResource
 	 * Serialized
 	 */
 	FPackageIndex  	ClassIndex;
+
+	/**
+	* Location of this resource in export map. Used for export fixups while loading packages.
+	* Value of zero indicates resource is invalid and shouldn't be loaded.
+	* Not serialized.
+	*/
+	FPackageIndex ThisIndex;
 
 	/**
 	 * Location of the resource for this export's SuperField (parent).  Only valid if
@@ -566,6 +591,16 @@ public:
 	int32 	NameOffset;
 
 	/**
+	 * Number of gatherable text data items in this package
+	 */
+	int32		GatherableTextDataCount;
+
+	/**
+	 * Location into the file on disk for the gatherable text data items
+	 */
+	int32 	GatherableTextDataOffset;
+	
+	/**
 	 * Number of exports contained in this package
 	 */
 	int32		ExportCount;
@@ -941,6 +976,9 @@ public:
 	/** Names used by objects contained within this package */
 	TArray<FName>			NameMap;
 
+	/** Gatherable text data contained within this package */
+	TArray<FGatherableTextData> GatherableTextDataMap;
+
 	/** The name of the file for this package */
 	FString					Filename;
 
@@ -1166,6 +1204,10 @@ public:
 		{
 			return true;
 		}
+		if (Export.ThisIndex.IsNull()) // Export is invalid and shouldn't be processed.
+		{
+			return true;
+		}
 		return false;
 	}
 
@@ -1312,15 +1354,17 @@ public:
 private:
 	// Variables used during async linker creation.
 
-	/** Current index into name map, used by async linker creation for spreading out serializing name entries.				*/
+	/** Current index into name map, used by async linker creation for spreading out serializing name entries.					*/
 	int32						NameMapIndex;
-	/** Current index into import map, used by async linker creation for spreading out serializing importmap entries.		*/	
+	/** Current index into gatherable text data map, used by async linker creation for spreading out serializing text entries.	*/
+	int32						GatherableTextDataMapIndex;
+	/** Current index into import map, used by async linker creation for spreading out serializing importmap entries.			*/	
 	int32						ImportMapIndex;
-	/** Current index into export map, used by async linker creation for spreading out serializing exportmap entries.		*/
+	/** Current index into export map, used by async linker creation for spreading out serializing exportmap entries.			*/
 	int32						ExportMapIndex;
-	/** Current index into depends map, used by async linker creation for spreading out serializing dependsmap entries.		*/
+	/** Current index into depends map, used by async linker creation for spreading out serializing dependsmap entries.			*/
 	int32						DependsMapIndex;
-	/** Current index into export hash map, used by async linker creation for spreading out hashing exports.				*/
+	/** Current index into export hash map, used by async linker creation for spreading out hashing exports.					*/
 	int32						ExportHashIndex;
 
 
@@ -1350,6 +1394,10 @@ private:
 	/** Used for ActiveClassRedirects functionality */
 	bool					bFixupExportMapDone;
 
+#if WITH_EDITOR
+	/** Check to avoid multiple export duplicate fixups in case we don't save asset. */
+	bool bExportsDuplicatesFixed;
+#endif // WITH_EDITOR
 	/** Id of the thread that created this linker. This is to guard against using this linker on other threads than the one it was created on **/
 	int32					OwnerThread;
 
@@ -1620,6 +1668,18 @@ public:
 	COREUOBJECT_API static void PRIVATE_PatchNewObjectIntoExport(UObject* OldObject, UObject* NewObject);
 
 	/**
+	 * Wraps a call to the package linker's ResolveAllImports().
+	 * 
+	 * @param  Package    The package whose imports you want all loaded.
+	 * 
+	 * WARNING!!!	This function shouldn't be used carelessly, and serves as a
+	 *				hacky entrypoint to FLinkerLoad's privates. It should only 
+	 *				be used at very specific times, and in very specific cases.
+	 *				If you're unsure, DON'T TRY TO USE IT!!!
+	 */
+	COREUOBJECT_API static void PRIVATE_ForceLoadAllDependencies(UPackage* Package);
+
+	/**
 	 * Invalidates the future loading of a specific object, so that subsequent loads will fail
 	 * This is used to invalidate sub objects of a replaced object that may no longer be valid
 	 */
@@ -1629,6 +1689,19 @@ public:
 	COREUOBJECT_API static FName FindSubobjectRedirectName(const FName& Name);
 
 private:
+#if WITH_EDITOR
+
+	/**
+	 * Nulls duplicated exports and fixes indexes in ExportMap to point to original objects instead of duplicates.
+	 */
+	void FixupDuplicateExports();
+
+	/**
+	 * Replaces all instances of OldIndex in ExportMap with NewIndex.
+	 */
+	void ReplaceExportIndexes(const FPackageIndex& OldIndex, const FPackageIndex& NewIndex);
+
+#endif // WITH_EDITOR
 
 	UObject* CreateExport( int32 Index );
 
@@ -1859,6 +1932,11 @@ private:
 
 public:
 	/**
+	 * Serializes the gatherable text data container.
+	 */
+	COREUOBJECT_API ELinkerStatus SerializeGatherableTextDataMap(bool bForceEnableForCommandlet = false);
+
+	/**
 	 * Serializes thumbnails
 	 */
 	COREUOBJECT_API ELinkerStatus SerializeThumbnails( bool bForceEnableForCommandlet=false );
@@ -1931,6 +2009,14 @@ private:
 	 * @return True if ResolveDependencyPlaceholder() is being ran on a placeholder that has yet to be resolved. 
 	 */
 	bool HasUnresolvedDependencies() const;
+
+	/**
+	 * Iterates through the ImportMap and calls CreateImport() for every entry, 
+	 * creating/loading each import as we go. This also makes sure that class 
+	 * imports have had ResolveDeferredDependencies() completely executed for 
+	 * them (even those already running through it earlier in the callstack).
+	 */
+	void ResolveAllImports();
 
 	/**
 	 * Takes the supplied serialized class and serializes in its CDO, then 

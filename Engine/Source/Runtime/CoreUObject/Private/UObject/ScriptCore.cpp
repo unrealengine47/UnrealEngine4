@@ -154,6 +154,8 @@ void FFrame::Step(UObject *Context, RESULT_DECL)
 
 void FFrame::StepExplicitProperty(void*const Result, UProperty* Property)
 {
+	checkSlow(Result != NULL);
+
 	if (Property->PropertyFlags & CPF_OutParm)
 	{
 		// look through the out parameter infos and find the one that has the address of this property
@@ -170,10 +172,7 @@ void FFrame::StepExplicitProperty(void*const Result, UProperty* Property)
 	else
 	{
 		MostRecentPropertyAddress = Property->ContainerPtrToValuePtr<uint8>(Locals);
-		if (Result)
-		{
-			Property->CopyCompleteValueToScriptVM(Result, MostRecentPropertyAddress);
-		}
+		Property->CopyCompleteValueToScriptVM(Result, MostRecentPropertyAddress);
 	}
 }
 
@@ -1815,6 +1814,14 @@ void UObject::execObjectConst( FFrame& Stack, RESULT_DECL )
 }
 IMPLEMENT_VM_FUNCTION( EX_ObjectConst, execObjectConst );
 
+void UObject::execAssetConst(FFrame& Stack, RESULT_DECL)
+{
+	FString LongPath;
+	Stack.Step(Stack.Object, &LongPath);
+	*(FAssetPtr*)RESULT_PARAM = FStringAssetReference(LongPath);
+}
+IMPLEMENT_VM_FUNCTION(EX_AssetConst, execAssetConst);
+
 void UObject::execInstanceDelegate( FFrame& Stack, RESULT_DECL )
 {
 	FName FunctionName = Stack.ReadName();
@@ -2015,36 +2022,38 @@ void UObject::execDynamicCast( FFrame& Stack, RESULT_DECL )
 	//*(UObject**)RESULT_PARAM = (Castee && Castee->IsA(Class)) ? Castee : NULL;
 	*(UObject**)RESULT_PARAM = NULL; // default value
 
-
-	// if we were passed in a null value
-	if( Castee == NULL )
+	if (Class)
 	{
+		// if we were passed in a null value
+		if( Castee == NULL )
+		{
+			if( Class->HasAnyClassFlags(CLASS_Interface) )
+			{
+				((FScriptInterface*)RESULT_PARAM)->SetObject(NULL);
+			}
+			else
+			{
+				*(UObject**)RESULT_PARAM = NULL;
+			}
+			return;
+		}
+
+		// check to see if the Castee is an implemented interface by looking up the
+		// class hierarchy and seeing if any class in said hierarchy implements the interface
 		if( Class->HasAnyClassFlags(CLASS_Interface) )
 		{
-			((FScriptInterface*)RESULT_PARAM)->SetObject(NULL);
+			if ( Castee->GetClass()->ImplementsInterface(Class) )
+			{
+				// interface property type - convert to FScriptInterface
+				((FScriptInterface*)RESULT_PARAM)->SetObject(Castee);
+				((FScriptInterface*)RESULT_PARAM)->SetInterface(Castee->GetInterfaceAddress(Class));
+			}
 		}
-		else
+		// check to see if the Castee is a castable class
+		else if( Castee->IsA(Class) )
 		{
-			*(UObject**)RESULT_PARAM = NULL;
+			*(UObject**)RESULT_PARAM = Castee;
 		}
-		return;
-	}
-
-	// check to see if the Castee is an implemented interface by looking up the
-	// class hierarchy and seeing if any class in said hierarchy implements the interface
-	if( Class->HasAnyClassFlags(CLASS_Interface) )
-	{
-		if ( Castee->GetClass()->ImplementsInterface(Class) )
-		{
-			// interface property type - convert to FScriptInterface
-			((FScriptInterface*)RESULT_PARAM)->SetObject(Castee);
-			((FScriptInterface*)RESULT_PARAM)->SetInterface(Castee->GetInterfaceAddress(Class));
-		}
-	}
-	// check to see if the Castee is a castable class
-	else if( Castee->IsA(Class) )
-	{
-		*(UObject**)RESULT_PARAM = Castee;
 	}
 }
 IMPLEMENT_VM_FUNCTION( EX_DynamicCast, execDynamicCast );

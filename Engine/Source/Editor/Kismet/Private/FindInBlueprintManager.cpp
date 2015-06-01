@@ -87,7 +87,7 @@ namespace FiBSerializationHelpers
 		// Read, as a byte string, the number of characters composing the Lookup Table for the Json.
 		FString SizeOfDataAsHex;
 		SizeOfDataAsHex.GetCharArray().AddUninitialized(InBytes + 1);
-		SizeOfDataAsHex[InBytes] = TEXT('\0');
+		SizeOfDataAsHex.GetCharArray()[InBytes] = TEXT('\0');
 		InStream.Serialize((char*)SizeOfDataAsHex.GetCharArray().GetData(), sizeof(TCHAR) * InBytes);
 
 		// Convert the number (which is stored in 1 serialized byte per TChar) into an int32
@@ -673,19 +673,22 @@ public:
 	/** Cancels caching and destroys this object */
 	void OnCancelCaching(bool bIsImmediate)
 	{
-		ProgressNotification.Pin()->SetText(LOCTEXT("BlueprintIndexCancelled", "Cancelled Indexing Blueprints!"));
-
-		ProgressNotification.Pin()->SetCompletionState(SNotificationItem::CS_Fail);
-		ProgressNotification.Pin()->ExpireAndFadeout();
-
-		// Sometimes we can't wait another tick to shutdown, so make the callback immediately.
-		if (bIsImmediate)
+		if (!bIsCancelled)
 		{
-			FFindInBlueprintSearchManager::Get().FinishedCachingBlueprints(TickCacheIndex, FailedToCacheList);
-		}
-		else
-		{
-			bIsCancelled = true;
+			ProgressNotification.Pin()->SetText(LOCTEXT("BlueprintIndexCancelled", "Cancelled Indexing Blueprints!"));
+
+			ProgressNotification.Pin()->SetCompletionState(SNotificationItem::CS_Fail);
+			ProgressNotification.Pin()->ExpireAndFadeout();
+
+			// Sometimes we can't wait another tick to shutdown, so make the callback immediately.
+			if (bIsImmediate)
+			{
+				FFindInBlueprintSearchManager::Get().FinishedCachingBlueprints(TickCacheIndex, FailedToCacheList);
+			}
+			else
+			{
+				bIsCancelled = true;
+			}
 		}
 	}
 
@@ -1296,7 +1299,7 @@ void FFindInBlueprintSearchManager::CleanCache()
 		if( !SearchArray[SearchValuePair.Value].bMarkedForDeletion && !(SearchArray[SearchValuePair.Value].Blueprint.IsValid() && SearchArray[SearchValuePair.Value].Blueprint->HasAllFlags(RF_PendingKill)) )
 		{
 			// Build the new map/array
-			NewSearchMap.Add(SearchValuePair.Key, NewSearchArray.Add(SearchArray[SearchValuePair.Value]) );
+			NewSearchMap.Add(SearchValuePair.Key, NewSearchArray.Add(MoveTemp(SearchArray[SearchValuePair.Value])) );
 		}
 		else
 		{
@@ -1322,8 +1325,8 @@ void FFindInBlueprintSearchManager::CleanCache()
 		}
 	}
 
-	SearchMap = NewSearchMap;
-	SearchArray = NewSearchArray;
+	SearchMap = MoveTemp( NewSearchMap );
+	SearchArray = MoveTemp( NewSearchArray );
 
 	// After the search, we have to place the active search queries where they belong
 	for( auto& CacheQuery : CacheQueries )

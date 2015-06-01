@@ -74,8 +74,8 @@ void AGameMode::SwapPlayerControllers(APlayerController* OldPC, APlayerControlle
 		// move the Player to the new PC
 		UPlayer* Player = OldPC->Player;
 		NewPC->NetPlayerIndex = OldPC->NetPlayerIndex; //@warning: critical that this is first as SetPlayer() may trigger RPCs
-		NewPC->SetPlayer(Player);
 		NewPC->NetConnection = OldPC->NetConnection;
+		NewPC->SetPlayer(Player);
 		NewPC->CopyRemoteRoleFrom( OldPC );
 
 		K2_OnSwapPlayerControllers(OldPC, NewPC);
@@ -955,7 +955,7 @@ void AGameMode::ProcessServerTravel(const FString& URL, bool bAbsolute)
 		return;
 	}
 	
-	FGuid NextMapGuid = UEngine::GetPackageGuid(FName(*NextMap));
+	FGuid NextMapGuid = UEngine::GetPackageGuid(FName(*NextMap), GetWorld()->IsPlayInEditor());
 
 	// Notify clients we're switching level and give them time to receive.
 	FString URLMod = URL;

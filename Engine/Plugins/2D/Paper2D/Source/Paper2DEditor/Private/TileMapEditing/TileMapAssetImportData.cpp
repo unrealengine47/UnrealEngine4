@@ -3,6 +3,7 @@
 #include "Paper2DEditorPrivatePCH.h"
 #include "AssetData.h"
 #include "TileMapAssetImportData.h"
+#include "PaperTileMap.h"
 
 //////////////////////////////////////////////////////////////////////////
 // UTileMapAssetImportData
@@ -24,8 +25,7 @@ UTileMapAssetImportData* UTileMapAssetImportData::GetImportDataForTileMap(UPaper
 		// Try to preserve the source file path if possible
 		if (TileMap->AssetImportData != nullptr)
 		{
-			ImportData->SourceFilePath = TileMap->AssetImportData->SourceFilePath;
-			ImportData->SourceFileTimestamp = TileMap->AssetImportData->SourceFileTimestamp;
+			ImportData->CopyFrom(*TileMap->AssetImportData);
 		}
 
 		TileMap->AssetImportData = ImportData;

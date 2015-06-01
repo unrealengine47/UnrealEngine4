@@ -37,53 +37,35 @@ public class MongoDB implements BaseDB
 	static DBCollection replayColl	= null;
 	static DBCollection viewerColl	= null;
 	static DBCollection eventColl	= null;
+	static DBCollection recentColl	= null;
 	static DBCollection logColl		= null;
 
 	public MongoDB() throws UnknownHostException
 	{
-		mongoClient = new MongoClient( "localhost" , 27017 );
+		mongoClient = new MongoClient( ReplayProps.getString( "mongoDB_Host", "localhost" ) , ReplayProps.getInt( "mongoDB_Port", "27017" ) );
 
 		final boolean bResetDB 		= false;
-		final boolean bResetIndexes = false;
+		final boolean bResetIndexes = ReplayProps.getInt( "mongoDB_ResetIndexes", "0" ) == 1 ? true : false;
 
 		if ( bResetDB )
 		{
-			mongoClient.dropDatabase( "replayDB" );
+			mongoClient.dropDatabase( ReplayProps.getString( "mongoDB_DBName", "replayDB" ) );
 		}
 
-		db 			= mongoClient.getDB( "replayDB" );
-		grid 		= new GridFS( db, "replayFS" );
-		replayColl 	= db.getCollection( "replayCollection" );
-		viewerColl 	= db.getCollection( "viewerCollection" );
-		eventColl 	= db.getCollection( "eventCollection" );
-		logColl 	= db.getCollection( "logCollection" );
+		db 			= mongoClient.getDB( ReplayProps.getString( "mongoDB_DBName", "replayDB" ) );
+		grid 		= new GridFS( db, ReplayProps.getString( "mongoDB_GridFSBucket", "replayFS" ) );
+		replayColl 	= db.getCollection( ReplayProps.getString( "mongoDB_ReplayCollection", "replayCollection" ) );
+		viewerColl 	= db.getCollection( ReplayProps.getString( "mongoDB_ViewerCollection", "viewerCollection" ) );
+		eventColl 	= db.getCollection( ReplayProps.getString( "mongoDB_EventCollection", "eventCollection" ) );
+		recentColl 	= db.getCollection( ReplayProps.getString( "mongoDB_RecentCollection", "recentCollection" ) );
+		logColl 	= db.getCollection( ReplayProps.getString( "mongoDB_LogCollection", "logCollection" ) );
 				
 		if ( bResetIndexes )
 		{
-			replayColl.dropIndex( "*" );
-			viewerColl.dropIndex( "*" );
-			eventColl.dropIndex( "*" );
-			logColl.dropIndex( "*" );
-	
-			replayColl.createIndex( new BasicDBObject( "session", 1 ), new BasicDBObject( "name", "SessionIndex" ) );
-			replayColl.createIndex( new BasicDBObject( "version", 1 ).append( "app", 1 ).append( "bIsLive", 1 ).append( "created", 1 ), new BasicDBObject( "name", "VersionAppSortIndex" ) );
-			replayColl.createIndex( new BasicDBObject( "app", 1 ).append( "bIsLive", 1 ).append( "created", 1 ), new BasicDBObject( "name", "AppSortIndex" ) );
-			replayColl.createIndex( new BasicDBObject( "created", 1 ), new BasicDBObject( "name", "CreatedIndex" ) );
-			replayColl.createIndex( new BasicDBObject( "modified", 1 ), new BasicDBObject( "name", "ModifiedIndex" ) );
-
-			viewerColl.createIndex( new BasicDBObject( "session", 1 ), new BasicDBObject( "name", "VSessionIndex" ) );
-			viewerColl.createIndex( new BasicDBObject( "viewer", 1 ), new BasicDBObject( "name", "ViewerIndex" ) );
-			viewerColl.createIndex( new BasicDBObject( "modified", 1 ), new BasicDBObject( "name", "VModifiedIndex" ) );
-
-			eventColl.createIndex( new BasicDBObject( "session", 1 ).append( "group", 1 ).append( "time1", 1 ), new BasicDBObject( "name", "ESessionIndex" ) );
-			//eventColl.createIndex( new BasicDBObject( "time1", 1 ), new BasicDBObject( "name", "ETime1Index" ) );
-			//eventColl.createIndex( new BasicDBObject( "group" , 1 ), new BasicDBObject( "name", "EGroupIndex" ) );			
-			eventColl.createIndex( new BasicDBObject( "modified", 1 ), new BasicDBObject( "name", "EModifiedIndex" ) );
-
-			//logColl.createIndex( new BasicDBObject( "level", 1 ), new BasicDBObject( "name", "LevelIndex" ) );
-			logColl.createIndex( new BasicDBObject( "level", 1 ).append( "created", 1 ), new BasicDBObject( "name", "LevelIndex" ) );
-			logColl.createIndex( new BasicDBObject( "created", 1 ), new BasicDBObject( "name", "LCreatedIndex" ) );
+			ResetIndexes();
 		}
+	
+		RegisterIndexes();
 
 		/*
 		listDocuments( replayColl );
@@ -98,6 +80,50 @@ public class MongoDB implements BaseDB
 		PrintCollectionStats( logColl );
 		PrintCollectionStats( db.getCollection( "replayFS.files" ) );
 		PrintCollectionStats( db.getCollection( "replayFS.chunks" ) );
+	}
+	
+	public void ResetIndexes()
+	{
+		replayColl.dropIndex( "*" );
+		viewerColl.dropIndex( "*" );
+		eventColl.dropIndex( "*" );
+		recentColl.dropIndex( "*" );
+		logColl.dropIndex( "*" );		
+	}
+
+	public void RegisterIndexes()
+	{
+		EnsureIndex( replayColl, new BasicDBObject( "session", 1 ), "SessionIndex" );
+		EnsureIndex( replayColl, new BasicDBObject( "app", 1 ).append( "version", 1 ).append( "bIsLive", 1 ).append( "created", 1 ), "VersionAppSortIndex" );
+		EnsureIndex( replayColl, new BasicDBObject( "app", 1 ).append( "bIsLive", 1 ).append( "created", 1 ), "AppSortIndex" );
+		EnsureIndex( replayColl, new BasicDBObject( "app", 1 ).append( "meta", 1 ), "AppMetaSortIndex" );
+		EnsureIndex( replayColl, new BasicDBObject( "created", 1 ), "CreatedIndex" );
+		EnsureIndex( replayColl, new BasicDBObject( "modified", 1 ), "ModifiedIndex" );
+
+		EnsureIndex( viewerColl, new BasicDBObject( "session", 1 ), "VSessionIndex" );
+		EnsureIndex( viewerColl, new BasicDBObject( "viewer", 1 ), "ViewerIndex" );
+		EnsureIndex( viewerColl, new BasicDBObject( "modified", 1 ), "VModifiedIndex" );
+
+		EnsureIndex( recentColl, new BasicDBObject( "user", 1 ), "RecentUserIndex" );
+
+		EnsureIndex( eventColl, new BasicDBObject( "session", 1 ).append( "group", 1 ).append( "time1", 1 ), "ESessionIndex" );
+		EnsureIndex( eventColl, new BasicDBObject( "modified", 1 ), "EModifiedIndex" );
+
+		EnsureIndex( logColl, new BasicDBObject( "level", 1 ).append( "created", 1 ), "LevelIndex" );
+		EnsureIndex( logColl, new BasicDBObject( "created", 1 ), "LCreatedIndex" );
+	}
+	
+	public void EnsureIndex( DBCollection collection, DBObject keys, String name )
+	{
+		try
+		{
+			collection.createIndex( keys, name );
+		}
+		catch( Exception e )
+		{
+			replayColl.dropIndex( name );
+			collection.createIndex( keys, name );
+		}
 	}
 
 	public void shutdown()
@@ -209,7 +235,7 @@ public class MongoDB implements BaseDB
 		return replayColl.count( getSessionQuery( sessionName ) ) > 0;
 	}
 	
-	public void createSession( final String appName, final int version, final int changelist, final String sessionName, final String friendlyName ) throws ReplayException
+	public void createSession( final String appName, final int version, final int changelist, final String sessionName, final String friendlyName, final String metaString ) throws ReplayException
 	{
 		if ( sessionExists( sessionName ) )
 		{
@@ -229,10 +255,11 @@ public class MongoDB implements BaseDB
 							.append( "bIncomplete", 	(boolean)false )
 							.append( "numChunks", 		(int)0 )
 							.append( "demoTimeInMS", 	(int)0 )
-							.append( "sizeInBytes", 	(int)0 );
+							.append( "sizeInBytes", 	(int)0 )
+							.append( "meta", 			metaString );
 
 		
-			replayColl.insert( WriteConcern.SAFE, newSession );
+			replayColl.insert( WriteConcern.ACKNOWLEDGED, newSession );
 		}
 		catch ( Exception e )
 		{
@@ -462,7 +489,7 @@ public class MongoDB implements BaseDB
 				obj.put( "meta", eventMeta );
 			}
 
-			eventColl.insert( WriteConcern.SAFE, obj );
+			eventColl.insert( WriteConcern.ACKNOWLEDGED, obj );
         }
         catch ( Exception e )
         {
@@ -516,7 +543,7 @@ public class MongoDB implements BaseDB
         }
         catch ( Exception e )
         {
-        	throw new ReplayException( "MongoDB.EnumerateEvents: There was an error reading the event" );
+        	throw new ReplayException( "MongoDB.enumerateEvents: There was an error reading the event" );
         }
 	}
 
@@ -525,20 +552,67 @@ public class MongoDB implements BaseDB
 		return viewerColl.count( getSpecificViewerQuery( sessionName, viewerName ) ) > 0;
 	}
 
-	public void createViewer( final String sessionName, final String viewerName ) throws ReplayException
+	public void createViewer( final String sessionName, final String viewerName, final String userName ) throws ReplayException
 	{
 		if ( viewerExists( sessionName, viewerName ) )
 		{
-			throw new ReplayException( "MongoDB.CreateViewer: Viewer already exists." );        
+			throw new ReplayException( "MongoDB.createViewer: Viewer already exists." );        
 		}
 		
 		try
 		{
-			viewerColl.insert( WriteConcern.SAFE, getSpecificViewerQuery( sessionName, viewerName ).append( "modified", System.currentTimeMillis() ) );		
+			viewerColl.insert( WriteConcern.ACKNOWLEDGED, getSpecificViewerQuery( sessionName, viewerName ).append( "modified", System.currentTimeMillis() ) );
 		}
 		catch ( Exception e )
 		{
-			throw new ReplayException( "MongoDB.CreateViewer: Insert failed." );        
+			throw new ReplayException( "MongoDB.createViewer: Insert failed." );        
+		}
+		
+		addToRecentList( sessionName, userName );
+	}
+	
+	public void addToRecentList( final String sessionName, final String userName ) throws ReplayException
+	{
+		if ( userName == null || userName.equals( "" ) )
+		{
+			ReplayLogger.log( Level.WARNING, "addToRecentList: Ignoring null name." );
+			return;
+		}
+
+		try
+		{
+			final BasicDBObject query = new BasicDBObject( "user", userName );
+
+			// This is probably slow, but is proof of concept feature, need to make faster
+			final int count 	= (int)recentColl.count( query ) + 1;
+	 		final int maxCount	= 10;
+	 		
+	 		if ( count > maxCount )
+	 		{
+	 			final int numToRemove = count - maxCount;
+
+	 			ReplayLogger.log( Level.INFO, "addToRecentList: Removing: " + numToRemove );
+	 			
+	 			DBCursor cursor = recentColl.find( query );
+
+		 		cursor.sort( new BasicDBObject( "_id", 1 ) );		// Sort oldest first
+		 		cursor.limit( numToRemove );
+ 		
+	 			while ( cursor.hasNext() ) 
+	 			{
+	 				recentColl.remove( cursor.next() );
+	 			}
+	 		}
+	 		
+			final BasicDBObject newObj = new BasicDBObject( "user", userName ).append( "session", UUID.fromString( sessionName ) );
+
+			ReplayLogger.log( Level.INFO, "addToRecentList: Adding: " + sessionName + " : " + userName );
+
+			recentColl.update( newObj, newObj, true, false );
+		}
+		catch ( Exception e )
+		{
+			throw new ReplayException( "MongoDB.addToRecentList: Insert failed." );        
 		}
 	}
 
@@ -644,26 +718,27 @@ public class MongoDB implements BaseDB
  		return (int)replayColl.count();
 	}
 
-	public List<ReplaySessionInfo> discoverSessions( final String appName, final int version, final int changelist, final int limit )
+	public List<ReplaySessionInfo> discoverSessions( final String appName, final int version, final int changelist, final String metaString, final int limit )
 	{
 		List<ReplaySessionInfo> sessions = new ArrayList<ReplaySessionInfo>();
 	
  		DBCursor cursor = null;
  		
- 		if ( version != 0 )
+ 		if ( appName != null )
  		{
- 	 		if ( appName != null )
- 	 		{
- 	 			cursor = replayColl.find( new BasicDBObject( "version", version ).append( "app", appName ) );
- 	 		}
- 	 		else
- 	 		{
- 	 			cursor = replayColl.find( new BasicDBObject( "version", version ) );
- 	 		}
- 		}
- 		else if ( appName != null )
- 		{
- 			cursor = replayColl.find( new BasicDBObject( "app", appName ) );
+ 			BasicDBObject query = new BasicDBObject( "app", appName );
+ 			
+ 			if ( version != 0 )
+	 		{
+	 			query.append( "version", version );	 			
+	 		}
+
+ 			if ( metaString != null )
+ 			{	 				
+		 		query.append( "meta", metaString );
+ 			}
+
+ 			cursor = replayColl.find( query );
  		}
  		else
  		{
@@ -689,8 +764,63 @@ public class MongoDB implements BaseDB
 		    }
 		    catch ( Exception e )
 		    {
-				ReplayLogger.log( Level.SEVERE, "MongoDB.DiscoverSessions. Exception while reading. Deleting: " + getSessionStringSafe( doc ) );
+				ReplayLogger.log( Level.SEVERE, "MongoDB.discoverSessions. Exception while reading. Deleting: " + getSessionStringSafe( doc ) );
 				safeDeleteSessionWithDocument( getSessionStringSafe( doc ), doc );
+		    }
+		}				 
+
+		return sessions;
+	}
+
+	public List<ReplaySessionInfo> getRecentSessions( final String appName, final int version, final int changelist, final String userName, final int limit )
+	{
+		List<ReplaySessionInfo> sessions = new ArrayList<ReplaySessionInfo>();
+		
+ 		DBCursor cursor = recentColl.find( new BasicDBObject( "user", userName ) );
+ 		
+ 		cursor.sort( new BasicDBObject( "_id", -1 ) );
+	
+ 		if ( limit != 0 )
+		{
+ 			cursor.limit( limit );
+		}
+
+		while ( cursor.hasNext() ) 
+		{
+		    final DBObject doc = (DBObject)cursor.next();
+
+		    try
+		    {	    	
+		    	final String sessionName = getSessionString( doc );
+		    	
+		    	final DBObject sessionObj = replayColl.findOne( getSessionQuery( sessionName ) );
+		    	
+		    	if ( sessionObj == null )
+		    	{
+					ReplayLogger.log( Level.WARNING, "MongoDB.getRecentSessions. Session not found: " + sessionName );
+					recentColl.remove( doc );
+		    		continue;
+		    	}
+
+		    	ReplaySessionInfo sessionInfo = getSessionInfoFromDoc( sessionObj );
+
+		    	// FIXME: Make this part of the insert/search/schema flow
+		    	if ( version != 0 && sessionInfo.version != version )
+		    	{
+		    		continue;
+		    	}
+
+		    	if ( appName != null && !sessionInfo.appName.equals( appName ) )
+		    	{
+		    		continue;
+		    	}
+
+		    	sessions.add( sessionInfo );
+		    }
+		    catch ( Exception e )
+		    {
+				ReplayLogger.log( Level.SEVERE, "MongoDB.getRecentSessions. Exception while reading. Deleting: " + getSessionStringSafe( doc ) );
+				recentColl.remove( doc );
 		    }
 		}				 
 
@@ -829,7 +959,7 @@ public class MongoDB implements BaseDB
 	void cleanupStaleLiveSessions()
 	{
  		// Find all sessions that haven't been refreshed for more than 60 seconds
-		final long maxMinutes = 1;
+		final long maxMinutes = ReplayProps.getInt( "mongoDB_cleanupStaleLiveSessions_MaxMinutes", "1" );
 
 		final DBCursor cursor = replayColl.find( new BasicDBObject( "modified", new BasicDBObject( "$lt", System.currentTimeMillis() - 60 * 1000 * maxMinutes ) ) );//.limit( 20 );
 
@@ -839,17 +969,17 @@ public class MongoDB implements BaseDB
 	void cleanupOldSessions()
 	{
  		// Delete all sessions older than 30 days
-		final long maxDays = 30;
+		final long maxDays = ReplayProps.getInt( "mongoDB_cleanupOldSessions_MaxDays", "30" );
 
 		final DBCursor cursor = replayColl.find( new BasicDBObject( "created", new BasicDBObject( "$lt", System.currentTimeMillis() - 60 * 60 * 24 * maxDays * 1000 ) ) );//.limit( 20 );
 
 		cleanupSessions( cursor, false );
 	}
 
-	void cleanupOldViewers()
+	void cleanupStaleViewers()
 	{
  		// Find all viewers that haven't been refreshed for more than 60 seconds
-		final long maxMinutes = 1;
+		final long maxMinutes = ReplayProps.getInt( "mongoDB_cleanupStaleViewers_MaxMinutes", "1" );
 
 		final DBCursor cursor = viewerColl.find( new BasicDBObject( "modified", new BasicDBObject( "$lt", System.currentTimeMillis() - 60 * 1000 * maxMinutes ) ) );//.limit( 20 );
 
@@ -875,17 +1005,17 @@ public class MongoDB implements BaseDB
 	
 	void cleanupLogs()
 	{
-		final long maxDays = 14;
+		final long maxDays = ReplayProps.getInt( "mongoDB_cleanupLogs_MaxDays", "14" );
 		logColl.remove( new BasicDBObject( "created", new BasicDBObject( "$lt", System.currentTimeMillis() - 60 * 60 * 24 * maxDays * 1000 ) ) );
 
-		final long maxFinestDays = 3;
+		final long maxFinestDays = ReplayProps.getInt( "mongoDB_cleanupLogs_MaxFinestDays", "3" );
 		logColl.remove( new BasicDBObject( "level", new BasicDBObject( "$eq", Level.FINEST.intValue() ) ).append( "created", new BasicDBObject( "$lt", System.currentTimeMillis() - 60 * 60 * 24 * maxFinestDays * 1000 ) ) );
 	}
 	
 	public void quickCleanup()
 	{
 		cleanupStaleLiveSessions();
-		cleanupOldViewers();
+		cleanupStaleViewers();
 	}
 
 	public void longCleanup()

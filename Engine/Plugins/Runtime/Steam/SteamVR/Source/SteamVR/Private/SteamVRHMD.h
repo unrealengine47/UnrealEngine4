@@ -36,6 +36,14 @@ struct FBoundingQuad
 	FVector Corners[4];
 };
 
+//@todo steamvr: remove GetProcAddress() workaround once we have updated to Steamworks 1.33 or higher
+typedef vr::IVRSystem*(VR_CALLTYPE *pVRInit)(vr::HmdError* peError);
+typedef void(VR_CALLTYPE *pVRShutdown)();
+typedef bool(VR_CALLTYPE *pVRIsHmdPresent)();
+typedef const char*(VR_CALLTYPE *pVRGetStringForHmdError)(vr::HmdError error);
+typedef void*(VR_CALLTYPE *pVRGetGenericInterface)(const char* pchInterfaceVersion, vr::HmdError* peError);
+
+
 /**
  * SteamVR Head Mounted Display
  */
@@ -105,8 +113,8 @@ public:
 	virtual void RenderTexture_RenderThread(FRHICommandListImmediate& RHICmdList, FTexture2DRHIParamRef BackBuffer, FTexture2DRHIParamRef SrcTexture) const override;
 	virtual void GetEyeRenderParams_RenderThread(const FRenderingCompositePassContext& Context, FVector2D& EyeToSrcUVScaleValue, FVector2D& EyeToSrcUVOffsetValue) const override;
 
-	virtual void CalculateRenderTargetSize(const class FViewport& Viewport, uint32& InOutSizeX, uint32& InOutSizeY) const override;
-	virtual bool NeedReAllocateViewportRenderTarget(const FViewport& Viewport) const override;
+	virtual void CalculateRenderTargetSize(const class FViewport& Viewport, uint32& InOutSizeX, uint32& InOutSizeY) override;
+	virtual bool NeedReAllocateViewportRenderTarget(const FViewport& Viewport) override;
 	virtual bool ShouldUseSeparateRenderTarget() const override
 	{
 		check(IsInGameThread());
@@ -154,7 +162,7 @@ public:
 		D3D11Bridge(FSteamVRHMD* plugin);
 
 		virtual void OnBackBufferResize() override;
-		virtual bool Present(int SyncInterval) override;
+		virtual bool Present(int& SyncInterval) override;
 
 		virtual void BeginRendering() override;
 		void FinishRendering();
@@ -383,6 +391,13 @@ private:
 	vr::IVRChaperone* VRChaperone;
 
 	void* OpenVRDLLHandle;
+
+	//@todo steamvr: Remove GetProcAddress() workaround once we have updated to Steamworks 1.33 or higher
+	pVRInit VRInitFn;
+	pVRShutdown VRShutdownFn;
+	pVRIsHmdPresent VRIsHmdPresentFn;
+	pVRGetStringForHmdError VRGetStringForHmdErrorFn;
+	pVRGetGenericInterface VRGetGenericInterfaceFn;
 	
 	FString DisplayId;
 

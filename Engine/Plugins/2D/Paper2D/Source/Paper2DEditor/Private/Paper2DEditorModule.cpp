@@ -12,6 +12,7 @@
 #include "AssetEditorToolkit.h"
 #include "ModuleManager.h"
 #include "ContentBrowserExtensions/ContentBrowserExtensions.h"
+#include "LevelEditorMenuExtensions/Paper2DLevelEditorExtensions.h"
 #include "PaperImporterSettings.h"
 
 // Sprite support
@@ -46,6 +47,11 @@
 // Atlas support
 #include "Atlasing/AtlasAssetTypeActions.h"
 #include "Atlasing/PaperAtlasGenerator.h"
+#include "PaperSpriteAtlas.h"
+
+// Grouped sprite support
+#include "PaperGroupedSpriteComponent.h"
+#include "GroupedSprites/GroupedSpriteDetailsCustomization.h"
 
 // Settings
 #include "PaperRuntimeSettings.h"
@@ -145,6 +151,7 @@ public:
 			PropertyModule.RegisterCustomClassLayout(UPaperSprite::StaticClass()->GetFName(), FOnGetDetailCustomizationInstance::CreateStatic(&FSpriteDetailsCustomization::MakeInstance));
 			PropertyModule.RegisterCustomClassLayout(UPaperSpriteComponent::StaticClass()->GetFName(), FOnGetDetailCustomizationInstance::CreateStatic(&FSpriteComponentDetailsCustomization::MakeInstance));
 			PropertyModule.RegisterCustomClassLayout(UPaperFlipbookComponent::StaticClass()->GetFName(), FOnGetDetailCustomizationInstance::CreateStatic(&FFlipbookComponentDetailsCustomization::MakeInstance));
+			PropertyModule.RegisterCustomClassLayout(UPaperGroupedSpriteComponent::StaticClass()->GetFName(), FOnGetDetailCustomizationInstance::CreateStatic(&FGroupedSpriteComponentDetailsCustomization::MakeInstance));
 
 			//@TODO: Struct registration should happen using ::StaticStruct, not by string!!!
 			//PropertyModule.RegisterCustomPropertyTypeLayout( "SpritePolygonCollection", FOnGetPropertyTypeCustomizationInstance::CreateStatic( &FSpritePolygonCollectionCustomization::MakeInstance ) );
@@ -177,9 +184,12 @@ public:
 			FSlateIcon(),
 			false);
 
-		// Integrate Paper2D actions associated with existing engine types (e.g., Texture2D) into the content browser
-		FPaperContentBrowserExtensions::InstallHooks();
-
+		// Integrate Paper2D actions into existing editor context menus
+		if (!IsRunningCommandlet())
+		{
+			FPaperContentBrowserExtensions::InstallHooks();
+			FPaperLevelEditorMenuExtensions::InstallHooks();
+		}
 		// Register with the mesh paint module
 		if (IMeshPaintModule* MeshPaintModule = FModuleManager::LoadModulePtr<IMeshPaintModule>("MeshPaint"))
 		{
@@ -210,6 +220,7 @@ public:
 				SpriteMeshPaintAdapterFactory.Reset();
 			}
 
+			FPaperLevelEditorMenuExtensions::RemoveHooks();
 			FPaperContentBrowserExtensions::RemoveHooks();
 
 			FComponentAssetBrokerage::UnregisterBroker(PaperTileMapBroker);

@@ -733,7 +733,7 @@ void ULandscapeComponent::UpdateCollisionHeightData(const FColor* HeightmapTextu
 		if (MeshCollisionComponent)
 		{
 			// Will be done once for XY Offset data update in FXYOffsetmapAccessor() destructor with UpdateCachedBounds()
-			//MeshCollisionComponent->RecreateCollision(false);
+			//MeshCollisionComponent->RecreateCollision();
 		}
 		else if (CollisionMipLevel == 0)
 		{
@@ -1521,6 +1521,12 @@ float ULandscapeComponent::GetLayerWeightAtLocation(const FVector& InLocation, U
 		const FVector DrawScale = Landscape->GetRootComponent()->RelativeScale3D;
 		float TestX = (InLocation.X - Landscape->GetActorLocation().X) / DrawScale.X - (float)GetSectionBase().X;
 		float TestY = (InLocation.Y - Landscape->GetActorLocation().Y) / DrawScale.Y - (float)GetSectionBase().Y;
+
+		// Abort if the test location is not on this component
+		if (TestX < 0 || TestY < 0 || TestX > ComponentSizeQuads || TestY > ComponentSizeQuads)
+		{
+			return 0.0f;
+		}
 
 		// Find data
 		int32 X1 = FMath::FloorToInt(TestX);
@@ -2842,7 +2848,7 @@ void ALandscapeProxy::EditorApplyScale(const FVector& DeltaScale, const FVector*
 	{
 		if (Comp)
 		{
-			Comp->RecreateCollision(false);
+			Comp->RecreateCollision();
 		}
 	}
 }
@@ -2856,7 +2862,7 @@ void ALandscapeProxy::EditorApplyMirror(const FVector& MirrorScale, const FVecto
 	{
 		if (Comp)
 		{
-			Comp->RecreateCollision(false);
+			Comp->RecreateCollision();
 		}
 	}
 }
@@ -3045,8 +3051,14 @@ void ALandscapeProxy::RecreateCollisionComponents()
 			Comp->CollisionMipLevel = CollisionMipLevel;
 			TArray<uint8> CollisionMipData;
 			Comp->HeightmapTexture->Source.GetMipData(CollisionMipData, CollisionMipLevel);
+			TArray<uint8> XYOffsetMipData;
+			if (Comp->XYOffsetmapTexture)
+			{
+				Comp->XYOffsetmapTexture->Source.GetMipData(XYOffsetMipData, CollisionMipLevel);
+			}
+
 			// Rebuild all collision
-			Comp->UpdateCollisionHeightData((FColor*)CollisionMipData.GetData(), 0, 0, MAX_int32, MAX_int32, true, NULL, true); 
+			Comp->UpdateCollisionHeightData((FColor*)CollisionMipData.GetData(), 0, 0, MAX_int32, MAX_int32, true, XYOffsetMipData.Num() ? (FColor*)XYOffsetMipData.GetData() : nullptr, true);
 		}
 	}
 }
@@ -3277,7 +3289,7 @@ void ALandscapeProxy::PostEditChangeChainProperty(FPropertyChangedChainEvent& Pr
 				ULandscapeHeightfieldCollisionComponent* Comp = CollisionComponents[ComponentIndex];
 				if (Comp)
 				{
-					Comp->RecreateCollision(false);
+					Comp->RecreateCollision();
 				}
 			}
 		}
@@ -3460,7 +3472,7 @@ void ALandscapeProxy::ChangedPhysMaterial()
 			{
 				Comp->UpdateCollisionLayerData();
 				// Physical materials cooked into collision object, so we need to recreate it
-				CollisionComponent->RecreateCollision(false);
+				CollisionComponent->RecreateCollision();
 			}
 		}
 	}

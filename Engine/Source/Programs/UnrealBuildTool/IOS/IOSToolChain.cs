@@ -232,7 +232,7 @@ namespace UnrealBuildTool
 				
 			if (CompileEnvironment.Config.bEnableShadowVariableWarning)
 			{
-				Result += " -Wshadow";
+				Result += " -Wshadow -Wno-error=shadow";
 			}
 
 			Result += " -Wno-unused-variable";
@@ -1270,9 +1270,10 @@ namespace UnrealBuildTool
 
 					OutputReceivedDataEventHandlerEncounteredError = false;
 					OutputReceivedDataEventHandlerEncounteredErrorMessage = "";
-					Utils.RunLocalProcess(StubGenerateProcess);
+					int ExitCode = Utils.RunLocalProcess(StubGenerateProcess);
 					if (OutputReceivedDataEventHandlerEncounteredError)
 					{
+						UnrealBuildTool.ExtendedErrorCode = ExitCode;
 						throw new Exception(OutputReceivedDataEventHandlerEncounteredErrorMessage);
 					}
 					

@@ -10,6 +10,7 @@
 
 // Forward declarations
 class UFoliageType_InstancedStaticMesh;
+struct FStaticMeshLODResources;
 
 /*-----------------------------------------------------------------------------
 	Legacy mesh optimization settings.
@@ -461,7 +462,7 @@ public:
 	 * Rebuilds renderable data for this static mesh.
 	 * @param bSilent - If true will not popup a progress dialog.
 	 */
-	ENGINE_API void Build(bool bSilent = false);
+	ENGINE_API void Build(bool bSilent = false, TArray<FText>* OutErrors = nullptr);
 
 	/**
 	 * Initialize the static mesh's render resources.
@@ -512,7 +513,7 @@ public:
 	 * Returns the render data to use for exporting the specified LOD. This method should always
 	 * be called when exporting a static mesh.
 	 */
-	ENGINE_API struct FStaticMeshLODResources& GetLODForExport( int32 LODIndex );
+	ENGINE_API const FStaticMeshLODResources& GetLODForExport(int32 LODIndex) const;
 
 	/**
 	 * Static: Processes the specified static mesh for light map UV problems

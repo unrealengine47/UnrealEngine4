@@ -128,6 +128,11 @@ void FLinker::Serialize( FArchive& Ar )
 		}
 	}
 
+	if (Ar.IsSaving() || Ar.UE4Ver() >= VER_UE4_SERIALIZE_TEXT_IN_PACKAGES)
+	{
+		Ar << GatherableTextDataMap;
+	}
+
 	// Prevent garbage collecting of linker's names and package.
 	Ar << NameMap << LinkerRoot;
 	{
@@ -144,6 +149,7 @@ void FLinker::Serialize( FArchive& Ar )
 			Ar << I.ClassPackage << I.ClassName;
 		}
 	}
+
 }
 
 void FLinker::AddReferencedObjects(FReferenceCollector& Collector)
@@ -154,10 +160,6 @@ void FLinker::AddReferencedObjects(FReferenceCollector& Collector)
 		Collector.AddReferencedObject(*(UObject**)&LinkerRoot);
 	}
 #endif
-	for (auto& Import : ImportMap)
-	{
-		Collector.AddReferencedObject(Import.XObject);
-	}
 }
 
 // FLinker interface.

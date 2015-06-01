@@ -938,7 +938,7 @@ void ULandscapeHeightfieldCollisionComponent::UpdateHeightfieldRegion(int32 Comp
 		// If we're currently sharing this data with a PIE session, we need to make a new heightfield.
 		if (HeightfieldRef->GetRefCount() > 1)
 		{
-			RecreateCollision(false);
+			RecreateCollision();
 			return;
 		}
 
@@ -1052,18 +1052,12 @@ void ULandscapeMeshCollisionComponent::BeginDestroy()
 	Super::BeginDestroy();
 }
 
-void ULandscapeHeightfieldCollisionComponent::RecreateCollision(bool bUpdateAddCollision/*= true*/)
+void ULandscapeHeightfieldCollisionComponent::RecreateCollision()
 {
 	if (!HasAnyFlags(RF_ClassDefaultObject))
 	{
 		HeightfieldRef = NULL;
 		HeightfieldGuid = FGuid();
-#if WITH_EDITOR
-		if (bUpdateAddCollision)
-		{
-			UpdateAddCollisions();
-		}
-#endif
 
 		RecreatePhysicsState();
 	}
@@ -1075,14 +1069,14 @@ void ULandscapeHeightfieldCollisionComponent::SnapFoliageInstances(const FBox& I
 	UWorld* ComponentWorld = GetWorld();
 	for (TActorIterator<AInstancedFoliageActor> It(ComponentWorld); It; ++It)
 	{
-		AInstancedFoliageActor& IFA = *(*It);
-		const auto BaseId = IFA.InstanceBaseCache.GetInstanceBaseId(this);
+		AInstancedFoliageActor* IFA = *It;
+		const auto BaseId = IFA->InstanceBaseCache.GetInstanceBaseId(this);
 		if (BaseId == FFoliageInstanceBaseCache::InvalidBaseId)
 		{
 			continue;
 		}
 			
-		for (auto& MeshPair : IFA.FoliageMeshes)
+		for (auto& MeshPair : IFA->FoliageMeshes)
 		{
 			// Find the per-mesh info matching the mesh.
 			UFoliageType* Settings = MeshPair.Key;
@@ -1131,6 +1125,8 @@ void ULandscapeHeightfieldCollisionComponent::SnapFoliageInstances(const FBox& I
 								bFoundHit = true;
 								if ((TestLocation - Hit.Location).SizeSquared() > KINDA_SMALL_NUMBER)
 								{
+									IFA->Modify();
+
 									// Remove instance location from the hash. Do not need to update ComponentHash as we re-add below.
 									MeshInfo.InstanceHash->RemoveInstance(Instance.Location, InstanceIndex);
 
@@ -1173,14 +1169,14 @@ void ULandscapeHeightfieldCollisionComponent::SnapFoliageInstances(const FBox& I
 				}
 
 				// Remove any unused instances
-				MeshInfo.RemoveInstances(&IFA, InstancesToRemove);
+				MeshInfo.RemoveInstances(IFA, InstancesToRemove);
 			}
 		}
 	}
 }
 #endif // WITH_EDITORONLY_DATA
 
-void ULandscapeMeshCollisionComponent::RecreateCollision(bool bUpdateAddCollision/*= true*/)
+void ULandscapeMeshCollisionComponent::RecreateCollision()
 {
 	if (!HasAnyFlags(RF_ClassDefaultObject))
 	{
@@ -1188,7 +1184,7 @@ void ULandscapeMeshCollisionComponent::RecreateCollision(bool bUpdateAddCollisio
 		MeshGuid = FGuid();
 	}
 
-	Super::RecreateCollision(bUpdateAddCollision);
+	Super::RecreateCollision();
 }
 
 void ULandscapeHeightfieldCollisionComponent::Serialize(FArchive& Ar)
@@ -1289,7 +1285,7 @@ void ULandscapeHeightfieldCollisionComponent::PostEditImport()
 	// Reinitialize physics after paste
 	if (CollisionSizeQuads > 0)
 	{
-		RecreateCollision(false);
+		RecreateCollision();
 	}
 }
 
@@ -1300,7 +1296,7 @@ void ULandscapeHeightfieldCollisionComponent::PostEditUndo()
 	// Reinitialize physics after undo
 	if (CollisionSizeQuads > 0)
 	{
-		RecreateCollision(false);
+		RecreateCollision();
 	}
 
 	UNavigationSystem::UpdateNavOctree(this);
@@ -1475,51 +1471,37 @@ void ULandscapeHeightfieldCollisionComponent::PreSave()
 #if WITH_EDITOR
 void ULandscapeInfo::UpdateAllAddCollisions()
 {
+	XYtoAddCollisionMap.Reset();
+
 	for (auto It = XYtoComponentMap.CreateIterator(); It; ++It)
 	{
-		ULandscapeComponent* Comp = It.Value();
-		if (Comp)
+		const ULandscapeComponent* const Component = It.Value();
+		if (ensure(Component))
 		{
-			ULandscapeHeightfieldCollisionComponent* CollisionComp = Comp->CollisionComponent.Get();
-			if (CollisionComp)
-			{
-				CollisionComp->UpdateAddCollisions();
-			}
-		}
-	}
-}
+			const FIntPoint ComponentBase = Component->GetSectionBase() / ComponentSizeQuads;
 
-void ULandscapeHeightfieldCollisionComponent::UpdateAddCollisions()
-{
-	ULandscapeInfo* Info = GetLandscapeInfo();
-	if (Info)
-	{
-		ALandscapeProxy* Proxy = GetLandscapeProxy();
-		FIntPoint ComponentBase = GetSectionBase() / Proxy->ComponentSizeQuads;
-
-		FIntPoint NeighborsKeys[8] =
-		{
-			ComponentBase + FIntPoint(-1, -1),
-			ComponentBase + FIntPoint(+0, -1),
-			ComponentBase + FIntPoint(+1, -1),
-			ComponentBase + FIntPoint(-1, +0),
-			ComponentBase + FIntPoint(+1, +0),
-			ComponentBase + FIntPoint(-1, +1),
-			ComponentBase + FIntPoint(+0, +1),
-			ComponentBase + FIntPoint(+1, +1)
-		};
-
-		// Search for Neighbors...
-		for (int32 i = 0; i < 8; ++i)
-		{
-			ULandscapeComponent* Comp = Info->XYtoComponentMap.FindRef(NeighborsKeys[i]);
-			if (!Comp || !Comp->CollisionComponent.IsValid())
+			const FIntPoint NeighborsKeys[8] =
 			{
-				Info->UpdateAddCollision(NeighborsKeys[i]);
-			}
-			else
+				ComponentBase + FIntPoint(-1, -1),
+				ComponentBase + FIntPoint(+0, -1),
+				ComponentBase + FIntPoint(+1, -1),
+				ComponentBase + FIntPoint(-1, +0),
+				ComponentBase + FIntPoint(+1, +0),
+				ComponentBase + FIntPoint(-1, +1),
+				ComponentBase + FIntPoint(+0, +1),
+				ComponentBase + FIntPoint(+1, +1)
+			};
+
+			// Search for Neighbors...
+			for (int32 i = 0; i < 8; ++i)
 			{
-				Info->XYtoAddCollisionMap.Remove(NeighborsKeys[i]);
+				ULandscapeComponent* NeighborComponent = XYtoComponentMap.FindRef(NeighborsKeys[i]);
+
+				// UpdateAddCollision() treats a null CollisionComponent as an empty hole
+				if (!NeighborComponent || !NeighborComponent->CollisionComponent.IsValid())
+				{
+					UpdateAddCollision(NeighborsKeys[i]);
+				}
 			}
 		}
 	}
@@ -1527,13 +1509,7 @@ void ULandscapeHeightfieldCollisionComponent::UpdateAddCollisions()
 
 void ULandscapeInfo::UpdateAddCollision(FIntPoint LandscapeKey)
 {
-	FLandscapeAddCollision* AddCollision = XYtoAddCollisionMap.Find(LandscapeKey);
-	if (!AddCollision)
-	{
-		AddCollision = &XYtoAddCollisionMap.Add(LandscapeKey, FLandscapeAddCollision());
-	}
-
-	check(AddCollision);
+	FLandscapeAddCollision& AddCollision = XYtoAddCollisionMap.FindOrAdd(LandscapeKey);
 
 	// 8 Neighbors... 
 	// 0 1 2 
@@ -1550,6 +1526,8 @@ void ULandscapeInfo::UpdateAddCollision(FIntPoint LandscapeKey)
 		LandscapeKey + FIntPoint(+0, +1),
 		LandscapeKey + FIntPoint(+1, +1)
 	};
+
+	// Todo: Use data accessor not collision
 
 	ULandscapeHeightfieldCollisionComponent* NeighborCollisions[8];
 	// Search for Neighbors...
@@ -1651,14 +1629,14 @@ void ULandscapeInfo::UpdateAddCollision(FIntPoint LandscapeKey)
 	FillCornerValues(CornerSet, HeightCorner);
 	//check(CornerSet == 15);
 
-	FIntPoint SectionBase = LandscapeKey*ComponentSizeQuads;
+	FIntPoint SectionBase = LandscapeKey * ComponentSizeQuads;
 
 	// Transform Height to Vectors...
-	FMatrix LtoW = GetLandscapeProxy()->LandscapeActorToWorld().ToMatrixWithScale();
-	AddCollision->Corners[0] = LtoW.TransformPosition(FVector(SectionBase.X, SectionBase.Y, LandscapeDataAccess::GetLocalHeight(HeightCorner[0])));
-	AddCollision->Corners[1] = LtoW.TransformPosition(FVector(SectionBase.X + ComponentSizeQuads, SectionBase.Y, LandscapeDataAccess::GetLocalHeight(HeightCorner[1])));
-	AddCollision->Corners[2] = LtoW.TransformPosition(FVector(SectionBase.X, SectionBase.Y + ComponentSizeQuads, LandscapeDataAccess::GetLocalHeight(HeightCorner[2])));
-	AddCollision->Corners[3] = LtoW.TransformPosition(FVector(SectionBase.X + ComponentSizeQuads, SectionBase.Y + ComponentSizeQuads, LandscapeDataAccess::GetLocalHeight(HeightCorner[3])));
+	FTransform LtoW = GetLandscapeProxy()->LandscapeActorToWorld();
+	AddCollision.Corners[0] = LtoW.TransformPosition(FVector(SectionBase.X                     , SectionBase.Y                     , LandscapeDataAccess::GetLocalHeight(HeightCorner[0])));
+	AddCollision.Corners[1] = LtoW.TransformPosition(FVector(SectionBase.X + ComponentSizeQuads, SectionBase.Y                     , LandscapeDataAccess::GetLocalHeight(HeightCorner[1])));
+	AddCollision.Corners[2] = LtoW.TransformPosition(FVector(SectionBase.X                     , SectionBase.Y + ComponentSizeQuads, LandscapeDataAccess::GetLocalHeight(HeightCorner[2])));
+	AddCollision.Corners[3] = LtoW.TransformPosition(FVector(SectionBase.X + ComponentSizeQuads, SectionBase.Y + ComponentSizeQuads, LandscapeDataAccess::GetLocalHeight(HeightCorner[3])));
 }
 
 void ULandscapeHeightfieldCollisionComponent::ExportCustomProperties(FOutputDevice& Out, uint32 Indent)

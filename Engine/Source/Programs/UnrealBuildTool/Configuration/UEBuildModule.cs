@@ -810,13 +810,14 @@ namespace UnrealBuildTool
 
 		/** Sets up the environment for linking this module. */
 		public virtual void SetupPrivateLinkEnvironment(
+			UEBuildBinary SourceBinary,
 			LinkEnvironment LinkEnvironment,
 			List<UEBuildBinary> BinaryDependencies,
 			Dictionary<UEBuildModule, bool> VisitedModules
 			)
 		{
 			// Allow the module's public dependencies to add library paths and additional libraries to the link environment.
-			SetupPublicLinkEnvironment(Binary, LinkEnvironment.Config.LibraryPaths, LinkEnvironment.Config.AdditionalLibraries, LinkEnvironment.Config.Frameworks, LinkEnvironment.Config.WeakFrameworks,
+			SetupPublicLinkEnvironment(SourceBinary, LinkEnvironment.Config.LibraryPaths, LinkEnvironment.Config.AdditionalLibraries, LinkEnvironment.Config.Frameworks, LinkEnvironment.Config.WeakFrameworks,
 				LinkEnvironment.Config.AdditionalFrameworks,LinkEnvironment.Config.AdditionalShadowFiles, LinkEnvironment.Config.AdditionalBundleResources, LinkEnvironment.Config.DelayLoadDLLs, BinaryDependencies, VisitedModules);
 
 			// Also allow the module's public and private dependencies to modify the link environment.
@@ -826,7 +827,7 @@ namespace UnrealBuildTool
 			foreach (var DependencyName in AllDependencyModuleNames)
 			{
 				var DependencyModule = Target.GetModuleByName(DependencyName);
-				DependencyModule.SetupPublicLinkEnvironment(Binary, LinkEnvironment.Config.LibraryPaths, LinkEnvironment.Config.AdditionalLibraries, LinkEnvironment.Config.Frameworks, LinkEnvironment.Config.WeakFrameworks,
+				DependencyModule.SetupPublicLinkEnvironment(SourceBinary, LinkEnvironment.Config.LibraryPaths, LinkEnvironment.Config.AdditionalLibraries, LinkEnvironment.Config.Frameworks, LinkEnvironment.Config.WeakFrameworks,
 					LinkEnvironment.Config.AdditionalFrameworks, LinkEnvironment.Config.AdditionalShadowFiles, LinkEnvironment.Config.AdditionalBundleResources, LinkEnvironment.Config.DelayLoadDLLs, BinaryDependencies, VisitedModules);
 			}
 		}
@@ -997,6 +998,32 @@ namespace UnrealBuildTool
 					       OtherFiles  .Count;
 				}
 			}
+
+			/// <summary>
+			/// Copy from list to list helper.
+			/// </summary>
+			/// <param name="From">Source list.</param>
+			/// <param name="To">Destination list.</param>
+			private static void CopyFromListToList(List<FileItem> From, List<FileItem> To)
+			{
+				To.Clear();
+				To.AddRange(From);
+			}
+
+			/// <summary>
+			/// Copies file lists from other SourceFilesClass to this.
+			/// </summary>
+			/// <param name="Other">Source object.</param>
+			public void CopyFrom(SourceFilesClass Other)
+			{
+				CopyFromListToList(Other.MissingFiles, MissingFiles);
+				CopyFromListToList(Other.CPPFiles, CPPFiles);
+				CopyFromListToList(Other.CFiles, CFiles);
+				CopyFromListToList(Other.CCFiles, CCFiles);
+				CopyFromListToList(Other.MMFiles, MMFiles);
+				CopyFromListToList(Other.RCFiles, RCFiles);
+				CopyFromListToList(Other.OtherFiles, OtherFiles);
+			}
 		}
 
 		/**
@@ -1011,6 +1038,9 @@ namespace UnrealBuildTool
 
 		/** A list of the absolute paths of source files to be built in this module. */
 		public readonly SourceFilesClass SourceFilesToBuild = new SourceFilesClass();
+
+		/** A list of the source files that were found for the module. */
+		public readonly SourceFilesClass SourceFilesFound = new SourceFilesClass();
 
 		/** The directory for this module's generated code */
 		public readonly string GeneratedCodeDirectory;
@@ -1173,9 +1203,10 @@ namespace UnrealBuildTool
 			GeneratedCodeDirectory = InGeneratedCodeDirectory;
 			IntelliSenseGatherer = InIntelliSenseGatherer;
 
+			CategorizeSourceFiles(InSourceFiles, SourceFilesFound);
 			if (bInBuildSourceFiles)
 			{
-				CategorizeSourceFiles(InSourceFiles, SourceFilesToBuild);
+				SourceFilesToBuild.CopyFrom(SourceFilesFound);
 			}
 
 			Definitions = HashSetFromOptionalEnumerableStringParameter(InDefinitions);
@@ -1490,30 +1521,44 @@ namespace UnrealBuildTool
 					{
 						if( SharedPCHHeaderFile != null || CPPFilesToBuild.Count >= MinFilesUsingPrecompiledHeader )
 						{
-							bool bAllowDLLExports = true;
-							var PCHOutputDirectory = ModuleCompileEnvironment.Config.OutputDirectory;
-							var PCHModuleName = this.Name;
-
-							if( SharedPCHHeaderFile != null )
+							CPPOutput PCHOutput;
+							if (SharedPCHHeaderFile == null)
 							{
-								// Disallow DLLExports when generating shared PCHs.  These headers aren't able to export anything, because they're potentially shared between many modules.
-								bAllowDLLExports = false;
+								PCHOutput = PrecompileHeaderEnvironment.GeneratePCHCreationAction( 
+									Target,
+									CPPFilesToBuild[0].PCHHeaderNameInCode,
+									ModulePCHEnvironment.PrecompiledHeaderIncludeFilename,
+									ModuleCompileEnvironment, 
+									ModuleCompileEnvironment.Config.OutputDirectory,
+									Name, 
+									true );
+							}
+							else
+							{
+								UEBuildModuleCPP SharedPCHModule = (UEBuildModuleCPP)Target.FindOrCreateModuleByName(SharedPCHModuleName);
 
-								// Save shared PCHs to a specific folder
-								PCHOutputDirectory = Path.Combine( CompileEnvironment.Config.OutputDirectory, "SharedPCHs" );
+								CPPEnvironment SharedPCHCompileEnvironment = GlobalCompileEnvironment.DeepCopy();
+								SharedPCHCompileEnvironment.Config.bEnableShadowVariableWarning = SharedPCHModule.bEnableShadowVariableWarnings;
 
-								// Use a fake module name for "shared" PCHs.  It may be used by many modules, so we don't want to use this module's name.
-								PCHModuleName = "Shared";
+								SharedPCHModule.SetupPublicCompileEnvironment(
+									Binary, 
+									false, 
+									SharedPCHCompileEnvironment.Config.CPPIncludeInfo.IncludePaths, 
+									SharedPCHCompileEnvironment.Config.CPPIncludeInfo.SystemIncludePaths, 
+									SharedPCHCompileEnvironment.Config.Definitions, 
+									SharedPCHCompileEnvironment.Config.AdditionalFrameworks, 
+									new Dictionary<UEBuildModule,bool>());
+
+								PCHOutput = PrecompileHeaderEnvironment.GeneratePCHCreationAction( 
+									Target,
+									CPPFilesToBuild[0].PCHHeaderNameInCode,
+									ModulePCHEnvironment.PrecompiledHeaderIncludeFilename,
+									SharedPCHCompileEnvironment,
+									Path.Combine( CompileEnvironment.Config.OutputDirectory, "SharedPCHs" ),
+									"Shared", 
+									false );
 							}
 
-							var PCHOutput = PrecompileHeaderEnvironment.GeneratePCHCreationAction( 
-								Target,
-								CPPFilesToBuild[0].PCHHeaderNameInCode,
-								ModulePCHEnvironment.PrecompiledHeaderIncludeFilename,
-								ModuleCompileEnvironment, 
-								PCHOutputDirectory,
-								PCHModuleName, 
-								bAllowDLLExports );
 							ModulePCHEnvironment.PrecompiledHeaderFile = PCHOutput.PrecompiledHeaderFile;
 							
 							ModulePCHEnvironment.OutputObjectFiles.Clear();
@@ -1678,7 +1723,7 @@ namespace UnrealBuildTool
 				bool bFoundAProblemWithPCHs = false;
 
 				FileItem UniquePCH = null;
-				foreach( var CPPFile in SourceFilesToBuild.CPPFiles )	// @todo ubtmake: We're not caching CPPEnvironments for .c/.mm files, etc.  Even though they don't use PCHs, they still have #includes!  This can break dependency checking!
+				foreach( var CPPFile in SourceFilesFound.CPPFiles )	// @todo ubtmake: We're not caching CPPEnvironments for .c/.mm files, etc.  Even though they don't use PCHs, they still have #includes!  This can break dependency checking!
 				{
 					// Build a single list of include paths to search.
 					var IncludePathsToSearch = ModuleCompileEnvironment.Config.CPPIncludeInfo.GetIncludesPathsToSearch( CPPFile );
@@ -2159,12 +2204,13 @@ namespace UnrealBuildTool
 		}
 
 		public override void SetupPrivateLinkEnvironment(
+			UEBuildBinary SourceBinary,
 			LinkEnvironment LinkEnvironment,
 			List<UEBuildBinary> BinaryDependencies,
 			Dictionary<UEBuildModule, bool> VisitedModules
 			)
 		{
-			base.SetupPrivateLinkEnvironment(LinkEnvironment, BinaryDependencies, VisitedModules);
+			base.SetupPrivateLinkEnvironment(SourceBinary, LinkEnvironment, BinaryDependencies, VisitedModules);
 
 			// Setup the link environment for linking a CLR binary.
 			LinkEnvironment.Config.CLRMode = CPPCLRMode.CLREnabled;

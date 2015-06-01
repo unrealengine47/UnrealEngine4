@@ -27,17 +27,20 @@ enum {MAX_VARIABLE_SIZE = 0x0FFF };
 	Stack.StepCompiledIn<PropertyType>(&ParamName);
 
 #define PARAM_PASSED_BY_REF(ParamName, PropertyType, ParamType)									\
-	ParamType& ParamName = Stack.StepCompiledInRef<PropertyType, ParamType>(NULL);
+	ParamType ParamName##Temp;																	\
+	ParamType& ParamName = Stack.StepCompiledInRef<PropertyType, ParamType>(&ParamName##Temp);
 
 #define PARAM_PASSED_BY_REF_ZEROED(ParamName, PropertyType, ParamType)							\
-	ParamType& ParamName = Stack.StepCompiledInRef<PropertyType, ParamType>(NULL);
+	ParamType ParamName##Temp = (ParamType)0;													\
+	ParamType& ParamName = Stack.StepCompiledInRef<PropertyType, ParamType>(&ParamName##Temp);
 
 #define P_GET_PROPERTY(PropertyType, ParamName)													\
 	PropertyType::TCppType ParamName = PropertyType::GetDefaultPropertyValue();					\
 	Stack.StepCompiledIn<PropertyType>(&ParamName);
 
 #define P_GET_PROPERTY_REF(PropertyType, ParamName)												\
-	PropertyType::TCppType& ParamName = Stack.StepCompiledInRef<PropertyType, PropertyType::TCppType>(NULL);
+	PropertyType::TCppType ParamName##Temp = PropertyType::GetDefaultPropertyValue();			\
+	PropertyType::TCppType& ParamName = Stack.StepCompiledInRef<PropertyType, PropertyType::TCppType>(&ParamName##Temp);
 
 
 
@@ -59,6 +62,9 @@ enum {MAX_VARIABLE_SIZE = 0x0FFF };
 
 #define P_GET_TINTERFACE(ObjectType,ParamName)		PARAM_PASSED_BY_VAL(ParamName, UInterfaceProperty, TScriptInterface<ObjectType>)
 #define P_GET_TINTERFACE_REF(ObjectType,ParamName)	PARAM_PASSED_BY_REF(ParamName, UInterfaceProperty, TScriptInterface<ObjectType>)
+
+#define P_GET_ASSETOBJECT(StructType,ParamName)		PARAM_PASSED_BY_VAL(ParamName, UAssetObjectProperty, StructType)
+#define P_GET_ASSETOBJECT_REF(StructType,ParamName)	PARAM_PASSED_BY_REF(ParamName, UAssetObjectProperty, StructType)
 
 #define P_GET_ARRAY(ElementType,ParamName)			ElementType ParamName[(MAX_VARIABLE_SIZE/sizeof(ElementType))+1];		Stack.StepCompiledIn<UProperty>(ParamName);
 #define P_GET_ARRAY_REF(ElementType,ParamName)		ElementType ParamName##Temp[(MAX_VARIABLE_SIZE/sizeof(ElementType))+1]; ElementType* ParamName = Stack.StepCompiledInRef<UProperty, ElementType*>(ParamName##Temp);

@@ -717,12 +717,13 @@ namespace
 		}
 		if (auto ArrayProperty = Cast<const UArrayProperty>(Property))
 		{
-			// Inner Property can be handled as a member variable
-			return IsPropertySupportedByBlueprint(ArrayProperty->Inner, true);
+			// Script VM doesn't support array of weak ptrs.
+			return IsPropertySupportedByBlueprint(ArrayProperty->Inner, false);
 		}
 
 		const bool bSupportedType = Property->IsA<UInterfaceProperty>()
 			|| Property->IsA<UClassProperty>()
+			|| Property->IsA<UAssetObjectProperty>()
 			|| Property->IsA<UObjectProperty>()
 			|| Property->IsA<UStructProperty>()
 			|| Property->IsA<UFloatProperty>()
@@ -732,10 +733,9 @@ namespace
 			|| Property->IsA<UBoolProperty>()
 			|| Property->IsA<UStrProperty>()
 			|| Property->IsA<UTextProperty>()
-			|| Property->IsA<UMulticastDelegateProperty>()
 			|| Property->IsA<UDelegateProperty>();
 
-		const bool bIsSupportedMemberVariable = Property->IsA<UObjectPropertyBase>();
+		const bool bIsSupportedMemberVariable = Property->IsA<UWeakObjectProperty>() || Property->IsA<UMulticastDelegateProperty>();
 
 		return bSupportedType || (bIsSupportedMemberVariable && bMemberVariable);
 	}
@@ -1077,7 +1077,7 @@ UEnum* FHeaderParser::CompileEnum(FUnrealSourceFile& SourceFile)
 	FToken TagToken;
 
 	TArray<FScriptLocation> EnumTagLocations;
-	TArray<FName> EnumNames;
+	TArray<TPair<FName, int8>> EnumNames;
 
 	int32 CurrentEnumValue = 0;
 
@@ -1119,7 +1119,9 @@ UEnum* FHeaderParser::CompileEnum(FUnrealSourceFile& SourceFile)
 			break;
 		}
 
-		if (EnumNames.Find(NewTag, iFound))
+		TPair<FName, int8> CurrentEnum = TPair<FName, int8>(TPairInitializer<FName, int8>(NewTag, CurrentEnumValue));
+
+		if (EnumNames.Find(CurrentEnum, iFound))
 		{
 			FError::Throwf(TEXT("Duplicate enumeration tag %s"), TagToken.Identifier );
 		}
@@ -1135,23 +1137,8 @@ UEnum* FHeaderParser::CompileEnum(FUnrealSourceFile& SourceFile)
 			FError::Throwf(TEXT("Enumeration tag '%s' already in use by enum '%s'"), TagToken.Identifier, *FoundEnum->GetPathName());
 		}
 
-		// Make sure the enum names array is tightly packed by inserting dummies
-		//@TODO: UCREMOVAL: Improve the UEnum system so we can have loosely packed values for e.g., bitfields
-		for (int32 DummyIndex = EnumNames.Num(); DummyIndex < CurrentEnumValue; ++DummyIndex)
-		{
-			FString DummyName              = FString::Printf(TEXT("UnusedSpacer_%d"), DummyIndex);
-			FString DummyNameWithQualifier = FString::Printf(TEXT("%s::%s"), EnumToken.Identifier, *DummyName);
-			EnumNames.Add(FName(*DummyNameWithQualifier));
-
-			// These ternary operators are the correct way around, believe it or not.
-			// Spacers are qualified with the ETheEnum:: when they're regular enums in order to prevent spacer name clashes.
-			// They're not qualified when they're actually in a namespace or are enum classes.
-			InsertMetaDataPair(EnumValueMetaData, ((CppForm != UEnum::ECppForm::Regular) ? DummyName : DummyNameWithQualifier) + TEXT(".Hidden"), TEXT(""));
-			InsertMetaDataPair(EnumValueMetaData, ((CppForm != UEnum::ECppForm::Regular) ? DummyName : DummyNameWithQualifier) + TEXT(".Spacer"), TEXT(""));
-		}
-
 		// Save the new tag
-		EnumNames.Add( NewTag );
+		EnumNames.Add(CurrentEnum);
 
 		// Autoincrement the current enumerant value
 		CurrentEnumValue++;
@@ -3520,9 +3507,19 @@ void FHeaderParser::GetVarType
 	}
 
 	// Perform some more specific validation on the property flags
-	if ((VarProperty.PropertyFlags & CPF_PersistentInstance) && VarProperty.Type != CPT_ObjectReference)
+	if (VarProperty.PropertyFlags & CPF_PersistentInstance)
 	{
-		FError::Throwf(TEXT("'Instanced' is only allowed on object property (or array of objects)"));
+		if (VarProperty.Type == CPT_ObjectReference)
+		{
+			if (VarProperty.PropertyClass->IsChildOf<UClass>())
+			{
+				FError::Throwf(TEXT("'Instanced' cannot be applied to class properties (UClass* or TSubclassOf<>)"));
+			}
+		}
+		else
+		{
+			FError::Throwf(TEXT("'Instanced' is only allowed on object property (or array of objects)"));
+		}
 	}
 
 	if ( VarProperty.IsObject() && VarProperty.MetaClass == NULL && (VarProperty.PropertyFlags&CPF_Config) != 0 )
@@ -3710,9 +3707,18 @@ UProperty* FHeaderParser::GetVarNameAndDim
 	FToken Dimensions;
 	if (MatchSymbol(TEXT("[")))
 	{
-		if (VariableCategory == EVariableCategory::Return)
+		switch (VariableCategory)
 		{
-			FError::Throwf(TEXT("Arrays aren't allowed in this context") );
+			case EVariableCategory::Return:
+			{
+				FError::Throwf(TEXT("Arrays aren't allowed as return types"));
+			}
+
+			case EVariableCategory::RegularParameter:
+			case EVariableCategory::ReplicatedParameter:
+			{
+				FError::Throwf(TEXT("Arrays aren't allowed as function parameters"));
+			}
 		}
 
 		if (VarProperty.ArrayType == EArrayType::Dynamic || VarProperty.MapKeyProp.IsValid())
@@ -3768,9 +3774,9 @@ UProperty* FHeaderParser::GetVarNameAndDim
 		// UFunctions with a smart pointer as input parameter wont compile anyway, because of missing P_GET_... macro.
 		// UFunctions with a smart pointer as return type will crash when called via blueprint, because they are not supported in VM.
 		// WeakPointer is supported by VM as return type (see UObject::execLetWeakObjPtr), but there is no P_GET_... macro for WeakPointer.
-		if ((VarProperty.Type == CPT_LazyObjectReference) || (VarProperty.Type == CPT_AssetObjectReference))
+		if (VarProperty.Type == CPT_LazyObjectReference)
 		{
-			FError::Throwf(TEXT("UFunctions cannot take a smart pointer (LazyPtr, AssetPtr, etc) as a parameter."));
+			FError::Throwf(TEXT("UFunctions cannot take a lazy pointer as a parameter."));
 		}
 	}
 
@@ -4984,7 +4990,9 @@ void FHeaderParser::CompileDelegateDeclaration(FUnrealSourceFile& SourceFile, FC
 		// Check the expected versus actual number of parameters
 		int32 ParamCount = FoundParamCount - DelegateParameterCountStrings.GetData() + 1;
 		if (DelegateSignatureFunction->NumParms != ParamCount)
+		{
 			FError::Throwf(TEXT("Expected %d parameters but found %d parameters"), ParamCount, DelegateSignatureFunction->NumParms);
+		}
 	}
 	else
 	{
@@ -5218,7 +5226,7 @@ void FHeaderParser::CompileFunctionDeclaration(FUnrealSourceFile& SourceFile, FC
 
 			else
 			{
-				//UE_LOG(LogCompile, Warning, TEXT("BlueprintImplementableEvents should not be virtual. Use BlueprintNativeEvent instead."));
+				UE_LOG(LogCompile, Warning, TEXT("BlueprintImplementableEvents should not be virtual. Use BlueprintNativeEvent instead."));
 			}
 		}
 	}

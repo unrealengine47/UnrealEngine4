@@ -19,15 +19,12 @@ class FUniqueNetId;
 /*-----------------------------------------------------------------------------
 	Types.
 -----------------------------------------------------------------------------*/
-
-// Up to this many reliable channel bunches may be buffered.
-enum {RELIABLE_BUFFER         = 256   }; // Power of 2 >= 1.
-enum {MAX_PACKETID            = 16384 }; // Power of 2 >= 1, covering guaranteed loss/misorder time.
-enum {MAX_CHSEQUENCE          = 1024  }; // Power of 2 >RELIABLE_BUFFER, covering loss/misorder time.
-enum {MAX_BUNCH_HEADER_BITS   = 64    };
-enum {MAX_PACKET_HEADER_BITS  = 16    };
-enum {MAX_PACKET_TRAILER_BITS = 1     };
-
+enum { RELIABLE_BUFFER = 256 }; // Power of 2 >= 1.
+enum { MAX_PACKETID = 16384 };  // Power of 2 >= 1, covering guaranteed loss/misorder time.
+enum { MAX_CHSEQUENCE = 1024 }; // Power of 2 >RELIABLE_BUFFER, covering loss/misorder time.
+enum { MAX_BUNCH_HEADER_BITS = 64 };
+enum { MAX_PACKET_HEADER_BITS = 16 };
+enum { MAX_PACKET_TRAILER_BITS = 1 };
 
 class UNetDriver;
 
@@ -46,6 +43,40 @@ enum EConnectionState
 	USOCK_Pending	= 2, // Connection is awaiting connection.
 	USOCK_Open      = 3, // Connection is open.
 };
+
+// 
+// Security event types used for UE_SECURITY_LOG
+//
+namespace ESecurityEvent
+{ 
+	enum Type
+	{
+		Malformed_Packet = 0, // The packet didn't follow protocol
+		Invalid_Data = 1,     // The packet contained invalid data
+		Closed = 2            // The connection had issues (potentially malicious) and was closed
+	};
+	
+	/** @return the stringified version of the enum passed in */
+	inline const TCHAR* ToString(const ESecurityEvent::Type EnumVal)
+	{
+		switch (EnumVal)
+		{
+			case Malformed_Packet:
+			{
+				return TEXT("Malformed_Packet");
+			}
+			case Invalid_Data:
+			{
+				return TEXT("Invalid_Data");
+			}
+			case Closed:
+			{
+				return TEXT("Closed");
+			}
+		}
+		return TEXT("");
+	}
+}
 
 /** If this connection is from a client, this is the current login state of this connection/login attempt */
 namespace EClientLoginState
@@ -97,7 +128,6 @@ struct DelayedPacket
 //	(optionally, 'PING_ACK_PACKET_INTERVAL' can be tweaked, so that the interval checks take a similar amount of time as this delay)
 #define PING_ACK_DELAY 0.5
 
-
 UCLASS(customConstructor, Abstract, MinimalAPI, transient, config=Engine)
 class UNetConnection : public UPlayer
 {
@@ -109,7 +139,7 @@ class UNetConnection : public UPlayer
 
 	/** Owning net driver */
 	UPROPERTY()
-	class UNetDriver* Driver;					
+	class UNetDriver* Driver;	
 
 	UPROPERTY()
 	/** Package map between local and remote. (negotiates net serialization) */
@@ -474,8 +504,16 @@ public:
 	 * @param InURL the URL to init with
 	 * @param InConnectionSpeed Optional connection speed override
 	 */
-	ENGINE_API virtual void InitConnection(UNetDriver* InDriver, EConnectionState InState, const FURL& InURL, int32 InConnectionSpeed=0);
+	ENGINE_API virtual void InitConnection(UNetDriver* InDriver, EConnectionState InState, const FURL& InURL, int32 InConnectionSpeed=0, int32 InMaxPacket=0);
 
+
+	/** 
+	* Gets a unique ID for the connection, this ID depends on the underlying connection
+	* For IP connections this is an IP Address and port, for steam this is a SteamID
+	*/
+	ENGINE_API virtual FString RemoteAddressToString() PURE_VIRTUAL(UNetConnection::RemoteAddressToString, return TEXT("Error"););
+	
+	
 	// Functions.
 
 	/** Resend any pending acks. */

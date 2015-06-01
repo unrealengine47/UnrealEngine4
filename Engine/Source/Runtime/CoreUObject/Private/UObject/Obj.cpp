@@ -30,8 +30,6 @@ DEFINE_LOG_CATEGORY(LogObj);
 static UPackage*			GObjTransientPkg								= NULL;		
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-	/** Used to verify that the Super::PostLoad chain is intact.			*/
-	static TArray<UObject*,TInlineAllocator<16> >		DebugPostLoad;
 	/** Used to verify that the Super::BeginDestroyed chain is intact.			*/
 	static TArray<UObject*,TInlineAllocator<16> >		DebugBeginDestroyed;
 	/** Used to verify that the Super::FinishDestroyed chain is intact.			*/
@@ -81,8 +79,6 @@ void UObject::EnsureNotRetrievingVTablePtr() const
 
 UObject* UObject::CreateDefaultSubobject(FName SubobjectFName, UClass* ReturnType, UClass* ClassToCreateByDefault, bool bIsRequired, bool bAbstract, bool bIsTransient)
 {
-	auto& ThreadContext = FUObjectThreadContext::Get();
-	UE_CLOG(!ThreadContext.IsInConstructor, LogObj, Fatal, TEXT("CreateDefultSubobject can only be used inside of UObject constructors. UObject constructing subobjects cannot be created using new or placement new operator."));
 	auto CurrentInitializer = FTlsObjectInitializers::Top();
 	UE_CLOG(!CurrentInitializer, LogObj, Fatal, TEXT("No object initializer found during construction."));
 	UE_CLOG(CurrentInitializer->Obj != this, LogObj, Fatal, TEXT("Using incorrect object initializer."));
@@ -258,7 +254,7 @@ void UObject::PostLoad()
 {
 	// Note that it has propagated.
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-	DebugPostLoad.RemoveSingle(this);
+	FUObjectThreadContext::Get().DebugPostLoad.RemoveSingle(this);
 #endif
 
 	/*
@@ -700,8 +696,9 @@ void UObject::ConditionalPostLoad()
 		check(IsInGameThread() || HasAnyFlags(RF_ClassDefaultObject|RF_ArchetypeObject) || IsPostLoadThreadSafe() || IsA(UClass::StaticClass()))
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-		checkSlow(!DebugPostLoad.Contains(this));
-		DebugPostLoad.Add(this);
+		FUObjectThreadContext& ThreadContext = FUObjectThreadContext::Get();
+		checkSlow(!ThreadContext.DebugPostLoad.Contains(this));
+		ThreadContext.DebugPostLoad.Add(this);
 #endif
 		ClearFlags( RF_NeedPostLoad );
 
@@ -716,9 +713,9 @@ void UObject::ConditionalPostLoad()
 		PostLoad();
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-		if( DebugPostLoad.Contains(this) )
+		if (ThreadContext.DebugPostLoad.Contains(this))
 		{
-			UE_LOG(LogObj, Fatal, TEXT("%s failed to route PostLoad.  Please call Super::PostLoad() in your <className>::PostLoad() function. "), *GetFullName() );
+			UE_LOG(LogObj, Fatal, TEXT("%s failed to route PostLoad.  Please call Super::PostLoad() in your <className>::PostLoad() function."), *GetFullName());
 		}
 #endif
 	}
@@ -1266,7 +1263,7 @@ void UObject::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const
 
 const FName& UObject::SourceFileTagName()
 {
-	static const FName SourceFilePathName("SourceFile");
+	static const FName SourceFilePathName("AssetImportData");
 	return SourceFilePathName;
 }
 

@@ -1699,27 +1699,13 @@ bool UEngine::InitializeAudioDeviceManager()
 					AudioDeviceManager = new FAudioDeviceManager();
 					AudioDeviceManager->RegisterAudioDeviceModule(AudioDeviceModule);
 
-					bool bSucceeded = false;
-
 					// Create a new audio device.
 					FAudioDevice* NewAudioDevice = AudioDeviceManager->CreateAudioDevice(MainAudioDeviceHandle, true);
 					if (NewAudioDevice)
 					{
-						// Initialize the audio device
-						if (NewAudioDevice->Init())
-						{
-							bSucceeded = true;
-							AudioDeviceManager->SetActiveDevice(MainAudioDeviceHandle);
-						}
-						else
-						{
-							// Shut it down if we failed to initialize
-							AudioDeviceManager->ShutdownAudioDevice(MainAudioDeviceHandle);
-						}
+						AudioDeviceManager->SetActiveDevice(MainAudioDeviceHandle);
 					}
-
-					// if we failed to create or init a main audio device, shut down the audio device manager
-					if (!bSucceeded)
+					else
 					{
 						ShutdownAudioDeviceManager();
 					}
@@ -6289,12 +6275,17 @@ void UEngine::AddTextureStreamingSlaveLoc(FVector InLoc, float BoostFactor, bool
 /** Looks up the GUID of a package on disk. The package must NOT be in the autodownload cache.
  * This may require loading the header of the package in question and is therefore slow.
  */
-FGuid UEngine::GetPackageGuid(FName PackageName)
+FGuid UEngine::GetPackageGuid(FName PackageName, bool bForPIE)
 {
 	FGuid Result(0,0,0,0);
 
 	BeginLoad();
-	FLinkerLoad* Linker = GetPackageLinker(NULL, *PackageName.ToString(), LOAD_NoWarn | LOAD_NoVerify, NULL, NULL);
+	uint32 LoadFlags = LOAD_NoWarn | LOAD_NoVerify;
+	if (bForPIE)
+	{
+		LoadFlags |= LOAD_PackageForPIE;
+	}
+	FLinkerLoad* Linker = GetPackageLinker(NULL, *PackageName.ToString(), LoadFlags, NULL, NULL);
 	if (Linker != NULL && Linker->LinkerRoot != NULL)
 	{
 		Result = Linker->LinkerRoot->GetGuid();
@@ -7188,23 +7179,31 @@ void DrawStatsHUD( UWorld* World, FViewport* Viewport, FCanvas* Canvas, UCanvas*
 				DebugProperties.RemoveAt(i--, 1);
 			}
 		}
-		TArray<UObject*> RelevantObjects;
-		if (DebugClasses.Num() > 0)
-		{
-			for (TObjectIterator<UObject> It(true); It; ++It)
-			{
-				if (It->GetWorld() && It->GetWorld() != World)
-				{
-					continue;
-				}
 
-				for (int32 i = 0; i < DebugClasses.Num(); i++)
+		TSet<UObject*> RelevantObjects;
+		for (const FDebugClass& DebugClass : DebugClasses)
+		{
+			if (DebugClass.Class)
+			{
+				TArray<UObject*> DebugObjectsOfClass;
+				const bool bIncludeDerivedClasses = true;
+				GetObjectsOfClass(DebugClass.Class, DebugObjectsOfClass, bIncludeDerivedClasses);
+				for (UObject* Obj : DebugObjectsOfClass)
 				{
-					if ( It->IsA(DebugClasses[i].Class) && !It->IsTemplate() &&
-						(DebugClasses[i].WithinClass == NULL || (It->GetOuter() != NULL && It->GetOuter()->GetClass()->IsChildOf(DebugClasses[i].WithinClass))) )
+					if (!Obj)
 					{
-						RelevantObjects.Add(*It);
-						break;
+						continue;
+					}
+
+					if (Obj->GetWorld() && Obj->GetWorld() != World)
+					{
+						continue;
+					}
+
+					if ( !Obj->IsTemplate() &&
+						(DebugClass.WithinClass == NULL || (Obj->GetOuter() != NULL && Obj->GetOuter()->GetClass()->IsChildOf(DebugClass.WithinClass))) )
+					{
+						RelevantObjects.Add(Obj);
 					}
 				}
 			}
@@ -7223,12 +7222,12 @@ void DrawStatsHUD( UWorld* World, FViewport* Viewport, FCanvas* Canvas, UCanvas*
 				if (Prop != NULL || DebugProperties[i].bSpecialProperty)
 				{
 					// getall
-					for (int32 j = 0; j < RelevantObjects.Num(); j++)
+					for (UObject* RelevantObject : RelevantObjects)
 					{
-						if ( RelevantObjects[j]->IsA(Cls) && !RelevantObjects[j]->IsPendingKill() &&
-							(DebugProperties[i].WithinClass == NULL || (RelevantObjects[j]->GetOuter() != NULL && RelevantObjects[j]->GetOuter()->GetClass()->IsChildOf(DebugProperties[i].WithinClass))) )
+						if ( RelevantObject->IsA(Cls) && !RelevantObject->IsPendingKill() &&
+							(DebugProperties[i].WithinClass == NULL || (RelevantObject->GetOuter() != NULL && RelevantObject->GetOuter()->GetClass()->IsChildOf(DebugProperties[i].WithinClass))) )
 						{
-							DrawProperty(CanvasObject, RelevantObjects[j], DebugProperties[i], Prop, X, Y);
+							DrawProperty(CanvasObject, RelevantObject, DebugProperties[i], Prop, X, Y);
 						}
 					}
 				}
@@ -7289,42 +7288,11 @@ DEFINE_STAT(STAT_SkelMeshDrawCalls);
 DEFINE_STAT(STAT_CPUSkinVertices);
 DEFINE_STAT(STAT_GPUSkinVertices);
 
-/** Frame chart stats */
-
-DEFINE_STAT(STAT_FPSChart_0_5);
-DEFINE_STAT(STAT_FPSChart_5_10);
-DEFINE_STAT(STAT_FPSChart_10_15);
-DEFINE_STAT(STAT_FPSChart_15_20);
-DEFINE_STAT(STAT_FPSChart_20_25);
-DEFINE_STAT(STAT_FPSChart_25_30);
-DEFINE_STAT(STAT_FPSChart_30_35);
-DEFINE_STAT(STAT_FPSChart_35_40);
-DEFINE_STAT(STAT_FPSChart_40_45);
-DEFINE_STAT(STAT_FPSChart_45_50);
-DEFINE_STAT(STAT_FPSChart_50_55);
-DEFINE_STAT(STAT_FPSChart_55_60);
-DEFINE_STAT(STAT_FPSChart_60_INF);
-DEFINE_STAT(STAT_FPSChart_30Plus);
-DEFINE_STAT(STAT_FPSChart_UnaccountedTime);
-DEFINE_STAT(STAT_FPSChart_FrameCount);
-DEFINE_STAT(STAT_FPSChart_Hitch_5000_Plus);
-DEFINE_STAT(STAT_FPSChart_Hitch_2500_5000);
-DEFINE_STAT(STAT_FPSChart_Hitch_2000_2500);
-DEFINE_STAT(STAT_FPSChart_Hitch_1500_2000);
-DEFINE_STAT(STAT_FPSChart_Hitch_1000_1500);
-DEFINE_STAT(STAT_FPSChart_Hitch_750_1000);
-DEFINE_STAT(STAT_FPSChart_Hitch_500_750);
-DEFINE_STAT(STAT_FPSChart_Hitch_300_500);
-DEFINE_STAT(STAT_FPSChart_Hitch_200_300);
-DEFINE_STAT(STAT_FPSChart_Hitch_150_200);
-DEFINE_STAT(STAT_FPSChart_Hitch_100_150);
-DEFINE_STAT(STAT_FPSChart_Hitch_60_100);
-DEFINE_STAT(STAT_FPSChart_TotalHitchCount);
-
-DEFINE_STAT(STAT_FPSChart_UnitFrame);
-DEFINE_STAT(STAT_FPSChart_UnitGame);
-DEFINE_STAT(STAT_FPSChart_UnitRender);
-DEFINE_STAT(STAT_FPSChart_UnitGPU);
+/** Unit times */
+DEFINE_STAT(STAT_UnitFrame);
+DEFINE_STAT(STAT_UnitGame);
+DEFINE_STAT(STAT_UnitRender);
+DEFINE_STAT(STAT_UnitGPU);
 
 /*-----------------------------------------------------------------------------
 	Lightmass object/actor implementations.

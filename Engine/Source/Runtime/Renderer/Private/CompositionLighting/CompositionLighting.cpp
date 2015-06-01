@@ -21,6 +21,7 @@
 #include "PostProcessTemporalAA.h"
 #include "PostProcessSubsurface.h"
 #include "SceneUtils.h"
+#include "LightPropagationVolumeBlendable.h"
 
 /** The global center for all deferred lighting activities. */
 FCompositionLighting GCompositionLighting;
@@ -56,22 +57,15 @@ static bool IsLpvIndirectPassRequired(FPostprocessContext& Context)
 	{
 		FLightPropagationVolume* LightPropagationVolume = ViewState->GetLightPropagationVolume();
 
-		if(LightPropagationVolume && Context.View.FinalPostProcessSettings.LPVIntensity > 0.0f)
+		const FLightPropagationVolumeSettings& LPVSettings = Context.View.FinalPostProcessSettings.BlendableManager.GetSingleFinalDataConst<FLightPropagationVolumeSettings>();
+
+		if(LightPropagationVolume && LPVSettings.LPVIntensity > 0.0f)
 		{
 			return true; 
 		}
 	}
 
 	return false;
-}
-
-static void AddPostProcessingLpvIndirect(FPostprocessContext& Context, FRenderingCompositePass* SSAO )
-{
-	FRenderingCompositePass* Pass = Context.Graph.RegisterPass(new FRCPassPostProcessLpvIndirect());
-	Pass->SetInput(ePId_Input0, Context.FinalOutput);
-	Pass->SetInput(ePId_Input1, SSAO );
-
-	Context.FinalOutput = FRenderingCompositeOutputRef(Pass);
 }
 
 static bool IsReflectionEnvironmentActive(FPostprocessContext& Context)
@@ -193,7 +187,9 @@ static FRenderingCompositeOutputRef AddPostProcessingAmbientOcclusion(FRHIComman
 		AmbientOcclusionPassMip1->SetInput(ePId_Input3, HZBInput);
 	}
 
-	FRenderingCompositePass* GBufferA = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessInput(GSceneRenderTargets.GBufferA));
+	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
+
+	FRenderingCompositePass* GBufferA = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessInput(SceneContext.GBufferA));
 
 	// finally full resolution
 
@@ -208,7 +204,7 @@ static FRenderingCompositeOutputRef AddPostProcessingAmbientOcclusion(FRHIComman
 
 	Context.FinalOutput = FRenderingCompositeOutputRef(AmbientOcclusionPassMip0);
 
-	GSceneRenderTargets.bScreenSpaceAOIsValid = true;
+	SceneContext.bScreenSpaceAOIsValid = true;
 
 	if(IsBasePassAmbientOcclusionRequired(Context))
 	{
@@ -270,18 +266,19 @@ void FCompositionLighting::ProcessAfterBasePass(FRHICommandListImmediate& RHICmd
 {
 	check(IsInRenderingThread());
 	
+	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 	// might get renamed to refracted or ...WithAO
-	GSceneRenderTargets.GetSceneColor()->SetDebugName(TEXT("SceneColor"));
+	SceneContext.GetSceneColor()->SetDebugName(TEXT("SceneColor"));
 	// to be able to observe results with VisualizeTexture
 
-	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GSceneRenderTargets.GetSceneColor());
-	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GSceneRenderTargets.GBufferA);
-	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GSceneRenderTargets.GBufferB);
-	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GSceneRenderTargets.GBufferC);
-	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GSceneRenderTargets.GBufferD);
-	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GSceneRenderTargets.GBufferE);
-	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GSceneRenderTargets.GBufferVelocity);
-	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GSceneRenderTargets.ScreenSpaceAO);
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneContext.GetSceneColor());
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneContext.GBufferA);
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneContext.GBufferB);
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneContext.GBufferC);
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneContext.GBufferD);
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneContext.GBufferE);
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneContext.GBufferVelocity);
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneContext.ScreenSpaceAO);
 	
 	// so that the passes can register themselves to the graph
 	{
@@ -315,7 +312,7 @@ void FCompositionLighting::ProcessAfterBasePass(FRHICommandListImmediate& RHICmd
 
 		SCOPED_DRAW_EVENT(RHICmdList, LightCompositionTasks_PreLighting);
 
-		TRefCountPtr<IPooledRenderTarget>& SceneColor = GSceneRenderTargets.GetSceneColor();
+		TRefCountPtr<IPooledRenderTarget>& SceneColor = SceneContext.GetSceneColor();
 
 		Context.FinalOutput.GetOutput()->RenderTargetDesc = SceneColor->GetDesc();
 		Context.FinalOutput.GetOutput()->PooledRenderTarget = SceneColor;
@@ -325,27 +322,51 @@ void FCompositionLighting::ProcessAfterBasePass(FRHICommandListImmediate& RHICmd
 }
 
 
-void FCompositionLighting::ProcessLighting(FRHICommandListImmediate& RHICmdList, FViewInfo& View)
+void FCompositionLighting::ProcessLpvIndirect(FRHICommandListImmediate& RHICmdList, FViewInfo& View)
 {
 	check(IsInRenderingThread());
 	
-	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GSceneRenderTargets.ReflectiveShadowMapDiffuse);
-	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GSceneRenderTargets.ReflectiveShadowMapNormal);
-	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, GSceneRenderTargets.ReflectiveShadowMapDepth);
+	FMemMark Mark(FMemStack::Get());
+	FRenderingCompositePassContext CompositeContext(RHICmdList, View);
+	FPostprocessContext Context(CompositeContext.Graph, View);
+
+	if(IsLpvIndirectPassRequired(Context))
+	{
+		FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
+
+		FRenderingCompositePass* SSAO = Context.Graph.RegisterPass(new FRCPassPostProcessInput(SceneContext.ScreenSpaceAO));
+
+		FRenderingCompositePass* Pass = Context.Graph.RegisterPass(new FRCPassPostProcessLpvIndirect());
+		Pass->SetInput(ePId_Input0, Context.FinalOutput);
+		Pass->SetInput(ePId_Input1, SSAO );
+
+		Context.FinalOutput = FRenderingCompositeOutputRef(Pass);
+	}
+
+	// The graph setup should be finished before this line ----------------------------------------
+
+	SCOPED_DRAW_EVENT(RHICmdList, CompositionLpvIndirect);
+
+	// we don't replace the final element with the scenecolor because this is what those passes should do by themself
+
+	CompositeContext.Process(Context.FinalOutput.GetPass(), TEXT("CompositionLighting"));
+}
+
+void FCompositionLighting::ProcessAfterLighting(FRHICommandListImmediate& RHICmdList, FViewInfo& View)
+{
+	check(IsInRenderingThread());
+	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
+
+	
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneContext.ReflectiveShadowMapDiffuse);
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneContext.ReflectiveShadowMapNormal);
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneContext.ReflectiveShadowMapDepth);
 
 	{
 		FMemMark Mark(FMemStack::Get());
 		FRenderingCompositePassContext CompositeContext(RHICmdList, View);
-
 		FPostprocessContext Context(CompositeContext.Graph, View);
-
 		FRenderingCompositeOutputRef AmbientOcclusion;
-
-		if(IsLpvIndirectPassRequired(Context))
-		{
-			FRenderingCompositePass* SSAO = Context.Graph.RegisterPass(new FRCPassPostProcessInput(GSceneRenderTargets.ScreenSpaceAO));
-			AddPostProcessingLpvIndirect( Context, SSAO );
-		}
 
 		// Screen Space Subsurface Scattering
 		{
@@ -385,7 +406,7 @@ void FCompositionLighting::ProcessLighting(FRHICommandListImmediate& RHICmdList,
 
 		// The graph setup should be finished before this line ----------------------------------------
 
-		SCOPED_DRAW_EVENT(RHICmdList, CompositionLighting);
+		SCOPED_DRAW_EVENT(RHICmdList, CompositionAfterLighting);
 
 		// we don't replace the final element with the scenecolor because this is what those passes should do by themself
 
@@ -397,6 +418,6 @@ void FCompositionLighting::ProcessLighting(FRHICommandListImmediate& RHICmdList,
 	{
 		// The RT should be released as early as possible to allow sharing of that memory for other purposes.
 		// This becomes even more important with some limited VRam (XBoxOne).
-		GSceneRenderTargets.SetLightAttenuation(0);
+		SceneContext.SetLightAttenuation(0);
 	}
 }

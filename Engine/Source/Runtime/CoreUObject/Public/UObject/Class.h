@@ -8,15 +8,6 @@
 
 #include "ObjectBase.h"
 
-// 1 = old behavior
-// 2 = new behavior
-// 3 = old behavior with checks against the new behavior
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-	#define UCLASS_FAST_ISA_IMPL 3
-#else
-	#define UCLASS_FAST_ISA_IMPL 2
-#endif
-
 /*-----------------------------------------------------------------------------
 	Mirrors of mirror structures in Object.h. These are used by generated code 
 	to facilitate correct offsets and alignments for structures containing these '
@@ -260,6 +251,7 @@ class COREUOBJECT_API UStruct : public UField
 	// Variables.
 protected:
 	friend COREUOBJECT_API UClass* Z_Construct_UClass_UStruct();
+private:
 	UStruct* SuperStruct;
 public:
 	UField* Children;
@@ -1272,8 +1264,9 @@ public:
 	// UFunction interface.
 	UFunction* GetSuperFunction() const
 	{
-		checkSlow(!SuperStruct||SuperStruct->IsA<UFunction>());
-		return (UFunction*)SuperStruct;
+		UStruct* Result = GetSuperStruct();
+		checkSlow(!Result || Result->IsA<UFunction>());
+		return (UFunction*)Result;
 	}
 
 	UProperty* GetReturnProperty() const;
@@ -1308,7 +1301,7 @@ public:
 	FORCEINLINE static uint64 GetDefaultIgnoredSignatureCompatibilityFlags()
 	{
 		//@TODO: UCREMOVAL: CPF_ConstParm added as a hack to get blueprints compiling with a const DamageType parameter.
-		const uint64 IgnoreFlags = CPF_PersistentInstance | CPF_ExportObject | CPF_InstancedReference | CPF_ContainsInstancedReference | CPF_ComputedFlags | CPF_ConstParm | CPF_HasGetValueTypeHash;
+		const uint64 IgnoreFlags = CPF_PersistentInstance | CPF_ExportObject | CPF_InstancedReference | CPF_ContainsInstancedReference | CPF_ComputedFlags | CPF_ConstParm | CPF_HasGetValueTypeHash | CPF_UObjectWrapper;
 		return IgnoreFlags;
 	}
 
@@ -1367,10 +1360,90 @@ public:
 	// This will be the true type of the enum as a string, e.g. "ENamespacedEnum::InnerType" or "ERegularEnum" or "EEnumClass"
 	FString CppType;
 
+	/** Gets enum name by index in Names array. Returns NAME_None if Index is not valid. */
+	FName GetNameByIndex(int8 Index) const
+	{
+		if (Names.IsValidIndex(Index))
+		{
+			return Names[Index].Key;
+		}
+		
+		return NAME_None;
+	}
+
+	/** Gets enum value by index in Names array. */
+	int8 GetValueByIndex(int8 Index) const
+	{
+		check(Names.IsValidIndex(Index));
+		return Names[Index].Value;
+	}
+
+	/** Gets enum name by value. Returns NAME_None if value is not found. */
+	FName GetNameByValue(int8 InValue) const
+	{
+		for (TPair<FName, int8> Kvp : Names)
+		{
+			if (Kvp.Value == InValue)
+			{
+				return Kvp.Key;
+			}
+		}
+		
+		return NAME_None;
+	}
+
+	/** Gets enum value by name. Returns INDEX_NONE when name is not found. */
+	int8 GetValueByName(FName InName)
+	{
+		for (TPair<FName, int8> Kvp : Names)
+		{
+			if (Kvp.Key == InName)
+			{
+				return Kvp.Value;
+			}
+		}
+
+		return INDEX_NONE;
+	}
+
+	/** Gets index of name in enum. Returns INDEX_NONE when name is not found. */
+	int32 GetIndexByName(FName Name) const
+	{
+		int32 Count = Names.Num();
+		for (int32 Counter = 0; Counter < Count; ++Counter)
+		{
+			if (Names[Counter].Key == Name)
+			{
+				return Counter;
+			}
+		}
+		return INDEX_NONE;
+	}
+
+	/** Gets max value of Enum. Defaults to zero if there are no entries. */
+	int8 GetMaxEnumValue() const
+	{
+		int8 MaxValue = -1;
+		if (Names.Num() > 0)
+		{
+			MaxValue = Names[0].Value;
+		}
+
+		for (const auto& Pair : Names)
+		{
+			if (Pair.Value > MaxValue)
+			{
+				MaxValue = Pair.Value;
+			}
+		}
+
+		return MaxValue;
+	}
+
 protected:
 	// Variables.
-	/** List of all enum names. */
-	TArray<FName> Names;
+	/** List of pairs of all enum names and values. */
+	TArray<TPair<FName, int8>> Names;
 
 	/** How the enum was originally defined. */
 	ECppForm CppForm;
@@ -1448,14 +1521,14 @@ public:
 	/** searches the list of all enum value names for the specified name
 	 * @return the value the specified name represents if found, otherwise INDEX_NONE
 	 */
-	static int32 LookupEnumName(FName TestName, UEnum** FoundEnum = NULL)
+	static int32 LookupEnumName(FName TestName, UEnum** FoundEnum = nullptr)
 	{
 		UEnum* TheEnum = AllEnumNames.FindRef(TestName);
-		if (FoundEnum != NULL)
+		if (FoundEnum != nullptr)
 		{
 			*FoundEnum = TheEnum;
 		}
-		return (TheEnum != NULL) ? TheEnum->Names.Find(TestName) : INDEX_NONE;
+		return (TheEnum != nullptr) ? TheEnum->GetIndexByName(TestName) : INDEX_NONE;
 	}
 
 	/** searches the list of all enum value names for the specified name
@@ -1497,7 +1570,7 @@ public:
 	 * @param InCppForm The form of enum.
 	 * @return	true unless the MAX enum already exists and isn't the last enum.
 	 */
-	COREUOBJECT_API virtual bool SetEnums(TArray<FName>& InNames, ECppForm InCppForm);
+	COREUOBJECT_API virtual bool SetEnums(TArray<TPair<FName, int8>>& InNames, ECppForm InCppForm);
 
 	/**
 	 * @return	The enum name at the specified Index.
@@ -1506,7 +1579,7 @@ public:
 	{
 		if (Names.IsValidIndex(InIndex))
 		{
-			return Names[InIndex];
+			return Names[InIndex].Key;
 		}
 		return NAME_None;
 	}
@@ -1520,11 +1593,11 @@ public:
 		{
 			if (CppForm == ECppForm::Regular)
 			{
-				return Names[InIndex].ToString();
+				return GetNameByIndex(InIndex).ToString();
 			}
 
 			// Strip the namespace from the name.
-			FString EnumName(Names[InIndex].ToString());
+			FString EnumName(GetNameByIndex(InIndex).ToString());
 			int32 ScopeIndex = EnumName.Find(TEXT("::"), ESearchCase::CaseSensitive);
 			if (ScopeIndex != INDEX_NONE)
 			{
@@ -2055,7 +2128,7 @@ public:
 
 	UClass* GetSuperClass() const
 	{
-		return (UClass*)SuperStruct;
+		return (UClass*)GetSuperStruct();
 	}
 
 	/** Feedback context for default property import **/
@@ -2484,8 +2557,9 @@ public:
 	 * Sets the DestinationRoot for this instancing graph.
 	 *
 	 * @param	DestinationSubobjectRoot	the top-level object that is being created
+	 * @param	InSourceRoot	Archetype of DestinationSubobjectRoot
 	 */
-	void SetDestinationRoot( class UObject* DestinationSubobjectRoot );
+	void SetDestinationRoot( class UObject* DestinationSubobjectRoot, class UObject* InSourceRoot = nullptr );
 
 	/**
 	 * Finds the destination object instance corresponding to the specified source object.
@@ -2513,17 +2587,19 @@ public:
 
 	/**
 	 * Adds a partially built object instance to the map(s) of source objects to their instances.
-	 * @param	ObjectInstance			Object that was just allocated, but has not been constructed yet
+	 * @param	ObjectInstance  Object that was just allocated, but has not been constructed yet
+	 * @param	InArchetype     Archetype of ObjectInstance
 	 */
-	void AddNewObject(class UObject* ObjectInstance);
+	void AddNewObject(class UObject* ObjectInstance, class UObject* InArchetype = nullptr);
 
 	/**
 	 * Adds an object instance to the map of source objects to their instances.  If there is already a mapping for this object, it will be replaced
 	 * and the value corresponding to ObjectInstance's archetype will now point to ObjectInstance.
 	 *
-	 * @param	ObjectInstance	the object that should be added as the corresopnding instance for ObjectSource
+	 * @param	ObjectInstance  the object that should be added as the corresopnding instance for ObjectSource
+	 * @param	InArchetype     Archetype of ObjectInstance
 	 */
-	void AddNewInstance(class UObject* ObjectInstance);
+	void AddNewInstance(class UObject* ObjectInstance, class UObject* InArchetype = nullptr);
 
 	/**
 	 * Retrieves a list of objects that have the specified Outer
@@ -2742,6 +2818,14 @@ inline T* GetMutableDefault(UClass *Class)
 	checkSlow(Class->GetDefaultObject()->IsA(T::StaticClass()));
 	return (T*)Class->GetDefaultObject();
 }
+
+struct FStructUtils
+{
+	static bool ArePropertiesTheSame(const UProperty* A, const UProperty* B, bool bCheckPropertiesNames);
+
+	// does structures have exactly the same memory layout
+	COREUOBJECT_API static bool TheSameLayout(const UStruct* StructA, const UStruct* StructB, bool bCheckPropertiesNames = false);
+};
 
 template< class T > struct TBaseStructure
 {

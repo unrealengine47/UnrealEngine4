@@ -412,17 +412,9 @@ extern TArray<PxMaterial*>		GPhysXPendingKillMaterial;
 class FPhysxSharedData
 {
 public:
-	static FPhysxSharedData& Get();
-
-	FPhysxSharedData()
-	{
-		SharedObjects = PxCreateCollection();
-	}
-
-	~FPhysxSharedData()
-	{
-		SharedObjects->release();
-	}
+	static FPhysxSharedData& Get(){ return *Singleton; }
+	static void Initialize();
+	static void Terminate();
 
 	void Add(PxBase* Obj);
 	void Remove(PxBase* Obj)	{ if(Obj) { SharedObjects->remove(*Obj); } }
@@ -433,6 +425,18 @@ public:
 private:
 	/** Collection of shared physx objects */
 	PxCollection* SharedObjects;
+	
+	static FPhysxSharedData* Singleton;
+
+	FPhysxSharedData()
+	{
+		SharedObjects = PxCreateCollection();
+	}
+
+	~FPhysxSharedData()
+	{
+		SharedObjects->release();
+	}
 
 };
 
@@ -484,10 +488,9 @@ public:
 class FPhysXFormatDataReader
 {
 public:
-	TArray< PxConvexMesh* > ConvexMeshes;
-	TArray< PxConvexMesh* > ConvexMeshesNegX;
-	PxTriangleMesh* TriMesh;
-	PxTriangleMesh* TriMeshNegX;
+	TArray<PxConvexMesh*> ConvexMeshes;
+	TArray<PxConvexMesh*> ConvexMeshesNegX;
+	TArray<PxTriangleMesh*> TriMeshes;
 
 	FPhysXFormatDataReader( FByteBulkData& InBulkData );
 

@@ -71,7 +71,7 @@ FCoreUObjectDelegates::FPackageCreatedForLoad FCoreUObjectDelegates::PackageCrea
 /** Check wehether we should report progress or not */
 bool ShouldReportProgress()
 {
-	return GIsEditor && !IsRunningCommandlet() && !IsAsyncLoading();
+	return GIsEditor && IsInGameThread() && !IsRunningCommandlet() && !IsAsyncLoading();
 }
 
 /**
@@ -105,6 +105,76 @@ UObject* StaticFindObjectFast( UClass* ObjectClass, UObject* ObjectPackage, FNam
 	// We don't want to return any objects that are currently being background loaded unless we're using FindObject during async loading.
 	ExclusiveFlags |= IsAsyncLoading() ? RF_NoFlags : RF_AsyncLoading;
 	return StaticFindObjectFastInternal( ObjectClass, ObjectPackage, ObjectName, ExactClass, AnyPackage, ExclusiveFlags );
+}
+
+// Anonymous namespace to not pollute global.
+namespace
+{
+	/**
+	 * Legacy static find object helper, that helps to find reflected types, that
+	 * are no longer a subobjects of UCLASS defined in the same header.
+	 *
+	 * If the class looked for is of one of the relocated types (or theirs subclass)
+	 * then it performs another search in containing package.
+	 *
+	 * If the class match wasn't exact (i.e. either nullptr or subclass of allowed
+	 * ones) and we've found an object we're revalidating it to make sure the
+	 * legacy search was valid.
+	 *
+	 * @param ObjectClass Class of the object to find.
+	 * @param ObjectPackage Package of the object to find.
+	 * @param ObjectName Name of the object to find.
+	 * @param ExactClass If the class match has to be exact. I.e. ObjectClass == FoundObjects.GetClass()
+	 * @param OrigInName Original name provided to StaticFindObject, before resolving. Used to determine if we're looking for delegate signature.
+	 *
+	 * @returns Found object.
+	 */
+	UObject* StaticFindObjectWithChangedLegacyPath(UClass* ObjectClass, UObject* ObjectPackage, FName ObjectName, bool ExactClass, const TCHAR* OrigInName)
+	{
+		UObject* MatchingObject = nullptr;
+
+		// This is another look-up for native enums, structs or delegate signatures, cause they're path changed
+		// and old packages can have invalid ones. The path now does not have a UCLASS as an outer. All mentioned
+		// types are just children of package of the file there were defined in.
+		if (!FPlatformProperties::RequiresCookedData() && // Cooked platforms will have all paths resolved.
+			ObjectPackage != nullptr &&
+			ObjectPackage->IsA<UClass>()) // Only if outer is a class.
+		{
+			bool bHasDelegateSignaturePostfix = FString(OrigInName).EndsWith(HEADER_GENERATED_DELEGATE_SIGNATURE_SUFFIX);
+
+			bool bExactPathChangedClass = ObjectClass == UEnum::StaticClass() // Enums
+				|| ObjectClass == UScriptStruct::StaticClass() || ObjectClass == UStruct::StaticClass() // Structs
+				|| (ObjectClass == UFunction::StaticClass() && bHasDelegateSignaturePostfix); // Delegates
+
+			bool bSubclassOfPathChangedClass = !bExactPathChangedClass && !ExactClass
+				&& (ObjectClass == nullptr // Any class
+				|| UEnum::StaticClass()->IsChildOf(ObjectClass) // Enums
+				|| UScriptStruct::StaticClass()->IsChildOf(ObjectClass) || UStruct::StaticClass()->IsChildOf(ObjectClass) // Structs
+				|| (UFunction::StaticClass()->IsChildOf(ObjectClass) && bHasDelegateSignaturePostfix)); // Delegates
+
+			if (!bExactPathChangedClass && !bSubclassOfPathChangedClass)
+			{
+				return nullptr;
+			}
+
+			MatchingObject = StaticFindObject(ObjectClass, ObjectPackage->GetOutermost(), *ObjectName.ToString(), ExactClass);
+
+			if (MatchingObject && bSubclassOfPathChangedClass)
+			{
+				// If the class wasn't given exactly, check if found object is of class that outers were changed.
+				UClass* MatchingObjectClass = MatchingObject->GetClass();
+				if (!(MatchingObjectClass == UEnum::StaticClass()	// Enums
+					|| MatchingObjectClass == UScriptStruct::StaticClass() || MatchingObjectClass == UStruct::StaticClass() // Structs
+					|| (MatchingObjectClass == UFunction::StaticClass() && bHasDelegateSignaturePostfix)) // Delegates
+					)
+				{
+					return nullptr;
+				}
+			}
+		}
+
+		return MatchingObject;
+	}
 }
 
 //
@@ -165,20 +235,9 @@ UObject* StaticFindObject( UClass* ObjectClass, UObject* InObjectPackage, const 
 	FName ObjectName(*InName, FNAME_Add, true);
 	MatchingObject = StaticFindObjectFast( ObjectClass, ObjectPackage, ObjectName, ExactClass, bAnyPackage );
 
-	// This is another look-up for native enums, structs or delegate signatures, cause they're path changed
-	// and old packages can have invalid ones. The path now does not have a UCLASS as an outer. All mentioned
-	// types are just children of package of the file there were defined in.
-	if (!MatchingObject && ObjectPackage != nullptr &&
-		ObjectPackage->IsA<UClass>() && // Only if outer is a class.
-		!FPlatformProperties::RequiresCookedData() && // Cooked platforms will have all paths resolved.
-			(
-				ObjectClass == UEnum::StaticClass()	// Enums
-				|| ObjectClass == UScriptStruct::StaticClass() || ObjectClass == UStruct::StaticClass() // Structs
-				|| (ObjectClass == UFunction::StaticClass() && FString(OrigInName).EndsWith(HEADER_GENERATED_DELEGATE_SIGNATURE_SUFFIX)) // Delegates
-			)
-		)
+	if (!MatchingObject)
 	{
-		MatchingObject = StaticFindObject(ObjectClass, ObjectPackage->GetOutermost(), *ObjectName.ToString(), ExactClass);
+		return StaticFindObjectWithChangedLegacyPath(ObjectClass, ObjectPackage, ObjectName, ExactClass, OrigInName);
 	}
 
 	return MatchingObject;
@@ -982,22 +1041,32 @@ UPackage* LoadPackageInternal(UPackage* InOuter, const TCHAR* InLongPackageName,
 			FIOSystem::Get().HintDoneWithFile(*Linker->Filename);
 		}
 
-		// with UE4 and single asset per package, we load so many packages that some platforms will run out
+		// With UE4 and single asset per package, we load so many packages that some platforms will run out
 		// of file handles. So, this will close the package, but just things like bulk data loading will
-		// fail, so we only currently do this when loading on consoles
-		if (FPlatformProperties::RequiresCookedData())
+		// fail, so we only currently do this when loading on consoles.
+		// The only exception here is when we're in the middle of async loading where we can't reset loaders yet. This should only happen when
+		// doing synchronous load in the middle of streaming.
+		if (FPlatformProperties::RequiresCookedData() && !IsInAsyncLoadingThread())
 		{
 			if (FUObjectThreadContext::Get().ObjBeginLoadCount == 0)
 			{
+				// Sanity check to make sure that Linker is the linker that loaded our Result package
+				check(!Result || Result->LinkerLoad == Linker);
 				if (Result && Linker->Loader)
 				{
 					ResetLoaders(Result);
 				}
-				delete Linker->Loader;
-				Linker->Loader = NULL;
+				// Reset loaders could have already deleted Linker so guard against deleting stale pointers
+				if (Result && Result->LinkerLoad)
+				{
+					delete Linker->Loader;
+					Linker->Loader = nullptr;
+				}
+				// And make sure no one can use it after it's been deleted
+				Linker = nullptr;
 			}
 			// Async loading removes delayed linkers on the game thread after streaming has finished
-			else if (!IsInAsyncLoadingThread())
+			else
 			{
 				FUObjectThreadContext::Get().DelayedLinkerClosePackages.Add(Linker);
 			}
@@ -2071,7 +2140,7 @@ FObjectInitializer::~FObjectInitializer()
 
 #if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 	bool bIsPostConstructInitDeferred = false;
-	if (bIsCDO && (ObjectArchetype != nullptr) && FBlueprintSupport::UseDeferredDependencyLoading())
+	if (bIsCDO && (ObjectArchetype != nullptr) && !FBlueprintSupport::IsDeferredCDOInitializationDisabled())
 	{
 		UClass* ArchetypeClass = ObjectArchetype->GetClass();
 		// if this is a blueprint CDO that derives from another blueprint, and 
@@ -2129,33 +2198,46 @@ void FObjectInitializer::PostConstructInit()
 
 #if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 	// if this is a deferred initializer (implying that it's for a CDO), and the 
-	// ObjectArchetype (super CDO) has since been regenerated, then we need 
-	// to update the cached archetypes (so their not pointing to TRASH/REINST 
-	// versions)
-	if (bIsDeferredInitializer && SuperClass->HasAnyClassFlags(CLASS_NewerVersionExists))
+	// ObjectArchetype (super CDO) has since been regenerated, then we cannot
+	// reliably initialize and instance properties (if we were to use the 
+	// regenerated ObjectArchetype, the property layouts could differ and that's
+	// not viable for InitProperties())
+	// 
+	// However, this case is handled in FLinkerLoad::ResolveDeferredExports(), 
+	// where we forcefully recreate and separately init this CDO (hence it being 
+	// moved to the transient package) 
+	if (bIsDeferredInitializer)
 	{
+		const bool bSuperHasBeenRegenerated = SuperClass->HasAnyClassFlags(CLASS_NewerVersionExists);
+#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 		check(bIsCDO);
+		check(ObjectArchetype->GetOutermost() != GetTransientPackage());
+		check(ObjectArchetype->GetClass() == SuperClass && !bSuperHasBeenRegenerated);
+#endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 
-		SuperClass = SuperClass->GetAuthoritativeClass();
-		Class->SetSuperStruct(SuperClass);
-		ObjectArchetype = SuperClass->GetDefaultObject(/*bCreateIfNeeded =*/false);
-
-		// iterate backwards, so we can remove elements as we go
-		for (int32 SubObjIndex = ComponentInits.SubobjectInits.Num()-1; SubObjIndex >= 0; --SubObjIndex)
+		if ( !ensureMsgf(!bSuperHasBeenRegenerated, TEXT("The super class for %s has been regenerated, we cannot properly initialize inherited properties, as the class layout may have changed."), *Obj->GetName()) )
 		{
-			FSubobjectsToInit::FSubobjectInit& SubObjInitInfo = ComponentInits.SubobjectInits[SubObjIndex];
-			const FName SubObjName = SubObjInitInfo.Subobject->GetFName();
+			// attempt to complete initialization/instancing as best we can, but
+			// it would not be surprising if our CDO was improperly initialized 
+			// as a result...
 
-			UObject* OuterArchetype = SubObjInitInfo.Subobject->GetOuter()->GetArchetype();
-			UObject* NewTemplate = OuterArchetype->GetClass()->GetDefaultSubobjectByName(SubObjName);
+			// iterate backwards, so we can remove elements as we go
+			for (int32 SubObjIndex = ComponentInits.SubobjectInits.Num() - 1; SubObjIndex >= 0; --SubObjIndex)
+			{
+				FSubobjectsToInit::FSubobjectInit& SubObjInitInfo = ComponentInits.SubobjectInits[SubObjIndex];
+				const FName SubObjName = SubObjInitInfo.Subobject->GetFName();
 
-			if (ensure(NewTemplate != nullptr))
-			{
-				SubObjInitInfo.Template = NewTemplate;
-			}
-			else
-			{
-				ComponentInits.SubobjectInits.RemoveAtSwap(SubObjIndex);
+				UObject* OuterArchetype = SubObjInitInfo.Subobject->GetOuter()->GetArchetype();
+				UObject* NewTemplate = OuterArchetype->GetClass()->GetDefaultSubobjectByName(SubObjName);
+
+				if (ensure(NewTemplate != nullptr))
+				{
+					SubObjInitInfo.Template = NewTemplate;
+				}
+				else
+				{
+					ComponentInits.SubobjectInits.RemoveAtSwap(SubObjIndex);
+				}
 			}
 		}
 	}
@@ -2283,15 +2365,17 @@ void FObjectInitializer::InstanceSubobjects(UClass* Class, bool bNeedInstancing,
 {
 	FObjectInstancingGraph TempInstancingGraph;
 	FObjectInstancingGraph* UseInstancingGraph = InstanceGraph ? InstanceGraph : &TempInstancingGraph;
-	UseInstancingGraph->AddNewObject(Obj);
-	// Add any default subobjects
-	for (int32 Index = 0; Index < ComponentInits.SubobjectInits.Num(); Index++)
 	{
-		UseInstancingGraph->AddNewObject(ComponentInits.SubobjectInits[Index].Subobject);
+		UseInstancingGraph->AddNewObject(Obj, ObjectArchetype);
+	}
+	// Add any default subobjects
+	for (auto& SubobjectInit : ComponentInits.SubobjectInits)
+	{
+		UseInstancingGraph->AddNewObject(SubobjectInit.Subobject, SubobjectInit.Template);
 	}
 	if (bNeedInstancing)
 	{
-		UObject* Archetype = Obj->GetArchetype();
+		UObject* Archetype = ObjectArchetype ? ObjectArchetype : Obj->GetArchetype();
 		Class->InstanceSubobjectTemplates(Obj, Archetype, Archetype ? Archetype->GetClass() : NULL, Obj, UseInstancingGraph);
 	}
 	if (bNeedSubobjectInstancing)
@@ -2848,6 +2932,7 @@ UScriptStruct* GetFallbackStruct()
 
 UObject* FObjectInitializer::CreateDefaultSubobject(UObject* Outer, FName SubobjectFName, UClass* ReturnType, UClass* ClassToCreateByDefault, bool bIsRequired, bool bAbstract, bool bIsTransient) const
 {
+	UE_CLOG(!FUObjectThreadContext::Get().IsInConstructor, LogClass, Fatal, TEXT("Subobjects cannot be created outside of UObject constructors. UObject constructing subobjects cannot be created using new or placement new operator."));
 	if (SubobjectFName == NAME_None)
 	{
 		UE_LOG(LogClass, Fatal, TEXT("Illegal default subobject name: %s"), *SubobjectFName.ToString());

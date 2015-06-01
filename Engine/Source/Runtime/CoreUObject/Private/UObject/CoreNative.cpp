@@ -9,6 +9,8 @@
 void UClassRegisterAllCompiledInClasses();
 bool IsInAsyncLoadingThreadCoreUObjectInternal();
 bool IsAsyncLoadingCoreUObjectInternal();
+void SuspendAsyncLoadingInternal();
+void ResumeAsyncLoadingInternal();
 
 // CoreUObject module. Handles UObject system pre-init (registers init function with Core callbacks).
 class FCoreUObjectModule : public FDefaultModuleImpl
@@ -25,6 +27,8 @@ public:
 		// Substitute Core version of async loading functions with CoreUObject ones.
 		IsInAsyncLoadingThread = &IsInAsyncLoadingThreadCoreUObjectInternal;
 		IsAsyncLoading = &IsAsyncLoadingCoreUObjectInternal;
+		SuspendAsyncLoading = &SuspendAsyncLoadingInternal;
+		ResumeAsyncLoading = &ResumeAsyncLoadingInternal;
 
 		// Make sure that additional content mount points can be registered after CoreUObject loads
 		FPackageName::EnsureContentPathsAreRegistered();		
@@ -74,12 +78,12 @@ FObjectInstancingGraph::FObjectInstancingGraph( UObject* DestinationSubobjectRoo
 	SetDestinationRoot(DestinationSubobjectRoot);
 }
 
-void FObjectInstancingGraph::SetDestinationRoot( UObject* DestinationSubobjectRoot )
+void FObjectInstancingGraph::SetDestinationRoot(UObject* DestinationSubobjectRoot, UObject* InSourceRoot /*= nullptr*/)
 {
 	DestinationRoot = DestinationSubobjectRoot;
 	check(DestinationRoot);
 
-	SourceRoot = DestinationRoot->GetArchetype();
+	SourceRoot = InSourceRoot ? InSourceRoot : DestinationRoot->GetArchetype();
 	check(SourceRoot);
 
 	// add the subobject roots to the Source -> Destination mapping
@@ -263,26 +267,26 @@ UObject* FObjectInstancingGraph::InstancePropertyValue( class UObject* Component
 }
 
 
-void FObjectInstancingGraph::AddNewObject(class UObject* ObjectInstance)
+void FObjectInstancingGraph::AddNewObject(class UObject* ObjectInstance, UObject* InArchetype /*= nullptr*/)
 {
 	if (HasDestinationRoot())
 	{
-		AddNewInstance(ObjectInstance);
+		AddNewInstance(ObjectInstance, InArchetype);
 	}
 	else
 	{
-		SetDestinationRoot(ObjectInstance);
+		SetDestinationRoot(ObjectInstance, InArchetype);
 	}
 }
 
-void FObjectInstancingGraph::AddNewInstance( UObject* ObjectInstance )
+void FObjectInstancingGraph::AddNewInstance(UObject* ObjectInstance, UObject* InArchetype /*= nullptr*/)
 {
 	check(SourceRoot);
 	check(DestinationRoot);
 
-	if ( ObjectInstance != NULL )
+	if (ObjectInstance != nullptr)
 	{
-		UObject* SourceObject = ObjectInstance->GetArchetype();
+		UObject* SourceObject = InArchetype ? InArchetype : ObjectInstance->GetArchetype();
 		check(SourceObject);
 
 		SourceToDestinationMap.Add(SourceObject, ObjectInstance);

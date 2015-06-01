@@ -109,7 +109,7 @@ public:
 #if WITH_EDITORONLY_DATA
 	/** Importing data and options used for this tile map */
 	UPROPERTY(Category=ImportSettings, VisibleAnywhere, Instanced)
-	UAssetImportData* AssetImportData;
+	class UAssetImportData* AssetImportData;
 
 	/** The currently selected layer index */
 	UPROPERTY()
@@ -135,6 +135,7 @@ public:
 #endif
 #if WITH_EDITORONLY_DATA
 	virtual void GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const override;
+	virtual void Serialize(FArchive& Ar) override;
 #endif
 	// End of UObject interface
 

@@ -163,11 +163,6 @@ void StaticFailDebug( const TCHAR* Error, const ANSICHAR* File, int32 Line, cons
 	// For ensure log should be flushed in the engine loop.
 	if( !bIsEnsure )
 	{
-#if	PLATFORM_WINDOWS // @TODO yrx 2014-09-30 Remove later.
-		// Switch to malloc crash.
-		FMallocCrash::Get().SetAsGMalloc(); 
-#endif // PLATFORM_WINDOWS
-
 		GLog->PanicFlushThreadedLogs();
 	}
 
@@ -337,7 +332,7 @@ void FDebug::EnsureFailed(const ANSICHAR* Expr, const ANSICHAR* File, int32 Line
 
 #endif // DO_CHECK || DO_GUARD_SLOW
 
-void VARARGS FError::LowLevelFatal(const ANSICHAR* File, int32 Line, const TCHAR* Format, ... )
+void VARARGS FError::LowLevelFatal(const ANSICHAR* File, int32 Line, const TCHAR* Format, ...)
 {
 	TCHAR DescriptionString[4096];
 	GET_VARARGS( DescriptionString, ARRAY_COUNT(DescriptionString), ARRAY_COUNT(DescriptionString)-1, Format, Format );
@@ -498,10 +493,59 @@ VARARG_BODY(void, FMsg::Logf, const TCHAR*, VARARG_EXTRA(const ANSICHAR* File) V
 				break;
 			}
 		default:
+		{
+			LogDevice = GLog;
+		}
+		break;
+		}
+		GROWABLE_LOGF(LogDevice->Log(Category, Verbosity, Buffer))
+	}
+	else
+	{
+		// Keep Message buffer small, in some cases, this code is executed with 16KB stack.
+		TCHAR Message[4096];
+		{
+			// Simulate Sprintf_s
+			// @todo: implement platform independent sprintf_S
+			// We're using one big shared static buffer here, so guard against re-entry
+			FScopeLock MsgLock(&MsgLogfStaticBufferGuard);
+			// Print to a large static buffer so we can keep the stack allocation below 16K
+			GET_VARARGS(MsgLogfStaticBuffer, ARRAY_COUNT(MsgLogfStaticBuffer), ARRAY_COUNT(MsgLogfStaticBuffer) - 1, Fmt, Fmt);
+			// Copy the message to the stack-allocated buffer)
+			FCString::Strncpy(Message, MsgLogfStaticBuffer, ARRAY_COUNT(Message) - 1);
+			Message[ARRAY_COUNT(Message) - 1] = '\0';
+		}
+
+		StaticFailDebug(TEXT("Fatal error:"), File, Line, Message);
+		FDebug::AssertFailed("", File, Line, Message);
+	}
+#endif
+}
+
+VARARG_BODY(void, FMsg::Logf_Internal, const TCHAR*, VARARG_EXTRA(const ANSICHAR* File) VARARG_EXTRA(int32 Line) VARARG_EXTRA(const class FName& Category) VARARG_EXTRA(ELogVerbosity::Type Verbosity))
+{
+#if !NO_LOGGING
+	if (Verbosity != ELogVerbosity::Fatal)
+	{
+		// SetColour is routed to GWarn just like the other verbosities and handled in the 
+		// device that does the actual printing.
+		FOutputDevice* LogDevice = NULL;
+		switch (Verbosity)
+		{
+		case ELogVerbosity::Error:
+		case ELogVerbosity::Warning:
+		case ELogVerbosity::Display:
+		case ELogVerbosity::SetColor:
+			if (GWarn)
 			{
-				LogDevice = GLog;
+				LogDevice = GWarn;
+				break;
 			}
-			break;
+		default:
+		{
+			LogDevice = GLog;
+		}
+		break;
 		}
 		GROWABLE_LOGF(LogDevice->Log(Category, Verbosity, Buffer))
 	}

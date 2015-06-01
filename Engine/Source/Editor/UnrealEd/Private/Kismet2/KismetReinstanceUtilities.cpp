@@ -178,16 +178,13 @@ FBlueprintCompileReinstancer::FBlueprintCompileReinstancer(UClass* InClassToRein
 		DuplicatedClass->StaticLink(true);
 
 		// Copy over the ComponentNametoDefaultObjectMap, which tells CopyPropertiesForUnrelatedObjects which components are instanced and which aren't
-
-		GIsDuplicatingClassForReinstancing = true;
-		UObject* OldCDO = ClassToReinstance->GetDefaultObject();
-		DuplicatedClass->ClassDefaultObject = (UObject*)StaticDuplicateObject(OldCDO, GetTransientPackage(), *DuplicatedClass->GetDefaultObjectName().ToString());
-		GIsDuplicatingClassForReinstancing = false;
+		
+		DuplicatedClass->ClassDefaultObject = GetClassCDODuplicate(ClassToReinstance, DuplicatedClass->GetDefaultObjectName());
 
 		DuplicatedClass->ClassDefaultObject->SetFlags(RF_ClassDefaultObject);
 		DuplicatedClass->ClassDefaultObject->SetClass(DuplicatedClass);
 
-		OldCDO->SetClass(DuplicatedClass);
+		ClassToReinstance->GetDefaultObject()->SetClass(DuplicatedClass);
 		ObjectsThatShouldUseOldStuff.Add(DuplicatedClass); //CDO of REINST_ class can be used as archetype
 
 		if( !bIsBytecodeOnly )
@@ -923,7 +920,7 @@ void FBlueprintCompileReinstancer::ReplaceInstancesOfClass(UClass* OldClass, UCl
 	TArray<UObject*> PotentialEditorsForRefreshing;
 
 	// A list of component owners that need their construction scripts re-ran (because a component of theirs has been reinstanced)
-	TSet<AActor*> OwnersToReconstruct;
+	TSet<AActor*> OwnersToRerunConstructionScript;
 
 	// Set global flag to let system know we are reconstructing blueprint instances
 	TGuardValue<bool> GuardTemplateNameFlag(GIsReconstructingBlueprintInstances, true);
@@ -1100,7 +1097,12 @@ void FBlueprintCompileReinstancer::ReplaceInstancesOfClass(UClass* OldClass, UCl
 						// we need to keep track of actor instances that need 
 						// their construction scripts re-ran (since we've just 
 						// replaced a component they own)
-						OwnersToReconstruct.Add(OwningActor);
+						
+						// Skipping CDOs as CSs are not allowed for them.
+						if (!OwningActor->HasAnyFlags(RF_ClassDefaultObject))
+						{
+							OwnersToRerunConstructionScript.Add(OwningActor);
+						}
 					}
 				}
 			}
@@ -1179,7 +1181,7 @@ void FBlueprintCompileReinstancer::ReplaceInstancesOfClass(UClass* OldClass, UCl
 
 	// in the case where we're replacing component instances, we need to make 
 	// sure to re-run their owner's construction scripts
-	for (AActor* ActorInstance : OwnersToReconstruct)
+	for (AActor* ActorInstance : OwnersToRerunConstructionScript)
 	{
 		ActorInstance->RerunConstructionScripts();
 	}
@@ -1277,4 +1279,26 @@ void FBlueprintCompileReinstancer::ReparentChild(UClass* ChildClass)
 	ChildClass->SetSuperStruct(DuplicatedClass);
 	ChildClass->Bind();
 	ChildClass->StaticLink(true);
+}
+
+UObject* FBlueprintCompileReinstancer::GetClassCDODuplicate(UClass* Class, FName Name)
+{
+	UObject* DupCDO = nullptr;
+
+	FCDODuplicatesProvider& CDODupProvider = GetCDODuplicatesProviderDelegate();
+
+	if (!CDODupProvider.IsBound() || (DupCDO = CDODupProvider.Execute(Class, Name)) == nullptr)
+	{
+		GIsDuplicatingClassForReinstancing = true;
+		DupCDO = (UObject*)StaticDuplicateObject(Class->GetDefaultObject(), GetTransientPackage(), *Name.ToString());
+		GIsDuplicatingClassForReinstancing = false;
+	}
+
+	return DupCDO;
+}
+
+FBlueprintCompileReinstancer::FCDODuplicatesProvider& FBlueprintCompileReinstancer::GetCDODuplicatesProviderDelegate()
+{
+	static FCDODuplicatesProvider Delegate;
+	return Delegate;
 }

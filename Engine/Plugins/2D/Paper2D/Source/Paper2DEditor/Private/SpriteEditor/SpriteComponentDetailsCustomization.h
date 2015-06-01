@@ -16,4 +16,10 @@ public:
 	// IDetailCustomization interface
 	virtual void CustomizeDetails(IDetailLayoutBuilder& DetailLayout) override;
 	// End of IDetailCustomization interface
+
+protected:
+	FReply MergeSprites();
+
+protected:
+	TArray<TWeakObjectPtr<UObject>> ObjectsBeingCustomized;
 };

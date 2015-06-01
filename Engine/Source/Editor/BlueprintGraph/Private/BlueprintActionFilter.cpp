@@ -22,6 +22,7 @@
 #include "K2Node_ExecutionSequence.h"
 #include "K2Node_DynamicCast.h"
 #include "K2Node_BaseAsyncTask.h"
+#include "EditorCategoryUtils.h"
 
 /*******************************************************************************
  * Static BlueprintActionFilter Helpers
@@ -771,46 +772,25 @@ static bool BlueprintActionFilterImpl::IsFieldCategoryHidden(FBlueprintActionFil
 {
 	bool bIsFilteredOut = false;
 
-	DECLARE_DELEGATE_RetVal_OneParam(bool, FIsFieldHiddenDelegate, UClass*);
-	FIsFieldHiddenDelegate IsFieldHiddenDelegate;
-
-	if (UFunction const* Function = BlueprintAction.GetAssociatedFunction())
+	const UFunction* NodeFunction = BlueprintAction.GetAssociatedFunction();
+	if ((NodeFunction != nullptr) && NodeFunction->HasAnyFunctionFlags(FUNC_Static))
 	{
-		auto IsFunctionHiddenLambda = [](UClass* Class, UFunction const* InFunction)->bool
-		{
-			// Only hide functions that are not static
-			return !InFunction->HasAnyFunctionFlags(FUNC_Static) && FObjectEditorUtils::IsFunctionHiddenFromClass(InFunction, Class->GetAuthoritativeClass());
-		};
-		IsFieldHiddenDelegate = FIsFieldHiddenDelegate::CreateStatic(IsFunctionHiddenLambda, Function);
+		bIsFilteredOut = false;
 	}
-	else if (UProperty const* Property = BlueprintAction.GetAssociatedProperty())
+	else
 	{
-		auto IsPropertyHiddenLambda = [](UClass* Class, UProperty const* InProperty)->bool
-		{
-			return FObjectEditorUtils::IsVariableCategoryHiddenFromClass(InProperty, Class->GetAuthoritativeClass());
-		};
-		IsFieldHiddenDelegate = FIsFieldHiddenDelegate::CreateStatic(IsPropertyHiddenLambda, Property);
-	}
-
-	if (IsFieldHiddenDelegate.IsBound())
-	{
-		bIsFilteredOut = Filter.TargetClasses.Num() > 0;
+		bIsFilteredOut = (Filter.TargetClasses.Num() > 0);
 
 		for (UClass* TargetClass : Filter.TargetClasses)
 		{
-			if (!IsFieldHiddenDelegate.Execute(TargetClass))
+			// Use the UiSpec to get the category
+			FBlueprintActionUiSpec UiSpec = BlueprintAction.NodeSpawner->GetUiSpec(Filter.Context, BlueprintAction.GetBindings());
+			if (!FEditorCategoryUtils::IsCategoryHiddenFromClass(TargetClass->GetAuthoritativeClass(), UiSpec.Category.ToString()))
 			{
 				bIsFilteredOut = false;
 				break;
 			}
 		}
-
-		// handled now in each IsBindingCompatible() check
-// 		for (auto BindingIt = BlueprintAction.GetBindings().CreateConstIterator(); BindingIt && !bIsFilteredOut; ++BindingIt)
-// 		{
-// 			UClass* BindingClass = FBlueprintNodeSpawnerUtils::GetBindingClass(BindingIt->Get());
-// 			bIsFilteredOut = IsFieldHiddenDelegate.Execute(BindingClass);
-// 		}
 	}
 
 	return bIsFilteredOut;
@@ -936,7 +916,7 @@ static bool BlueprintActionFilterImpl::IsOutOfScopeLocalVariable(FBlueprintActio
 			UEdGraph const* VarOuter = Cast<UEdGraph const>(VarSpawner->GetVarOuter());
 			for (UEdGraph* Graph : Filter.Context.Graphs)
 			{
-				if (Graph != VarOuter)
+				if (FBlueprintEditorUtils::GetTopLevelGraph(Graph) != VarOuter)
 				{
 					bIsFilteredOut = true;
 					break;
@@ -1695,8 +1675,6 @@ FBlueprintActionFilter::FBlueprintActionFilter(uint32 Flags/*= 0x00*/)
 	//
 	// this test in-particular spawns a template-node and then calls 
 	// AllocateDefaultPins() which is costly, so it should be very last!
-	AddRejectionTest(FRejectionTestDelegate::CreateStatic(IsStaleFieldAction));
-
 	AddRejectionTest(FRejectionTestDelegate::CreateStatic(IsIncompatibleAnimNotification));
 	AddRejectionTest(FRejectionTestDelegate::CreateStatic(IsNodeTemplateSelfFiltered));
 	AddRejectionTest(FRejectionTestDelegate::CreateStatic(IsMissingMatchingPinParam));
@@ -1731,6 +1709,11 @@ FBlueprintActionFilter::FBlueprintActionFilter(uint32 Flags/*= 0x00*/)
 	AddRejectionTest(FRejectionTestDelegate::CreateStatic(IsUnBoundBindingSpawner));
 	AddRejectionTest(FRejectionTestDelegate::CreateStatic(IsOutOfScopeLocalVariable));
 	AddRejectionTest(FRejectionTestDelegate::CreateStatic(IsLevelScriptActionValid));
+
+
+	// added as the first rejection test, so that we don't operate on stale 
+	// (TRASH/REINST) class fields
+	AddRejectionTest(FRejectionTestDelegate::CreateStatic(IsStaleFieldAction));
 }
 
 //------------------------------------------------------------------------------
@@ -1791,7 +1774,7 @@ bool FBlueprintActionFilter::IsFilteredByThis(FBlueprintActionInfo& BlueprintAct
 	// for debugging purposes:
 // 	FBlueprintActionUiSpec UiSpec = BlueprintAction.NodeSpawner->GetUiSpec(Context, BlueprintAction.GetBindings());
 // 	bool bDebugBreak = false;
-// 	if (UiSpec.MenuName.ToString().Contains("Set Array Elem"))
+// 	if (UiSpec.MenuName.ToString().Contains("Print String"))
 // 	{
 // 		bDebugBreak = true;
 // 	}

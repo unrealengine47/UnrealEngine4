@@ -48,7 +48,7 @@ FAudioEffectsManager* FAudioDevice::CreateEffectsManager()
 	return new FAudioEffectsManager(this);
 }
 
-bool FAudioDevice::Init()
+bool FAudioDevice::Init(int32 InMaxChannels)
 {
 	if (bIsInitialized)
 	{
@@ -57,7 +57,7 @@ bool FAudioDevice::Init()
 
 	bool bDeferStartupPrecache = false;
 	// initialize config variables
-	verify(GConfig->GetInt(TEXT("Audio"), TEXT("MaxChannels"), MaxChannels, GEngineIni));
+	MaxChannels = InMaxChannels;
 	verify(GConfig->GetInt(TEXT("Audio"), TEXT("CommonAudioPoolSize"), CommonAudioPoolSize, GEngineIni));
 	
 	// If this is true, skip the initial startup precache so we can do it later in the flow
@@ -1671,6 +1671,12 @@ int32 FAudioDevice::GetSortedActiveWaveInstances(TArray<FWaveInstance*>& WaveIns
 	{
 		FActiveSound* ActiveSound = ActiveSoundsCopy[i];
 
+		if (!ActiveSound)
+		{
+			UE_LOG(LogAudio, Error, TEXT("Null sound at index %d in ActiveSounds Array!"), i);
+			continue;
+		}
+		
 		if( !ActiveSound->Sound )
 		{
 			// No sound - cleanup and remove
@@ -1679,27 +1685,39 @@ int32 FAudioDevice::GetSortedActiveWaveInstances(TArray<FWaveInstance*>& WaveIns
 		// If the world scene allows audio - tick wave instances.
 		else if( ActiveSound->World == NULL || ActiveSound->World->AllowAudioPlayback() )
 		{
-			const float Duration = ActiveSound->Sound->GetDuration();
-			// Divide by minimum pitch for longest possible duration
-			if( Duration < INDEFINITELY_LOOPING_DURATION && ActiveSound->PlaybackTime > Duration / MIN_PITCH )
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+			if ( !ensureMsgf(ActiveSound->Sound->IsValidLowLevel(), TEXT("ActiveSound with INVALID sound. AudioComponent=%s. DebugOriginalSoundName=%s"),
+				 ActiveSound->AudioComponent.IsValid() ? *ActiveSound->AudioComponent->GetPathName() : TEXT("NO COMPONENT"),
+				 *ActiveSound->DebugOriginalSoundName.ToString() ))
 			{
-				UE_LOG(LogAudio, Log, TEXT( "Sound stopped due to duration: %g > %g : %s %s" ), 
-					ActiveSound->PlaybackTime, 
-					Duration, 
-					*ActiveSound->Sound->GetName(), 
-					(ActiveSound->AudioComponent.IsValid() ? *ActiveSound->AudioComponent->GetName() : TEXT("NO COMPONENT")));
+				// Sound was not valid, stop playing it.
 				ActiveSound->Stop(this);
 			}
 			else
+#endif
 			{
-				// If not in game, do not advance sounds unless they are UI sounds.
-				float UsedDeltaTime = FApp::GetDeltaTime();
-				if (GetType == ESortedActiveWaveGetType::QueryOnly || (GetType == ESortedActiveWaveGetType::PausedUpdate && !ActiveSound->bIsUISound))
+				const float Duration = ActiveSound->Sound->GetDuration();
+				// Divide by minimum pitch for longest possible duration
+				if( Duration < INDEFINITELY_LOOPING_DURATION && ActiveSound->PlaybackTime > Duration / MIN_PITCH )
 				{
-					UsedDeltaTime = 0.0f;
+					UE_LOG(LogAudio, Log, TEXT( "Sound stopped due to duration: %g > %g : %s %s" ), 
+						ActiveSound->PlaybackTime, 
+						Duration, 
+						*ActiveSound->Sound->GetName(), 
+						(ActiveSound->AudioComponent.IsValid() ? *ActiveSound->AudioComponent->GetName() : TEXT("NO COMPONENT")));
+					ActiveSound->Stop(this);
 				}
+				else
+				{
+					// If not in game, do not advance sounds unless they are UI sounds.
+					float UsedDeltaTime = FApp::GetDeltaTime();
+					if (GetType == ESortedActiveWaveGetType::QueryOnly || (GetType == ESortedActiveWaveGetType::PausedUpdate && !ActiveSound->bIsUISound))
+					{
+						UsedDeltaTime = 0.0f;
+					}
 
-				ActiveSound->UpdateWaveInstances( this, WaveInstances, UsedDeltaTime );
+					ActiveSound->UpdateWaveInstances( this, WaveInstances, UsedDeltaTime );
+				}
 			}
 		}
 	}
@@ -2044,6 +2062,21 @@ void FAudioDevice::AddNewActiveSound( const FActiveSound& NewActiveSound )
 #endif // !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 
 	FActiveSound* ActiveSound = new FActiveSound(NewActiveSound);
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+	if (ActiveSound->Sound)
+	{
+		if (!ensureMsgf(ActiveSound->Sound->IsValidLowLevel(), TEXT("AddNewActiveSound with INVALID sound. AudioComponent=%s"),
+			ActiveSound->AudioComponent.IsValid() ? *ActiveSound->AudioComponent->GetPathName() : TEXT("NO COMPONENT") ))
+		{
+			static FName InvalidSoundName(TEXT("INVALID_Sound"));
+			ActiveSound->DebugOriginalSoundName = InvalidSoundName;
+		}
+		else
+		{
+			ActiveSound->DebugOriginalSoundName = ActiveSound->Sound->GetFName();
+		}
+	}
+#endif
 	ActiveSounds.Add(ActiveSound);
 }
 

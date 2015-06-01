@@ -1939,7 +1939,7 @@ public:
 	/** Looks up the GUID of a package on disk. The package must NOT be in the auto-download cache.
 	 * This may require loading the header of the package in question and is therefore slow.
 	 */
-	static FGuid GetPackageGuid(FName PackageName);
+	static FGuid GetPackageGuid(FName PackageName, bool bForPIE);
 
 	/**
 	 * Returns whether we are running on a console platform or on the PC.
@@ -1990,6 +1990,11 @@ public:
 	virtual void DumpFPSChart( const FString& InMapName, bool bForceDump = false );
 
 private:
+
+	/**
+	* Calculates the range of FPS values for the given bucket index
+	*/
+	void CalcQuantisedFPSRange(int32 BucketIndex, int32& StartFPS, int32& EndFPS);
 
 	/**
 	 * Dumps the FPS chart information to HTML.

@@ -1,7 +1,6 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "PaperSpriteSheetImporterPrivatePCH.h"
-#include "Paper2DClasses.h"
 #include "Json.h"
 #include "PaperJSONHelpers.h"
 #include "AssetToolsModule.h"
@@ -61,13 +60,7 @@ UObject* UPaperSpriteSheetImportFactory::FactoryCreateText(UClass* InClass, UObj
 		UPaperSpriteSheet* SpriteSheet = NewObject<UPaperSpriteSheet>(InParent, InName, Flags);
 		if (Importer.PerformImport(LongPackagePath, Flags, SpriteSheet))
 		{
-			if (SpriteSheet->AssetImportData == nullptr)
-			{
-				SpriteSheet->AssetImportData = NewObject<UAssetImportData>(SpriteSheet);
-			}
-
-			SpriteSheet->AssetImportData->SourceFilePath = FReimportManager::SanitizeImportFilename(CurrentFilename, SpriteSheet);
-			SpriteSheet->AssetImportData->SourceFileTimestamp = IFileManager::Get().GetTimeStamp(*CurrentFilename).ToString();
+			SpriteSheet->AssetImportData->Update(CurrentFilename);
 			SpriteSheet->AssetImportData->bDirty = false;
 
 			Result = SpriteSheet;

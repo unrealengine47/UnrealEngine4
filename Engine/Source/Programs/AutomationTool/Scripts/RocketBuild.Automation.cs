@@ -769,9 +769,9 @@ namespace Rocket
 			BuildDerivedDataCacheNode DerivedDataCacheNode = (BuildDerivedDataCacheNode)bp.FindNode(BuildDerivedDataCacheNode.StaticGetFullName(HostPlatform));
 			CopyManifestFilesToOutput(DerivedDataCacheNode.SavedManifestPath, DerivedDataCacheNode.SavedDir, OutputDir);
 
-			// Write the UE4CommandLine.txt file with the 
-			string CommandLineFile = CommandUtils.CombinePaths(OutputDir, "UE4CommandLine.txt");
-			CommandUtils.WriteAllText(CommandLineFile, "-installedengine -rocket");
+			// Write the Rocket.txt file with the 
+			string RocketFile = CommandUtils.CombinePaths(OutputDir, "Engine/Build/Rocket.txt");
+			CommandUtils.WriteAllText(RocketFile, "-installedengine -rocket");
 
 			// Create a dummy build product
 			BuildProducts = new List<string>();
@@ -903,7 +903,7 @@ namespace Rocket
 				foreach(string InputFileName in AllDependencyBuildProducts)
 				{
 					string Extension = Path.GetExtension(InputFileName);
-					if(DebugExtensions.Contains(Extension))
+					if(DebugExtensions.Contains(Extension) || Extension == ".exe" || Extension == ".dll") // Need all windows build products for crash reporter
 					{
 						string OutputFileName = CommandUtils.MakeRerootedFilePath(InputFileName, CommandUtils.CmdEnv.LocalRoot, SymbolsOutputDir);
 						CommandUtils.CopyFile(InputFileName, OutputFileName);

@@ -135,30 +135,28 @@ FAnimTickRecord& UAnimInstance::CreateUninitializedTickRecord(int32 GroupIndex, 
 	return *TickRecord;
 }
 
-void UAnimInstance::SequenceEvaluatePose(UAnimSequenceBase* Sequence, FA2Pose& Pose, const FAnimExtractContext& ExtractionContext)
+void UAnimInstance::SequenceEvaluatePose(UAnimSequenceBase* Sequence, struct FCompactPose& Pose, const FAnimExtractContext& ExtractionContext)
 {
 	SCOPE_CYCLE_COUNTER(STAT_AnimNativeEvaluatePoses);
-	checkSlow( RequiredBones.IsValid() );
+	checkSlow(RequiredBones.IsValid());
 
 	USkeletalMeshComponent* Component = GetSkelMeshComponent();
 
 	FAnimExtractContext NewExtractContext(ExtractionContext);
 	NewExtractContext.bExtractRootMotion = RootMotionMode == ERootMotionMode::RootMotionFromEverything || RootMotionMode == ERootMotionMode::IgnoreRootMotion;
 
-	if(const UAnimSequence* AnimSequence = Cast<const UAnimSequence>(Sequence))
+	if (const UAnimSequence* AnimSequence = Cast<const UAnimSequence>(Sequence))
 	{
 		FAnimationRuntime::GetPoseFromSequence(
 			AnimSequence,
-			RequiredBones,
-			/*out*/ Pose.Bones, 
+			/*out*/ Pose,
 			NewExtractContext);
 	}
-	else if(const UAnimComposite* Composite = Cast<const UAnimComposite>(Sequence))
+	else if (const UAnimComposite* Composite = Cast<const UAnimComposite>(Sequence))
 	{
 		FAnimationRuntime::GetPoseFromAnimTrack(
-			Composite->AnimationTrack, 
-			RequiredBones, 
-			/*out*/ Pose.Bones,
+			Composite->AnimationTrack,
+			/*out*/ Pose,
 			NewExtractContext);
 	}
 	else
@@ -166,39 +164,32 @@ void UAnimInstance::SequenceEvaluatePose(UAnimSequenceBase* Sequence, FA2Pose& P
 #if 0
 		UE_LOG(LogAnimation, Log, TEXT("FAnimationRuntime::GetPoseFromSequence - %s - No animation data!"), *GetFName());
 #endif
-		FAnimationRuntime::FillWithRefPose(Pose.Bones, RequiredBones);
+		Pose.ResetToRefPose();
 	}
 }
 
-void UAnimInstance::BlendSequences(const FA2Pose& Pose1, const FA2Pose& Pose2, float Alpha, FA2Pose& Result)
+void UAnimInstance::BlendSequences(const FCompactPose& Pose1, const FCompactPose& Pose2, float Alpha, FCompactPose& Result)
 {
 	SCOPE_CYCLE_COUNTER(STAT_AnimNativeBlendPoses);
 
-	const FTransformArrayA2* Children[2];
-	float Weights[2];
-
-	Children[0] = &(Pose1.Bones);
-	Children[1] = &(Pose2.Bones);
-
 	Alpha = FMath::Clamp<float>(Alpha, 0.0f, 1.0f);
-	Weights[0] = 1.0f - Alpha;
-	Weights[1] = Alpha;
 
-	if (Result.Bones.Num() < Pose1.Bones.Num())
+	if (Result.GetNumBones() < Pose1.GetNumBones())
 	{
-		ensureMsg (false, TEXT("Source Pose has more bones than Target Pose"));
+		ensureMsg(false, TEXT("Source Pose has more bones than Target Pose"));
 		//@hack
-		Result.Bones.AddUninitialized(Pose1.Bones.Num() - Result.Bones.Num());
+		Result.SetBoneContainer(&Pose1.GetBoneContainer());
 	}
-	FAnimationRuntime::BlendPosesTogether(2, Children, Weights, RequiredBones, /*out*/ Result.Bones);
+
+	FAnimationRuntime::BlendTwoPosesTogether(Pose1, Pose2, (1.0f - Alpha), Result);
 }
 
-void UAnimInstance::CopyPose(const FA2Pose& Source, FA2Pose& Destination)
+void UAnimInstance::CopyPose(const FCompactPose& Source, FCompactPose& Destination)
 {
 	if (&Destination != &Source)
 	{
 		SCOPE_CYCLE_COUNTER(STAT_AnimNativeCopyPoses);
-		Destination.Bones = Source.Bones;
+		Destination = Source;
 	}
 }
 
@@ -1044,108 +1035,14 @@ void UAnimInstance::DisplayDebug(class UCanvas* Canvas, const FDebugDisplayInfo&
 	}
 }
 
-void UAnimInstance::BlendSpaceEvaluatePose(class UBlendSpaceBase* BlendSpace, TArray<FBlendSampleData>& BlendSampleDataCache, struct FA2Pose& Pose)
+void UAnimInstance::BlendSpaceEvaluatePose(class UBlendSpaceBase* BlendSpace, TArray<FBlendSampleData>& BlendSampleDataCache, struct FCompactPose& OutPose)
 {
 	SCOPE_CYCLE_COUNTER(STAT_AnimNativeEvaluatePoses);
 
 	FAnimationRuntime::GetPoseFromBlendSpace(
 		BlendSpace,
 		BlendSampleDataCache, 
-		RequiredBones,
-		/*out*/ Pose.Bones);
-}
-
-void UAnimInstance::BlendRotationOffset(const struct FA2Pose& BasePose/* local space base pose */, struct FA2Pose const & RotationOffsetPose/* mesh space rotation only additive **/, float Alpha, struct FA2Pose& Pose /** local space blended pose **/)
-{
-	SCOPE_CYCLE_COUNTER(STAT_AnimNativeBlendPoses);
-
-	check ( RotationOffsetPose.Bones.Num() == RequiredBones.GetNumBones() );
-	check ( BasePose.Bones.Num() == RotationOffsetPose.Bones.Num() );
-	check ( Pose.Bones.Num() == RotationOffsetPose.Bones.Num() );
-
-	FA2Pose BlendedPose;
-	BlendedPose.Bones.AddUninitialized(Pose.Bones.Num());
-
-	// now Pose has Mesh based BasePose
-	// apply additive
-	if (Alpha > ZERO_ANIMWEIGHT_THRESH)
-	{
-		FA2Pose MeshBasePose;
-		MeshBasePose.Bones.AddUninitialized(Pose.Bones.Num());
-
-		// note that RotationOffsetPose has MeshSpaceRotation additive but everything else (translation/scale) is local space
-		// First calculate Mesh space for Base Pose
-		const TArray<FBoneIndexType> & RequiredBoneIndices = RequiredBones.GetBoneIndicesArray();
-
-		for (int32 I=0; I<RequiredBoneIndices.Num(); ++I)
-		{
-			int32 BoneIndex = RequiredBoneIndices[I];
-			int32 ParentIndex = RequiredBones.GetParentBoneIndex(BoneIndex);
-			if ( ParentIndex != INDEX_NONE )
-			{
-				MeshBasePose.Bones[BoneIndex] = BasePose.Bones[BoneIndex] * MeshBasePose.Bones[ParentIndex];
-			}
-			else
-			{
-				MeshBasePose.Bones[BoneIndex] = BasePose.Bones[BoneIndex];
-			}
-		}	
-		
-		const ScalarRegister VBlendWeight(Alpha);
-		for (int32 I=0; I<RequiredBoneIndices.Num(); ++I)
-		{
-			int32 BoneIndex = RequiredBoneIndices[I];
-			
-			FTransform& Result = BlendedPose.Bones[BoneIndex];
-
-			// We want Base pose (local Pose)
-			Result = BasePose.Bones[BoneIndex];
-
-			// set result rotation to be mesh space rotation, so that it applys to mesh space rotation
-			Result.SetRotation(MeshBasePose.Bones[BoneIndex].GetRotation());
-
-			// @fixme laurent - we should make a read only version so we can avoid the copy.
-			FTransform Additive = RotationOffsetPose.Bones[BoneIndex];
-			FTransform::BlendFromIdentityAndAccumulate(Result, Additive, VBlendWeight);
-		}
-
-		// Ensure that all of the resulting rotations are normalized
-		FAnimationRuntime::NormalizeRotations(RequiredBones, BlendedPose.Bones);
-
-		// now convert back to Local
-		for(int32 I=0; I<RequiredBoneIndices.Num(); ++I)
-		{
-			int32 BoneIndex = RequiredBoneIndices[I];
-			int32 ParentIndex = RequiredBones.GetParentBoneIndex(BoneIndex);
-
-			Pose.Bones[BoneIndex] = BlendedPose.Bones[BoneIndex];
-			if(ParentIndex != INDEX_NONE)
-			{
-				// convert to local space first
-				FQuat Rotation = BlendedPose.Bones[ParentIndex].GetRotation().Inverse() * BlendedPose.Bones[BoneIndex].GetRotation();
-				Pose.Bones[BoneIndex].SetRotation(Rotation);
-			}
-		}
-	}
-	else
-	{
-		BlendedPose = BasePose;
-	}
-}
-
-void UAnimInstance::ApplyAdditiveSequence(const struct FA2Pose& BasePose,const struct FA2Pose& AdditivePose,float Alpha,struct FA2Pose& Blended)
-{
-	if (Blended.Bones.Num() < BasePose.Bones.Num())
-	{
-		// see if this happens
-		ensureMsg (false, TEXT("BasePose has more bones than Blended pose"));
-		//@hack
-		Blended.Bones.AddUninitialized(BasePose.Bones.Num() - Blended.Bones.Num());
-	}
-
-	float BlendWeight = FMath::Clamp<float>(Alpha, 0.f, 1.f);
-
-	FAnimationRuntime::BlendAdditivePose(BasePose.Bones, AdditivePose.Bones, BlendWeight, RequiredBones, Blended.Bones);
+		/*out*/ OutPose);
 }
 
 void UAnimInstance::RecalcRequiredBones()
@@ -1478,11 +1375,12 @@ void UAnimInstance::GetSlotWeight(FName const & SlotNodeName, float& out_SlotNod
 	out_SourceWeight = 1.f - NonAdditiveTotalWeight;
 }
 
-void UAnimInstance::SlotEvaluatePose(FName SlotNodeName, const FA2Pose & SourcePose, FA2Pose & BlendedPose, float SlotNodeWeight)
+void UAnimInstance::SlotEvaluatePose(FName SlotNodeName, const FCompactPose& SourcePose, FCompactPose& BlendedPose, float SlotNodeWeight)
 {
 	//Accessing MontageInstances from this function is not safe (as this can be called during Parallel Anim Evaluation!
 	//Any montage data you need to add should be part of MontageEvaluationData
 
+	//MDW TODO
 	SCOPE_CYCLE_COUNTER(STAT_AnimNativeEvaluatePoses);
 	if (SlotNodeWeight <= ZERO_ANIMWEIGHT_THRESH)
 	{
@@ -1511,11 +1409,11 @@ void UAnimInstance::SlotEvaluatePose(FName SlotNodeName, const FA2Pose & SourceP
 			FSlotEvaluationPose NewPose(EvalState.MontageWeight, AdditiveAnimType);
 			
 			// Bone array has to be allocated prior to calling GetPoseFromAnimTrack
-			NewPose.Pose.Bones.AddUninitialized(RequiredBones.GetNumBones());
+			NewPose.Pose.SetBoneContainer(&RequiredBones);
 
 			// Extract pose from Track
 			FAnimExtractContext ExtractionContext(EvalState.MontagePosition, EvalState.Montage->HasRootMotion() && RootMotionMode != ERootMotionMode::NoRootMotionExtraction);
-			FAnimationRuntime::GetPoseFromAnimTrack(*AnimTrack, RequiredBones, NewPose.Pose.Bones, ExtractionContext);
+			FAnimationRuntime::GetPoseFromAnimTrack(*AnimTrack, NewPose.Pose, ExtractionContext);
 
 			TotalWeight += EvalState.MontageWeight;
 			if (AdditiveAnimType == AAT_None)
@@ -1572,31 +1470,31 @@ void UAnimInstance::SlotEvaluatePose(FName SlotNodeName, const FA2Pose & SourceP
 			float const SourceWeight = FMath::Clamp<float>(1.f - NonAdditiveWeight, 0.f, 1.f);
 			int32 const NumPoses = NonAdditivePoses.Num() + ((SourceWeight > ZERO_ANIMWEIGHT_THRESH) ? 1 : 0);
 
-			FTransformArrayA2 const ** BlendingPoses = new FTransformArrayA2 const *[NumPoses];
+			TArray<const FCompactPose*> BlendingPoses;
+			BlendingPoses.AddUninitialized(NumPoses);
+
 			TArray<float> BlendWeights;
 			BlendWeights.AddUninitialized(NumPoses);
 			for (int32 Index = 0; Index < NonAdditivePoses.Num(); Index++)
 			{
-				BlendingPoses[Index] = &NonAdditivePoses[Index].Pose.Bones;
+				BlendingPoses[Index] = &NonAdditivePoses[Index].Pose;
 				BlendWeights[Index] = NonAdditivePoses[Index].Weight;
 			}
 
 			if (SourceWeight > ZERO_ANIMWEIGHT_THRESH)
 			{
 				int32 const SourceIndex = BlendWeights.Num() - 1;
-				BlendingPoses[SourceIndex] = &SourcePose.Bones;
+				BlendingPoses[SourceIndex] = &SourcePose;
 				BlendWeights[SourceIndex] = SourceWeight;
 			}
 
 			// now time to blend all montages
-			FAnimationRuntime::BlendPosesTogether(BlendWeights.Num(), (const FTransformArrayA2**)BlendingPoses, (const float*)BlendWeights.GetData(), RequiredBones, BlendedPose.Bones);
-
-			// clean up memory
-			delete[] BlendingPoses;
+			FAnimationRuntime::BlendPosesTogether(BlendingPoses, BlendWeights, BlendedPose);
 		}
 	}
 
 	// Third pass, layer on weighted additive poses.
+	if (AdditivePoses.Num() > 0)
 	{
 		for (int32 Index = 0; Index < AdditivePoses.Num(); Index++)
 		{
@@ -1604,11 +1502,11 @@ void UAnimInstance::SlotEvaluatePose(FName SlotNodeName, const FA2Pose & SourceP
 			// if additive, we should blend with source to make it full body
 			if (AdditivePose.AdditiveType == AAT_LocalSpaceBase)
 			{
-				ApplyAdditiveSequence(BlendedPose, AdditivePose.Pose, AdditivePose.Weight, BlendedPose);
+				FAnimationRuntime::AccumulateAdditivePose(BlendedPose, AdditivePose.Pose, AdditivePose.Weight);
 			}
 			else if (AdditivePose.AdditiveType == AAT_RotationOffsetMeshSpace)
 			{
-				BlendRotationOffset(BlendedPose, AdditivePose.Pose, AdditivePose.Weight, BlendedPose);
+				FAnimationRuntime::AccumulateMeshSpaceRotationAdditiveToLocalPose(BlendedPose, AdditivePose.Pose, AdditivePose.Weight);
 			}
 			else
 			{
@@ -1616,6 +1514,9 @@ void UAnimInstance::SlotEvaluatePose(FName SlotNodeName, const FA2Pose & SourceP
 			}
 		}
 	}
+
+	// Normalize rotations after blending/accumulation
+	BlendedPose.NormalizeRotations();
 }
 
 void UAnimInstance::ReinitializeSlotNodes()

@@ -547,14 +547,14 @@ float UKismetMathLibrary::NormalizeToRange(float Value, float RangeMin, float Ra
 	return (Value - RangeMin) / (RangeMax - RangeMin);
 }
 
-float UKismetMathLibrary::MapRange(float Value, float InRangeA, float InRangeB, float OutRangeA, float OutRangeB)
+float UKismetMathLibrary::MapRangeUnclamped(float Value, float InRangeA, float InRangeB, float OutRangeA, float OutRangeB)
 {
-	if (InRangeB == InRangeA)
-	{
-		return OutRangeA;
-	}
+	return FMath::GetMappedRangeValueUnclamped(FVector2D(InRangeA,InRangeB),FVector2D(OutRangeA,OutRangeB),Value);
+}
 
-	return (Value - InRangeA) * (OutRangeB - OutRangeA) / (InRangeB - InRangeA) + OutRangeA;
+float UKismetMathLibrary::MapRangeClamped(float Value, float InRangeA, float InRangeB, float OutRangeA, float OutRangeB)
+{ 
+	return FMath::GetMappedRangeValueClamped(FVector2D(InRangeA,InRangeB),FVector2D(OutRangeA,OutRangeB),Value);
 }
 
 float UKismetMathLibrary::MultiplyByPi(float Value)
@@ -1175,6 +1175,21 @@ bool UKismetMathLibrary::ClassIsChildOf(TSubclassOf<class UObject> TestClass, TS
 
 /* DateTime functions
  *****************************************************************************/
+FDateTime UKismetMathLibrary::MakeDateTime(int32 Year, int32 Month, int32 Day, int32 Hour, int32 Minute, int32 Second, int32 Millisecond)
+{
+	return FDateTime(Year, Month, Day, Hour, Minute, Second, Millisecond);
+}
+
+void UKismetMathLibrary::BreakDateTime(FDateTime InDateTime, int32& Year, int32& Month, int32& Day, int32& Hour, int32& Minute, int32& Second, int32& Millisecond)
+{
+	Year = GetYear(InDateTime);
+	Month = GetMonth(InDateTime);
+	Day = GetDay(InDateTime);
+	Hour = GetHour(InDateTime);
+	Minute = GetMinute(InDateTime);
+	Second = GetSecond(InDateTime);
+	Millisecond = GetMillisecond(InDateTime);
+}
 
 FDateTime UKismetMathLibrary::Add_DateTimeTimespan( FDateTime A, FTimespan B )
 {
@@ -1363,6 +1378,20 @@ FDateTime UKismetMathLibrary::UtcNow( )
 
 /* Timespan functions
  *****************************************************************************/
+
+FTimespan UKismetMathLibrary::MakeTimespan(int32 Days, int32 Hours, int32 Minutes, int32 Seconds, int32 Milliseconds)
+{
+	return FTimespan(Days, Hours, Minutes, Seconds, Milliseconds);
+}
+
+void UKismetMathLibrary::BreakTimespan(FTimespan InTimespan, int32& Days, int32& Hours, int32& Minutes, int32& Seconds, int32& Milliseconds)
+{
+	Days = InTimespan.GetDays();
+	Hours = InTimespan.GetHours();
+	Minutes = InTimespan.GetMinutes();
+	Seconds = InTimespan.GetSeconds();
+	Milliseconds = InTimespan.GetMilliseconds();
+}
 
 FTimespan UKismetMathLibrary::Add_TimespanTimespan( FTimespan A, FTimespan B )
 {

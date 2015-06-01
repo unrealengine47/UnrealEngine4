@@ -45,9 +45,9 @@ public:
 		, RenderTarget( InComponent->GetRenderTarget() )
 		, MaterialInstance( InComponent->GetMaterialInstance() )
 		, BodySetup( InComponent->GetBodySetup() )
-		, bIsOpaque( InComponent->IsOpaque() )
+		, BlendMode( InComponent->GetBlendMode() )
 	{
-		bWillEverBeLit = false;	
+		bWillEverBeLit = false;
 	}
 
 	~FWidget3DSceneProxy()
@@ -121,13 +121,14 @@ public:
 
 	virtual FPrimitiveViewRelevance GetViewRelevance(const FSceneView* View) override
 	{
-		bool bVisible = true;// View->Family->EngineShowFlags.BillboardSprites;
+		bool bVisible = true;
 
 		FPrimitiveViewRelevance Result;
 		Result.bDrawRelevance = IsShown(View) && bVisible;
-		Result.bOpaqueRelevance = bIsOpaque;
-		Result.bNormalTranslucencyRelevance = !bIsOpaque;
-		Result.bSeparateTranslucencyRelevance = !bIsOpaque;
+		Result.bOpaqueRelevance = BlendMode == EWidgetBlendMode::Opaque;
+		Result.bMaskedRelevance = BlendMode == EWidgetBlendMode::Masked;
+		// ideally the TranslucencyRelevance should be filled out by the material, here we do it conservative
+		Result.bSeparateTranslucencyRelevance = Result.bSeparateTranslucencyRelevance = (BlendMode == EWidgetBlendMode::Transparent);
 		Result.bDynamicRelevance = true;
 		Result.bShadowRelevance = IsShadowCast(View);
 		Result.bEditorPrimitiveRelevance = false;
@@ -158,7 +159,7 @@ private:
 	UTextureRenderTarget2D* RenderTarget;
 	UMaterialInstanceDynamic* MaterialInstance;
 	UBodySetup* BodySetup;
-	bool bIsOpaque;
+	EWidgetBlendMode BlendMode;
 };
 
 /**
@@ -197,7 +198,7 @@ public:
 								// Make sure the player is close enough to the widget to interact with it
 								if ( FVector::DistSquared(CachedHitResult.TraceStart, CachedHitResult.ImpactPoint) <= FMath::Square(WidgetComponent->GetMaxInteractionDistance()) )
 								{
-									return WidgetComponent->GetHitWidgetPath(CachedHitResult, bIgnoreEnabledStatus);
+									return WidgetComponent->GetHitWidgetPath(CachedHitResult.Location, bIgnoreEnabledStatus);
 								}
 							}
 						}
@@ -247,7 +248,7 @@ public:
 								TSharedPtr<FVirtualPointerPosition> VirtualCursorPos = MakeShareable(new FVirtualPointerPosition);
 
 								FVector2D LocalHitLocation;
-								WidgetComponent->GetLocalHitLocation(CachedHitResult, LocalHitLocation);
+								WidgetComponent->GetLocalHitLocation(CachedHitResult.Location, LocalHitLocation);
 
 								VirtualCursorPos->CurrentCursorPosition = LocalHitLocation;
 								VirtualCursorPos->LastCursorPosition = LocalHitLocation;
@@ -317,8 +318,11 @@ UWidgetComponent::UWidgetComponent( const FObjectInitializer& PCIP )
 	, DrawSize( FIntPoint( 500, 500 ) )
 	, MaxInteractionDistance( 1000.f )
 	, BackgroundColor( FLinearColor::Transparent )
-	, bIsOpaque( false )
+	, BlendMode( EWidgetBlendMode::Masked )
+	, bIsOpaque_DEPRECATED( false )
 	, bIsTwoSided( false )
+	, ParabolaDistortion( 0 )
+	, TickWhenOffscreen( false )
 {
 	PrimaryComponentTick.bCanEverTick = true;
 	bTickInEditor = true;
@@ -329,17 +333,21 @@ UWidgetComponent::UWidgetComponent( const FObjectInitializer& PCIP )
 
 	// Translucent material instances
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> TranslucentMaterial_Finder( TEXT("/Engine/EngineMaterials/Widget3DPassThrough_Translucent") );
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> TranslucentMaterial_OneSided_Finder(TEXT("/Engine/EngineMaterials/Widget3DPassThrough_Translucent_OneSided"));
 	TranslucentMaterial = TranslucentMaterial_Finder.Object;
-
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> TranslucentMaterial_OneSided_Finder( TEXT( "/Engine/EngineMaterials/Widget3DPassThrough_Translucent_OneSided" ) );
 	TranslucentMaterial_OneSided = TranslucentMaterial_OneSided_Finder.Object;
 
 	// Opaque material instances
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> OpaqueMaterial_Finder( TEXT( "/Engine/EngineMaterials/Widget3DPassThrough_Opaque" ) );
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> OpaqueMaterial_OneSided_Finder(TEXT("/Engine/EngineMaterials/Widget3DPassThrough_Opaque_OneSided"));
 	OpaqueMaterial = OpaqueMaterial_Finder.Object;
-
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> OpaqueMaterial_OneSided_Finder( TEXT( "/Engine/EngineMaterials/Widget3DPassThrough_Opaque_OneSided" ) );
 	OpaqueMaterial_OneSided = OpaqueMaterial_OneSided_Finder.Object;
+
+	// Masked material instances
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> MaskedMaterial_Finder(TEXT("/Engine/EngineMaterials/Widget3DPassThrough_Masked"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> MaskedMaterial_OneSided_Finder(TEXT("/Engine/EngineMaterials/Widget3DPassThrough_Masked_OneSided"));
+	MaskedMaterial = MaskedMaterial_Finder.Object;
+	MaskedMaterial_OneSided = MaskedMaterial_OneSided_Finder.Object;
 
 	LastLocalHitLocation = FVector2D::ZeroVector;
 	//bGenerateOverlapEvents = false;
@@ -439,13 +447,17 @@ void UWidgetComponent::OnRegister()
 			if ( !MaterialInstance )
 			{
 				UMaterialInterface* Parent = nullptr;
-				if ( bIsOpaque )
+				switch ( BlendMode )
 				{
+				case EWidgetBlendMode::Opaque:
 					Parent = bIsTwoSided ? OpaqueMaterial : OpaqueMaterial_OneSided;
-				}
-				else
-				{
+					break;
+				case EWidgetBlendMode::Masked:
+					Parent = bIsTwoSided ? MaskedMaterial : MaskedMaterial_OneSided;
+					break;
+				case EWidgetBlendMode::Transparent:
 					Parent = bIsTwoSided ? TranslucentMaterial : TranslucentMaterial_OneSided;
+					break;
 				}
 
 				MaterialInstance = UMaterialInstanceDynamic::Create(Parent, this);
@@ -533,49 +545,52 @@ void UWidgetComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, 
 		}
 
 		const float RenderTimeThreshold = .5f;
-		if ( IsVisible() && GetWorld()->TimeSince(LastRenderTime) <= RenderTimeThreshold ) // Don't bother ticking if it hasn't been rendered recently
+		if ( IsVisible() )
 		{
-			SlateWidget->SlatePrepass();
-
-			FGeometry WindowGeometry = FGeometry::MakeRoot(DrawSize, FSlateLayoutTransform());
-
-			SlateWidget->TickWidgetsRecursively(WindowGeometry, FApp::GetCurrentTime(), DeltaTime);
-
-			// Ticking can cause geometry changes.  Recompute
-			SlateWidget->SlatePrepass();
-
-			// Get the free buffer & add our virtual window
-			FSlateDrawBuffer& DrawBuffer = Renderer->GetDrawBuffer();
-			FSlateWindowElementList& WindowElementList = DrawBuffer.AddWindowElementList(SlateWidget.ToSharedRef());
-
-			int32 MaxLayerId = 0;
+			// if we don't tick when offscreen, don't bother ticking if it hasn't been rendered recently
+			if ( TickWhenOffscreen || GetWorld()->TimeSince(LastRenderTime) <= RenderTimeThreshold )
 			{
-				// Prepare the test grid 
-				HitTestGrid->ClearGridForNewFrame(WindowGeometry.GetClippingRect());
+				SlateWidget->SlatePrepass();
 
-				// Paint the window
-				MaxLayerId = SlateWidget->Paint(
-					FPaintArgs(SlateWidget.ToSharedRef(), *HitTestGrid, FVector2D::ZeroVector, FSlateApplication::Get().GetCurrentTime(), FSlateApplication::Get().GetDeltaTime()),
-					WindowGeometry, WindowGeometry.GetClippingRect(),
-					WindowElementList,
-					0,
-					FWidgetStyle(),
-					SlateWidget->IsEnabled());
-			}
+				FGeometry WindowGeometry = FGeometry::MakeRoot(DrawSize, FSlateLayoutTransform());
 
-			Renderer->DrawWindow_GameThread(DrawBuffer);
+				SlateWidget->TickWidgetsRecursively(WindowGeometry, FApp::GetCurrentTime(), DeltaTime);
 
-			UpdateRenderTarget();
+				// Ticking can cause geometry changes.  Recompute
+				SlateWidget->SlatePrepass();
 
-			// Enqueue a command to unlock the draw buffer after all windows have been drawn
-			ENQUEUE_UNIQUE_RENDER_COMMAND_THREEPARAMETER(UWidgetComponentRenderToTexture,
-				FSlateDrawBuffer&, InDrawBuffer, DrawBuffer,
-				UTextureRenderTarget2D*, InRenderTarget, RenderTarget,
-				ISlate3DRenderer*, InRenderer, Renderer.Get(),
+				// Get the free buffer & add our virtual window
+				FSlateDrawBuffer& DrawBuffer = Renderer->GetDrawBuffer();
+				FSlateWindowElementList& WindowElementList = DrawBuffer.AddWindowElementList(SlateWidget.ToSharedRef());
+
+				int32 MaxLayerId = 0;
 				{
-					InRenderer->DrawWindowToTarget_RenderThread(RHICmdList, InRenderTarget, InDrawBuffer);
-				});
+					// Prepare the test grid 
+					HitTestGrid->ClearGridForNewFrame(WindowGeometry.GetClippingRect());
 
+					// Paint the window
+					MaxLayerId = SlateWidget->Paint(
+						FPaintArgs(SlateWidget.ToSharedRef(), *HitTestGrid, FVector2D::ZeroVector, FSlateApplication::Get().GetCurrentTime(), FSlateApplication::Get().GetDeltaTime()),
+						WindowGeometry, WindowGeometry.GetClippingRect(),
+						WindowElementList,
+						0,
+						FWidgetStyle(),
+						SlateWidget->IsEnabled());
+				}
+
+				Renderer->DrawWindow_GameThread(DrawBuffer);
+
+				UpdateRenderTarget();
+
+				// Enqueue a command to unlock the draw buffer after all windows have been drawn
+				ENQUEUE_UNIQUE_RENDER_COMMAND_THREEPARAMETER(UWidgetComponentRenderToTexture,
+					FSlateDrawBuffer&, InDrawBuffer, DrawBuffer,
+					UTextureRenderTarget2D*, InRenderTarget, RenderTarget,
+					ISlate3DRenderer*, InRenderer, Renderer.Get(),
+					{
+						InRenderer->DrawWindowToTarget_RenderThread(RHICmdList, InRenderTarget, InDrawBuffer);
+					});
+			}
 		}
 	}
 	else
@@ -696,6 +711,7 @@ void UWidgetComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyCha
 		static FName IsOpaqueName("bIsOpaque");
 		static FName IsTwoSidedName("bIsTwoSided");
 		static FName BackgroundColorName("BackgroundColor");
+		static FName ParabolaDistortionName(TEXT("ParabolaDistortion"));
 
 		auto PropertyName = Property->GetFName();
 
@@ -710,7 +726,7 @@ void UWidgetComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyCha
 
 			MarkRenderStateDirty();
 		}
-		else if ( PropertyName == IsOpaqueName  || PropertyName == BackgroundColorName || PropertyName == IsTwoSidedName)
+		else if ( PropertyName == IsOpaqueName || PropertyName == BackgroundColorName || PropertyName == IsTwoSidedName || PropertyName == ParabolaDistortionName)
 		{
 			MarkRenderStateDirty();
 		}
@@ -801,25 +817,28 @@ void UWidgetComponent::UpdateWidget()
 
 void UWidgetComponent::UpdateRenderTarget()
 {
+	bool bRenderStateDirty = false;
 	bool bClearColorChanged = false;
+
+	FLinearColor ActualBackgroundColor = BackgroundColor;
+	switch ( BlendMode )
+	{
+	case EWidgetBlendMode::Opaque:
+		ActualBackgroundColor.A = 1.0f;
+	case EWidgetBlendMode::Masked:
+		ActualBackgroundColor.A = 0.0f;
+	}
 
 	if(!RenderTarget && DrawSize != FIntPoint::ZeroValue)
 	{
 		RenderTarget = NewObject<UTextureRenderTarget2D>(this);
+		RenderTarget->ClearColor = ActualBackgroundColor;
 
-		RenderTarget->ClearColor = BackgroundColor;
-
-		if (bIsOpaque)
-		{
-			RenderTarget->ClearColor.A = 1.0f;
-		}
-
-		bClearColorChanged = true;
+		bClearColorChanged = bRenderStateDirty = true;
 
 		RenderTarget->InitCustomFormat(DrawSize.X, DrawSize.Y, PF_B8G8R8A8, false);
 
 		MaterialInstance->SetTextureParameterValue( "SlateUI", RenderTarget );
-		MarkRenderStateDirty();
 	}
 	else if ( DrawSize != FIntPoint::ZeroValue )
 	{
@@ -827,24 +846,14 @@ void UWidgetComponent::UpdateRenderTarget()
 		if ( RenderTarget->SizeX != DrawSize.X || RenderTarget->SizeY != DrawSize.Y )
 		{
 			RenderTarget->InitCustomFormat( DrawSize.X, DrawSize.Y, PF_B8G8R8A8, false );
-			MarkRenderStateDirty();
+			bRenderStateDirty = true;
 		}
 
 		// Update the clear color
-		if (!bIsOpaque && RenderTarget->ClearColor != BackgroundColor)
+		if ( RenderTarget->ClearColor != ActualBackgroundColor )
 		{
-			RenderTarget->ClearColor = BackgroundColor;
-			bClearColorChanged = true;
-		}
-		else if ( bIsOpaque )
-		{
-			// If opaque, make sure the alpha channel is set to 1.0
-			FLinearColor ClearColor( BackgroundColor.R, BackgroundColor.G, BackgroundColor.B, 1.0f );
-			if ( RenderTarget->ClearColor != ClearColor )
-			{
-				RenderTarget->ClearColor = ClearColor;
-				bClearColorChanged = true;
-			}
+			RenderTarget->ClearColor = ActualBackgroundColor;
+			bClearColorChanged = bRenderStateDirty = true;
 		}
 	}
 
@@ -852,6 +861,19 @@ void UWidgetComponent::UpdateRenderTarget()
 	if ( bClearColorChanged )
 	{
 		MaterialInstance->SetVectorParameterValue( "BackColor", RenderTarget->ClearColor );
+	}
+
+	static FName ParabolaDistortionName(TEXT("ParabolaDistortion"));
+
+	float CurrentParabolaValue;
+	if ( MaterialInstance->GetScalarParameterValue(ParabolaDistortionName, CurrentParabolaValue) && CurrentParabolaValue != ParabolaDistortion )
+	{
+		MaterialInstance->SetScalarParameterValue(ParabolaDistortionName, ParabolaDistortion);
+		bRenderStateDirty = true;
+	}
+
+	if ( bRenderStateDirty )
+	{
 		MarkRenderStateDirty();
 	}
 }
@@ -878,14 +900,20 @@ void UWidgetComponent::UpdateBodySetup( bool bDrawSizeChanged )
 	}	
 }
 
-void UWidgetComponent::GetLocalHitLocation(const FHitResult& HitResult, FVector2D& OutLocalHitLocation) const
+void UWidgetComponent::GetLocalHitLocation(FVector WorldHitLocation, FVector2D& OutLocalWidgetHitLocation) const
 {
 	// Find the hit location on the component
-	OutLocalHitLocation = FVector2D(ComponentToWorld.InverseTransformPosition(HitResult.Location));
+	OutLocalWidgetHitLocation = FVector2D(ComponentToWorld.InverseTransformPosition(WorldHitLocation));
 
 	// Offset the position by the pivot to get the position in widget space.
-	OutLocalHitLocation.X += DrawSize.X * Pivot.X;
-	OutLocalHitLocation.Y += DrawSize.Y * Pivot.Y;
+	OutLocalWidgetHitLocation.X += DrawSize.X * Pivot.X;
+	OutLocalWidgetHitLocation.Y += DrawSize.Y * Pivot.Y;
+
+	// Apply the parabola distortion
+	FVector2D NormalizedLocation = OutLocalWidgetHitLocation / DrawSize;
+	NormalizedLocation.Y += ParabolaDistortion * ( -2.0f * NormalizedLocation.Y + 1.0f ) * NormalizedLocation.X * ( NormalizedLocation.X - 1.0f );
+
+	OutLocalWidgetHitLocation.Y = DrawSize.Y * NormalizedLocation.Y;
 }
 
 UUserWidget* UWidgetComponent::GetUserWidgetObject() const
@@ -893,10 +921,10 @@ UUserWidget* UWidgetComponent::GetUserWidgetObject() const
 	return Widget;
 }
 
-TArray<FWidgetAndPointer> UWidgetComponent::GetHitWidgetPath(const FHitResult& HitResult, bool bIgnoreEnabledStatus, float CursorRadius )
+TArray<FWidgetAndPointer> UWidgetComponent::GetHitWidgetPath(FVector WorldHitLocation, bool bIgnoreEnabledStatus, float CursorRadius)
 {
 	FVector2D LocalHitLocation;
-	GetLocalHitLocation(HitResult, LocalHitLocation);
+	GetLocalHitLocation(WorldHitLocation, LocalHitLocation);
 
 	TSharedRef<FVirtualPointerPosition> VirtualMouseCoordinate = MakeShareable( new FVirtualPointerPosition );
 
@@ -945,6 +973,11 @@ void UWidgetComponent::SetMaxInteractionDistance(float Distance)
 	MaxInteractionDistance = Distance;
 }
 
+TSharedPtr< SWindow > UWidgetComponent::GetVirtualWindow() const
+{
+	return StaticCastSharedPtr<SWindow>(SlateWidget);
+}
+
 void UWidgetComponent::PostLoad()
 {
 	Super::PostLoad();
@@ -952,5 +985,10 @@ void UWidgetComponent::PostLoad()
 	if ( GetLinkerUE4Version() < VER_UE4_ADD_PIVOT_TO_WIDGET_COMPONENT )
 	{
 		Pivot = FVector2D(0, 0);
+	}
+
+	if ( GetLinkerUE4Version() < VER_UE4_ADD_BLEND_MODE_TO_WIDGET_COMPONENT )
+	{
+		BlendMode = bIsOpaque_DEPRECATED ? EWidgetBlendMode::Opaque : EWidgetBlendMode::Transparent;
 	}
 }

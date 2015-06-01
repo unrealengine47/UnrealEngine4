@@ -12,6 +12,7 @@
 
 #if WITH_EDITORONLY_DATA
 #include "DDSLoader.h"
+#include "EditorFramework/AssetImportData.h"
 #endif
 #include "Engine/TextureCube.h"
 
@@ -54,10 +55,14 @@ UTexture::UTexture(const FObjectInitializer& ObjectInitializer)
 	MipGenSettings = TMGS_FromTextureGroup;
 	CompositeTextureMode = CTM_NormalRoughnessToAlpha;
 	CompositePower = 1.0f;
+	bUseLegacyGamma = false;
 
 	PaddingColor = FColor::Black;
 	ChromaKeyColor = FColorList::Magenta;
 	ChromaKeyThreshold = 1.0f / 255.0f;
+
+	AssetImportData = CreateEditorOnlyDefaultSubobject<UAssetImportData>(TEXT("AssetImportData"));
+	
 #endif // #if WITH_EDITORONLY_DATA
 
 	if (FApp::CanEverRender() && !IsTemplate())
@@ -258,12 +263,27 @@ void UTexture::Serialize(FArchive& Ar)
 	{
 		Source.BulkData.Serialize(Ar, this);
 	}
+
+	if ( GetLinkerUE4Version() < VER_UE4_TEXTURE_LEGACY_GAMMA )
+	{
+		bUseLegacyGamma = true;
+	}
+
 #endif // #if WITH_EDITORONLY_DATA
 }
 
 void UTexture::PostLoad()
 {
 	Super::PostLoad();
+
+#if WITH_EDITORONLY_DATA
+	if (!SourceFilePath_DEPRECATED.IsEmpty() && AssetImportData)
+	{
+		FAssetImportInfo Info;
+		Info.Insert(FAssetImportInfo::FSourceFile(SourceFilePath_DEPRECATED));
+		AssetImportData->CopyFrom(Info);
+	}
+#endif
 
 	if( !IsTemplate() )
 	{
@@ -378,7 +398,10 @@ void UTexture::PreSave()
 #if WITH_EDITORONLY_DATA
 void UTexture::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const
 {
-	OutTags.Add( FAssetRegistryTag(SourceFileTagName(), SourceFilePath, FAssetRegistryTag::TT_Hidden) );
+	if (AssetImportData)
+	{
+		OutTags.Add( FAssetRegistryTag(SourceFileTagName(), AssetImportData->ToJson(), FAssetRegistryTag::TT_Hidden) );
+	}
 
 	Super::GetAssetRegistryTags(OutTags);
 }

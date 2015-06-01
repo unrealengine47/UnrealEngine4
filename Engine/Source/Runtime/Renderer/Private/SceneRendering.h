@@ -10,6 +10,7 @@
 #include "DistortionRendering.h"
 #include "CustomDepthRendering.h"
 #include "HeightfieldLighting.h"
+#include "GlobalDistanceFieldParameters.h"
 
 // Forward declarations.
 class FPostprocessContext;
@@ -311,15 +312,13 @@ class FParallelCommandListSet
 {
 public:
 	const FViewInfo& View;
-	FRHICommandList& ParentCmdList;
+	FRHICommandListImmediate& ParentCmdList;
+	FSceneRenderTargets* Snapshot;
 	int32 Width;
 	int32 MinDrawsPerCommandList;
 	bool bBalanceCommands;
 	bool bSpewBalance;
-private:
-	bool OutDirtyIfIgnored;
 public:
-	bool& OutDirty;
 	TArray<FRHICommandList*,SceneRenderingAllocator> CommandLists;
 	TArray<FGraphEventRef,SceneRenderingAllocator> Events;
 	// number of draws in this commandlist if known, -1 if not known. Overestimates are better than nothing.
@@ -330,14 +329,19 @@ protected:
 	void Dispatch();
 	FRHICommandList* AllocCommandList();
 	bool bParallelExecute;
+	bool bCreateSceneContext;
 public:
-	FParallelCommandListSet(const FViewInfo& InView, FRHICommandList& InParentCmdList, bool* InOutDirty, bool bInParallelExecute);
+	FParallelCommandListSet(const FViewInfo& InView, FRHICommandListImmediate& InParentCmdList, bool bInParallelExecute, bool bInCreateSceneContext);
 	virtual ~FParallelCommandListSet();
 	int32 NumParallelCommandLists() const
 	{
 		return CommandLists.Num();
 	}
 	FRHICommandList* NewParallelCommandList();
+	FORCEINLINE FGraphEventArray* GetPrereqs()
+	{
+		return nullptr;
+	}
 	void AddParallelCommandList(FRHICommandList* CmdList, FGraphEventRef& CompletionEvent, int32 InNumDrawsIfKnown = -1);	
 
 	virtual void SetStateOnCommandList(FRHICommandList& CmdList)
@@ -377,6 +381,9 @@ class FGlobalDistanceFieldInfo
 public:
 
 	TArray<FGlobalDistanceFieldClipmap> Clipmaps;
+	FGlobalDistanceFieldParameterData ParameterData;
+
+	void UpdateParameterData(float MaxOcclusionDistance);
 };
 
 /** A FSceneView with additional state used by the scene renderer. */
@@ -499,6 +506,8 @@ public:
 	uint32 bDisableQuerySubmissions : 1;
 	/** Whether we should disable distance-based fade transitions for this frame (usually after a large camera movement.) */
 	uint32 bDisableDistanceBasedFadeTransitions : 1;
+	/** Whether the view has any materials that use the global distance field. */
+	uint32 bUsesGlobalDistanceField : 1;
 	/** Bitmask of all shading models used by primitives in this view */
 	uint16 ShadingModelMaskInView;
 
@@ -522,6 +531,10 @@ public:
 	// Hierarchical Z Buffer
 	TRefCountPtr<IPooledRenderTarget> HZB;
 
+	// Size of the HZB's mipmap 0
+	// NOTE: the mipmap 0 is downsampled version of the depth buffer
+	FIntPoint HZBMipmap0Size;
+
 	/** Used by occlusion for percent unoccluded calculations. */
 	float OneOverNumPossiblePixels;
 
@@ -534,6 +547,8 @@ public:
 	FHeightfieldLightingViewInfo HeightfieldLightingViewInfo;
 
 	TShaderMap<FGlobalShaderType>* ShaderMap;
+
+	bool bIsSnapshot;
 
 	/** Custom visibility query for view */
 	ICustomVisibilityQuery* CustomVisibilityQuery;
@@ -556,6 +571,7 @@ public:
 
 	/** Creates the view's uniform buffer given a set of view transforms. */
 	TUniformBufferRef<FViewUniformShaderParameters> CreateUniformBuffer(
+		FRHICommandList& RHICmdList,
 		const TArray<FProjectedShadowInfo*, SceneRenderingAllocator>* DirectionalLightShadowInfo,
 		const FMatrix& EffectiveTranslatedViewMatrix, 
 		const FMatrix& EffectiveViewToTranslatedWorld, 
@@ -590,6 +606,12 @@ public:
 		}
 		return DitherValue;
 	}
+
+	/** Create a snapshot of this view info on the scene allocator. */
+	FViewInfo* CreateSnapshot() const;
+
+	/** Destroy all snapshots before we wipe the scene allocator. */
+	static void DestroyAllSnapshots();
 
 private:
 
@@ -692,6 +714,10 @@ public:
 	* @return true if compositing is needed
 	*/
 	static bool ShouldCompositeEditorPrimitives(const FViewInfo& View);
+
+	/** the last thing we do with a scene renderer, lots of cleanup related to the threading **/
+	static void WaitForTasksClearSnapshotsAndDeleteSceneRenderer(FRHICommandListImmediate& RHICmdList, FSceneRenderer* SceneRenderer);
+
 
 protected:
 

@@ -6,10 +6,57 @@
 
 #define LOCTEXT_NAMESPACE "SoundNodeModPlayer"
 
-USoundNodeModPlayer::USoundNodeModPlayer(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
+void USoundNodeModPlayer::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
 {
+	USoundNodeModPlayer* This = CastChecked<USoundNodeModPlayer>(InThis);
+	Super::AddReferencedObjects(This, Collector);
+
+	Collector.AddReferencedObject(This->SoundMod);
 }
+
+void USoundNodeModPlayer::LoadAsset()
+{
+	if (IsAsyncLoading())
+	{
+		SoundMod = SoundModAssetPtr.Get();
+		if (SoundMod == nullptr)
+		{
+			const FString LongPackageName = SoundModAssetPtr.GetLongPackageName();
+			if (!LongPackageName.IsEmpty())
+			{
+				LoadPackageAsync(LongPackageName, FLoadPackageAsyncDelegate::CreateUObject(this, &USoundNodeModPlayer::OnSoundModLoaded));
+			}
+		}
+	}
+	else
+	{
+		SoundMod = SoundModAssetPtr.LoadSynchronous();
+	}
+}
+
+void USoundNodeModPlayer::OnSoundModLoaded(const FName& PackageName, UPackage * Package, EAsyncLoadingResult::Type Result)
+{
+	if (Result == EAsyncLoadingResult::Succeeded)
+	{
+		SoundMod = SoundModAssetPtr.Get();
+	}
+}
+
+void USoundNodeModPlayer::SetSoundMod(USoundMod* InSoundMod)
+{
+	SoundMod = InSoundMod;
+	SoundModAssetPtr = InSoundMod;
+}
+
+#if WITH_EDITOR
+void USoundNodeModPlayer::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	if (PropertyChangedEvent.Property && PropertyChangedEvent.Property->GetFName() == GET_MEMBER_NAME_CHECKED(USoundNodeModPlayer, SoundModAssetPtr))
+	{
+		LoadAsset();
+	}
+}
+#endif
 
 void USoundNodeModPlayer::ParseNodes( FAudioDevice* AudioDevice, const UPTRINT NodeWaveInstanceHash, FActiveSound& ActiveSound, const FSoundParseParameters& ParseParams, TArray<FWaveInstance*>& WaveInstances )
 {

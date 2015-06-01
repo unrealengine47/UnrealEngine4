@@ -10,6 +10,9 @@ public:
 	/** Virtual destructor */
 	virtual ~ICollectionManager() {}
 
+	/** Returns whether or not the collection manager contains any collections */
+	virtual bool HasCollections() const = 0;
+
 	/** Returns the list of collection names of the specified share type */
 	virtual void GetCollectionNames(ECollectionShareType::Type ShareType, TArray<FName>& CollectionNames) const = 0;
 
@@ -25,8 +28,17 @@ public:
 	/** Returns a list of object paths found in the specified collection and share type */
 	virtual bool GetObjectsInCollection(FName CollectionName, ECollectionShareType::Type ShareType, TArray<FName>& ObjectPaths) const = 0;
 
-	/** Returns a list of collections in which the specified asset exists of the specified share type */
-	virtual void GetCollectionsContainingAsset(FName ObjectPath, ECollectionShareType::Type ShareType, TArray<FName>& OutCollectionNames) const = 0;
+	/** Returns a list of collections in which the specified object exists of the specified share type */
+	virtual void GetCollectionsContainingObject(FName ObjectPath, ECollectionShareType::Type ShareType, TArray<FName>& OutCollectionNames) const = 0;
+
+	/** Returns a list of collections in which the specified object exists */
+	virtual void GetCollectionsContainingObject(FName ObjectPath, TArray<FCollectionNameType>& OutCollections) const = 0;
+
+	/** Returns a list of collections in which any of the specified objects exist */
+	virtual void GetCollectionsContainingObjects(const TArray<FName>& ObjectPaths, TMap<FCollectionNameType, TArray<FName>>& OutCollectionsAndMatchedObjects) const = 0;
+
+	/** Returns a string containing a comma separated list of collections in which the specified object exists of the specified share type */
+	virtual FString GetCollectionsStringForObject(FName ObjectPath, ECollectionShareType::Type ShareType) const = 0;
 
 	/** Creates a unique collection name for the given type taking the form BaseName+(unique number) */
 	virtual void CreateUniqueCollectionName(const FName& BaseName, ECollectionShareType::Type ShareType, FName& OutCollectionName) const = 0;
@@ -70,7 +82,7 @@ public:
 	  * @return true if the add was successful. If false, GetLastError will return a human readable string description of the error.
 	  */
 	virtual bool AddToCollection(FName CollectionName, ECollectionShareType::Type ShareType, FName ObjectPath) = 0;
-	virtual bool AddToCollection(FName CollectionName, ECollectionShareType::Type ShareType, const TArray<FName>& ObjectPaths, int32* OutNumAdded = NULL) = 0;
+	virtual bool AddToCollection(FName CollectionName, ECollectionShareType::Type ShareType, const TArray<FName>& ObjectPaths, int32* OutNumAdded = nullptr) = 0;
 
 	/**
 	  * Removes the asset from the specified collection.
@@ -82,7 +94,7 @@ public:
 	  * @return true if the remove was successful. If false, GetLastError will return a human readable string description of the error.
 	  */
 	virtual bool RemoveFromCollection(FName CollectionName, ECollectionShareType::Type ShareType, FName ObjectPath) = 0;
-	virtual bool RemoveFromCollection(FName CollectionName, ECollectionShareType::Type ShareType, const TArray<FName>& ObjectPaths, int32* OutNumRemoved = NULL) = 0;
+	virtual bool RemoveFromCollection(FName CollectionName, ECollectionShareType::Type ShareType, const TArray<FName>& ObjectPaths, int32* OutNumRemoved = nullptr) = 0;
 
 	/**
 	  * Removes all assets from the specified collection.
@@ -98,7 +110,17 @@ public:
 	  * @param ShareType The way the collection is shared.
 	  * @return true if the collection is empty.
 	  */
-	virtual bool IsCollectionEmpty(FName CollectionName, ECollectionShareType::Type ShareType) = 0;
+	virtual bool IsCollectionEmpty(FName CollectionName, ECollectionShareType::Type ShareType) const = 0;
+
+	/**
+	 * Check to see if the given object exists in the given collection
+	 *
+	 * @param ObjectPath The object to test for its existence in the collection.
+	 * @param CollectionName The collection to test.
+	 * @param ShareType The way the collection is shared.
+	 * @return true if the object is in the collection.
+	 */
+	virtual bool IsObjectInCollection(FName ObjectPath, FName CollectionName, ECollectionShareType::Type ShareType) const = 0;
 
 	/** Returns the most recent error. */
 	virtual FText GetLastError() const = 0;

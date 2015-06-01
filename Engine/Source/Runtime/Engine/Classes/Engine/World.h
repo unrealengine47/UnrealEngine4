@@ -674,7 +674,7 @@ private:
 
 public:
 	/** Array of actors that are candidates for sending over the network */
-	TArray<class AActor*>						NetworkActors;
+	TSet<class AActor*>						NetworkActors;
 
 #if WITH_EDITOR
 	/** Hierarchical LOD System. Used when WorldSetting.bEnableHierarchicalLODSystem is true */
@@ -2596,9 +2596,8 @@ public:
 
 	/**
 	 * Send all render updates to the rendering thread.
-	 * @param OutCompletion - all async updates are added to this array, they typically need to be completed before GC or anything else
 	 */
-	void SendAllEndOfFrameUpdates(FGraphEventArray* OutCompletion = NULL);
+	void SendAllEndOfFrameUpdates();
 
 
 	/** Do per frame tick behaviors related to the network driver */
@@ -2936,6 +2935,14 @@ public:
 
 	/** Returns the net mode this world is running under */
 	ENetMode GetNetMode() const;
+
+#if WITH_EDITOR
+	/** Attempts to derive the net mode from PlayInSettings for PIE*/
+	ENetMode AttemptDeriveFromPlayInSettings() const;
+#endif
+
+	/** Attempts to derive the net mode from URL */
+	ENetMode AttemptDeriveFromURL() const;
 
 	/**
 	 * Sets the net driver to use for this world

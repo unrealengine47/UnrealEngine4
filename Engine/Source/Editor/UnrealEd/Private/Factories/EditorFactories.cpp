@@ -1781,8 +1781,7 @@ UObject* USoundFactory::FactoryCreateBinary
 		}
 		
 		// Store the current file path and timestamp for re-import purposes
-		Sound->SourceFilePath = FReimportManager::SanitizeImportFilename( *CurrentFilename, Sound );
-		Sound->SourceFileTimestamp = IFileManager::Get().GetTimeStamp(*CurrentFilename).ToString();
+		Sound->AssetImportData->Update(CurrentFilename);
 
 		// Compressed data is now out of date.
 		Sound->InvalidateCompressedData();
@@ -1898,7 +1897,7 @@ bool UReimportSoundFactory::CanReimport( UObject* Obj, TArray<FString>& OutFilen
 	USoundWave* SoundWave = Cast<USoundWave>(Obj);
 	if(SoundWave && SoundWave->NumChannels < 3)
 	{
-		OutFilenames.Add(FReimportManager::ResolveImportFilename(SoundWave->SourceFilePath, SoundWave));
+		SoundWave->AssetImportData->ExtractFilenames(OutFilenames);
 		return true;
 	}
 	return false;
@@ -1909,7 +1908,7 @@ void UReimportSoundFactory::SetReimportPaths( UObject* Obj, const TArray<FString
 	USoundWave* SoundWave = Cast<USoundWave>(Obj);
 	if(SoundWave && ensure(NewReimportPaths.Num() == 1))
 	{
-		SoundWave->SourceFilePath = FReimportManager::ResolveImportFilename(NewReimportPaths[0], SoundWave);
+		SoundWave->AssetImportData->UpdateFilenameOnly(NewReimportPaths[0]);
 	}
 }
 
@@ -1923,7 +1922,7 @@ EReimportResult::Type UReimportSoundFactory::Reimport( UObject* Obj )
 
 	USoundWave* SoundWave = Cast<USoundWave>( Obj );
 
-	const FString Filename = FReimportManager::ResolveImportFilename(SoundWave->SourceFilePath, SoundWave);
+	const FString Filename = SoundWave->AssetImportData->GetFirstFilename();
 	const FString FileExtension = FPaths::GetExtension(Filename);
 	const bool bIsWav = ( FCString::Stricmp( *FileExtension, TEXT("WAV") ) == 0 );
 
@@ -2100,8 +2099,7 @@ UObject* USoundSurroundFactory::FactoryCreateBinary
 		}
 
 		// Store the current file path and timestamp for re-import purposes
-		Sound->SourceFilePath = FReimportManager::SanitizeImportFilename( *CurrentFilename, Sound );
-		Sound->SourceFileTimestamp = IFileManager::Get().GetTimeStamp(*CurrentFilename).ToString();
+		Sound->AssetImportData->Update(CurrentFilename);
 
 		// Compressed data is now out of date.
 		Sound->InvalidateCompressedData();
@@ -2229,33 +2227,24 @@ bool UReimportSoundSurroundFactory::CanReimport( UObject* Obj, TArray<FString>& 
 	USoundWave* SoundWave = Cast<USoundWave>(Obj);
 	if(SoundWave && SoundWave->NumChannels > 2)
 	{
-		bool bGeneratedFilenames = false;
-
-		if (!SoundWave->SourceFilePath.IsEmpty())
+		FString SourceFilename = SoundWave->AssetImportData->GetFirstFilename();
+		if (!SourceFilename.IsEmpty() && FactoryCanImport(SourceFilename))
 		{
-			// Convert to a FString to check it has correct formatting
-			const FString SourceFilename = FReimportManager::ResolveImportFilename(SoundWave->SourceFilePath, SoundWave);
-			if (FactoryCanImport(SourceFilename))
+			// Get filename with speaker location removed
+			FString BaseFilename = FPaths::GetBaseFilename(SourceFilename).LeftChop(3);
+			FString FileExtension = FPaths::GetExtension(SourceFilename, true);
+			FString FilePath = FPaths::GetPath(SourceFilename);
+
+			// Add a filename for each speaker location we have Channel Size data for
+			for (int32 ChannelIndex = 0; ChannelIndex < SoundWave->ChannelSizes.Num(); ++ChannelIndex)
 			{
-				// Get filename with speaker location removed
-				FString BaseFilename = FPaths::GetBaseFilename(SourceFilename).LeftChop(3);
-				FString FileExtension = FPaths::GetExtension(SourceFilename, true);
-				FString FilePath = FPaths::GetPath(SourceFilename);
-
-				// Add a filename for each speaker location we have Channel Size data for
-				for (int32 ChannelIndex = 0; ChannelIndex < SoundWave->ChannelSizes.Num(); ++ChannelIndex)
+				if (SoundWave->ChannelSizes[ChannelIndex])
 				{
-					if (SoundWave->ChannelSizes[ChannelIndex])
-					{
-						OutFilenames.Add(FilePath + TEXT("//") + BaseFilename + SurroundSpeakerLocations[ChannelIndex] + FileExtension);
-					}
+					OutFilenames.Add(FilePath + TEXT("//") + BaseFilename + SurroundSpeakerLocations[ChannelIndex] + FileExtension);
 				}
-
-				bGeneratedFilenames = true;
 			}
 		}
-
-		if (!bGeneratedFilenames)
+		else
 		{
 			// We failed to generate possible filenames, fill the array with a blank string for each channel
 			for (int32 ChannelIndex = 0; ChannelIndex < SoundWave->NumChannels; ++ChannelIndex)
@@ -4442,8 +4431,7 @@ UObject* UTextureFactory::FactoryCreateBinary
 	Texture->MipGenSettings			= MipGenSettings;
 	Texture->bPreserveBorder		= bPreserveBorder;
 
-	Texture->SourceFilePath         = FReimportManager::SanitizeImportFilename(CurrentFilename, Texture);
-	Texture->SourceFileTimestamp	= IFileManager::Get().GetTimeStamp(*CurrentFilename).ToString();
+	Texture->AssetImportData->Update(CurrentFilename);
 
 	UTexture2D* Texture2D = Cast<UTexture2D>(Texture);
 
@@ -5512,7 +5500,7 @@ bool UReimportTextureFactory::CanReimport( UObject* Obj, TArray<FString>& OutFil
 	UTexture* pTex = Cast<UTexture>(Obj);
 	if( pTex && !pTex->IsA<UTextureRenderTarget>() )
 	{
-		OutFilenames.Add(FReimportManager::ResolveImportFilename(pTex->SourceFilePath, pTex));
+		pTex->AssetImportData->ExtractFilenames(OutFilenames);
 		return true;
 	}
 	return false;
@@ -5523,7 +5511,7 @@ void UReimportTextureFactory::SetReimportPaths( UObject* Obj, const TArray<FStri
 	UTexture* pTex = Cast<UTexture>(Obj);
 	if(pTex && ensure(NewReimportPaths.Num() == 1))
 	{
-		pTex->SourceFilePath = FReimportManager::SanitizeImportFilename(NewReimportPaths[0], Obj);
+		pTex->AssetImportData->UpdateFilenameOnly(NewReimportPaths[0]);
 	}
 }
 
@@ -5541,7 +5529,7 @@ EReimportResult::Type UReimportTextureFactory::Reimport( UObject* Obj )
 	
 	TGuardValue<UTexture*> OriginalTexGuardValue(pOriginalTex, pTex);
 
-	const FString ResolvedSourceFilePath = FReimportManager::ResolveImportFilename(pTex->SourceFilePath, pTex);
+	const FString ResolvedSourceFilePath = pTex->AssetImportData->GetFirstFilename();
 	if (!ResolvedSourceFilePath.Len())
 	{
 		// Since this is a new system most textures don't have paths, so logging has been commented out
@@ -5620,6 +5608,9 @@ UReimportFbxStaticMeshFactory::UReimportFbxStaticMeshFactory(const FObjectInitia
 
 	bCreateNew = false;
 	bText = false;
+
+	// Required to allow other StaticMesh re importers to do their CanReimport checks first, and if they fail the FBX will catch it
+	ImportPriority = DefaultImportPriority - 1;
 }
 
 bool UReimportFbxStaticMeshFactory::CanReimport( UObject* Obj, TArray<FString>& OutFilenames )
@@ -5628,16 +5619,8 @@ bool UReimportFbxStaticMeshFactory::CanReimport( UObject* Obj, TArray<FString>& 
 	if(Mesh)
 	{
 		if ( Mesh->AssetImportData )
-		{
-			if (FPaths::GetExtension(Mesh->AssetImportData->SourceFilePath).ToLower() == "srt")
-			{
-				// SpeedTrees need to use their own importer
-				return false;
-			}
-			else
-			{
-				OutFilenames.Add(FReimportManager::ResolveImportFilename(Mesh->AssetImportData->SourceFilePath, Mesh));
-			}
+		{		
+			OutFilenames.Add(Mesh->AssetImportData->GetFirstFilename());
 		}
 		else
 		{
@@ -5655,7 +5638,7 @@ void UReimportFbxStaticMeshFactory::SetReimportPaths( UObject* Obj, const TArray
 	{
 		UFbxStaticMeshImportData* ImportData = UFbxStaticMeshImportData::GetImportDataForStaticMesh(Mesh, ImportUI->StaticMeshImportData);
 
-		ImportData->SourceFilePath = FReimportManager::SanitizeImportFilename(NewReimportPaths[0], Mesh);
+		ImportData->UpdateFilenameOnly(NewReimportPaths[0]);
 	}
 }
 
@@ -5699,7 +5682,7 @@ EReimportResult::Type UReimportFbxStaticMeshFactory::Reimport( UObject* Obj )
 
 	if( !bOperationCanceled && ensure(ImportData) )
 	{
-		const FString Filename = FReimportManager::ResolveImportFilename(ImportData->SourceFilePath, Mesh);
+		const FString& Filename = ImportData->GetFirstFilename();
 		const FString FileExtension = FPaths::GetExtension(Filename);
 		const bool bIsValidFile = FileExtension.Equals( TEXT("fbx"), ESearchCase::IgnoreCase ) || FileExtension.Equals( "obj",  ESearchCase::IgnoreCase );
 
@@ -5817,14 +5800,7 @@ bool UReimportFbxSkeletalMeshFactory::CanReimport( UObject* Obj, TArray<FString>
 	USkeletalMesh* SkeletalMesh = Cast<USkeletalMesh>(Obj);
 	if(SkeletalMesh && !Obj->IsA( UDestructibleMesh::StaticClass() ))
 	{
-		if ( SkeletalMesh->AssetImportData )
-		{
-			OutFilenames.Add(FReimportManager::ResolveImportFilename(SkeletalMesh->AssetImportData->SourceFilePath, SkeletalMesh));
-		}
-		else
-		{
-			OutFilenames.Add(TEXT(""));
-		}
+		SkeletalMesh->AssetImportData->ExtractFilenames(OutFilenames);
 		return true;
 	}
 	return false;
@@ -5836,8 +5812,7 @@ void UReimportFbxSkeletalMeshFactory::SetReimportPaths( UObject* Obj, const TArr
 	if(SkeletalMesh && ensure(NewReimportPaths.Num() == 1))
 	{
 		UFbxSkeletalMeshImportData* ImportData = UFbxSkeletalMeshImportData::GetImportDataForSkeletalMesh(SkeletalMesh, ImportUI->SkeletalMeshImportData);
-
-		ImportData->SourceFilePath = FReimportManager::SanitizeImportFilename(NewReimportPaths[0], SkeletalMesh);
+		ImportData->UpdateFilenameOnly(NewReimportPaths[0]);
 	}
 }
 
@@ -5871,7 +5846,6 @@ EReimportResult::Type UReimportFbxSkeletalMeshFactory::Reimport( UObject* Obj )
 	ReimportUI->bImportAnimations = false;
 	ReimportUI->AnimationName = TEXT("");
 	ReimportUI->bImportRigidMesh = false;
-	ReimportUI->bUseDefaultSampleRate = false;
 
 	bool bSuccess = false;
 
@@ -5903,7 +5877,7 @@ EReimportResult::Type UReimportFbxSkeletalMeshFactory::Reimport( UObject* Obj )
 
 	if( !bOperationCanceled && ensure(ImportData) )
 	{
-		const FString Filename = FReimportManager::ResolveImportFilename(ImportData->SourceFilePath, SkeletalMesh);
+		const FString Filename = ImportData->GetFirstFilename();
 		UE_LOG(LogEditorFactories, Log, TEXT("Performing atomic reimport of [%s]"), *Filename);
 
 		// Ensure that the file provided by the path exists
@@ -5998,14 +5972,7 @@ bool UReimportFbxAnimSequenceFactory::CanReimport( UObject* Obj, TArray<FString>
 	UAnimSequence* AnimSequence = Cast<UAnimSequence>(Obj);
 	if(AnimSequence)
 	{
-		if ( AnimSequence->AssetImportData )
-		{
-			OutFilenames.Add(FReimportManager::ResolveImportFilename(AnimSequence->AssetImportData->SourceFilePath, AnimSequence));
-		}
-		else
-		{
-			OutFilenames.Add(TEXT(""));
-		}
+		AnimSequence->AssetImportData->ExtractFilenames(OutFilenames);
 		return true;
 	}
 	return false;
@@ -6018,7 +5985,7 @@ void UReimportFbxAnimSequenceFactory::SetReimportPaths( UObject* Obj, const TArr
 	{
 		UFbxAnimSequenceImportData* ImportData = UFbxAnimSequenceImportData::GetImportDataForAnimSequence(AnimSequence, ImportUI->AnimSequenceImportData);
 
-		ImportData->SourceFilePath = FReimportManager::SanitizeImportFilename(NewReimportPaths[0], AnimSequence);
+		ImportData->UpdateFilenameOnly(NewReimportPaths[0]);
 	}
 }
 
@@ -6037,7 +6004,7 @@ EReimportResult::Type UReimportFbxAnimSequenceFactory::Reimport( UObject* Obj )
 		return EReimportResult::Failed;
 	}
 
-	const FString Filename = FReimportManager::ResolveImportFilename(ImportData->SourceFilePath, AnimSequence);
+	const FString Filename = ImportData->GetFirstFilename();
 	const FString FileExtension = FPaths::GetExtension(Filename);
 	const bool bIsNotFBXFile = ( FileExtension.Len() > 0  && FCString::Stricmp( *FileExtension, TEXT("FBX") ) != 0 );
 
@@ -6086,8 +6053,7 @@ EReimportResult::Type UReimportFbxAnimSequenceFactory::Reimport( UObject* Obj )
 		UE_LOG(LogEditorFactories, Log, TEXT("-- imported successfully") );
 
 		// update the data in case the file source has changed
-		ImportData->SourceFilePath = FReimportManager::SanitizeImportFilename(UFactory::CurrentFilename, AnimSequence);
-		ImportData->SourceFileTimestamp = IFileManager::Get().GetTimeStamp(*UFactory::CurrentFilename).ToString();
+		ImportData->Update(UFactory::CurrentFilename);
 		ImportData->bDirty = false;
 
 		// Try to find the outer package so we can dirty it up
@@ -6788,7 +6754,7 @@ bool UReimportDestructibleMeshFactory::CanReimport( UObject* Obj, TArray<FString
 	{
 		if ( DestructibleMesh->AssetImportData )
 		{
-			OutFilenames.Add(FReimportManager::ResolveImportFilename(DestructibleMesh->AssetImportData->SourceFilePath, DestructibleMesh));
+			DestructibleMesh->AssetImportData->ExtractFilenames(OutFilenames);
 		}
 		else
 		{
@@ -6804,13 +6770,7 @@ void UReimportDestructibleMeshFactory::SetReimportPaths( UObject* Obj, const TAr
 	UDestructibleMesh* DestructibleMesh = Cast<UDestructibleMesh>(Obj);
 	if(DestructibleMesh && ensure(NewReimportPaths.Num() == 1))
 	{
-		if ( DestructibleMesh->AssetImportData == nullptr )
-		{
-			// @todo AssetImportData make an apex destructible import data class
-			DestructibleMesh->AssetImportData = NewObject<UAssetImportData>(DestructibleMesh);
-		}
-
-		DestructibleMesh->AssetImportData->SourceFilePath = FReimportManager::SanitizeImportFilename(NewReimportPaths[0], DestructibleMesh);
+		DestructibleMesh->AssetImportData->UpdateFilenameOnly(NewReimportPaths[0]);
 	}
 }
 
@@ -6824,13 +6784,7 @@ EReimportResult::Type UReimportDestructibleMeshFactory::Reimport( UObject* Obj )
 
 	UDestructibleMesh* DestructibleMesh = Cast<UDestructibleMesh>( Obj );
 
-	if ( DestructibleMesh->AssetImportData == nullptr )
-	{
-		// @todo AssetImportData make an apex destructible import data class
-		DestructibleMesh->AssetImportData = NewObject<UAssetImportData>(DestructibleMesh);
-	}
-
-	const FString Filename = FReimportManager::ResolveImportFilename(DestructibleMesh->AssetImportData->SourceFilePath, DestructibleMesh);
+	const FString Filename = DestructibleMesh->AssetImportData->GetFirstFilename();
 
 	// If there is no file path provided, can't reimport from source
 	if ( !Filename.Len() )

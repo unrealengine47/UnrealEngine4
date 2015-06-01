@@ -284,11 +284,23 @@ AActor* UWorld::SpawnActor( UClass* Class, FVector const* Location, FRotator con
 		
 	}
 
+	ULevel* LevelToSpawnIn = SpawnParameters.OverrideLevel;
+	if (LevelToSpawnIn == NULL)
+	{
+		// Spawn in the same level as the owner if we have one. @warning: this relies on the outer of an actor being the level.
+		LevelToSpawnIn = (SpawnParameters.Owner != NULL) ? CastChecked<ULevel>(SpawnParameters.Owner->GetOuter()) : CurrentLevel;
+	}
+
+	FName NewActorName = SpawnParameters.Name;
 	AActor* Template = SpawnParameters.Template;
 	// Use class's default actor as a template.
 	if( !Template )
 	{
 		Template = Class->GetDefaultObject<AActor>();
+	}
+	else if (NewActorName.IsNone())
+	{
+		NewActorName = MakeUniqueObjectName(LevelToSpawnIn, Template->GetClass(), *Template->GetFName().GetPlainNameString());
 	}
 	check(Template!=NULL);
 
@@ -313,13 +325,7 @@ AActor* UWorld::SpawnActor( UClass* Class, FVector const* Location, FRotator con
 		}
 	}
 
-	ULevel* LevelToSpawnIn = SpawnParameters.OverrideLevel;
-	if (LevelToSpawnIn == NULL)
-	{
-		// Spawn in the same level as the owner if we have one. @warning: this relies on the outer of an actor being the level.
-		LevelToSpawnIn = (SpawnParameters.Owner != NULL) ? CastChecked<ULevel>(SpawnParameters.Owner->GetOuter()) : CurrentLevel;
-	}
-	AActor* Actor = NewObject<AActor>(LevelToSpawnIn, Class, SpawnParameters.Name, SpawnParameters.ObjectFlags, Template);
+	AActor* Actor = NewObject<AActor>(LevelToSpawnIn, Class, NewActorName, SpawnParameters.ObjectFlags, Template);
 	check(Actor);
 
 #if WITH_EDITOR
@@ -456,7 +462,7 @@ bool UWorld::DestroyActor( AActor* ThisActor, bool bNetForce, bool bShouldModify
 	}
 
 	// Prevent recursion
-	ThisActor->bPendingKillPending = true;
+	//FMarkActorIsBeingDestroyed MarkActorIsBeingDestroyed(ThisActor);
 
 	// Notify the texture streaming manager about the destruction of this actor.
 	IStreamingManager::Get().NotifyActorDestroyed( ThisActor );

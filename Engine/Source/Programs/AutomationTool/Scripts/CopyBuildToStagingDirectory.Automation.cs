@@ -8,6 +8,7 @@ using System.Net.NetworkInformation;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Linq;
 using UnrealBuildTool;
 
 /// <summary>
@@ -624,6 +625,18 @@ public partial class Project : CommandUtils
 	/// <returns></returns>
 	private static Dictionary<string, string> CreatePakResponseFileFromStagingManifest(DeploymentContext SC)
 	{
+		// look for optional packaging blacklist if only one config active
+		string[] Blacklist = null;
+		if (SC.StageTargetConfigurations.Count == 1)
+		{
+			var PakBlacklistFilename = CombinePaths(SC.ProjectRoot, "Build", SC.PlatformDir, string.Format("PakBlacklist-{0}.txt", SC.StageTargetConfigurations[0].ToString()));
+			if (File.Exists(PakBlacklistFilename))
+			{
+				Log("Applying PAK blacklist file {0}", PakBlacklistFilename);
+				Blacklist = File.ReadAllLines(PakBlacklistFilename);
+			}
+		}
+
 		var UnrealPakResponseFile = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
 		foreach (var Pair in SC.UFSStagingFiles)
 		{
@@ -632,6 +645,25 @@ public partial class Project : CommandUtils
 
 			Dest = CombinePaths(PathSeparator.Slash, SC.PakFileInternalRoot, Dest);
 
+			if (Blacklist != null)
+			{
+				bool bExcludeFile = false;
+				foreach (string ExcludePath in Blacklist)
+				{
+					if (Dest.StartsWith(ExcludePath))
+					{
+						bExcludeFile = true;
+						break;
+					}
+				}
+
+				if (bExcludeFile)
+				{
+					Log("Excluding {0}", Src);
+					continue;
+				}
+			}
+
 			// there can be files that only differ in case only, we don't support that in paks as paks are case-insensitive
 			if (UnrealPakResponseFile.ContainsKey(Src))
 			{
@@ -639,6 +671,7 @@ public partial class Project : CommandUtils
 			}
 			UnrealPakResponseFile.Add(Src, Dest);
 		}
+
 		return UnrealPakResponseFile;
 	}
 
@@ -963,6 +996,12 @@ public partial class Project : CommandUtils
         }
 	}
 
+	protected static void DeletePakFiles(string StagingDirectory)
+	{
+		var StagedFilesDir = new DirectoryInfo(StagingDirectory);
+		StagedFilesDir.GetFiles("*.pak", SearchOption.AllDirectories).ToList().ForEach(File => File.Delete());
+	}
+
 	public static void ApplyStagingManifest(ProjectParams Params, DeploymentContext SC)
 	{
 		MaybeConvertToLowerCase(Params, SC);
@@ -976,6 +1015,21 @@ public partial class Project : CommandUtils
             {
                 // Delete cooked data (if any) as it may be incomplete / corrupted.
                 Log("Failed to delete staging directory "+SC.StageDirectory);
+                AutomationTool.ErrorReporter.Error("Stage Failed.", (int)AutomationTool.ErrorCodes.Error_FailedToDeleteStagingDirectory);
+                throw Ex;   
+            }
+		}
+		else
+		{
+			try
+			{
+				// delete old pak files
+				DeletePakFiles(SC.StageDirectory);
+			}
+            catch (Exception Ex)
+            {
+                // Delete cooked data (if any) as it may be incomplete / corrupted.
+                Log("Failed to delete pak files in "+SC.StageDirectory);
                 AutomationTool.ErrorReporter.Error("Stage Failed.", (int)AutomationTool.ErrorCodes.Error_FailedToDeleteStagingDirectory);
                 throw Ex;   
             }
@@ -1174,6 +1228,10 @@ public partial class Project : CommandUtils
 			}
 
 			String ProjectFile = String.Format("{0} ", SC.ProjectArgForCommandLines);
+			if (SC.StageTargetPlatform.PlatformType == UnrealTargetPlatform.Mac || SC.StageTargetPlatform.PlatformType == UnrealTargetPlatform.Win64 || SC.StageTargetPlatform.PlatformType == UnrealTargetPlatform.Win32 || SC.StageTargetPlatform.PlatformType == UnrealTargetPlatform.Linux)
+			{
+				ProjectFile = "";
+			}
 			Directory.CreateDirectory(GetIntermediateCommandlineDir(SC));
 			string CommandLine = String.Format("{0} {1} {2} {3}\n", ProjectFile, Params.StageCommandline.Trim(new char[] { '\"' }), Params.RunCommandline.Trim(new char[] { '\"' }), FileHostParams).Trim();
 			if (Params.IterativeDeploy)
@@ -1185,6 +1243,10 @@ public partial class Project : CommandUtils
 		else if (!Params.IsCodeBasedProject)
 		{
 			String ProjectFile = String.Format("{0} ", SC.ProjectArgForCommandLines);
+			if (SC.StageTargetPlatform.PlatformType == UnrealTargetPlatform.Mac || SC.StageTargetPlatform.PlatformType == UnrealTargetPlatform.Win64 || SC.StageTargetPlatform.PlatformType == UnrealTargetPlatform.Win32 || SC.StageTargetPlatform.PlatformType == UnrealTargetPlatform.Linux)
+			{
+				ProjectFile = "";
+			}
 			Directory.CreateDirectory(GetIntermediateCommandlineDir(SC));
 			File.WriteAllText(IntermediateCmdLineFile, ProjectFile);
 		}
@@ -1360,6 +1422,7 @@ public partial class Project : CommandUtils
 			List<string> ExecutablesToStage = new List<string>();
 
 			string PlatformName = StagePlatform.ToString();
+			string StageArchitecture = !String.IsNullOrEmpty(Params.SpecifiedArchitecture) ? Params.SpecifiedArchitecture : "";
 			foreach (var Target in ListToProcess)
 			{
 				foreach (var Config in ConfigsToProcess)
@@ -1367,7 +1430,7 @@ public partial class Project : CommandUtils
 					string Exe = Target;
 					if (Config != UnrealTargetConfiguration.Development)
 					{
-						Exe = Target + "-" + PlatformName + "-" + Config.ToString();
+						Exe = Target + "-" + PlatformName + "-" + Config.ToString() + StageArchitecture;
 					}
 					ExecutablesToStage.Add(Exe);
 				}
@@ -1404,14 +1467,14 @@ public partial class Project : CommandUtils
 
 					foreach (UnrealTargetPlatform ReceiptPlatform in SubPlatformsToStage)
 					{
-						// Read the receipt (FIXME: store the architecture in project params?)
-						string Architecture = UEBuildPlatform.GetBuildPlatform(ReceiptPlatform).GetActiveArchitecture();
+						string Architecture = !String.IsNullOrEmpty(Params.SpecifiedArchitecture) ? Params.SpecifiedArchitecture : UEBuildPlatform.GetBuildPlatform(ReceiptPlatform).GetActiveArchitecture();
 						string ReceiptFileName = BuildReceipt.GetDefaultPath(ReceiptBaseDir, Target, ReceiptPlatform, Config, Architecture);
 						if(!File.Exists(ReceiptFileName))
 						{
 							if (bRequireStagedFilesToExist)
 							{
 								// if we aren't collecting multiple platforms, then it is expected to exist
+								AutomationTool.ErrorReporter.Error("Stage Failed.", (int)AutomationTool.ErrorCodes.Error_MissingExecutable);
 								throw new AutomationException("Missing receipt '{0}'. Check that this target has been built.", Path.GetFileName(ReceiptFileName));
 							}
 							else

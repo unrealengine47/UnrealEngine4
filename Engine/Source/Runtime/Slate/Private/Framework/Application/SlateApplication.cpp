@@ -272,7 +272,7 @@ DECLARE_CYCLE_STAT( TEXT("Update Tooltip Time"), STAT_SlateUpdateTooltip, STATGR
 DECLARE_CYCLE_STAT( TEXT("Tick Window And Children Time"), STAT_SlateTickWindowAndChildren, STATGROUP_Slate );
 DECLARE_CYCLE_STAT( TEXT("Total Slate Tick Time"), STAT_SlateTickTime, STATGROUP_Slate );
 DECLARE_CYCLE_STAT( TEXT("SlatePrepass"), STAT_SlatePrepass, STATGROUP_Slate );
-DECLARE_CYCLE_STAT( TEXT("DrawWindows"), STAT_SlateDrawWindowTime, STATGROUP_Slate );
+DECLARE_CYCLE_STAT( TEXT("Draw Window And Children Time"), STAT_SlateDrawWindowTime, STATGROUP_Slate );
 DECLARE_CYCLE_STAT( TEXT("TickWidgets"), STAT_SlateTickWidgets, STATGROUP_Slate );
 DECLARE_CYCLE_STAT( TEXT("TickRegisteredWidgets"), STAT_SlateTickRegisteredWidgets, STATGROUP_Slate );
 
@@ -855,9 +855,8 @@ void FSlateApplication::SetCursorPos( const FVector2D& MouseCoordinate )
 FWidgetPath FSlateApplication::LocateWindowUnderMouse( FVector2D ScreenspaceMouseCoordinate, const TArray< TSharedRef< SWindow > >& Windows, bool bIgnoreEnabledStatus )
 {
 	bool bPrevWindowWasModal = false;
-	FArrangedChildren OutWidgetPath(EVisibility::Visible);
 
-	for (int32 WindowIndex = Windows.Num() - 1; WindowIndex >= 0 && OutWidgetPath.Num() == 0; --WindowIndex)
+	for (int32 WindowIndex = Windows.Num() - 1; WindowIndex >= 0; --WindowIndex)
 	{ 
 		const TSharedRef<SWindow>& Window = Windows[WindowIndex];
 
@@ -1195,9 +1194,9 @@ void FSlateApplication::PrivateDrawWindows( TSharedPtr<SWindow> DrawOnlyThisWind
 	// Some windows may have been destroyed/removed.
 	// Do not attempt to draw any windows that have been removed.
 	TArray<TSharedRef<SWindow>> AllWindows = GatherAllDescendants(SlateWindows);
-	DrawWindowArgs.OutDrawBuffer.GetWindowElementLists().RemoveAll([&]( FSlateWindowElementList& Candidate )
+	DrawWindowArgs.OutDrawBuffer.GetWindowElementLists().RemoveAll([&]( TSharedPtr<FSlateWindowElementList>& Candidate )
 	{
-		TSharedPtr<SWindow> CandidateWindow = Candidate.GetWindow();
+		TSharedPtr<SWindow> CandidateWindow = Candidate->GetWindow();
 		return !CandidateWindow.IsValid() || !AllWindows.Contains(CandidateWindow.ToSharedRef());
 	});
 
@@ -2013,6 +2012,25 @@ void FSlateApplication::SetUserFocus(uint32 UserIndex, const TSharedPtr<SWidget>
 	}
 }
 
+void FSlateApplication::SetAllUserFocus(const TSharedPtr<SWidget>& WidgetToFocus, EFocusCause ReasonFocusIsChanging /*= EFocusCause::SetDirectly*/)
+{
+	const bool bValidWidget = WidgetToFocus.IsValid();
+	ensureMsgf(bValidWidget, TEXT("Attempting to focus an invalid widget. If your intent is to clear focus use ClearAllUserFocus()"));
+	if (bValidWidget)
+	{
+		FWidgetPath PathToWidget;
+		const bool bFound = FSlateWindowHelper::FindPathToWidget(SlateWindows, WidgetToFocus.ToSharedRef(), /*OUT*/ PathToWidget);
+		if (bFound)
+		{
+			SetAllUserFocus(PathToWidget, ReasonFocusIsChanging);
+		}
+		else
+		{
+			//ensureMsgf(bFound, TEXT("Attempting to focus a widget that isn't in the tree and visible: %s. If your intent is to clear focus use ClearAllUserFocus()"), WidgetToFocus->ToString());
+		}
+	}
+}
+
 TSharedPtr<SWidget> FSlateApplication::GetUserFocusedWidget(uint32 UserIndex) const
 {
 	const FUserFocusEntry& UserFocusEntry = UserFocusEntries[UserIndex];
@@ -2027,6 +2045,11 @@ TSharedPtr<SWidget> FSlateApplication::GetJoystickCaptor(uint32 UserIndex) const
 void FSlateApplication::ClearUserFocus(uint32 UserIndex, EFocusCause ReasonFocusIsChanging /* = EFocusCause::SetDirectly*/)
 {
 	SetUserFocus(UserIndex, FWidgetPath(), ReasonFocusIsChanging);
+}
+
+void FSlateApplication::ClearAllUserFocus(EFocusCause ReasonFocusIsChanging /*= EFocusCause::SetDirectly*/)
+{
+	SetAllUserFocus(FWidgetPath(), ReasonFocusIsChanging);
 }
 
 void FSlateApplication::ReleaseJoystickCapture(uint32 UserIndex)
@@ -2226,6 +2249,15 @@ bool FSlateApplication::SetUserFocus(const uint32 InUserIndex, const FWidgetPath
 	}
 
 	return true;
+}
+
+
+void FSlateApplication::SetAllUserFocus(const FWidgetPath& InFocusPath, const EFocusCause InCause)
+{
+	for (int32 SlateUserIndex = 0; SlateUserIndex < SlateApplicationDefs::MaxUsers; ++SlateUserIndex)
+	{
+		SetUserFocus(SlateUserIndex, InFocusPath, InCause);
+	}
 }
 
 
@@ -3536,6 +3568,11 @@ TOptional<EFocusCause> FSlateApplication::HasAnyUserFocus(const TSharedPtr<const
 		}
 	}
 	return TOptional<EFocusCause>();
+}
+
+bool FSlateApplication::IsWidgetDirectlyHovered(const TSharedPtr<const SWidget> Widget) const
+{
+	return WidgetsUnderCursorLastEvent.IsValid() && Widget == WidgetsUnderCursorLastEvent.GetLastWidget().Pin();
 }
 
 bool FSlateApplication::ShowUserFocus(const TSharedPtr<const SWidget> Widget) const

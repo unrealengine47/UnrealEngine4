@@ -90,7 +90,7 @@ TSharedRef<SWidget> SLocalizationTargetEditorCultureRow::GenerateWidgetForColumn
 				.Content()
 				[
 					SNew(SImage)
-					.Image( FEditorStyle::GetBrush("LocalizationTargetEditor.ImportForCulture") )
+					.Image( FEditorStyle::GetBrush("LocalizationTargetEditor.ImportCulture") )
 				]
 			];
 
@@ -107,7 +107,24 @@ TSharedRef<SWidget> SLocalizationTargetEditorCultureRow::GenerateWidgetForColumn
 				.Content()
 				[
 					SNew(SImage)
-					.Image(FEditorStyle::GetBrush("LocalizationTargetEditor.ExportForCulture"))
+					.Image(FEditorStyle::GetBrush("LocalizationTargetEditor.ExportCulture"))
+				]
+			];
+
+		// Export
+		HorizontalBox->AddSlot()
+			.FillWidth(1.0f)
+			.HAlign(HAlign_Center)
+			.VAlign(VAlign_Center)
+			[
+				SNew(SButton)
+				.ButtonStyle( FEditorStyle::Get(), TEXT("HoverHintOnly") )
+				.ToolTipText(NSLOCTEXT("LocalizationTargetCultureActions", "CompileButtonLabel", "Compile"))
+				.OnClicked(this, &SLocalizationTargetEditorCultureRow::Compile)
+				.Content()
+				[
+					SNew(SImage)
+					.Image(FEditorStyle::GetBrush("LocalizationTargetEditor.CompileCulture"))
 				]
 			];
 
@@ -308,7 +325,7 @@ FReply SLocalizationTargetEditorCultureRow::Edit()
 	ULocalizationTarget* const LocalizationTarget = GetTarget();
 	if (Culture.IsValid() && LocalizationTarget)
 	{
-		FModuleManager::LoadModuleChecked<ITranslationEditor>("TranslationEditor").OpenTranslationEditor(LocalizationConfigurationScript::GetManifestPath(LocalizationTarget), LocalizationConfigurationScript::GetArchivePath(LocalizationTarget, Culture->GetName()));
+		FModuleManager::LoadModuleChecked<ITranslationEditor>("TranslationEditor").OpenTranslationEditor(LocalizationConfigurationScript::GetManifestPath(LocalizationTarget), LocalizationConfigurationScript::GetArchivePath(LocalizationTarget, Culture->GetName()), LocalizationTarget->Settings.Guid);
 	}
 
 	return FReply::Handled();
@@ -396,6 +413,19 @@ FReply SLocalizationTargetEditorCultureRow::Export()
 		{
 			LocalizationCommandletTasks::ExportCulture(ParentWindow.ToSharedRef(), LocalizationTarget, Culture->GetName(), TOptional<FString>(SaveFilenames.Top()));
 		}
+	}
+
+	return FReply::Handled();
+}
+
+FReply SLocalizationTargetEditorCultureRow::Compile()
+{
+	const FCulturePtr Culture = GetCulture();
+	ULocalizationTarget* const LocalizationTarget = GetTarget();
+	if (Culture.IsValid() && LocalizationTarget)
+	{
+		const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(AsShared());
+		LocalizationCommandletTasks::CompileCulture(ParentWindow.ToSharedRef(), LocalizationTarget, Culture->GetName());
 	}
 
 	return FReply::Handled();

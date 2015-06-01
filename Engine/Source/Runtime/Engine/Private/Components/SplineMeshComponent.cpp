@@ -774,7 +774,7 @@ UBodySetup* USplineMeshComponent::GetBodySetup()
 {
 	// Don't return a body setup that has no collision, it means we are interactively moving the spline and don't want to build collision.
 	// Instead we explicitly build collision with USplineMeshComponent::RecreateCollision()
-	if (BodySetup != NULL && (BodySetup->TriMesh != NULL || BodySetup->AggGeom.GetElementCount() > 0))
+	if (BodySetup != NULL && (BodySetup->TriMeshes.Num() || BodySetup->AggGeom.GetElementCount() > 0))
 	{
 		return BodySetup;
 	}
@@ -859,7 +859,7 @@ void USplineMeshComponent::RecreateCollision()
 		BodySetup->BodySetupGuid = StaticMesh->BodySetup->BodySetupGuid;
 		CachedMeshBodySetupGuid = StaticMesh->BodySetup->BodySetupGuid;
 
-		if (BodySetup->CollisionTraceFlag == CTF_UseComplexAsSimple)
+		if (BodySetup->GetCollisionTraceFlag() == CTF_UseComplexAsSimple)
 		{
 			BodySetup->AggGeom.EmptyElements();
 		}

@@ -263,6 +263,14 @@ void FAnimNode_StateMachine::Update(const FAnimationUpdateContext& Context)
 		{
 			return;
 		}
+		else if(!Machine->States.IsValidIndex(CurrentState))
+		{
+			// Attempting to catch a crash where the state machine has been freed.
+			UE_LOG(LogAnimation, Warning, TEXT("FAnimNode_StateMachine::Update - Invalid current state, please report. Attempting to use state %d in state machine %d"), CurrentState, StateMachineIndexInClass);
+			UE_LOG(LogAnimation, Warning, TEXT("\t\tWhen updating AnimInstance: %s"), *Context.AnimInstance->GetName())
+
+			return;
+		}
 	}
 	else
 	{
@@ -557,15 +565,15 @@ void FAnimNode_StateMachine::Evaluate(FPoseContext& Output)
 {
 	if (FBakedAnimationStateMachine* Machine = GetMachineDescription())
 	{
-		if (Machine->States.Num() == 0)
+		if (Machine->States.Num() == 0 || !Machine->States.IsValidIndex(CurrentState))
 		{
-			FAnimationRuntime::FillWithRefPose(Output.Pose.Bones, Output.AnimInstance->RequiredBones);
+			Output.Pose.ResetToRefPose();
 			return;
 		}
 	}
 	else
 	{
-		FAnimationRuntime::FillWithRefPose(Output.Pose.Bones, Output.AnimInstance->RequiredBones);
+		Output.Pose.ResetToRefPose();
 		return;
 	}
 
@@ -574,12 +582,6 @@ void FAnimNode_StateMachine::Evaluate(FPoseContext& Output)
 	if (ActiveTransitionArray.Num() > 0)
 	{
 		check(Output.AnimInstance->CurrentSkeleton);
-
-		// Create an accumulator pose
-		const int32 NumBones = Output.AnimInstance->RequiredBones.GetNumBones();
-
-		Output.Pose.Bones.Empty(NumBones);
-		Output.Pose.Bones.AddUninitialized(NumBones);
 
 		//each transition stomps over the last because they will already include the output from the transition before it
 		for (int32 Index = 0; Index < ActiveTransitionArray.Num(); ++Index)
@@ -608,7 +610,7 @@ void FAnimNode_StateMachine::Evaluate(FPoseContext& Output)
 		}
 
 		// Ensure that all of the resulting rotations are normalized
-		FAnimationRuntime::NormalizeRotations(Output.AnimInstance->RequiredBones, Output.Pose.Bones);
+		Output.Pose.NormalizeRotations();
 	}
 	else if (!IsAConduitState(CurrentState))
 	{
@@ -637,12 +639,10 @@ void FAnimNode_StateMachine::EvaluateTransitionStandardBlend(FPoseContext& Outpu
 	// Blend it in
 	const ScalarRegister VPreviousWeight(1.0f - Transition.Alpha);
 	const ScalarRegister VWeight(Transition.Alpha);
-	const TArray<FBoneIndexType> & RequiredBoneIndices = Output.AnimInstance->RequiredBones.GetBoneIndicesArray();
-	for (int32 j = 0; j < RequiredBoneIndices.Num(); ++j)
+	for (FCompactPoseBoneIndex BoneIndex : Output.Pose.ForEachBoneIndex())
 	{
-		const int32 BoneIndex = RequiredBoneIndices[j];
-		Output.Pose.Bones[BoneIndex] = PreviouseStateResult.Pose.Bones[BoneIndex] * VPreviousWeight;
-		Output.Pose.Bones[BoneIndex].AccumulateWithShortestRotation(NextStateResult.Pose.Bones[BoneIndex], VWeight);
+		Output.Pose[BoneIndex] = PreviouseStateResult.Pose[BoneIndex] * VPreviousWeight;
+		Output.Pose[BoneIndex].AccumulateWithShortestRotation(NextStateResult.Pose[BoneIndex], VWeight);
 	}
 }
 
@@ -682,11 +682,9 @@ void FAnimNode_StateMachine::EvaluateTransitionCustomBlend(FPoseContext& Output,
 		Transition.CustomTransitionGraph.Evaluate(StatePoseResult);
 
 		// First pose will just overwrite the destination
-		const TArray<FBoneIndexType> & RequiredBoneIndices = Output.AnimInstance->RequiredBones.GetBoneIndicesArray();
-		for (int32 j = 0; j < RequiredBoneIndices.Num(); ++j)
+		for (const FCompactPoseBoneIndex BoneIndex : Output.Pose.ForEachBoneIndex())
 		{
-			const int32 BoneIndex = RequiredBoneIndices[j];
-			Output.Pose.Bones[BoneIndex] = StatePoseResult.Pose.Bones[BoneIndex];
+			Output.Pose[BoneIndex] = StatePoseResult.Pose[BoneIndex];
 		}
 	}
 }
@@ -872,9 +870,7 @@ void FAnimNode_StateMachine::UpdateState(int32 StateIndex, const FAnimationUpdat
 
 void FAnimNode_StateMachine::EvaluateState(int32 StateIndex, FPoseContext& Output)
 {
-	const int32 NumBones = Output.AnimInstance->RequiredBones.GetNumBones();
-	Output.Pose.Bones.Empty(NumBones);
-	Output.Pose.Bones.AddUninitialized(NumBones);
+	Output.Pose.SetBoneContainer(&Output.AnimInstance->RequiredBones);
 
 	if (!IsAConduitState(StateIndex))
 	{

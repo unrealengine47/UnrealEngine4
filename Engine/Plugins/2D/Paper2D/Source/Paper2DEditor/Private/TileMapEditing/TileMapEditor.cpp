@@ -1,6 +1,7 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "Paper2DEditorPrivatePCH.h"
+#include "PaperTileMapComponent.h"
 #include "TileMapEditor.h"
 #include "SSingleObjectDetailsPanel.h"
 #include "SceneViewport.h"
@@ -387,6 +388,11 @@ FText FTileMapEditor::GetToolkitName() const
 	Args.Add(TEXT("TileMapName"), FText::FromString(TileMapBeingEdited->GetName()));
 	Args.Add(TEXT("DirtyState"), bDirtyState ? FText::FromString(TEXT("*")) : FText::GetEmpty());
 	return FText::Format(LOCTEXT("TileMapEditorAppLabel", "{TileMapName}{DirtyState}"), Args);
+}
+
+FText FTileMapEditor::GetToolkitToolTipText() const
+{
+	return GetToolTipTextForObject(TileMapBeingEdited);
 }
 
 FString FTileMapEditor::GetWorldCentricTabPrefix() const

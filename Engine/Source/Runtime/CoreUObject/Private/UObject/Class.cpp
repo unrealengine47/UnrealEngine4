@@ -11,6 +11,11 @@
 #include "LinkerPlaceholderFunction.h"
 #include "StructScriptLoader.h"
 
+// This flag enables some expensive class tree validation that is meant to catch mutations of 
+// the class tree outside of SetSuperStruct. It has been disabled because loading blueprints 
+// does a lot of mutation of the class tree, and the validation checks impact iteration time.
+#define DO_CLASS_TREE_VALIDATION 0
+
 DECLARE_LOG_CATEGORY_EXTERN(LogScriptSerialization, Log, All);
 DEFINE_LOG_CATEGORY(LogScriptSerialization);
 DEFINE_LOG_CATEGORY(LogClass);
@@ -239,7 +244,7 @@ FText UField::GetToolTipText(bool bShortTooltip) const
 
 	const FString Namespace = bFoundShortTooltip ? TEXT("UObjectShortTooltips") : TEXT("UObjectToolTips");
 	const FString Key = GetFullGroupName(false);
-	if ( !(FText::FindText( Namespace, Key, /*OUT*/LocalizedToolTip )) || *FTextInspector::GetSourceString(LocalizedToolTip) != NativeToolTip)
+	if ( !FText::FindText( Namespace, Key, /*OUT*/LocalizedToolTip, &NativeToolTip ) )
 	{
 		if (NativeToolTip.IsEmpty())
 		{
@@ -325,13 +330,25 @@ const FString& UField::GetMetaData(const FName& Key) const
 
 const FText UField::GetMetaDataText(const TCHAR* MetaDataKey, const FString LocalizationNamespace, const FString LocalizationKey) const
 {
-	FText LocalizedMetaData;
-	if ( !( FText::FindText( LocalizationNamespace, LocalizationKey, /*OUT*/LocalizedMetaData ) ) )
+	FString DefaultMetaData;
+
+	if( HasMetaData( MetaDataKey ))
 	{
-		FString DefaultMetaData;
-		if( HasMetaData( MetaDataKey ))
+		DefaultMetaData = GetMetaData(MetaDataKey);
+	}
+
+	// If attempting to grab the DisplayName metadata, we must correct the source string and output it as a DisplayString for lookup
+	if( DefaultMetaData.IsEmpty() && FString(MetaDataKey) == TEXT("DisplayName") )
+	{
+		DefaultMetaData = FName::NameToDisplayString( GetName(), IsA( UBoolProperty::StaticClass() ) );
+	}
+
+
+	FText LocalizedMetaData;
+	if ( !( FText::FindText( LocalizationNamespace, LocalizationKey, /*OUT*/LocalizedMetaData, &DefaultMetaData ) ) )
+	{
+		if (!DefaultMetaData.IsEmpty())
 		{
-			DefaultMetaData = GetMetaData(MetaDataKey);
 			LocalizedMetaData = FText::AsCultureInvariant(DefaultMetaData);
 		}
 	}
@@ -341,16 +358,29 @@ const FText UField::GetMetaDataText(const TCHAR* MetaDataKey, const FString Loca
 
 const FText UField::GetMetaDataText(const FName& MetaDataKey, const FString LocalizationNamespace, const FString LocalizationKey) const
 {
-	FText LocalizedMetaData;
-	if ( !( FText::FindText( LocalizationNamespace, LocalizationKey, /*OUT*/LocalizedMetaData ) ) )
+	FString DefaultMetaData;
+
+	if( HasMetaData( MetaDataKey ))
 	{
-		FString DefaultMetaData;
-		if( HasMetaData( MetaDataKey ))
+		DefaultMetaData = GetMetaData(MetaDataKey);
+	}
+
+	// If attempting to grab the DisplayName metadata, we must correct the source string and output it as a DisplayString for lookup
+	if( DefaultMetaData.IsEmpty() && MetaDataKey == TEXT("DisplayName") )
+	{
+		DefaultMetaData = FName::NameToDisplayString( GetName(), IsA( UBoolProperty::StaticClass() ) );
+	}
+	
+
+	FText LocalizedMetaData;
+	if ( !( FText::FindText( LocalizationNamespace, LocalizationKey, /*OUT*/LocalizedMetaData, &DefaultMetaData ) ) )
+	{
+		if (!DefaultMetaData.IsEmpty())
 		{
-			DefaultMetaData = GetMetaData(MetaDataKey);
 			LocalizedMetaData = FText::AsCultureInvariant(DefaultMetaData);
 		}
 	}
+
 	return LocalizedMetaData;
 }
 
@@ -2734,9 +2764,9 @@ void UClass::DeferredRegister(UClass *UClassStaticClass,const TCHAR* PackageName
 	ClassConfigName = InClassConfigName;
 
 	// Propagate inherited flags.
-	if (SuperStruct != NULL)
+	UClass* SuperClass = GetSuperClass();
+	if (SuperClass != NULL)
 	{
-		UClass* SuperClass = GetSuperClass();
 		ClassFlags |= (SuperClass->ClassFlags & CLASS_Inherit);
 		ClassCastFlags |= SuperClass->ClassCastFlags;
 	}
@@ -2940,9 +2970,9 @@ void UClass::Link(FArchive& Ar, bool bRelinkExistingProperties)
 	if (PropertyLink != NULL)
 	{
 		NetFields.Empty();
-		if (SuperStruct)
+		if (UClass* SuperClass = GetSuperClass())
 		{
-			ClassReps = GetSuperClass()->ClassReps;
+			ClassReps = SuperClass->ClassReps;
 		}
 		else
 		{
@@ -3016,6 +3046,23 @@ void UClass::Link(FArchive& Ar, bool bRelinkExistingProperties)
 
 #if UCLASS_FAST_ISA_IMPL & 2
 
+	struct FClassParentPair
+	{
+		UClass* Class;
+		UClass* Parent;
+
+		FClassParentPair(UClass* InClass, UClass* InParent)
+			: Class (InClass)
+			, Parent(InParent)
+		{
+		}
+
+		friend bool operator==(const FClassParentPair& Lhs, const UClass* Rhs) { return Lhs.Class == Rhs; }
+		friend bool operator!=(const FClassParentPair& Lhs, const UClass* Rhs) { return Lhs.Class != Rhs; }
+		friend bool operator==(const UClass* Lhs, const FClassParentPair& Rhs) { return Lhs == Rhs.Class; }
+		friend bool operator!=(const UClass* Lhs, const FClassParentPair& Rhs) { return Lhs != Rhs.Class; }
+	};
+
 	/**
 	 * Tree for fast IsA implementation.
 	 *
@@ -3031,35 +3078,37 @@ void UClass::Link(FArchive& Ar, bool bRelinkExistingProperties)
 		static void Register(UClass* NewClass);
 		static void Unregister(UClass* NewClass);
 
-		static TArray<UClass*>& GetClasses()
+		struct StateType
 		{
-			static TArray<UClass*> Classes;
-			return Classes;
-		}
-		static TMap<UClass*, TArray<UClass*>>& GetOrphans()
+			TArray<FClassParentPair> Classes;
+			TSet<UClass*>            Orphans;
+			FCriticalSection ClassesCriticalSection;
+		};
+
+		static StateType& GetState()
 		{
-			static TMap<UClass*, TArray<UClass*>> Orphans;
-			return Orphans;
+			static StateType State;
+			return State;
 		}
-		static FCriticalSection& GetClassesCriticalSection()
-		{
-			static FCriticalSection ClassesCriticalSection;
-			return ClassesCriticalSection;
-		}
+
+	public:
+		static void Validate();
 	};
 
 	void FFastIndexingClassTree::Register(UClass* Class)
 	{
-		FScopeLock Lock(&GetClassesCriticalSection());
-		TMap<UClass*, TArray<UClass*>>& Orphans = GetOrphans();
-		TArray<UClass*>& Classes = GetClasses();
+		StateType& State = GetState();
+		FScopeLock Lock(&State.ClassesCriticalSection);
+
+		// Ensure that the class is not already registered or orphaned
+		check(!State.Classes.Contains(Class) && !State.Orphans.Contains(Class));
 
 		UClass* ParentClass = Class->GetSuperClass();
 
 		// If the parent has previously been orphaned, flag the child as orphaned
-		if (TArray<UClass*>* ParentOrphans = Orphans.Find(ParentClass))
+		if (State.Orphans.Contains(ParentClass))
 		{
-			ParentOrphans->Add(Class);
+			State.Orphans.Add(Class);
 			return;
 		}
 
@@ -3067,9 +3116,9 @@ void UClass::Link(FArchive& Ar, bool bRelinkExistingProperties)
 		if (ParentClass)
 		{
 			// Can happen if a child is registered *after* the parent
-			if (!Classes.Contains(ParentClass))
+			if (!State.Classes.Contains(ParentClass))
 			{
-				Orphans.Add(ParentClass).Add(Class);
+				State.Orphans.Add(Class);
 				return;
 			}
 
@@ -3077,13 +3126,13 @@ void UClass::Link(FArchive& Ar, bool bRelinkExistingProperties)
 		}
 		else
 		{
-			NewIndex = Classes.Num();
+			NewIndex = State.Classes.Num();
 		}
 
 		// Increment indices of following classes
-		for (auto Index = NewIndex, LastIndex = Classes.Num(); Index != LastIndex; ++Index)
+		for (auto Index = NewIndex, LastIndex = State.Classes.Num(); Index != LastIndex; ++Index)
 		{
-			++Classes[Index]->ClassTreeIndex;
+			++State.Classes[Index].Class->ClassTreeIndex;
 		}
 
 		// Update children count of all parents
@@ -3095,49 +3144,49 @@ void UClass::Link(FArchive& Ar, bool bRelinkExistingProperties)
 		// Add class
 		Class->ClassTreeIndex       = NewIndex;
 		Class->ClassTreeNumChildren = 0;
-		Classes.Insert(Class, NewIndex);
+		State.Classes.Insert(FClassParentPair(Class, ParentClass), NewIndex);
 
 		// Re-register any children orphaned by a previous Unregister call
-		if (TArray<UClass*>* FoundOrphans = Orphans.Find(Class))
+		TArray<UClass*> OrphansToReregister;
+		for (auto It = State.Orphans.CreateIterator(); It; ++It)
 		{
-			TArray<UClass*> OrphansToReregister = MoveTemp(*FoundOrphans);
-			Orphans.Remove(Class);
-			Orphans.Compact();
-
-			for (UClass* Orphan : OrphansToReregister)
+			UClass* Orphan = *It;
+			if (Orphan->GetSuperClass() == Class)
 			{
-				Register(Orphan);
+				OrphansToReregister.Add(Orphan);
+				It.RemoveCurrent();
 			}
 		}
+
+		State.Orphans.Compact();
+
+		for (UClass* Orphan : OrphansToReregister)
+		{
+			Register(Orphan);
+		}
+
+		#if DO_CLASS_TREE_VALIDATION
+			Validate();
+		#endif
 	}
 
 	void FFastIndexingClassTree::Unregister(UClass* Class)
 	{
-		FScopeLock Lock(&GetClassesCriticalSection());
-		TMap<UClass*, TArray<UClass*>>& Orphans = GetOrphans();
-		TArray<UClass*>& Classes = GetClasses();
+		StateType& State = GetState();
+		FScopeLock Lock(&State.ClassesCriticalSection);
 
-		UClass* ParentClass = Class->GetSuperClass();
-
-		// Remove class if it was orphaned
-		if (TArray<UClass*>* Children = Orphans.Find(ParentClass))
+		// Remove class if it was already orphaned
+		if (State.Orphans.Remove(Class))
 		{
-			// Remove the child, or the entire array if it's the only child left.
-			if (Children->Num() != 1)
-			{
-				int32 ChildIndex = Children->Find(Class);
-				check(ChildIndex != INDEX_NONE);
-				Children->RemoveAt(ChildIndex);
-			}
-			else
-			{
-				check(Children->Last() == Class);
-				Orphans.Remove(ParentClass);
-				Orphans.Compact();
-			}
-
+			State.Orphans.Compact();
 			return;
 		}
+
+		UClass* ParentClass = State.Classes[Class->ClassTreeIndex].Parent;
+
+		// Ensure that the class and any parent are registered and in the expected location
+		check(                State.Classes[Class      ->ClassTreeIndex].Class == Class);
+		check(!ParentClass || State.Classes[ParentClass->ClassTreeIndex].Class == ParentClass);
 
 		// Remove it and mark its children as orphaned
 		int32 ClassIndex       = Class->ClassTreeIndex;
@@ -3147,13 +3196,13 @@ void UClass::Link(FArchive& Ar, bool bRelinkExistingProperties)
 		// Mark any children as orphaned
 		for (int32 Index = ClassIndex + 1, EndIndex = ClassIndex + NumRemoved; Index != EndIndex; ++Index)
 		{
-			Orphans.FindOrAdd(Classes[Index]->GetSuperClass()).Add(Classes[Index]);
+			State.Orphans.Add(State.Classes[Index].Class);
 		}
 
 		// Decrement indices of following classes
-		for (int32 Index = ClassIndex + NumRemoved, IndexEnd = Classes.Num(); Index != IndexEnd; ++Index)
+		for (int32 Index = ClassIndex + NumRemoved, IndexEnd = State.Classes.Num(); Index != IndexEnd; ++Index)
 		{
-			Classes[Index]->ClassTreeIndex -= NumRemoved;
+			State.Classes[Index].Class->ClassTreeIndex -= NumRemoved;
 		}
 
 		// Update children count of all parents
@@ -3162,7 +3211,40 @@ void UClass::Link(FArchive& Ar, bool bRelinkExistingProperties)
 			Parent->ClassTreeNumChildren -= NumRemoved;
 		}
 
-		Classes.RemoveAt(ClassIndex, NumRemoved, false);
+		State.Classes.RemoveAt(ClassIndex, NumRemoved, false);
+
+		#if DO_CLASS_TREE_VALIDATION
+			Validate();
+		#endif
+	}
+
+	void FFastIndexingClassTree::Validate()
+	{
+		StateType& State = GetState();
+		FScopeLock Lock(&State.ClassesCriticalSection);
+
+		for (const FClassParentPair& Pair : State.Classes)
+		{
+			int32 Index = Pair.Class->ClassTreeIndex;
+
+			// Check that the class is not orphaned
+			check(!State.Orphans.Contains(Pair.Class));
+
+			// Check that the class is where it thinks it is
+			check(State.Classes[Index] == Pair.Class);
+
+			if (Pair.Parent)
+			{
+				int32 ParentIndex = Pair.Parent->ClassTreeIndex;
+
+				// Check that the parent is registered and not orphaned
+				check( State.Classes.Contains(Pair.Parent));
+				check(!State.Orphans.Contains(Pair.Parent));
+
+				// Check that class 'is' its parent
+				check(Index - Pair.Parent->ClassTreeIndex <= Pair.Parent->ClassTreeNumChildren);
+			}
+		}
 	}
 
 	FFastIndexingClassTreeRegistrar::FFastIndexingClassTreeRegistrar()
@@ -3223,7 +3305,23 @@ void UClass::Serialize( FArchive& Ar )
 		UnhashObject(this);
 	}
 
+#if UCLASS_FAST_ISA_IMPL & 2
+	UClass* SuperClassBefore = GetSuperClass();
+#endif
 	Super::Serialize( Ar );
+#if UCLASS_FAST_ISA_IMPL & 2
+	// Handle that fact that FArchive takes UObject*s by reference, and archives can just blat
+	// over our SuperStruct with impunity.
+	if (SuperClassBefore)
+	{
+		UClass* SuperClassAfter = GetSuperClass();
+		if (SuperClassBefore != SuperClassAfter)
+		{
+			FFastIndexingClassTree::Unregister(this);
+			FFastIndexingClassTree::Register(this);
+		}
+	}
+#endif
 
 	if ( Ar.IsLoading() || Ar.IsModifyingWeakAndStrongReferences() )
 	{
@@ -4204,6 +4302,60 @@ bool UFunction::IsSignatureCompatibleWith(const UFunction* OtherFunction) const
 	return IsSignatureCompatibleWith(OtherFunction, IgnoreFlags);
 }
 
+bool FStructUtils::ArePropertiesTheSame(const UProperty* A, const UProperty* B, bool bCheckPropertiesNames)
+{
+	if (A == B)
+	{
+		return true;
+	}
+
+	if (!A != !B) //one of properties is null
+	{
+		return false;
+	}
+
+	if (bCheckPropertiesNames && (A->GetFName() != B->GetFName()))
+	{
+		return false;
+	}
+
+	if (A->GetSize() != B->GetSize())
+	{
+		return false;
+	}
+
+	if (A->GetOffset_ForGC() != B->GetOffset_ForGC())
+	{
+		return false;
+	}
+
+	if (!A->SameType(B))
+	{
+		return false;
+	}
+
+	return true;
+}
+
+bool FStructUtils::TheSameLayout(const UStruct* StructA, const UStruct* StructB, bool bCheckPropertiesNames)
+{
+	bool bResult = false;
+	if (StructA && StructB)
+	{
+		const UProperty* PropertyA = StructA->PropertyLink;
+		const UProperty* PropertyB = StructB->PropertyLink;
+
+		bResult = true;
+		while (bResult && (PropertyA != PropertyB))
+		{
+			bResult = ArePropertiesTheSame(PropertyA, PropertyB, bCheckPropertiesNames);
+			PropertyA = PropertyA ? PropertyA->PropertyLinkNext : NULL;
+			PropertyB = PropertyB ? PropertyB->PropertyLinkNext : NULL;
+		}
+	}
+	return bResult;
+}
+
 bool UFunction::IsSignatureCompatibleWith(const UFunction* OtherFunction, uint64 IgnoreFlags) const
 {
 	// Early out if they're exactly the same function
@@ -4226,12 +4378,9 @@ bool UFunction::IsSignatureCompatibleWith(const UFunction* OtherFunction, uint64
 			UProperty* PropA = *IteratorA;
 			UProperty* PropB = *IteratorB;
 
-			FString TypeA(PropA->GetCPPType());
-			FString TypeB(PropB->GetCPPType());
-
 			// Check the flags as well
 			const uint64 PropertyMash = PropA->PropertyFlags ^ PropB->PropertyFlags;
-			if ((TypeA != TypeB) || ((PropertyMash & ~IgnoreFlags) != 0))
+			if (!FStructUtils::ArePropertiesTheSame(PropA, PropB, false) || ((PropertyMash & ~IgnoreFlags) != 0))
 			{
 				// Type mismatch between an argument of A and B
 				return false;

@@ -80,7 +80,9 @@ class BuildPlugin : BuildCommand
 		List<string> ModuleNames = new List<string>();
 		foreach(ModuleDescriptor Module in Plugin.Modules)
 		{
-			if(Module.IsCompiledInConfiguration(Platform, TargetType))
+			bool bBuildDeveloperTools = (TargetType == TargetRules.TargetType.Editor || TargetType == TargetRules.TargetType.Program);
+			bool bBuildEditor = (TargetType == TargetRules.TargetType.Editor);
+			if(Module.IsCompiledInConfiguration(Platform, TargetType, bBuildDeveloperTools, bBuildEditor))
 			{
 				ModuleNames.Add(Module.Name);
 			}
@@ -131,12 +133,13 @@ class BuildPlugin : BuildCommand
 			string SourceFileName = Path.Combine(Path.GetDirectoryName(PluginFileName), MatchingFileName);
 			string TargetFileName = Path.Combine(PackageDirectory, MatchingFileName);
 			CommandUtils.CopyFile(SourceFileName, TargetFileName);
+			CommandUtils.SetFileAttributes(TargetFileName, ReadOnly: false);
 		}
 
 		// Get the output plugin filename
 		string TargetPluginFileName = CommandUtils.MakeRerootedFilePath(Path.GetFullPath(PluginFileName), Path.GetDirectoryName(Path.GetFullPath(PluginFileName)), PackageDirectory);
 		PluginDescriptor NewDescriptor = PluginDescriptor.FromFile(TargetPluginFileName);
-		NewDescriptor.bEnabledByDefault = false;
+		NewDescriptor.bEnabledByDefault = true;
 		NewDescriptor.bInstalled = true;
 		NewDescriptor.Save(TargetPluginFileName);
 	}

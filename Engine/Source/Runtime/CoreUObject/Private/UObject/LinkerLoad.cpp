@@ -11,6 +11,7 @@
 #include "LinkerManager.h"
 #include "Serialization/DeferredMessageLog.h"
 #include "UObject/UObjectThreadContext.h"
+#include "GatherableTextData.h"
 
 #define LOCTEXT_NAMESPACE "LinkerLoad"
 
@@ -573,6 +574,12 @@ FLinkerLoad::ELinkerStatus FLinkerLoad::Tick( float InTimeLimit, bool bInUseTime
 				Status = SerializeNameMap();
 			}
 
+			// Serialize the gatherable text data map.
+			if( Status == LINKER_Loaded )
+			{
+				Status = SerializeGatherableTextDataMap();
+			}
+
 			// Serialize the import map.
 			if( Status == LINKER_Loaded )
 			{
@@ -667,6 +674,7 @@ FLinkerLoad::FLinkerLoad(UPackage* InParent, const TCHAR* InFilename, uint32 InL
 , bHaveImportsBeenVerified(false)
 , Loader(nullptr)
 , NameMapIndex(0)
+, GatherableTextDataMapIndex(0)
 , ImportMapIndex(0)
 , ExportMapIndex(0)
 , DependsMapIndex(0)
@@ -684,6 +692,7 @@ FLinkerLoad::FLinkerLoad(UPackage* InParent, const TCHAR* InFilename, uint32 InL
 , TickStartTime(0.0)
 , bFixupExportMapDone(false)
 #if WITH_EDITOR
+, bExportsDuplicatesFixed(false)
 ,	LoadProgressScope( nullptr )
 #endif // WITH_EDITOR
 #if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
@@ -1099,9 +1108,10 @@ FLinkerLoad::ELinkerStatus FLinkerLoad::SerializePackageFileSummary()
 		}
 
 		// Slack everything according to summary.
-		ImportMap   .Empty( Summary.ImportCount   );
-		ExportMap   .Empty( Summary.ExportCount   );
-		NameMap		.Empty( Summary.NameCount     );
+		ImportMap					.Empty( Summary.ImportCount				);
+		ExportMap					.Empty( Summary.ExportCount				);
+		GatherableTextDataMap		.Empty( Summary.GatherableTextDataCount );
+		NameMap						.Empty( Summary.NameCount				);
 		// Depends map gets pre-sized in SerializeDependsMap if used.
 
 		// Avoid serializing it again.
@@ -1161,6 +1171,38 @@ FLinkerLoad::ELinkerStatus FLinkerLoad::SerializeNameMap()
 
 	// Return whether we finished this step and it's safe to start with the next.
 	return ((NameMapIndex == Summary.NameCount) && !IsTimeLimitExceeded( TEXT("serializing name map") )) ? LINKER_Loaded : LINKER_TimedOut;
+}
+
+/**
+ * Serializes the gatherable text data container.
+ */
+FLinkerLoad::ELinkerStatus FLinkerLoad::SerializeGatherableTextDataMap(bool bForceEnableForCommandlet)
+{
+#if WITH_EDITORONLY_DATA
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "FLinkerLoad::SerializeGatherableTextDataMap" ), STAT_LinkerLoad_SerializeGatherableTextDataMap, STATGROUP_LinkerLoad );
+
+	// Skip serializing gatherable text data if we are using seekfree loading
+	if( !bForceEnableForCommandlet && !GIsEditor )
+	{
+		return LINKER_Loaded;
+	}
+
+	if( GatherableTextDataMapIndex == 0 && Summary.GatherableTextDataCount > 0 )
+	{
+		Seek( Summary.GatherableTextDataOffset );
+	}
+
+	while( GatherableTextDataMapIndex < Summary.GatherableTextDataCount && !IsTimeLimitExceeded(TEXT("serializing gatherable text data map"),100) )
+	{
+		FGatherableTextData* GatherableTextData = new(GatherableTextDataMap)FGatherableTextData;
+		*this << *GatherableTextData;
+		GatherableTextDataMapIndex++;
+	}
+
+	return ((GatherableTextDataMapIndex == Summary.GatherableTextDataCount) && !IsTimeLimitExceeded( TEXT("serializing gatherable text data map") )) ? LINKER_Loaded : LINKER_TimedOut;
+#endif
+
+	return LINKER_Loaded;
 }
 
 /**
@@ -1401,6 +1443,7 @@ FLinkerLoad::ELinkerStatus FLinkerLoad::SerializeExportMap()
 	{
 		FObjectExport* Export = new(ExportMap)FObjectExport;
 		*this << *Export;
+		Export->ThisIndex = FPackageIndex::FromExport(ExportMapIndex);
 		ExportMapIndex++;
 	}
 
@@ -3955,6 +3998,7 @@ void FLinkerLoad::Detach()
 
 	// Empty out no longer used arrays.
 	NameMap.Empty();
+	GatherableTextDataMap.Empty();
 	ImportMap.Empty();
 	ExportMap.Empty();
 
@@ -4342,6 +4386,101 @@ FName FLinkerLoad::FindNewNameForClass(FName OldClassName, bool bIsInstance)
 	return NAME_None;
 }
 
+#if WITH_EDITOR
+
+/**
+* Checks if exports' indexes and names are equal.
+*/
+bool AreObjectExportsEqualForDuplicateChecks(const FObjectExport& Lhs, const FObjectExport& Rhs)
+{
+	return Lhs.ObjectName == Rhs.ObjectName
+		&& Lhs.ClassIndex == Rhs.ClassIndex
+		&& Lhs.OuterIndex == Rhs.OuterIndex;
+}
+
+/**
+ * Helper function to sort ExportMap for duplicate checks.
+ */
+bool ExportMapSorter(const FObjectExport& Lhs, const FObjectExport& Rhs)
+{
+	// Check names first.
+	if (Lhs.ObjectName < Rhs.ObjectName)
+	{
+		return true;
+	}
+
+	if (Rhs.ObjectName > Rhs.ObjectName)
+	{
+		return false;
+	}
+
+	// Names are equal, check classes.
+	if (Lhs.ClassIndex < Rhs.ClassIndex)
+	{
+		return true;
+	}
+
+	if (Lhs.ClassIndex > Rhs.ClassIndex)
+	{
+		return false;
+	}
+
+	// Class names are equal as well, check outers.
+	return Lhs.OuterIndex < Rhs.OuterIndex;
+}
+
+void FLinkerLoad::ReplaceExportIndexes(const FPackageIndex& OldIndex, const FPackageIndex& NewIndex)
+{
+	for (auto& Export : ExportMap)
+	{
+		if (Export.ClassIndex == OldIndex)
+		{
+			Export.ClassIndex = NewIndex;
+		}
+
+		if (Export.SuperIndex == OldIndex)
+		{
+			Export.SuperIndex = NewIndex;
+		}
+
+		if (Export.OuterIndex == OldIndex)
+		{
+			Export.OuterIndex = NewIndex;
+		}
+	}
+}
+
+void FLinkerLoad::FixupDuplicateExports()
+{
+	// We need to operate on copy to avoid incorrect indexes after sorting
+	auto ExportMapSorted = ExportMap;
+	ExportMapSorted.Sort(ExportMapSorter);
+
+	// ClassIndex, SuperIndex, OuterIndex
+	int32 LastUniqueExportIndex = 0;
+	for (int32 SortedIndex = 1; SortedIndex < ExportMapSorted.Num(); ++SortedIndex)
+	{
+		const FObjectExport& Original = ExportMapSorted[LastUniqueExportIndex];
+		const FObjectExport& Duplicate = ExportMapSorted[SortedIndex];
+
+		if (AreObjectExportsEqualForDuplicateChecks(Original, Duplicate))
+		{
+			// Duplicate entry found. Look through all Exports and update their ClassIndex, SuperIndex and OuterIndex
+			// to point on original export instead of duplicate.
+			const FPackageIndex& DuplicateIndex = Duplicate.ThisIndex;
+			const FPackageIndex& OriginalIndex = Original.ThisIndex;
+			ReplaceExportIndexes(DuplicateIndex, OriginalIndex);
+
+			// Mark Duplicate as null, so we don't load it.
+			Exp(Duplicate.ThisIndex).ThisIndex = FPackageIndex();
+		}
+		else
+		{
+			LastUniqueExportIndex = SortedIndex;
+		}
+	}
+}
+#endif // WITH_EDITOR
 
 /**
 * Allows object instances to be converted to other classes upon loading a package
@@ -4349,6 +4488,14 @@ FName FLinkerLoad::FindNewNameForClass(FName OldClassName, bool bIsInstance)
 FLinkerLoad::ELinkerStatus FLinkerLoad::FixupExportMap()
 {
 	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "FLinkerLoad::FixupExportMap" ), STAT_LinkerLoad_FixupExportMap, STATGROUP_LinkerLoad );
+
+#if WITH_EDITOR
+	if (UE4Ver() < VER_UE4_SKIP_DUPLICATE_EXPORTS_ON_SAVE_PACKAGE && !bExportsDuplicatesFixed)
+	{
+		FixupDuplicateExports();
+		bExportsDuplicatesFixed = true;
+	}
+#endif // WITH_EDITOR
 
 	// No need to fixup exports if everything is cooked.
 	if (!FPlatformProperties::RequiresCookedData())

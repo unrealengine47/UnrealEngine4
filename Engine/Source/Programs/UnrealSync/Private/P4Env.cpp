@@ -5,12 +5,11 @@
 #include "P4Env.h"
 #include "ProcessHelper.h"
 #include "Regex.h"
-#include "Map.h"
-#include "JsonSerializer.h"
-#include "JsonObject.h"
-#include "JsonReader.h"
 #include "SEditableTextBox.h"
 #include "SGridPanel.h"
+#include "SettingsCache.h"
+
+#define LOCTEXT_NAMESPACE "UnrealSync"
 
 DECLARE_LOG_CATEGORY_CLASS(LogP4Env, Log, All);
 
@@ -27,151 +26,6 @@ bool GetCommandLineParam(FString& Value, const TCHAR* CommandLine, EP4ParamType 
 {
 	return FParse::Value(CommandLine, *(FP4Env::GetParamName(Type) + "="), Value);
 }
-
-/**
- * Cache class for file settings.
- */
-class FSettingsCache
-{
-public:
-	/**
-	 * Instance getter.
-	 */
-	static FSettingsCache& Get()
-	{
-		static FSettingsCache Cache;
-		return Cache;
-	}
-
-	/**
-	 * Gets setting of given type.
-	 *
-	 * @param Value Output parameter. If succeeded this parameter will be overwritten with setting value.
-	 * @param Type Type to look for.
-	 *
-	 * @returns True if setting was found. False otherwise.
-	 */
-	bool GetSetting(FString& Value, EP4ParamType Type)
-	{
-		auto* ParamPtr = Settings.Find(FP4Env::GetParamName(Type));
-		if (ParamPtr == nullptr)
-		{
-			return false;
-		}
-
-		Value = *ParamPtr;
-		return true;
-	}
-
-	/**
-	 * Sets setting of given type to given value.
-	 *
-	 * @param Type Type of the setting.
-	 * @param Value Value of the setting.
-	 */
-	void SetSetting(EP4ParamType Type, const FString& Value)
-	{
-		auto* ParamPtr = Settings.Find(FP4Env::GetParamName(Type));
-		if (ParamPtr != nullptr)
-		{
-			*ParamPtr = Value;
-		}
-
-		Settings.Add(FP4Env::GetParamName(Type), Value);
-	}
-
-	/**
-	 * Saves setting to file.
-	 */
-	void Save()
-	{
-		TSharedRef<FJsonObject> Object(new FJsonObject());
-
-		for (const auto& Setting : Settings)
-		{
-			if (!Setting.Value.IsEmpty())
-			{
-				Object->SetStringField(Setting.Key, Setting.Value);
-			}
-		}
-
-		FString Buffer;
-		TSharedRef<TJsonWriter<> > Writer = TJsonWriterFactory<>::Create(&Buffer);
-		if (!FJsonSerializer::Serialize(Object, Writer))
-		{
-			UE_LOG(LogP4Env, Error, TEXT("Failed serializing settings using JSON."));
-			return;
-		}
-
-		auto bNeedsWrite = true;
-
-		if (FPaths::FileExists(GetSettingsFileName()))
-		{
-			// Read the file to a string.
-			FString FileContents;
-			bNeedsWrite = !(FFileHelper::LoadFileToString(FileContents, *GetSettingsFileName()) && FileContents == Buffer);
-		}
-
-		if (bNeedsWrite && !FFileHelper::SaveStringToFile(Buffer, *GetSettingsFileName()))
-		{
-			UE_LOG(LogP4Env, Error, TEXT("Failed writing settings to file: \"%s\"."), *GetSettingsFileName());
-			return;
-		}
-	}
-
-private:
-	/**
-	 * Constructor.
-	 *
-	 * Creates the cache from value read from settings file if it exists.
-	 */
-	FSettingsCache()
-	{
-		// Read the file to a string.
-		FString FileContents;
-		if (!FFileHelper::LoadFileToString(FileContents, *GetSettingsFileName()))
-		{
-			UE_LOG(LogP4Env, Log, TEXT("Couldn't find settings file \"%s\"."), *GetSettingsFileName());
-			return;
-		}
-
-		// Deserialize a JSON object from the string
-		TSharedPtr<FJsonObject> Object;
-		TSharedRef<TJsonReader<> > Reader = TJsonReaderFactory<>::Create(FileContents);
-		if (!FJsonSerializer::Deserialize(Reader, Object) || !Object.IsValid())
-		{
-			UE_LOG(LogP4Env, Error, TEXT("Settings file JSON parsing failed: \"%s\"."), *Reader->GetErrorMessage());
-			return;
-		}
-
-		for (const auto& Value : Object->Values)
-		{
-			FString Text;
-			if (!Value.Value->TryGetString(Text))
-			{
-				Settings.Empty();
-				break;
-			}
-
-			Settings.Add(Value.Key, Text);
-		}
-	}
-
-	/**
-	 * Gets settings file name. For now it's hardcoded.
-	 *
-	 * @returns Settings file name.
-	 */
-	static const FString& GetSettingsFileName()
-	{
-		const static FString HardCodedSettingsFileName = "UnrealSync.settings";
-
-		return HardCodedSettingsFileName;
-	}
-
-	/** Value map of settings. */
-	TMap<FString, FString> Settings;
-};
 
 /**
  * Gets param from environment variables.
@@ -287,18 +141,18 @@ public:
 	/**
 	 * Constructor
 	 *
-	 * @param Type Type of the param to auto-detect.
-	 * @param CommandLine Command line to check for param.
+	 * @param InType Type of the param to auto-detect.
+	 * @param InCommandLine Command line to check for param.
 	 */
-	FP4EnvParamDetectionIteratorBase(EP4ParamType Type, const TCHAR* CommandLine)
-		: Type(Type)
+	FP4EnvParamDetectionIteratorBase(EP4ParamType InType, const TCHAR* InCommandLine)
+		: Type(InType)
 	{
-		if (GetCommandLineParam(HardParam, CommandLine, Type))
+		if (GetCommandLineParam(HardParam, InCommandLine, Type))
 		{
 			OverriddenSetting(Type, HardParam, true);
 		}
 
-		if (FSettingsCache::Get().GetSetting(HardParam, Type))
+		if (FP4Env::GetSetting(HardParam, Type))
 		{
 			OverriddenSetting(Type, HardParam, false);
 		}
@@ -369,15 +223,15 @@ protected:
 	/**
 	 * Method reports in the log that given param is overridden (from settings or command line).
 	 *
-	 * @param Type Param type to report on.
-	 * @param Value Value of this param.
-	 * @param CommandLine Boolean value that tells if this override comes from command line. If false it comes from settings file.
+	 * @param InType Param type to report on.
+	 * @param InValue Value of this param.
+	 * @param bInCommandLine Boolean value that tells if this override comes from command line. If false it comes from settings file.
 	 */
-	void OverriddenSetting(EP4ParamType Type, const FString& Value, bool CommandLine)
+	void OverriddenSetting(EP4ParamType InType, const FString& InValue, bool bInCommandLine)
 	{
-		FString Source = CommandLine ? TEXT("command line") : TEXT("settings file");
+		FString Source = bInCommandLine ? TEXT("command line") : TEXT("settings file");
 
-		UE_LOG(LogP4Env, Log, TEXT("Setting %s overridden from %s and set to value \"%s\"."), *FP4Env::GetParamName(Type), *Source, *Value);
+		UE_LOG(LogP4Env, Log, TEXT("Setting %s overridden from %s and set to value \"%s\"."), *FP4Env::GetParamName(InType), *Source, *InValue);
 		Finish();
 	}
 
@@ -410,38 +264,62 @@ public:
 	 * @param CommandLine Command line to parse.
 	 */
 	FP4PathDetectionIterator(const TCHAR* CommandLine)
-		: Step(0), FP4EnvParamDetectionIteratorBase(EP4ParamType::Path, CommandLine)
+		: FP4EnvParamDetectionIteratorBase(EP4ParamType::Path, CommandLine), Step(0)
 	{
-		// Tries to detect in standard environment paths.
-		static const FString WhereCommand = "where"; // TODO Mac: I think 'where' command equivalent on Mac is 'whereis'
+#if PLATFORM_WINDOWS
+		const TCHAR* StdLocationPrefixes[] =
+		{
+			TEXT("C:\\Program Files\\Perforce"),
+			TEXT("C:\\Program Files (x86)\\Perforce")
+		};
+
+		static const FString WhereCommand = "where";
 		static const FString P4ExecutableName = "p4.exe";
+#else
+		const TCHAR* StdLocationPrefixes[] =
+		{
+			TEXT("/bin"),
+			TEXT("/usr/local/bin"),
+			TEXT("~/bin")
+		};
 
-		TArray<FString> LocationsToLook;
-		LocationsToLook.Add(FPaths::Combine(TEXT("C:\\Program Files\\Perforce"), *P4ExecutableName));
-		LocationsToLook.Add(FPaths::Combine(TEXT("C:\\Program Files (x86)\\Perforce"), *P4ExecutableName));
+		static const FString WhereCommand = "whereis";
+		static const FString P4ExecutableName = "p4";
+#endif
 
+		TArray<FString> LocationCandidates;
+
+		// Tries to detect in standard environment paths.
 		FString WhereOutput;
-		if (RunProcessOutput(WhereCommand, P4ExecutableName, WhereOutput))
+		if (RunProcessOutput(WhereCommand, P4ExecutableName, WhereOutput) && !WhereOutput.IsEmpty())
 		{
 			TArray<FString> Outputs;
 			if (WhereOutput.ParseIntoArrayLines(Outputs, true))
 			{
 				for (auto& Output : Outputs)
 				{
-					LocationsToLook.Add(Output);
+					LocationCandidates.Add(Output);
 				}
 			}
 		}
 
-		for (auto& LocationToLook : LocationsToLook)
+		for (const auto* StdLocationPrefix : StdLocationPrefixes)
 		{
-			FString LocationCandidate = FPaths::ConvertRelativePathToFull(LocationToLook);
+			LocationCandidates.Add(FPaths::Combine(StdLocationPrefix, *P4ExecutableName));
+		}
+
+		for (auto& LocationCandidate : LocationCandidates)
+		{
+			FPlatformMisc::NormalizePath(LocationCandidate);
+			LocationCandidate = FPaths::ConvertRelativePathToFull(LocationCandidate);
 			if (FPaths::FileExists(LocationCandidate))
 			{
 				AddUniqueLocation(LocationCandidate);
 			}
 		}
 	}
+
+	virtual ~FP4PathDetectionIterator() {}
 
 	/**
 	 * Function that tries to detect P4 executable path.
@@ -515,10 +393,14 @@ bool GetP4VLastConnectionStringElement(FString& Output, int32 LastConnectionStri
 		FLastConnectionStringCache()
 		{
 			bFoundData = false;
-			// TODO Mac: This path is going to be different on Mac.
+			// TODO Linux: This path is going to be different on Linux.
 			FString AppSettingsXmlPath = FPaths::ConvertRelativePathToFull(
 					FPaths::Combine(FPlatformProcess::UserDir(),
+#if PLATFORM_WINDOWS || PLATFORM_LINUX
 						TEXT(".."), TEXT(".p4qt"),
+#elif PLATFORM_MAC
+						*FPaths::Combine(TEXT(".."), TEXT("Library"), TEXT("Preferences"), TEXT("com.perforce.p4v")),
+#endif
 						TEXT("ApplicationSettings.xml")
 					)
 				);
@@ -595,8 +477,10 @@ public:
 	 * @param CommandLine Command line to parse.
 	 */
 	FP4PortDetectionIterator(const TCHAR* CommandLine)
-		: Step(0), FP4EnvParamDetectionIteratorBase(EP4ParamType::Port, CommandLine)
+		: FP4EnvParamDetectionIteratorBase(EP4ParamType::Port, CommandLine), Step(0)
 	{ }
+
+	virtual ~FP4PortDetectionIterator() {}
 
 	/**
 	 * Function that tries to detect P4 port.
@@ -643,13 +527,15 @@ public:
 	/**
 	 * Constructor.
 	 *
-	 * @param CommandLine Command line to parse.
-	 * @param Env Current P4 environment state.
+	 * @param InCommandLine Command line to parse.
+	 * @param InEnv Current P4 environment state.
 	 */
-	FP4UserDetectionIterator(const TCHAR* CommandLine, const FP4Env& Env)
-		: Step(0), FP4EnvParamDetectionIteratorBase(EP4ParamType::User, CommandLine), Env(Env)
+	FP4UserDetectionIterator(const TCHAR* InCommandLine, const FP4Env& InEnv)
+		: FP4EnvParamDetectionIteratorBase(EP4ParamType::User, InCommandLine), Env(InEnv), Step(0)
 	{
 	}
+
+	virtual ~FP4UserDetectionIterator() {}
 
 	/**
 	 * Function that tries to detect P4 user.
@@ -709,13 +595,13 @@ public:
 	/**
 	 * Constructor.
 	 *
-	 * @param CommandLine Command line to parse.
-	 * @param Env Current P4 environment state.
+	 * @param InCommandLine Command line to parse.
+	 * @param InEnv Current P4 environment state.
 	 */
-	FP4ClientDetectionIterator(const TCHAR* CommandLine, const FP4Env& Env)
-		: FP4EnvParamDetectionIteratorBase(EP4ParamType::Client, CommandLine), Env(Env)
+	FP4ClientDetectionIterator(const TCHAR* InCommandLine, const FP4Env& InEnv)
+		: FP4EnvParamDetectionIteratorBase(EP4ParamType::Client, InCommandLine), Env(InEnv)
 	{
-		auto P4CommandLine = FString::Printf(TEXT("-p%s clients -u%s"), *Env.GetPort(), *Env.GetUser());
+		auto P4CommandLine = FString::Printf(TEXT("-p%s -u%s clients -u%s"), *Env.GetPort(), *Env.GetUser(), *Env.GetUser());
 		if (!RunProcessOutput(Env.GetPath(), P4CommandLine, P4ClientsOutput))
 		{
 			UE_LOG(LogP4Env, Log, TEXT("Failed to get client list. Used settings:") LINE_TERMINATOR
@@ -730,6 +616,8 @@ public:
 		static const FRegexPattern ClientsPattern(TEXT("Client ([^ ]+) \\d{4}/\\d{2}/\\d{2} root (.+) '.*'"));
 		Matcher = MakeShareable(new FRegexMatcher(ClientsPattern, P4ClientsOutput));
 	}
+
+	virtual ~FP4ClientDetectionIterator() {}
 
 	/**
 	 * Function that tries to detect P4 client.
@@ -831,13 +719,15 @@ public:
 	/**
 	 * Constructor.
 	 *
-	 * @param CommandLine Command line to parse.
-	 * @param Env Current P4 environment state.
+	 * @param InCommandLine Command line to parse.
+	 * @param InEnv Current P4 environment state.
 	 */
-	FP4BranchDetectionIterator(const TCHAR* CommandLine, const FP4Env& Env)
-		: FP4EnvParamDetectionIteratorBase(EP4ParamType::Branch, CommandLine), Env(Env)
+	FP4BranchDetectionIterator(const TCHAR* InCommandLine, const FP4Env& InEnv)
+		: FP4EnvParamDetectionIteratorBase(EP4ParamType::Branch, InCommandLine), Env(InEnv)
 	{
 	}
+
+	virtual ~FP4BranchDetectionIterator() {}
 
 	/**
 	 * Function that tries to detect P4 branch.
@@ -860,20 +750,20 @@ private:
 
 bool FP4Env::Init(const TCHAR* CommandLine)
 {
-	TSharedPtr<FP4Env> Env = MakeShareable(new FP4Env());
+	TSharedPtr<FP4Env> TempEnv = MakeShareable(new FP4Env());
 
-	if (!Env->AutoDetectMissingParams(CommandLine))
+	if (!TempEnv->AutoDetectMissingParams(CommandLine))
 	{
 		return false;
 	}
 
 	FString CurrentBranch;
-	if (!GetCurrentBranch(CurrentBranch, *Env) || CurrentBranch != Env->GetBranch())
+	if (!GetCurrentBranch(CurrentBranch, *TempEnv) || CurrentBranch != TempEnv->GetBranch())
 	{
 		return false;
 	}
 
-	FP4Env::Env = Env;
+	FP4Env::Env = TempEnv;
 
 	return true;
 }
@@ -1070,6 +960,18 @@ bool FP4Env::CheckIfFileNeedsUpdate(const FString& FilePath)
 	return HaveRev < HeadRev;
 }
 
+bool FP4Env::GetSetting(FString& Value, EP4ParamType Type)
+{
+	TSharedPtr<FJsonValue> JSONValue;
+	if (!FSettingsCache::Get().GetSetting(JSONValue, TEXT("Perforce"))
+		|| JSONValue->Type != EJson::Object)
+	{
+		return false;
+	}
+
+	return JSONValue->AsObject()->TryGetStringField(GetParamName(Type), Value);
+}
+
 bool FP4Env::IsValid()
 {
 	return Env.IsValid();
@@ -1217,13 +1119,15 @@ void SP4EnvTabWidget::Construct(const FArguments& InArgs)
 		/**
 		 * Constructor
 		 *
-		 * @param Reference to FP4Option object this object relates to.
+		 * @param InOption Reference to FP4Option object this object relates to.
 		 */
-		SP4Option(TSharedRef<FP4Option> Option)
-			: Option(Option)
+		SP4Option(TSharedRef<FP4Option> InOption)
+			: Option(InOption)
 		{
 
 		}
+
+		virtual ~SP4Option() {}
 
 	protected:
 		/**
@@ -1369,16 +1273,19 @@ END_SLATE_FUNCTION_BUILD_OPTIMIZATION
 FReply SP4EnvTabWidget::OnSaveAndRestartButtonClick()
 {
 	auto& Settings = FSettingsCache::Get();
+	TSharedPtr<FJsonObject> Object(new FJsonObject());
 
 	for (auto Option : Options)
 	{
-		Settings.SetSetting(Option->GetType(), Option->GetText().ToString());
+		if (!Option->GetText().IsEmpty())
+		{
+			Object->SetStringField(FP4Env::GetParamName(Option->GetType()), Option->GetText().ToString());
+		}
 	}
 
-	Settings.Save();
+	Settings.SetSetting(TEXT("Perforce"), MakeShareable(new FJsonValueObject(Object)));
 
-	FUnrealSync::RunDetachedUS(FPlatformProcess::ExecutableName(false), true, true, false);
-	FPlatformMisc::RequestExit(false);
+	FUnrealSync::SaveSettingsAndRestart();
 
 	return FReply::Handled();
 }
@@ -1390,12 +1297,14 @@ FReply SP4EnvTabWidget::OnCloseButtonClick()
 	return FReply::Handled();
 }
 
-SP4EnvTabWidget::FP4Option::FP4Option(EP4ParamType Type)
-	: Type(Type)
+SP4EnvTabWidget::FP4Option::FP4Option(EP4ParamType InType)
+	: Type(InType)
 {
 	FString Param;
-	if (FSettingsCache::Get().GetSetting(Param, Type))
+	if (FP4Env::Get().GetSetting(Param, Type))
 	{
 		Text = FText::FromString(Param);
 	}
 }
+
+#undef LOCTEXT_NAMESPACE

@@ -1327,24 +1327,39 @@ FConstraintInstance* USkeletalMeshComponent::FindConstraintInstance(FName ConNam
 	return NULL;
 }
 
-void USkeletalMeshComponent::OnUpdateTransform(bool bSkipPhysicsMove)
+#ifndef OLD_FORCE_UPDATE_BEHAVIOR
+#define OLD_FORCE_UPDATE_BEHAVIOR 0
+#endif
+
+void USkeletalMeshComponent::OnUpdateTransform(bool bSkipPhysicsMove, bool bTeleport)
 {
 	// We are handling the physics move below, so don't handle it at higher levels
-	Super::OnUpdateTransform(true);
+	Super::OnUpdateTransform(true, bTeleport);
 
 	// Always send new transform to physics
 	if(bPhysicsStateCreated && !bSkipPhysicsMove)
 	{
-		UpdateKinematicBonesToAnim(GetSpaceBases(), false, false, true);
+#if !OLD_FORCE_UPDATE_BEHAVIOR
+		UpdateKinematicBonesToAnim(GetSpaceBases(), bTeleport, false);
+#else
+		UpdateKinematicBonesToAnim(GetSpaceBases(), true, false);
+#endif
 	}
 
 #if WITH_APEX_CLOTHING
 	if(ClothingActors.Num() > 0)
 	{
+		//@todo: Should cloth know whether we're teleporting?
 		// Updates cloth animation states because transform is updated
 		UpdateClothTransform();
 	}
 #endif //#if WITH_APEX_CLOTHING
+}
+
+void USkeletalMeshComponent::UpdateOverlaps(TArray<FOverlapInfo> const* PendingOverlaps, bool bDoNotifies, const TArray<FOverlapInfo>* OverlapsAtEndLocation)
+{
+	// Parent class (USkinnedMeshComponent) routes only to children, but we really do want to test our own bodies for overlaps.
+	UPrimitiveComponent::UpdateOverlaps(PendingOverlaps, bDoNotifies, OverlapsAtEndLocation);
 }
 
 void USkeletalMeshComponent::CreatePhysicsState()
@@ -3660,7 +3675,7 @@ void USkeletalMeshComponent::TickClothing(float DeltaTime)
 #endif// #if WITH_APEX_CLOTHING
 }
 
-void USkeletalMeshComponent::GetUpdateClothSimulationData(TArray<FClothSimulData>& OutClothSimData)
+void USkeletalMeshComponent::GetUpdateClothSimulationData(TArray<FClothSimulData>& OutClothSimData, USkeletalMeshComponent* OverrideLocalRootComponent)
 {
 #if WITH_APEX_CLOTHING
 
@@ -3717,7 +3732,7 @@ void USkeletalMeshComponent::GetUpdateClothSimulationData(TArray<FClothSimulData
 				if (bLocalSpaceSimulation)
 				{
 					FMatrix ClothRootBoneMatrix;
-					GetClothRootBoneMatrix(ActorIndex, ClothRootBoneMatrix);
+					(OverrideLocalRootComponent) ? OverrideLocalRootComponent->GetClothRootBoneMatrix(ActorIndex, ClothRootBoneMatrix) : GetClothRootBoneMatrix(ActorIndex, ClothRootBoneMatrix);
 					for (uint32 VertexIndex = 0; VertexIndex < NumSimulVertices; VertexIndex++)
 					{						
 						ClothData.ClothSimulPositions[VertexIndex] = ClothRootBoneMatrix.TransformPosition(P2UVector(Vertices[VertexIndex]));

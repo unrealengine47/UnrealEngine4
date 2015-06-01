@@ -2,6 +2,7 @@
 
 #include "Paper2DEditorPrivatePCH.h"
 #include "TileSetEditor.h"
+#include "PaperTileSet.h"
 #include "SSingleObjectDetailsPanel.h"
 #include "SceneViewport.h"
 #include "PaperEditorViewportClient.h"
@@ -435,6 +436,11 @@ FText FTileSetEditor::GetToolkitName() const
 	Args.Add(TEXT("TileSetName"), FText::FromString(TileSetBeingEdited->GetName()));
 	Args.Add(TEXT("DirtyState"), bDirtyState ? FText::FromString( TEXT( "*" ) ) : FText::GetEmpty());
 	return FText::Format(LOCTEXT("TileSetAppLabel", "{TileSetName}{DirtyState}"), Args);
+}
+
+FText FTileSetEditor::GetToolkitToolTipText() const
+{
+	return FAssetEditorToolkit::GetToolTipTextForObject(TileSetBeingEdited);
 }
 
 FString FTileSetEditor::GetWorldCentricTabPrefix() const

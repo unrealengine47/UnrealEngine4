@@ -172,7 +172,7 @@ namespace UnrealBuildTool
 
 			if (CompileEnvironment.Config.bEnableShadowVariableWarning)
 			{
-				Result += " -Wshadow";
+				Result += " -Wshadow -Wno-error=shadow";
 			}
 
 			// @todo: Remove these two when the code is fixed and they're no longer needed
@@ -1027,8 +1027,9 @@ namespace UnrealBuildTool
 					}
 					else
 					{
-						CustomResourcesPath = Path.GetDirectoryName(UProjectFilePath) + "/Source/" + GameName + "/Resources/Mac";
-						CustomBuildPath = Path.GetDirectoryName(UProjectFilePath) + "/Build/Mac";
+						string FullUProjectFilePath = Path.GetFullPath(UProjectFilePath);
+						CustomResourcesPath = Path.GetDirectoryName(FullUProjectFilePath) + "/Source/" + GameName + "/Resources/Mac";
+						CustomBuildPath = Path.GetDirectoryName(FullUProjectFilePath) + "/Build/Mac";
 					}
 
 					bool bBuildingEditor = GameName.EndsWith("Editor");
@@ -1349,40 +1350,43 @@ namespace UnrealBuildTool
 			}
 
 			// We need to know what third party dylibs would be copied to the bundle
-			var Modules = Binary.GetAllDependencyModules(bIncludeDynamicallyLoaded: false, bForceCircular: false);
-			var BinaryLinkEnvironment = Binary.Target.GlobalLinkEnvironment.DeepCopy();
-			var BinaryDependencies = new List<UEBuildBinary>();
-			var LinkEnvironmentVisitedModules = new Dictionary<UEBuildModule, bool>();
-			foreach (var Module in Modules)
+			if(Binary.Config.Type != UEBuildBinaryType.StaticLibrary)
 			{
-				Module.SetupPrivateLinkEnvironment(BinaryLinkEnvironment, BinaryDependencies, LinkEnvironmentVisitedModules);
-			}
-
-			foreach (string AdditionalLibrary in BinaryLinkEnvironment.Config.AdditionalLibraries)
-			{
-				string LibName = Path.GetFileName(AdditionalLibrary);
-				if (LibName.StartsWith("lib"))
+				var Modules = Binary.GetAllDependencyModules(bIncludeDynamicallyLoaded: false, bForceCircular: false);
+				var BinaryLinkEnvironment = Binary.Target.GlobalLinkEnvironment.DeepCopy();
+				var BinaryDependencies = new List<UEBuildBinary>();
+				var LinkEnvironmentVisitedModules = new Dictionary<UEBuildModule, bool>();
+				foreach (var Module in Modules)
 				{
-					if (Path.GetExtension(AdditionalLibrary) == ".dylib")
+					Module.SetupPrivateLinkEnvironment(Binary, BinaryLinkEnvironment, BinaryDependencies, LinkEnvironmentVisitedModules);
+				}
+
+				foreach (string AdditionalLibrary in BinaryLinkEnvironment.Config.AdditionalLibraries)
+				{
+					string LibName = Path.GetFileName(AdditionalLibrary);
+					if (LibName.StartsWith("lib"))
 					{
-						string Entry = BundleContentsDirectory + "MacOS/" + LibName;
-						Receipt.AddBuildProduct(Entry, BuildProductType.DynamicLibrary);
+						if (Path.GetExtension(AdditionalLibrary) == ".dylib" && !String.IsNullOrEmpty(BundleContentsDirectory))
+						{
+							string Entry = BundleContentsDirectory + "MacOS/" + LibName;
+							Receipt.AddBuildProduct(Entry, BuildProductType.DynamicLibrary);
+						}
 					}
 				}
-			}
 
-			foreach (UEBuildBundleResource Resource in BinaryLinkEnvironment.Config.AdditionalBundleResources)
-			{
-				if (Directory.Exists(Resource.ResourcePath))
+				foreach (UEBuildBundleResource Resource in BinaryLinkEnvironment.Config.AdditionalBundleResources)
 				{
-					foreach (string ResourceFile in Directory.GetFiles(Resource.ResourcePath, "*", SearchOption.AllDirectories))
+					if (Directory.Exists(Resource.ResourcePath))
 					{
-						Receipt.AddBuildProduct(Path.Combine(BundleContentsDirectory, Resource.BundleContentsSubdir, ResourceFile.Substring(Path.GetDirectoryName(Resource.ResourcePath).Length + 1)), BuildProductType.RequiredResource);
+						foreach (string ResourceFile in Directory.GetFiles(Resource.ResourcePath, "*", SearchOption.AllDirectories))
+						{
+							Receipt.AddBuildProduct(Path.Combine(BundleContentsDirectory, Resource.BundleContentsSubdir, ResourceFile.Substring(Path.GetDirectoryName(Resource.ResourcePath).Length + 1)), BuildProductType.RequiredResource);
+						}
 					}
-				}
-				else
-				{
-					Receipt.AddBuildProduct(Path.Combine(BundleContentsDirectory, Resource.BundleContentsSubdir, Path.GetFileName(Resource.ResourcePath)), BuildProductType.RequiredResource);
+					else
+					{
+						Receipt.AddBuildProduct(Path.Combine(BundleContentsDirectory, Resource.BundleContentsSubdir, Path.GetFileName(Resource.ResourcePath)), BuildProductType.RequiredResource);
+					}
 				}
 			}
 

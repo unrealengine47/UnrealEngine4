@@ -178,7 +178,9 @@ private:
 
 FVector2D SWindow::GetWindowSizeFromClientSize(FVector2D InClientSize)
 {
-	if (!HasOSWindowBorder())
+	// If this is a regular non-OS window, we need to compensate for the border and title bar area that we will add
+	// Note: Windows with an OS border do this in ReshapeWindow
+	if (IsRegularWindow() && !HasOSWindowBorder())
 	{
 		const FMargin BorderSize = GetWindowBorderSize();
 
@@ -769,6 +771,12 @@ void SWindow::Resize( FVector2D NewSize )
 
 	if ( Size != NewSize )
 	{
+		NewSize.X = FMath::Max(SizeLimits.GetMinWidth().Get(NewSize.X), NewSize.X);
+		NewSize.X = FMath::Min(SizeLimits.GetMaxWidth().Get(NewSize.X), NewSize.X);
+		
+		NewSize.Y = FMath::Max(SizeLimits.GetMinHeight().Get(NewSize.Y), NewSize.Y);
+		NewSize.Y = FMath::Min(SizeLimits.GetMaxHeight().Get(NewSize.Y), NewSize.Y);
+		
 		if (NativeWindow.IsValid())
 		{
 			NativeWindow->ReshapeWindow( FMath::TruncToInt(ScreenPosition.X), FMath::TruncToInt(ScreenPosition.Y), FMath::TruncToInt(NewSize.X), FMath::TruncToInt(NewSize.Y) );
@@ -1246,7 +1254,7 @@ bool SWindow::IsTopmostWindow() const
 /** @return true if mouse coordinates is within this window */
 bool SWindow::IsScreenspaceMouseWithin(FVector2D ScreenspaceMouseCoordinate) const
 {
-	const FVector2D LocalMouseCoordinate = ScreenspaceMouseCoordinate - GetWindowGeometryInScreen().AbsolutePosition;
+	const FVector2D LocalMouseCoordinate = ScreenspaceMouseCoordinate - ScreenPosition;
 	return NativeWindow->IsPointInWindow(FMath::TruncToInt(LocalMouseCoordinate.X), FMath::TruncToInt(LocalMouseCoordinate.Y));
 }
 
@@ -1335,7 +1343,7 @@ bool SWindow::OnIsActiveChanged( const FWindowActivateEvent& ActivateEvent )
 				FWidgetPath WidgetToFocusPath;
 				if( FSlateWindowHelper::FindPathToWidget( JustThisWindow, PinnedWidgetToFocus.ToSharedRef(), WidgetToFocusPath ) )
 				{
-					FSlateApplicationBase::Get().SetKeyboardFocus( WidgetToFocusPath, EFocusCause::SetDirectly );
+					FSlateApplicationBase::Get().SetAllUserFocus( WidgetToFocusPath, EFocusCause::SetDirectly );
 				}
 			}
 			else
@@ -1344,7 +1352,7 @@ bool SWindow::OnIsActiveChanged( const FWindowActivateEvent& ActivateEvent )
 				if( FSlateWindowHelper::FindPathToWidget( JustThisWindow, AsShared(), WindowWidgetPath ) )
 				{
 					FWeakWidgetPath WeakWindowPath(WindowWidgetPath);
-					FSlateApplicationBase::Get().SetKeyboardFocus( WeakWindowPath.ToNextFocusedPath(EUINavigation::Next), EFocusCause::SetDirectly );
+					FSlateApplicationBase::Get().SetAllUserFocus( WeakWindowPath.ToNextFocusedPath(EUINavigation::Next), EFocusCause::SetDirectly );
 				}
 			}
 		}
@@ -1438,11 +1446,6 @@ FReply SWindow::OnMouseMove( const FGeometry& MyGeometry, const FPointerEvent& M
 FVector2D SWindow::ComputeDesiredSize(float LayoutScaleMultiplier) const
 {
 	return SCompoundWidget::ComputeDesiredSize(LayoutScaleMultiplier) * LayoutScaleMultiplier;
-}
-
-float SWindow::GetRelativeLayoutScale(const FSlotBase& Child) const
-{
-	return FSlateApplicationBase::Get().GetApplicationScale();
 }
 
 const TArray< TSharedRef<SWindow> >& SWindow::GetChildWindows() const

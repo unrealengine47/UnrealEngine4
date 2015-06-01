@@ -137,7 +137,7 @@ bool UMaterialGraphNode::CanPasteHere(const UEdGraph* TargetGraph) const
 				bIsValidFunctionExpression = false;
 			}
 
-			if (bIsValidFunctionExpression && IsAllowedExpressionType(MaterialExpression->GetClass(), MaterialGraph->MaterialFunction != NULL))
+			if (bIsValidFunctionExpression && MaterialExpression && IsAllowedExpressionType(MaterialExpression->GetClass(), MaterialGraph->MaterialFunction != NULL))
 			{
 				return true;
 			}
@@ -592,9 +592,21 @@ void UMaterialGraphNode::PostPlacedNewNode()
 	if (MaterialExpression)
 	{
 		NodeComment = MaterialExpression->Desc;
+		bCommentBubbleVisible = MaterialExpression->bCommentBubbleVisible;
 		NodePosX = MaterialExpression->MaterialExpressionEditorX;
 		NodePosY = MaterialExpression->MaterialExpressionEditorY;
 		bCanRenameNode = MaterialExpression->CanRenameNode();
+	}
+}
+
+void UMaterialGraphNode::NodeConnectionListChanged()
+{
+	Super::NodeConnectionListChanged();
+
+	const UEdGraphSchema* Schema = GetSchema();
+	if (Schema != nullptr)
+	{
+		Schema->ForceVisualizationCacheClear();
 	}
 }
 
@@ -617,6 +629,17 @@ void UMaterialGraphNode::OnUpdateCommentText( const FString& NewComment )
 	{
 		MaterialExpression->Modify();
 		MaterialExpression->Desc = NewComment;
+		MaterialDirtyDelegate.ExecuteIfBound();
+	}
+}
+
+void UMaterialGraphNode::OnCommentBubbleToggled( bool bInCommentBubbleVisible )
+{
+	if ( MaterialExpression )
+	{
+		MaterialExpression->Modify();
+		MaterialExpression->bCommentBubbleVisible = bInCommentBubbleVisible;
+		MaterialDirtyDelegate.ExecuteIfBound();
 	}
 }
 

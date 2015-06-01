@@ -1,4 +1,4 @@
-// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
+﻿// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -510,6 +510,22 @@ enum EUnrealEngineObjectUE4Version
 	VER_UE4_SERIALIZE_PINTYPE_CONST,
 	// Change UMaterialFunction::LibraryCategories to LibraryCategoriesText (old assets were saved before auto-conversion of UArrayProperty was possible)
 	VER_UE4_LIBRARY_CATEGORIES_AS_FTEXT,
+	// Check for duplicate exports while saving packages.
+	VER_UE4_SKIP_DUPLICATE_EXPORTS_ON_SAVE_PACKAGE,
+	// Pre-gathering of gatherable, localizable text in packages to optimize text gathering operation times
+	VER_UE4_SERIALIZE_TEXT_IN_PACKAGES,
+	// Added pivot to widget components, need to load old versions as a 0,0 pivot, new default is 0.5,0.5
+	VER_UE4_ADD_BLEND_MODE_TO_WIDGET_COMPONENT,
+	// Added lightmass primitive setting
+	VER_UE4_NEW_LIGHTMASS_PRIMITIVE_SETTING,
+	// Deprecate NoZSpring property on spring nodes to be replaced with TranslateZ property
+	VER_UE4_REPLACE_SPRING_NOZ_PROPERTY,
+	// Keep enums tight and serialize their values as pairs of FName and value. Don't insert dummy values.
+	VER_UE4_TIGHTLY_PACKED_ENUMS,
+	// Changed Asset import data to serialize file meta data as JSON
+	VER_UE4_ASSET_IMPORT_DATA_AS_JSON,
+	// Legacy gamma support for textures.
+	VER_UE4_TEXTURE_LEGACY_GAMMA,
 
 	// -----<new versions can be added before this line>-------------------------------------------------
 	// - this needs to be the last line (see note below)

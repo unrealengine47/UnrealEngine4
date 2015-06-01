@@ -492,6 +492,35 @@ void FBlueprintEditorUtils::RefreshAllNodes(UBlueprint* Blueprint)
 	}
 }
 
+
+void FBlueprintEditorUtils::ReconstructAllNodes(UBlueprint* Blueprint)
+{
+	if (!Blueprint || !Blueprint->HasAllFlags(RF_LoadCompleted))
+	{
+		UE_LOG(LogBlueprint, Warning,
+			TEXT("ReconstructAllNodes called on incompletly loaded blueprint '%s'"),
+			Blueprint ? *Blueprint->GetFullName() : TEXT("NULL"));
+		return;
+	}
+
+	TArray<UK2Node*> AllNodes;
+	FBlueprintEditorUtils::GetAllNodesOfClass(Blueprint, AllNodes);
+
+	const bool bIsMacro = (Blueprint->BlueprintType == BPTYPE_MacroLibrary);
+	if (AllNodes.Num() > 1)
+	{
+		AllNodes.Sort(FCompareNodePriority());
+	}
+
+	for (TArray<UK2Node*>::TIterator NodeIt(AllNodes); NodeIt; ++NodeIt)
+	{
+		UK2Node* CurrentNode = *NodeIt;
+		//@todo:  Do we really need per-schema refreshing?
+		const UEdGraphSchema* Schema = CurrentNode->GetGraph()->GetSchema();
+		Schema->ReconstructNode(*CurrentNode, true);
+	}
+}
+
 void FBlueprintEditorUtils::RefreshExternalBlueprintDependencyNodes(UBlueprint* Blueprint, UStruct* RefreshOnlyChild)
 {
 	BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_RefreshExternalDependencyNodes);
@@ -952,6 +981,14 @@ struct FRegenerationHelper
 						Linker->Preload(BP);
 					}
 				}
+				// at the point of blueprint regeneration (on load), we are guaranteed that blueprint dependencies (like this macro) have
+				// fully formed classes (meaning the blueprint class and all its direct dependencies have been loaded)... however, we do not 
+				// get the guarantee that all of that blueprint's graph dependencies are loaded (hence, why we have to force load 
+				// everything here); in the case of cyclic dependencies, macro dependencies could already be loaded, but in the midst of 
+				// resolving thier own dependency placeholders (why a ForcedLoad() call is not enough); this ensures that 
+				// placeholder objects are properly resolved on nodes that will be injected by macro expansion
+				FLinkerLoad::PRIVATE_ForceLoadAllDependencies(BP->GetOutermost());
+				
 				ForcedLoadMembers(BP);
 			}
 		}
@@ -1444,15 +1481,18 @@ UClass* FBlueprintEditorUtils::RegenerateBlueprintClass(UBlueprint* Blueprint, U
 			// Make sure interfaces are up to date
 			FBlueprintEditorUtils::ConformImplementedInterfaces(Blueprint);
 
-			// Refresh all nodes to make sure function signatures are up to date, etc.
-			FBlueprintEditorUtils::RefreshAllNodes(Blueprint);
+			// Reconstruct all nodes, this will call AllocateDefaultPins, which ensures
+			// that nodes have a chance to create all the pins they'll expect when they compile.
+			// A good example of why this is necessary is UK2Node_BaseAsyncTask::AllocateDefaultPins
+			// and it's companion function UK2Node_BaseAsyncTask::ExpandNode.
+			FBlueprintEditorUtils::ReconstructAllNodes(Blueprint);
 
 			// Compile the actual blueprint
 			FKismetEditorUtilities::CompileBlueprint(Blueprint, true);
 		}
 		else if( bIsMacro )
 		{
-			// Just refresh all nodes in macro blueprints, but don't recompil
+			// Just refresh all nodes in macro blueprints, but don't recompile
 			FBlueprintEditorUtils::RefreshAllNodes(Blueprint);
 
 			if (ClassToRegenerate != nullptr)
@@ -1707,7 +1747,12 @@ void FBlueprintEditorUtils::RecreateClassMetaData(UBlueprint* Blueprint, UClass*
 		Class->SetMetaData(FBlueprintMetadata::MD_AllowableBlueprintVariableType, TEXT("true"));
 	}
 
-	AllHideCategories.Append(Blueprint->HideCategories);
+	for (FString HideCategory : Blueprint->HideCategories)
+	{
+		HideCategory.ReplaceInline(TEXT(" "), TEXT(""));
+		AllHideCategories.Add(HideCategory);
+	}
+
 	if (AllHideCategories.Num())
 	{
 		Class->SetMetaData(TEXT("HideCategories"), *FString::Join(AllHideCategories, TEXT(" ")));
@@ -1990,7 +2035,7 @@ void FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(UBlueprint* Blue
 {
 	struct FRefreshHelper
 	{
-		static void SkeletalRecompileChildren(TArray<UClass*> SkelClassesToRecompile)
+		static void SkeletalRecompileChildren(TArray<UClass*> SkelClassesToRecompile, bool bIsCompilingOnLoad)
 		{
 			for (auto SkelClass : SkelClassesToRecompile)
 			{
@@ -1999,12 +2044,11 @@ void FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(UBlueprint* Blue
 					continue;
 				}
 
-				auto SkelBlueprint = Cast<UBlueprint>(SkelClass->ClassGeneratedBy);
+				UBlueprint* SkelBlueprint = Cast<UBlueprint>(SkelClass->ClassGeneratedBy);
 				if (SkelBlueprint
 					&& SkelBlueprint->Status != BS_BeingCreated
 					&& !SkelBlueprint->bBeingCompiled
-					&& !SkelBlueprint->bIsRegeneratingOnLoad
-					&& SkelBlueprint->bHasBeenRegenerated)
+					&& !SkelBlueprint->bIsRegeneratingOnLoad)
 				{
 					TArray<UClass*> ChildrenOfClass;
 					GetDerivedClasses(SkelClass, ChildrenOfClass, false);
@@ -2015,13 +2059,19 @@ void FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(UBlueprint* Blue
 					Results.bSilentMode = true;
 					Results.bLogInfoOnly = true;
 
-					FKismetCompilerOptions CompileOptions;
-					CompileOptions.CompileType = EKismetCompileType::SkeletonOnly;
-					Compiler.CompileBlueprint(SkelBlueprint, CompileOptions, Results);
+					{
+						bool const bWasRegenerating = SkelBlueprint->bIsRegeneratingOnLoad;
+						SkelBlueprint->bIsRegeneratingOnLoad |= bIsCompilingOnLoad;
 
-					SkelBlueprint->BroadcastCompiled();
+						FKismetCompilerOptions CompileOptions;
+						CompileOptions.CompileType = EKismetCompileType::SkeletonOnly;
+						Compiler.CompileBlueprint(SkelBlueprint, CompileOptions, Results);
 
-					SkeletalRecompileChildren(ChildrenOfClass);
+						SkelBlueprint->BroadcastCompiled();
+
+						SkeletalRecompileChildren(ChildrenOfClass, bIsCompilingOnLoad);
+						SkelBlueprint->bIsRegeneratingOnLoad = bWasRegenerating;
+					}
 				}
 			}
 		}
@@ -2073,7 +2123,7 @@ void FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(UBlueprint* Blue
 		}
 		UpdateDelegatesInBlueprint(Blueprint);
 
-		FRefreshHelper::SkeletalRecompileChildren(ChildrenOfClass);
+		FRefreshHelper::SkeletalRecompileChildren(ChildrenOfClass, Blueprint->bIsRegeneratingOnLoad);
 
 		{
 			BP_SCOPED_COMPILER_EVENT_STAT(EKismetCompilerStats_NotifyBlueprintChanged);
@@ -2769,8 +2819,14 @@ bool FBlueprintEditorUtils::IsDataOnlyBlueprint(const UBlueprint* Blueprint)
 		return false;
 	}
 
+	if (Blueprint->AlwaysCompileOnLoad())
+	{
+		return false;
+	}
 
-	if( Blueprint->ParentClass->IsChildOf( UActorComponent::StaticClass() ) )
+	// Note that the current implementation of IsChildOf will not crash when called on a nullptr, but
+	// I'm explicitly null checking because it seems unwise to rely on this behavior:
+	if (Blueprint->ParentClass && Blueprint->ParentClass->IsChildOf(UActorComponent::StaticClass()))
 	{
 		return false;
 	}
@@ -2812,7 +2868,7 @@ bool FBlueprintEditorUtils::IsDataOnlyBlueprint(const UBlueprint* Blueprint)
 
 	// Make sure there's nothing in the user construction script, other than an entry node
 	UEdGraph* UserConstructionScript = (Blueprint->FunctionGraphs.Num() == 1) ? Blueprint->FunctionGraphs[0] : NULL;
-	if (UserConstructionScript)
+	if (UserConstructionScript && Blueprint->ParentClass)
 	{
 		//Call parent construction script may be added automatically
 		UBlueprint* BlueprintParent = Cast<UBlueprint>(Blueprint->ParentClass->ClassGeneratedBy);
@@ -3108,6 +3164,16 @@ FString FBlueprintEditorUtils::GetBlueprintTypeDescription(const UBlueprint* Blu
 //////////////////////////////////////////////////////////////////////////
 // Variables
 
+bool FBlueprintEditorUtils::IsVariableCreatedByBlueprint(UBlueprint* InBlueprint, UProperty* InVariableProperty)
+{
+	bool bIsVariableCreatedByBlueprint = false;
+	if (UBlueprintGeneratedClass* GeneratedClass = Cast<UBlueprintGeneratedClass>(InVariableProperty->GetOwnerClass()))
+	{
+		UBlueprint* OwnerBlueprint = Cast<UBlueprint>(GeneratedClass->ClassGeneratedBy);
+		bIsVariableCreatedByBlueprint = (OwnerBlueprint == InBlueprint && FBlueprintEditorUtils::FindNewVariableIndex(InBlueprint, InVariableProperty->GetFName()) != INDEX_NONE);
+	}
+	return bIsVariableCreatedByBlueprint;
+}
 
 // Find the index of a variable first declared in this blueprint. Returns INDEX_NONE if not found.
 int32 FBlueprintEditorUtils::FindNewVariableIndex(const UBlueprint* Blueprint, const FName& InName) 
@@ -5367,7 +5433,6 @@ void FBlueprintEditorUtils::ConformCallsToParentFunctions(UBlueprint* Blueprint)
 					{
 						// Cache a reference to the output exec pin
 						UEdGraphPin* OutputPin = CallFunctionNode->GetThenPin();
-						check(NULL != OutputPin);
 
 						// We're going to destroy the existing parent function call node, but first we need to persist any existing connections
 						for(int PinIndex = 0; PinIndex < CallFunctionNode->Pins.Num(); ++PinIndex)

@@ -1,6 +1,7 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "Paper2DEditorPrivatePCH.h"
+#include "PaperFlipbookComponent.h"
 #include "FlipbookEditor.h"
 #include "SSingleObjectDetailsPanel.h"
 #include "SceneViewport.h"
@@ -246,25 +247,7 @@ TSharedRef<SDockTab> FFlipbookEditor::SpawnTab_Viewport(const FSpawnTabArgs& Arg
 			
 			+SVerticalBox::Slot()
 			[
-				SNew(SOverlay)
-
-				// The flipbook editor viewport
-				+SOverlay::Slot()
-				[
-					ViewportPtr.ToSharedRef()
-				]
-
-				// Bottom-right corner text indicating the preview nature of the sprite editor
-				+SOverlay::Slot()
-				.Padding(10)
-				.VAlign(VAlign_Bottom)
-				.HAlign(HAlign_Right)
-				[
-					SNew(STextBlock)
-					.Visibility( EVisibility::HitTestInvisible )
-					.TextStyle( FEditorStyle::Get(), "Graph.CornerText" )
-					.Text(LOCTEXT("FlipbookEditorViewportExperimentalWarning", "Early access preview"))
-				]
+				ViewportPtr.ToSharedRef()
 			]
 
 			+SVerticalBox::Slot()
@@ -434,6 +417,11 @@ FText FFlipbookEditor::GetToolkitName() const
 	Args.Add(TEXT("FlipbookName"), FText::FromString(FlipbookBeingEdited->GetName()));
 	Args.Add(TEXT("DirtyState"), bDirtyState ? FText::FromString( TEXT( "*" ) ) : FText::GetEmpty());
 	return FText::Format(LOCTEXT("FlipbookEditorAppLabel", "{FlipbookName}{DirtyState}"), Args);
+}
+
+FText FFlipbookEditor::GetToolkitToolTipText() const
+{
+	return FAssetEditorToolkit::GetToolTipTextForObject(FlipbookBeingEdited);
 }
 
 FString FFlipbookEditor::GetWorldCentricTabPrefix() const

@@ -7,6 +7,7 @@
 #include "PropertyEditing.h"
 #include "ScopedTransaction.h"
 #include "IPropertyUtilities.h"
+#include "PaperTileSet.h"
 
 #define LOCTEXT_NAMESPACE "Paper2D"
 
@@ -72,6 +73,8 @@ void FTileSetDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& Detail
 		const FName MetadataArrayName = UPaperTileSet::GetPerTilePropertyName();
 		TSharedPtr<IPropertyHandle> PerTileArrayProperty = DetailLayout.GetProperty(MetadataArrayName);
 		DetailLayout.HideProperty(PerTileArrayProperty);
+		// this array is potentially huge and has a costly validation overhead.  We only ever show one element in the array so there is no need to validate every element.
+		PerTileArrayProperty->SetIgnoreValidation(true);
 
 		if (SelectedSingleTileIndex != INDEX_NONE)
 		{

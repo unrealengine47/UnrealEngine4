@@ -239,6 +239,7 @@ public:
 	,	bNeedsWorldPositionExcludingShaderOffsets(false)
 	,	bNeedsParticleSize(false)
 	,	bNeedsSceneTexturePostProcessInputs(false)
+	,	bUsesAtmosphericFog(false)
 	,	bUsesVertexColor(false)
 	,	bUsesParticleColor(false)
 	,	bUsesTransformVector(false)
@@ -261,10 +262,6 @@ public:
 
 			Material->CompileErrors.Empty();
 			Material->ErrorExpressions.Empty();
-
-			MaterialCompilationOutput.bRequiresSceneColorCopy = false;
-			check(!MaterialCompilationOutput.bNeedsSceneTextures);
-			MaterialCompilationOutput.bUsesEyeAdaptation = false;
 
 			bCompileForComputeShader = Material->IsLightFunction();
 
@@ -685,6 +682,7 @@ public:
 		LazyPrintf.PushParam(*GenerateFunctionCode(MP_WorldPositionOffset));
 		LazyPrintf.PushParam(*GenerateFunctionCode(CompiledMP_PrevWorldPositionOffset));
 		LazyPrintf.PushParam(*GenerateFunctionCode(MP_WorldDisplacement));
+		LazyPrintf.PushParam(*FString::Printf(TEXT("return %.5f"),Material->GetMaxDisplacement()));
 		LazyPrintf.PushParam(*GenerateFunctionCode(MP_TessellationMultiplier));
 		LazyPrintf.PushParam(*GenerateFunctionCode(MP_SubsurfaceColor));
 		LazyPrintf.PushParam(*GenerateFunctionCode(MP_ClearCoat));
@@ -3312,15 +3310,73 @@ protected:
 			// code string to transform the input vector
 			FString CodeStr;
 
+			if (SourceCoordinateSpace == TRANSFORMPOSSOURCE_Local ||
+				DestinationCoordinateSpace == TRANSFORMPOSSOURCE_Local)
+			{
+				if (ShaderFrequency != SF_Pixel && ShaderFrequency != SF_Compute && ShaderFrequency != SF_Vertex)
+				{
+					return Errorf(TEXT("Local space is only supported for vertex or pixel shader!"));
+				}
+			}
+			if (SourceCoordinateSpace == TRANSFORMPOSSOURCE_View ||
+				DestinationCoordinateSpace == TRANSFORMPOSSOURCE_View)
+			{
+				if (ShaderFrequency != SF_Pixel && ShaderFrequency != SF_Compute && ShaderFrequency != SF_Vertex)
+				{
+					return Errorf(TEXT("View space in only supported for vertex or pixel shader!"));
+				}
+			}
+
 			if (SourceCoordinateSpace == TRANSFORMPOSSOURCE_Local)
 			{
-				CodeStr = FString(TEXT("TransformLocalPositionToWorld(Parameters,%s)"));
+				if (DestinationCoordinateSpace == TRANSFORMPOSSOURCE_World)
+				{
+					CodeStr = FString(TEXT("TransformLocalPositionToWorld(Parameters,%s)"));
+				}
+				else if (DestinationCoordinateSpace == TRANSFORMPOSSOURCE_View)
+				{
+					CodeStr = FString(TEXT("TransformWorldPositionToView(TransformLocalPositionToWorld(Parameters,%s))"));
+				}
+				else
+				{
+					UE_LOG(LogMaterial, Fatal, TEXT("Invalid DestCoordType. See EMaterialPositionTransformSource"));
+				}
 			}
 			else if (SourceCoordinateSpace == TRANSFORMPOSSOURCE_World)
 			{
-				CodeStr = FString(TEXT("TransformWorldPositionToLocal(%s)"));
+				if (DestinationCoordinateSpace == TRANSFORMPOSSOURCE_Local)
+				{
+					CodeStr = FString(TEXT("TransformWorldPositionToLocal(%s)"));
+				}
+				else if (DestinationCoordinateSpace == TRANSFORMPOSSOURCE_View)
+				{
+					CodeStr = FString(TEXT("TransformWorldPositionToView(%s)"));
+				}
+				else
+				{
+					UE_LOG(LogMaterial, Fatal, TEXT("Invalid DestCoordType. See EMaterialPositionTransformSource"));
+				}
 			}
-				
+			else if (SourceCoordinateSpace == TRANSFORMPOSSOURCE_View)
+			{
+				if (DestinationCoordinateSpace == TRANSFORMPOSSOURCE_Local)
+				{
+					CodeStr = FString(TEXT("TransformWorldPositionToLocal(TransformViewPositionToWorld(%s))"));
+				}
+				else if (DestinationCoordinateSpace == TRANSFORMPOSSOURCE_World)
+				{
+					CodeStr = FString(TEXT("TransformViewPositionToWorld(%s)"));
+				}
+				else
+				{
+					UE_LOG(LogMaterial, Fatal, TEXT("Invalid DestCoordType. See EMaterialPositionTransformSource"));
+				}
+			}
+			else
+			{
+				UE_LOG(LogMaterial, Fatal, TEXT("Invalid SourceCoordType. See EMaterialPositionTransformSource"));
+			}
+
 			Result = AddCodeChunk(
 				MCT_Float3,
 				*CodeStr,
@@ -3581,6 +3637,40 @@ protected:
 		}
 
 		return AddCodeChunk( MCT_Float3, TEXT("MaterialExpressionBlackBody(%s)"), *GetParameterCode(Temp) );
+	}
+
+	virtual int32 DistanceToNearestSurface(int32 PositionArg) override
+	{
+		if (ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::SM5) == INDEX_NONE)
+		{
+			return INDEX_NONE;
+		}
+
+		if (PositionArg == INDEX_NONE)
+		{
+			return INDEX_NONE;
+		}
+
+		MaterialCompilationOutput.bUsesGlobalDistanceField = true;
+
+		return AddCodeChunk(MCT_Float, TEXT("GetDistanceToNearestSurfaceGlobal(%s)"), *GetParameterCode(PositionArg));
+	}
+
+	virtual int32 DistanceFieldGradient(int32 PositionArg) override
+	{
+		if (ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::SM5) == INDEX_NONE)
+		{
+			return INDEX_NONE;
+		}
+
+		if (PositionArg == INDEX_NONE)
+		{
+			return INDEX_NONE;
+		}
+
+		MaterialCompilationOutput.bUsesGlobalDistanceField = true;
+
+		return AddCodeChunk(MCT_Float3, TEXT("GetDistanceFieldGradientGlobal(%s)"), *GetParameterCode(PositionArg));
 	}
 
 	virtual int32 AtmosphericFogColor( int32 WorldPosition ) override

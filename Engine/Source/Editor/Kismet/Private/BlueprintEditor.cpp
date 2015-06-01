@@ -636,12 +636,13 @@ void FBlueprintEditor::RefreshEditors(ERefreshBlueprintEditorReason::Type Reason
 		StartEditingDefaults(/*bAutoFocus=*/ false, true);
 	}
 
+	// Remove any tabs are that are pending kill or otherwise invalid UObject pointers.
+	DocumentManager->CleanInvalidTabs();
+
 	//@TODO: Should determine when we need to do the invalid/refresh business and if the graph node selection change
 	// under non-compiles is necessary (except when the selection mode is appropriate, as already detected above)
 	if (Reason != ERefreshBlueprintEditorReason::BlueprintCompiled)
 	{
-		DocumentManager->CleanInvalidTabs();
-
 		DocumentManager->RefreshAllTabs();
 
 		bForceFocusOnSelectedNodes = true;
@@ -6779,6 +6780,52 @@ FText FBlueprintEditor::GetToolkitName() const
 	return FText::Format( NSLOCTEXT("KismetEditor", "ToolkitTitle_UniqueLayerName", "{NumberOfObjects} {ClassName} - Class Defaults"), Args );
 }
 
+FText FBlueprintEditor::GetToolkitToolTipText() const
+{
+	const auto EditingObjects = GetEditingObjects();
+
+	if( IsEditingSingleBlueprint() )
+	{
+		if (FBlueprintEditorUtils::IsLevelScriptBlueprint(GetBlueprintObj()))
+		{
+			const FString& LevelName = FPackageName::GetShortFName( GetBlueprintObj()->GetOutermost()->GetFName().GetPlainNameString() ).GetPlainNameString();	
+
+			FFormatNamedArguments Args;
+			Args.Add( TEXT("LevelName"), FText::FromString( LevelName ) );
+			return FText::Format( NSLOCTEXT("KismetEditor", "LevelScriptAppToolTip", "{LevelName} - Level Blueprint Editor"), Args );
+		}
+		else
+		{
+			return FAssetEditorToolkit::GetToolTipTextForObject( GetBlueprintObj() );
+		}
+	}
+
+	TSubclassOf< UObject > SharedParentClass = NULL;
+
+	for( auto ObjectIter = EditingObjects.CreateConstIterator(); ObjectIter; ++ObjectIter )
+	{
+		UBlueprint* Blueprint = Cast<UBlueprint>( *ObjectIter );;
+		check( Blueprint );
+
+		// Initialize with the class of the first object we encounter.
+		if( *SharedParentClass == NULL )
+		{
+			SharedParentClass = Blueprint->ParentClass;
+		}
+
+		// If we've encountered an object that's not a subclass of the current best baseclass,
+		// climb up a step in the class hierarchy.
+		while( !Blueprint->ParentClass->IsChildOf( SharedParentClass ) )
+		{
+			SharedParentClass = SharedParentClass->GetSuperClass();
+		}
+	}
+
+	FFormatNamedArguments Args;
+	Args.Add( TEXT("NumberOfObjects"), EditingObjects.Num() );
+	Args.Add( TEXT("ObjectName"), FText::FromString( SharedParentClass->GetName() ) );
+	return FText::Format( NSLOCTEXT("KismetEditor", "ToolkitTitle_UniqueLayerName", "{NumberOfObjects} {ClassName} - Class Defaults"), Args );
+}
 
 FLinearColor FBlueprintEditor::GetWorldCentricTabColorScale() const
 {
@@ -7283,7 +7330,7 @@ void FBlueprintEditor::UpdatePreviewActor(UBlueprint* InBlueprint, bool bInForce
 			FActorSpawnParameters SpawnInfo;
 			SpawnInfo.bNoCollisionFail = true;
 			SpawnInfo.bNoFail = true;
-			SpawnInfo.ObjectFlags = RF_Transient;
+			SpawnInfo.ObjectFlags = RF_Transient|RF_Transactional;
 
 			// Temporarily remove the deprecated flag so we can respawn the Blueprint in the viewport
 			bool bIsClassDeprecated = PreviewBlueprint->GeneratedClass->HasAnyClassFlags(CLASS_Deprecated);
@@ -7605,7 +7652,7 @@ void FBlueprintEditor::TryInvokingDetailsTab(bool bFlash)
 		// being interacted with.  So we make sure the window it's in is focused and the tab is in the foreground.
 		if ( BlueprintTab.IsValid() && BlueprintTab->IsForeground() && BlueprintTab->GetParentWindow()->HasFocusedDescendants()  )
 		{
-			if( !Inspector.IsValid() || (Inspector->GetOwnerTab()->GetDockArea().IsValid()) ) 
+			if (!Inspector.IsValid() || !Inspector->GetOwnerTab().IsValid() || Inspector->GetOwnerTab()->GetDockArea().IsValid())
 			{
 				// Show the details panel if it doesn't exist.
 				TabManager->InvokeTab(FBlueprintEditorTabs::DetailsID);

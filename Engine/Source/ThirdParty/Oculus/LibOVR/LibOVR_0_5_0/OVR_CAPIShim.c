@@ -423,9 +423,28 @@ static ModuleHandleType OVR_OpenLibrary(const FilePathCharType* libraryPath)
     #if defined(_WIN32)
         return LoadLibraryW(libraryPath);
     #else
+        // Don't bother trying to dlopen() a file that is not even there.
+        if (access(libraryPath, X_OK | R_OK ) != 0)
+        {
+            return NULL;
+        }
+
+        dlerror(); // Clear any previous dlopen() errors
+
         // Use RTLD_NOW because we don't want unexpected stalls at runtime, and the library isn't very large.
         // Use RTLD_LOCAL to avoid unilaterally exporting resolved symbols to the rest of this process.
-        return dlopen(libraryPath, RTLD_NOW | RTLD_LOCAL);
+        void *lib = dlopen(libraryPath, RTLD_NOW | RTLD_LOCAL);
+
+        if (!lib)
+        {
+            #if defined(__APPLE__)
+            // TODO: Output the error in whatever logging system OSX uses (jhughes)
+            #else  // __APPLE__
+            fprintf(stderr, "ERROR: Can't load '%s':\n%s\n", libraryPath, dlerror());
+            #endif // __APPLE__
+        }
+
+        return lib;
     #endif
 }
 

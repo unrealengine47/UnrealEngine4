@@ -136,6 +136,9 @@ private:
 	/** Indicates that BeginPlay has been called, but EndPlay has not yet */
 	uint32 bHasBegunPlay:1;
 
+	/** Indicates the the destruction process has begun for this component to avoid recursion */
+	uint32 bIsBeingDestroyed:1;
+
 #if WITH_EDITOR
 	/** During undo/redo it isn't safe to cache owner */
 	uint32 bCanUseCachedOwner:1;
@@ -169,6 +172,12 @@ public:
 	bool HasBeenCreated() const { return bHasBeenCreated; }
 	bool HasBeenInitialized() const { return bHasBeenInitialized; }
 	bool HasBegunPlay() const { return bHasBegunPlay; }
+
+	UFUNCTION(BlueprintCallable, Category="Components")
+	bool IsBeingDestroyed() const
+	{
+		return bIsBeingDestroyed;
+	}
 
 	bool IsCreatedByConstructionScript() const;
 
@@ -244,6 +253,9 @@ public:
 
 	/** Allows a component to replicate other subobject on the actor  */
 	virtual bool ReplicateSubobjects(class UActorChannel *Channel, class FOutBunch *Bunch, FReplicationFlags *RepFlags);
+
+	/** Called on the component right before replication occurs */
+	virtual void PreReplication(IRepChangedPropertyTracker & ChangedPropertyTracker);
 
 	virtual bool GetComponentClassCanReplicate() const;
 
@@ -471,7 +483,7 @@ public:
 	void DoDeferredRenderUpdates_Concurrent();
 
 	/** Recalculate the value of our component to world transform */
-	virtual void UpdateComponentToWorld(bool bSkipPhysicsMove = false) {}
+	virtual void UpdateComponentToWorld(bool bSkipPhysicsMove = false, bool bTeleport = false) {}
 
 	/** Mark the render state as dirty - will be sent to the render thread at the end of the frame. */
 	void MarkRenderStateDirty();

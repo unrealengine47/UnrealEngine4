@@ -29,6 +29,7 @@ UPaperTileMap::UPaperTileMap(const FObjectInitializer& ObjectInitializer)
 #if WITH_EDITORONLY_DATA
 	SelectedLayerIndex = INDEX_NONE;
 	BackgroundColor = FColor(55, 55, 55);
+	AssetImportData = CreateEditorOnlyDefaultSubobject<UAssetImportData>(TEXT("AssetImportData"));
 #endif
 
 	LayerNameIndex = 0;
@@ -45,6 +46,8 @@ void UPaperTileMap::PreEditChange(UProperty* PropertyAboutToChange)
 		// Subtract out the hex side length; we'll add it back (along with any changes) in PostEditChangeProperty
 		TileHeight -= HexSideLength;
 	}
+
+	Super::PreEditChange(PropertyAboutToChange);
 }
 #endif
 
@@ -121,6 +124,18 @@ void UPaperTileMap::PostEditChangeProperty(FPropertyChangedEvent& PropertyChange
 	{
 		ResizeMap(MapWidth, MapHeight, /*bForceResize=*/ true);
 	}
+	else
+	{
+		// Make sure that the layers are all of the right size
+		for (UPaperTileLayer* TileLayer : TileLayers)
+		{
+			if ((TileLayer->GetLayerWidth() != MapWidth) || (TileLayer->GetLayerHeight() != MapHeight))
+			{
+				TileLayer->Modify();
+				TileLayer->ResizeMap(MapWidth, MapHeight);
+			}
+		}
+	}
 
 	if (!IsTemplate())
 	{
@@ -149,8 +164,30 @@ bool UPaperTileMap::CanEditChange(const UProperty* InProperty) const
 void UPaperTileMap::PostLoad()
 {
 	Super::PostLoad();
+
+	// Make sure that the layers are all of the right size (there was a bug at one point when undoing resizes that could cause the layers to get stuck at a bad size)
+	for (UPaperTileLayer* TileLayer : TileLayers)
+	{
+		TileLayer->ConditionalPostLoad();
+
+		TileLayer->ResizeMap(MapWidth, MapHeight);
+	}
+
 	ValidateSelectedLayerIndex();
 }
+
+#if WITH_EDITORONLY_DATA
+void UPaperTileMap::Serialize(FArchive& Ar)
+{
+	Super::Serialize(Ar);
+	
+	if ( Ar.IsLoading() && Ar.UE4Ver() < VER_UE4_ASSET_IMPORT_DATA_AS_JSON && !AssetImportData)
+	{
+		// AssetImportData should always be valid
+		AssetImportData = NewObject<UAssetImportData>(this, TEXT("AssetImportData"));
+	}
+}
+#endif
 
 void UPaperTileMap::ValidateSelectedLayerIndex()
 {
@@ -180,7 +217,7 @@ void UPaperTileMap::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) con
 {
 	if (AssetImportData)
 	{
-		OutTags.Add( FAssetRegistryTag(SourceFileTagName(), AssetImportData->SourceFilePath, FAssetRegistryTag::TT_Hidden) );
+		OutTags.Add( FAssetRegistryTag(SourceFileTagName(), AssetImportData->ToJson(), FAssetRegistryTag::TT_Hidden) );
 	}
 
 	Super::GetAssetRegistryTags(OutTags);

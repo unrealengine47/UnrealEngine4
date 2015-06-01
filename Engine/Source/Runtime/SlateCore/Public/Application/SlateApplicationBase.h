@@ -40,6 +40,15 @@ private:
 };
 
 /**
+ * Design constraints for Slate applications
+ */
+namespace SlateApplicationDefs
+{
+	/** How many users can we support at once? */
+	static const int32 MaxUsers = 8;
+}
+
+/**
  * Base class for Slate applications.
  *
  * This class currently serves a temporary workaround for solving SlateCore dependencies to FSlateApplication.
@@ -336,6 +345,14 @@ public:
 	 */
 	virtual bool SetUserFocus(const uint32 InUserIndex, const FWidgetPath& InFocusPath, const EFocusCause InCause) = 0;
 
+	/**
+	 * Sets the focus for all users to the specified widget.  The widget must be allowed to receive focus.
+	 *
+	 * @param InWidget WidgetPath to the Widget to being focused.
+	 * @param InCause The reason that focus is changing.
+	 */
+	virtual void SetAllUserFocus(const FWidgetPath& InFocusPath, const EFocusCause InCause) = 0;
+
 private:
 	/**
 	 * Implementation for active timer registration. See SWidget::RegisterActiveTimer.
@@ -404,6 +421,14 @@ protected:
 	 * @return The optional will be set with the focus cause, if unset this widget doesn't have focus.
 	 */
 	virtual TOptional<EFocusCause> HasAnyUserFocus(const TSharedPtr<const SWidget> Widget) const = 0;
+
+	/**
+	 * Gets whether or not a particular widget is directly hovered.
+	 * Directly hovered means that the widget is directly under the pointer, is not true for ancestors tho they are Hovered.
+	 *
+	 * @return True if the widget is directly hovered, otherwise false.
+	 */
+	virtual bool IsWidgetDirectlyHovered(const TSharedPtr<const SWidget> Widget) const = 0;
 
 	/**
 	 * Gets whether or not a particular widget should show user focus.

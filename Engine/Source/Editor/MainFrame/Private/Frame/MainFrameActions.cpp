@@ -506,17 +506,6 @@ void FMainFrameActionCallbacks::PackageProject( const FName InPlatformInfoName )
 			OptionalParams += TEXT(" -CookMapsOnly");
 		}
 	}
-	else if ( PackagingSettings->MapsToCook.Num() )
-	{
-		OptionalParams += TEXT(" -mapstocook=");
-		for ( const auto& Map : PackagingSettings->MapsToCook )
-		{
-			OptionalParams += FString::Printf(TEXT("%s+"), *Map.FilePath);
-		}
-		OptionalParams.RemoveFromEnd("+");
-	}
-	
-	
 
 	if (PackagingSettings->UsePakFile)
 	{
@@ -541,13 +530,16 @@ void FMainFrameActionCallbacks::PackageProject( const FName InPlatformInfoName )
 		OptionalParams += TEXT(" -nodebuginfo");
 	}
 
+
+	bool bTargetPlatformCanUseCrashReporter = true;
 	if (PlatformInfo->TargetPlatformName == FName("WindowsNoEditor") && PlatformInfo->PlatformFlavor == TEXT("Win32"))
 	{
 		FString MinumumSupportedWindowsOS;
 		GConfig->GetString(TEXT("/Script/WindowsTargetPlatform.WindowsTargetSettings"), TEXT("MinimumOSVersion"), MinumumSupportedWindowsOS, GEngineIni);
 		if (MinumumSupportedWindowsOS == TEXT("MSOS_XP"))
 		{
-			OptionalParams += TEXT(" -OverrideMinimumOS=WinXP");
+			OptionalParams += TEXT(" -SpecifiedArchitecture=_xp");
+			bTargetPlatformCanUseCrashReporter = false;
 		}
 	}
 
@@ -564,13 +556,13 @@ void FMainFrameActionCallbacks::PackageProject( const FName InPlatformInfoName )
 	}
 
 	// only build if the project has code that might need to be built
-	if (FSourceCodeNavigation::IsCompilerAvailable())
+	if (bProjectHasCode && FSourceCodeNavigation::IsCompilerAvailable())
 	{
 		OptionalParams += TEXT(" -build");
 	}
 
 	// we can include the crash reporter for any non-code projects or internal builds (we don't have the symbols to interpret external builds of code-based projects)
-	if (PackagingSettings->IncludeCrashReporter && (!bProjectHasCode || FEngineBuildSettings::IsInternalBuild()))
+	if (PackagingSettings->IncludeCrashReporter && (!bProjectHasCode || FEngineBuildSettings::IsInternalBuild()) && bTargetPlatformCanUseCrashReporter)
 	{
 		OptionalParams += TEXT(" -CrashReporter");
 	}

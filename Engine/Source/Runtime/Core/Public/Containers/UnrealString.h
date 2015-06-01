@@ -200,7 +200,8 @@ public:
 	 */
 	FORCEINLINE TCHAR& operator[]( int32 Index )
 	{
-		return Data[Index];
+		checkf(IsValidIndex(Index), TEXT("String index out of bounds: Index %i from a string with a length of %i"), Index, Len());
+		return Data.GetData()[Index];
 	}
 
 	/**
@@ -211,7 +212,8 @@ public:
 	 */
 	FORCEINLINE const TCHAR& operator[]( int32 Index ) const
 	{
-		return Data[Index];
+		checkf(IsValidIndex(Index), TEXT("String index out of bounds: Index %i from a string with a length of %i"), Index, Len());
+		return Data.GetData()[Index];
 	}
 
 	/**
@@ -298,6 +300,17 @@ public:
 		Data.Shrink();
 	}
 
+	/**
+	 * Tests if index is valid, i.e. greater than or equal to zero, and less than the number of characters in this string (excluding the null terminator).
+	 *
+	 * @param Index Index to test.
+	 *
+	 * @returns True if index is valid. False otherwise.
+	 */
+	FORCEINLINE bool IsValidIndex(int32 Index) const
+	{
+		return Index >= 0 && Index < Len();
+	}
 
 	/**
 	 * Get pointer to the string
@@ -308,7 +321,6 @@ public:
 	{
 		return Data.Num() ? Data.GetData() : TEXT("");
 	}
-
 
 	/** 
 	 *Get string as array of TCHARS 
@@ -1386,7 +1398,7 @@ public:
 	bool ToBool() const;
 
 	/**
-	 * Converts a buffer to a string by hex-ifying the elements
+	 * Converts a buffer to a string
 	 *
 	 * @param SrcBuffer the buffer to stringify
 	 * @param SrcSize the number of bytes to convert
@@ -1399,11 +1411,31 @@ public:
 	 * Converts a string into a buffer
 	 *
 	 * @param DestBuffer the buffer to fill with the string data
-	 * @param DestSize the size of the buffer in bytes (must be at least string len / 2)
+	 * @param DestSize the size of the buffer in bytes (must be at least string len / 3)
 	 *
 	 * @return true if the conversion happened, false otherwise
 	 */
 	static bool ToBlob(const FString& Source,uint8* DestBuffer,const uint32 DestSize);
+
+	/**
+	 * Converts a buffer to a string by hex-ifying the elements
+	 *
+	 * @param SrcBuffer the buffer to stringify
+	 * @param SrcSize the number of bytes to convert
+	 *
+	 * @return the blob in string form
+	 */
+	static FString FromHexBlob(const uint8* SrcBuffer,const uint32 SrcSize);
+
+	/**
+	 * Converts a string into a buffer
+	 *
+	 * @param DestBuffer the buffer to fill with the string data
+	 * @param DestSize the size of the buffer in bytes (must be at least string len / 2)
+	 *
+	 * @return true if the conversion happened, false otherwise
+	 */
+	static bool ToHexBlob(const FString& Source,uint8* DestBuffer,const uint32 DestSize);
 
 	/**
 	 * Converts a float string with the trailing zeros stripped

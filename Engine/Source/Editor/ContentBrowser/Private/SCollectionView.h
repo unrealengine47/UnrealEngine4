@@ -6,6 +6,7 @@
 
 struct FCollectionItem;
 class SCollectionListItem;
+class FCollectionAssetManagement;
 
 /**
  * The list view of collections.
@@ -21,6 +22,7 @@ public:
 		, _AllowRightClickMenu(true)
 		, _AllowCollapsing(true)
 		, _AllowContextMenu(true)
+		, _AllowQuickAssetManagement(false)
 		{}
 
 		/** Called when a collection was selected */
@@ -31,6 +33,9 @@ public:
 		SLATE_ARGUMENT( bool, AllowRightClickMenu )
 		SLATE_ARGUMENT( bool, AllowCollapsing )
 		SLATE_ARGUMENT( bool, AllowContextMenu )
+
+		/** If true, check boxes that let you quickly add/remove the current selection from a collection will be displayed */
+		SLATE_ARGUMENT( bool, AllowQuickAssetManagement )
 
 	SLATE_END_ARGS()
 
@@ -45,6 +50,9 @@ public:
 
 	/** Gets all the currently selected collections */
 	TArray<FCollectionNameType> GetSelectedCollections() const;
+
+	/** Let the collections view know that the list of selected assets has changed, so that it can update the quick asset management check boxes */
+	void SetSelectedAssets(const TArray<FAssetData>& SelectedAssets);
 
 	/** Sets the state of the collection view to the one described by the history data */
 	void ApplyHistoryData ( const FHistoryData& History );
@@ -64,6 +72,12 @@ private:
 
 	/** Creates the menu for the add collection button */
 	FReply MakeAddCollectionMenu();
+
+	/** Gets the visibility of the collections title text */
+	EVisibility GetCollectionsTitleTextVisibility() const;
+
+	/** Gets the visibility of the collections search box */
+	EVisibility GetCollectionsSearchBoxVisibility() const;
 
 	/** Gets the visibility of the add collection button */
 	EVisibility GetAddCollectionButtonVisibility() const;
@@ -85,6 +99,15 @@ private:
 
 	/** Makes the context menu for the collection list */
 	TSharedPtr<SWidget> MakeCollectionListContextMenu();
+
+	/** Whether the check box of the given collection item is currently enabled */
+	bool IsCollectionCheckBoxEnabled( TSharedPtr<FCollectionItem> CollectionItem ) const;
+
+	/** Whether the check box of the given collection item is currently in a checked state */
+	ECheckBoxState IsCollectionChecked( TSharedPtr<FCollectionItem> CollectionItem ) const;
+
+	/** Handler for when the checked state of the given collection item check box is changed */
+	void OnCollectionCheckStateChanged( ECheckBoxState NewState, TSharedPtr<FCollectionItem> CollectionItem );
 
 	/** Handler for collection list selection changes */
 	void CollectionSelectionChanged( TSharedPtr< FCollectionItem > CollectionItem, ESelectInfo::Type SelectInfo );
@@ -115,6 +138,16 @@ private:
 
 	/** Updates the collections shown in the list view */
 	void UpdateCollectionItems();
+
+	/** Update the visible collections based on the active search text */
+	void ApplyCollectionsSearchFilter();
+
+	/** Update the visible collections based on the given search text */
+	void ApplyCollectionsSearchFilter( const FText& InSearchText );
+
+	/** Get the currently filter text */
+	FText GetFilterText() const;
+
 private:
 
 	/** A helper class to manage PreventSelectionChangedDelegateCount by incrementing it when constructed (on the stack) and decrementing when destroyed */
@@ -137,11 +170,17 @@ private:
 		TSharedRef<SCollectionView> CollectionView;
 	};
 
+	/** The collection list search box */
+	TSharedPtr< SSearchBox > SearchBoxPtr;
+
 	/** The collection list widget */
 	TSharedPtr< SListView< TSharedPtr<FCollectionItem>> > CollectionListPtr;
 
-	/** The list of collections */
+	/** The list of available collections */
 	TArray< TSharedPtr<FCollectionItem> > CollectionItems;
+
+	/** The list of visible collections based on the current filter */
+	TArray< TSharedPtr<FCollectionItem> > FilteredCollectionItems;
 
 	/** The context menu logic and data */
 	TSharedPtr<class FCollectionContextMenu> CollectionContextMenu;
@@ -163,4 +202,7 @@ private:
 
 	/** Commands handled by this widget */
 	TSharedPtr< FUICommandList > Commands;
+
+	/** Handles the collection management for the currently selected assets (if available) */
+	TSharedPtr<FCollectionAssetManagement> QuickAssetManagement;
 };

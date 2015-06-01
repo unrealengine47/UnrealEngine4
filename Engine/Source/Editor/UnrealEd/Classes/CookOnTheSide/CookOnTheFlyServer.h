@@ -33,6 +33,8 @@ enum class ECookByTheBookOptions
 	MapsOnly = 0x2,				// cook only maps
 	NoDevContent = 0x4,			// don't include dev content
 	LeakTest = 0x8,				// test for uobject leaks after each level load
+	ForceDisableCompressed = 0x10, // force compression to be disabled even if the cooker was initialized with it enabled
+	ForceEnableCompressed = 0x20, // force compression to be on even if the cooker was initialized with it disabled
 };
 ENUM_CLASS_FLAGS(ECookByTheBookOptions);
 
@@ -591,7 +593,9 @@ private:
 			bRunning(false),
 			CookTime( 0.0 ),
 			CookStartTime( 0.0 ), 
-			bErrorOnEngineContentUse(false)
+			bErrorOnEngineContentUse(false),
+			bForceEnableCompressedPackages(false),
+			bForceDisableCompressedPackages(false)
 		{ }
 
 		/** Should we test for UObject leaks */
@@ -618,9 +622,14 @@ private:
 		TArray<FFilePlatformRequest> PreviousCookRequests; 
 		/** If we are based on a release version of the game this is the set of packages which were cooked in that release */
 		TMap<FName,TArray<FName> > BasedOnReleaseCookedPackages;
+		/** Timing information about cook by the book */
 		double CookTime;
 		double CookStartTime;
+		/** error when detecting engine content being used in this cook */
 		bool bErrorOnEngineContentUse;
+		/** force this cook by the book to enable \ disable package compression */
+		bool bForceEnableCompressedPackages;
+		bool bForceDisableCompressedPackages;
 	};
 	FCookByTheBookOptions* CookByTheBookOptions;
 	
@@ -679,6 +688,7 @@ private:
 	FString GetCachedStandardPackageFilename( const UPackage* Package ) const;
 	FName GetCachedStandardPackageFileFName( const UPackage* Package ) const;
 	const FString& GetCachedSandboxFilename( const UPackage* Package, TAutoPtr<class FSandboxPlatformFile>& SandboxFile ) const;
+	const FName* GetCachedPackageFilenameToPackageFName(const FName& StandardPackageFilename) const;
 	const FCachedPackageFilename& Cache(const FName& PackageName) const;
 	void ClearPackageFilenameCache() const;
 	bool ClearPackageFilenameCacheForPackage( const UPackage* Package ) const;
@@ -687,6 +697,7 @@ private:
 	// declared mutable as it's used to cache package filename strings and I don't want to declare all functions using it as non const
 	// used by GetCached * Filename functions
 	mutable TMap<FName, FCachedPackageFilename> PackageFilenameCache; // filename cache (only process the string operations once)
+	mutable TMap<FName, FName> PackageFilenameToPackageFNameCache;
 
 	// declared mutable as it's used purely as a cache and don't want to have to declare all the functions as non const just because of this cache
 	// used by IniSettingsOutOfDate and GetCurrentIniStrings 

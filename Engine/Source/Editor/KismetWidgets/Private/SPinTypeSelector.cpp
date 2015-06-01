@@ -28,10 +28,33 @@ void SPinTypeSelector::Construct(const FArguments& InArgs, FGetPinTypeTree GetPi
 	TreeViewHeight = InArgs._TreeViewHeight;
 
 	TargetPinType = InArgs._TargetPinType;
+	bIsCompactSelector = InArgs._bCompactSelector;
 
-	this->ChildSlot
-	[
-		SNew(SHorizontalBox)
+	bIsRightMousePressed = false;
+
+	// Depending on if this is a compact selector or not, we generate a different compoound widget
+	TSharedPtr<SWidget> Widget;
+
+	if (InArgs._bCompactSelector)
+	{
+		// Only have a combo button with an icon
+		Widget = SAssignNew( TypeComboButton, SComboButton )
+			.OnGetMenuContent(this, &SPinTypeSelector::GetMenuContent)
+			.ContentPadding(0)
+			.ToolTipText(this, &SPinTypeSelector::GetToolTipForComboBoxType)
+			.HasDownArrow(!InArgs._bCompactSelector)
+			.ButtonStyle(FEditorStyle::Get(),  "BlueprintEditor.CompactPinTypeSelector")
+			.ButtonContent()
+			[
+				SNew(SImage)
+				.Image( this, &SPinTypeSelector::GetTypeIconImage )
+				.ColorAndOpacity( this, &SPinTypeSelector::GetTypeIconColor )
+			];
+	}
+	else
+	{
+		// Traditional Pin Type Selector with a combo button, the icon, the current type name, and a toggle button for being an array
+		Widget = SNew(SHorizontalBox)
 		+SHorizontalBox::Slot()
 		[
 			SAssignNew( TypeComboButton, SComboButton )
@@ -80,7 +103,11 @@ void SPinTypeSelector::Construct(const FArguments& InArgs, FGetPinTypeTree GetPi
 				.Image( FEditorStyle::GetBrush(TEXT("Kismet.VariableList.ArrayTypeIcon")) )
 				.ColorAndOpacity( this, &SPinTypeSelector::GetTypeIconColor )
 			]
-		]
+		];
+	}
+	this->ChildSlot
+	[
+		Widget.ToSharedRef()
 	];
 }
 
@@ -125,6 +152,11 @@ void SPinTypeSelector::OnArrayCheckStateChanged(ECheckBoxState NewState)
 	NewTargetPinType.bIsArray = (NewState == ECheckBoxState::Checked)? true : false;
 
 	OnTypeChanged.ExecuteIfBound(NewTargetPinType);
+}
+
+void SPinTypeSelector::OnArrayStateToggled()
+{
+	OnArrayCheckStateChanged((IsArrayChecked() == ECheckBoxState::Checked)? ECheckBoxState::Unchecked : ECheckBoxState::Checked);
 }
 
 //=======================================================================
@@ -311,7 +343,7 @@ void SPinTypeSelector::OnFilterTextChanged(const FText& NewText)
 	SearchText = NewText;
 	FilteredTypeTreeRoot.Empty();
 
-	GetChildrenMatchingSearch(FName::NameToDisplayString(NewText.ToString(), false), TypeTreeRoot, FilteredTypeTreeRoot);
+	GetChildrenMatchingSearch(NewText, TypeTreeRoot, FilteredTypeTreeRoot);
 	TypeTreeView->RequestTreeRefresh();
 
 	// Select the first non-category item
@@ -342,8 +374,26 @@ void SPinTypeSelector::OnFilterTextCommitted(const FText& NewText, ETextCommit::
 	}
 }
 
-bool SPinTypeSelector::GetChildrenMatchingSearch(const FString& InSearchText, const TArray<FPinTypeTreeItem>& UnfilteredList, TArray<FPinTypeTreeItem>& OutFilteredList)
+bool SPinTypeSelector::GetChildrenMatchingSearch(const FText& InSearchText, const TArray<FPinTypeTreeItem>& UnfilteredList, TArray<FPinTypeTreeItem>& OutFilteredList)
 {
+	// Trim and sanitized the filter text (so that it more likely matches the action descriptions)
+	FString TrimmedFilterString = FText::TrimPrecedingAndTrailing(InSearchText).ToString();
+
+	// Tokenize the search box text into a set of terms; all of them must be present to pass the filter
+	TArray<FString> FilterTerms;
+	TrimmedFilterString.ParseIntoArray(FilterTerms, TEXT(" "), true);
+
+	// Generate a list of sanitized versions of the strings
+	TArray<FString> SanitizedFilterTerms;
+	for (int32 iFilters = 0; iFilters < FilterTerms.Num() ; iFilters++)
+	{
+		FString EachString = FName::NameToDisplayString( FilterTerms[iFilters], false );
+		EachString = EachString.Replace( TEXT( " " ), TEXT( "" ) );
+		SanitizedFilterTerms.Add( EachString );
+	}
+	// Both of these should match!
+	ensure( SanitizedFilterTerms.Num() == FilterTerms.Num() );
+
 	bool bReturnVal = false;
 
 	for( auto it = UnfilteredList.CreateConstIterator(); it; ++it )
@@ -352,10 +402,24 @@ bool SPinTypeSelector::GetChildrenMatchingSearch(const FString& InSearchText, co
 		FPinTypeTreeItem NewInfo = MakeShareable( new UEdGraphSchema_K2::FPinTypeTreeInfo(Item) );
 		TArray<FPinTypeTreeItem> ValidChildren;
 
-		// Have to run GetChildrenMatchingSearch first, so that we can make sure we get valid children for the list!
-		if( GetChildrenMatchingSearch(InSearchText, Item->Children, ValidChildren)
-			|| InSearchText.IsEmpty()
-			|| Item->GetDescription().ToString().Contains(InSearchText) )
+		const bool bHasChildrenMatchingSearch = GetChildrenMatchingSearch(InSearchText, Item->Children, ValidChildren);
+		const bool bIsEmptySearch = InSearchText.IsEmpty();
+		bool bFilterTextMatches = true;
+
+		// If children match the search filter or it's an empty search, let's not do any checks against the FilterTerms
+		if ( !bHasChildrenMatchingSearch && !bIsEmptySearch)
+		{
+			FString DescriptionString =  Item->GetDescription().ToString();
+			DescriptionString = DescriptionString.Replace( TEXT( " " ), TEXT( "" ) );
+			for (int32 FilterIndex = 0; (FilterIndex < FilterTerms.Num()) && bFilterTextMatches; ++FilterIndex)
+			{
+				const bool bMatchesTerm = ( DescriptionString.Contains( FilterTerms[FilterIndex] ) || ( DescriptionString.Contains( SanitizedFilterTerms[FilterIndex] ) == true ) );
+				bFilterTextMatches = bFilterTextMatches && bMatchesTerm;
+			}
+		}
+		if( bHasChildrenMatchingSearch
+			|| bIsEmptySearch
+			|| bFilterTextMatches )
 		{
 			NewInfo->Children = ValidChildren;
 			OutFilteredList.Add(NewInfo);
@@ -392,10 +456,17 @@ FText SPinTypeSelector::GetToolTipForComboBoxType() const
 {
 	if(IsEnabled())
 	{
-		return LOCTEXT("PinTypeSelector", "Select the variable's pin type.");
+		if (bIsCompactSelector)
+		{
+			return LOCTEXT("CompactPinTypeSelector", "Left click to select the variable's pin type. Right click to toggle the type as an array.");
+		}
+		else
+		{
+			return LOCTEXT("PinTypeSelector", "Select the variable's pin type.");
+		}
 	}
 
-	return LOCTEXT("PinTypeSelector_Disabled", "Cannot edit variable type while the variable is placed in a graph or inherited from parent.");
+	return LOCTEXT("PinTypeSelector_Disabled", "Cannot edit variable type when they are inherited from parent.");
 }
 
 FText SPinTypeSelector::GetToolTipForArrayWidget() const
@@ -412,4 +483,35 @@ FText SPinTypeSelector::GetToolTipForArrayWidget() const
 
 	return LOCTEXT("ArrayCheckBox_Disabled", "Cannot edit variable type while the variable is placed in a graph or inherited from parent.");
 }
+
+FReply SPinTypeSelector::OnMouseButtonDown( const FGeometry& MyGeometry, const FPointerEvent& MouseEvent )
+{
+	if(bIsCompactSelector && MouseEvent.GetEffectingButton() == EKeys::RightMouseButton)
+	{
+		bIsRightMousePressed = true;
+		return FReply::Handled();
+	}
+
+	return FReply::Unhandled();
+}
+
+FReply SPinTypeSelector::OnMouseButtonUp( const FGeometry& MyGeometry, const FPointerEvent& MouseEvent )
+{
+	if(bIsCompactSelector && MouseEvent.GetEffectingButton() == EKeys::RightMouseButton)
+	{
+		if (bIsRightMousePressed)
+		{
+			OnArrayStateToggled();
+		}
+		return FReply::Handled();
+	}
+
+	return FReply::Unhandled();
+}
+
+void SPinTypeSelector::OnMouseLeave( const FPointerEvent& MouseEvent )
+{
+	bIsRightMousePressed = false;
+}
+
 #undef LOCTEXT_NAMESPACE

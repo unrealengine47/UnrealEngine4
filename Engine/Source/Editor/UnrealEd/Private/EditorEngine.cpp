@@ -20,6 +20,7 @@
 #include "ScopedTransaction.h"
 
 #include "ISourceControlModule.h"
+#include "ILocalizationServiceModule.h"
 #include "PackageBackup.h"
 #include "LevelUtils.h"
 #include "Layers/Layers.h"
@@ -1118,9 +1119,12 @@ void UEditorEngine::Tick( float DeltaSeconds, bool bIdleMode )
 
 	// tick the directory watcher
 	// @todo: Put me into an FTicker that is created when the DW module is loaded
-	static FName DirectoryWatcherName("DirectoryWatcher");
-	FDirectoryWatcherModule& DirectoryWatcherModule = FModuleManager::Get().LoadModuleChecked<FDirectoryWatcherModule>(DirectoryWatcherName);
-	DirectoryWatcherModule.Get()->Tick(DeltaSeconds);
+	if( !FApp::IsGameNameEmpty() )
+	{
+		static FName DirectoryWatcherName("DirectoryWatcher");
+		FDirectoryWatcherModule& DirectoryWatcherModule = FModuleManager::Get().LoadModuleChecked<FDirectoryWatcherModule>(DirectoryWatcherName);
+		DirectoryWatcherModule.Get()->Tick(DeltaSeconds);
+	}
 
 	if( bShouldTickEditorWorld )
 	{ 
@@ -1487,6 +1491,7 @@ void UEditorEngine::Tick( float DeltaSeconds, bool bIdleMode )
 	}
 
 	ISourceControlModule::Get().Tick();
+	ILocalizationServiceModule::Get().Tick();
 
 	if( FSlateThrottleManager::Get().IsAllowingExpensiveTasks() )
 	{

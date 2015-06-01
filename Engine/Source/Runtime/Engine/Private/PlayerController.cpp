@@ -731,7 +731,7 @@ void APlayerController::ClientRestart_Implementation(APawn* NewPawn)
 	if ( GetPawn() == NULL )
 	{
 		// We failed to possess, ask server to verify and potentially resend the pawn
-		ServerCheckClientPossession();
+		ServerCheckClientPossessionReliable();
 		return;
 	}
 
@@ -1284,7 +1284,7 @@ void APlayerController::OnNetCleanup(UNetConnection* Connection)
 void APlayerController::ClientReceiveLocalizedMessage_Implementation( TSubclassOf<ULocalMessage> Message, int32 Switch, APlayerState* RelatedPlayerState_1, APlayerState* RelatedPlayerState_2, UObject* OptionalObject )
 {
 	// Wait for player to be up to date with replication when joining a server, before stacking up messages
-	if ( GetNetMode() == NM_DedicatedServer || GetWorld()->GameState == NULL )
+	if (GetNetMode() == NM_DedicatedServer || GetWorld()->GameState == NULL || Message == NULL)
 	{
 		return;
 	}
@@ -1955,18 +1955,20 @@ bool APlayerController::GetHitResultAtScreenPosition(const FVector2D ScreenPosit
 
 	if (LocalPlayer != NULL && LocalPlayer->ViewportClient != NULL && LocalPlayer->ViewportClient->Viewport != NULL)
 	{
+		UGameViewportClient* ViewportClient = LocalPlayer->ViewportClient;
+
 		// Create a view family for the game viewport
 		FSceneViewFamilyContext ViewFamily( FSceneViewFamily::ConstructionValues(
-			LocalPlayer->ViewportClient->Viewport,
+			ViewportClient->Viewport,
 			GetWorld()->Scene,
-			LocalPlayer->ViewportClient->EngineShowFlags )
+			ViewportClient->EngineShowFlags)
 			.SetRealtimeUpdate(true) );
 
 
 		// Calculate a view where the player is to update the streaming from the players start location
 		FVector ViewLocation;
 		FRotator ViewRotation;
-		FSceneView* SceneView = LocalPlayer->CalcSceneView( &ViewFamily, /*out*/ ViewLocation, /*out*/ ViewRotation, LocalPlayer->ViewportClient->Viewport );
+		FSceneView* SceneView = LocalPlayer->CalcSceneView(&ViewFamily, /*out*/ ViewLocation, /*out*/ ViewRotation, ViewportClient->Viewport);
 
 		if (SceneView)
 		{
@@ -2566,6 +2568,17 @@ void APlayerController::ServerCheckClientPossession_Implementation()
 		SafeRetryClientRestart();			
 	}
 }
+
+bool APlayerController::ServerCheckClientPossessionReliable_Validate()
+{
+	return true;
+}
+
+void APlayerController::ServerCheckClientPossessionReliable_Implementation()
+{
+	ServerCheckClientPossession_Implementation();
+}
+
 
 void APlayerController::SafeServerCheckClientPossession()
 {
@@ -3748,9 +3761,15 @@ void APlayerController::TickPlayerInput(const float DeltaSeconds, const bool bGa
 			FHitResult HitResult;
 			bool bHit = false;
 			
-			if (LocalPlayer->ViewportClient->GetMousePosition(MousePosition))
+			UGameViewportClient* ViewportClient = LocalPlayer->ViewportClient;
+
+			// Only send mouse hit events if we're directly over the viewport.
+			if ( ViewportClient->GetGameViewportWidget().IsValid() && ViewportClient->GetGameViewportWidget()->IsDirectlyHovered() )
 			{
-				bHit = GetHitResultAtScreenPosition(MousePosition, CurrentClickTraceChannel, true, /*out*/ HitResult);
+				if ( LocalPlayer->ViewportClient->GetMousePosition(MousePosition) )
+				{
+					bHit = GetHitResultAtScreenPosition(MousePosition, CurrentClickTraceChannel, true, /*out*/ HitResult);
+				}
 			}
 
 			UPrimitiveComponent* PreviousComponent = CurrentClickablePrimitive.Get();
@@ -3814,7 +3833,7 @@ void APlayerController::TickActor( float DeltaSeconds, ELevelTick TickType, FAct
 		// force physics update for clients that aren't sending movement updates in a timely manner 
 		// this prevents cheats associated with artificially induced ping spikes
 		// skip updates if pawn lost autonomous proxy role (e.g. TurnOff() call)
-		if (GetPawn() && !GetPawn()->IsPendingKill() && GetPawn()->GetRemoteRole() == ROLE_AutonomousProxy)
+		if (GetPawn() && !GetPawn()->IsPendingKill() && GetPawn()->GetRemoteRole() == ROLE_AutonomousProxy && GetPawn()->bReplicateMovement)
 		{
 			INetworkPredictionInterface* NetworkPredictionInterface = Cast<INetworkPredictionInterface>(GetPawn()->GetMovementComponent());
 			if (NetworkPredictionInterface)

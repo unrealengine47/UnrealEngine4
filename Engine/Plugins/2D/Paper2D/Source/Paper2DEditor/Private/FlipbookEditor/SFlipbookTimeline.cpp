@@ -1,6 +1,7 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "Paper2DEditorPrivatePCH.h"
+#include "PaperFlipbook.h"
 #include "SFlipbookTimeline.h"
 #include "Editor/UnrealEd/Public/DragAndDrop/AssetDragDropOp.h"
 #include "Editor/UnrealEd/Public/ScopedTransaction.h"
@@ -26,7 +27,7 @@ void SFlipbookTimeline::Construct(const FArguments& InArgs, TSharedPtr<FUIComman
 	OnSelectionChanged = InArgs._OnSelectionChanged;
 	CommandList = InCommandList;
 
-	SlateUnitsPerFrame = 64.0f;
+	SlateUnitsPerFrame = 120.0f;
 
 	BackgroundPerFrameSlices = SNew(SHorizontalBox);
 

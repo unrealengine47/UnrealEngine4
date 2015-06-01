@@ -49,7 +49,7 @@ public interface BaseDB
 
 	public void shutdown();
 	public boolean sessionExists( final String sessionName );
-	public void createSession( final String appName, final int version, final int changelist, final String sessionName, final String friendlyName ) throws ReplayException;
+	public void createSession( final String appName, final int version, final int changelist, final String sessionName, final String friendlyName, final String metaString ) throws ReplayException;
 	public void deleteSession( final String sessionName ) throws ReplayException;
 	public void refreshSession( final String 	sessionName, 
 								final boolean 	bIsLive, 
@@ -73,12 +73,13 @@ public interface BaseDB
 	public byte[] readEventData( final String eventId ) throws ReplayException;
 	public List<BaseDB.EventInfo> enumerateEvents( final String sessionName, final String eventGroup ) throws ReplayException;
 
-	public void createViewer( final String sessionName, final String viewerName ) throws ReplayException;
+	public void createViewer( final String sessionName, final String viewerName, final String userName ) throws ReplayException;
 	public void refreshViewer( final String sessionName, final String viewerName ) throws ReplayException;
 	public void deleteViewer( final String sessionName, final String viewerName ) throws ReplayException;
 	public ReplaySessionInfo getSessionInfo( final String sessionName ) throws ReplayException;
 	public int getNumSessions( final String appName, final int version, final int changelist );
-	public List<ReplaySessionInfo> discoverSessions( final String appName, final int version, final int changelist, final int limit );
+	public List<ReplaySessionInfo> discoverSessions( final String appName, final int version, final int changelist, final String metaString, final int limit );
+	public List<ReplaySessionInfo> getRecentSessions( final String appName, final int version, final int changelist, final String userName, final int limit );
 
 	public void log( final Level level, final String str );
 	public int printLog( final PrintWriter writer, final Level level, final String subFilter );

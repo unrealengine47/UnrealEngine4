@@ -2,12 +2,14 @@
 
 #include "ContentBrowserPCH.h"
 
+#include "CollectionAssetManagement.h"
 #include "CollectionViewTypes.h"
 #include "CollectionContextMenu.h"
 #include "ObjectTools.h"
 #include "SourcesViewWidgets.h"
 #include "ContentBrowserModule.h"
 #include "SExpandableArea.h"
+#include "SSearchBox.h"
 
 #define LOCTEXT_NAMESPACE "ContentBrowser"
 
@@ -26,6 +28,11 @@ void SCollectionView::Construct( const FArguments& InArgs )
 	CollectionContextMenu = MakeShareable(new FCollectionContextMenu( SharedThis(this) ));
 	CollectionContextMenu->BindCommands(Commands);
 
+	if ( InArgs._AllowQuickAssetManagement )
+	{
+		QuickAssetManagement = MakeShareable(new FCollectionAssetManagement());
+	}
+
 	FOnContextMenuOpening CollectionListContextMenuOpening;
 	if ( InArgs._AllowContextMenu )
 	{
@@ -35,23 +42,39 @@ void SCollectionView::Construct( const FArguments& InArgs )
 	PreventSelectionChangedDelegateCount = 0;
 
 	TSharedRef< SWidget > HeaderContent = SNew(SHorizontalBox)
-			+SHorizontalBox::Slot()
-			.VAlign(VAlign_Center)
-			.FillWidth(1.f)
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			.Padding(0.0f)
 			[
-				SNew(STextBlock)
-				.Font( FEditorStyle::GetFontStyle("ContentBrowser.SourceTitleFont") )
-				.Text( LOCTEXT("CollectionsListTitle", "Collections") )
+				SNew(SHorizontalBox)
+
+				+ SHorizontalBox::Slot()
+				[
+					SNew(STextBlock)
+					.Font( FEditorStyle::GetFontStyle("ContentBrowser.SourceTitleFont") )
+					.Text( LOCTEXT("CollectionsListTitle", "Collections") )
+					.Visibility( this, &SCollectionView::GetCollectionsTitleTextVisibility )
+				]
+
+				+ SHorizontalBox::Slot()
+				[
+					SAssignNew(SearchBoxPtr, SSearchBox)
+					.HintText( LOCTEXT( "CollectionsViewSearchBoxHint", "Search Collections" ) )
+					.OnTextChanged( this, &SCollectionView::ApplyCollectionsSearchFilter )
+					.Visibility( this, &SCollectionView::GetCollectionsSearchBoxVisibility )
+				]
 			]
 
 			+SHorizontalBox::Slot()
 			.AutoWidth()
-			.VAlign(VAlign_Bottom)
+			.VAlign(VAlign_Center)
+			.Padding(2.0f, 0.0f, 0.0f, 0.0f)
 			[
 				SNew(SButton)
+				.ButtonStyle(FEditorStyle::Get(), "FlatButton")
 				.ToolTipText(LOCTEXT("AddCollectionButtonTooltip", "Add a collection."))
 				.OnClicked(this, &SCollectionView::MakeAddCollectionMenu)
-				.ContentPadding(0)
+				.ContentPadding( FMargin(2, 2) )
 				.Visibility(this, &SCollectionView::GetAddCollectionButtonVisibility)
 				[
 					SNew(SImage) .Image( FEditorStyle::GetBrush("ContentBrowser.AddCollectionButtonIcon") )
@@ -71,7 +94,7 @@ void SCollectionView::Construct( const FArguments& InArgs )
 			.FillHeight(1.f)
 			[
 				SAssignNew(CollectionListPtr, SListView< TSharedPtr<FCollectionItem> >)
-				.ListItemsSource(&CollectionItems)
+				.ListItemsSource(&FilteredCollectionItems)
 				.OnGenerateRow( this, &SCollectionView::GenerateCollectionRow )
 				.ItemHeight(18)
 				.SelectionMode(ESelectionMode::Multi)
@@ -88,9 +111,14 @@ void SCollectionView::Construct( const FArguments& InArgs )
 		Content = SAssignNew(CollectionsExpandableAreaPtr, SExpandableArea)
 			.MaxHeight(200)
 			.BorderImage( FEditorStyle::GetBrush("NoBorder") )
+			.HeaderPadding( FMargin(4.0f, 0.0f, 0.0f, 0.0f) )
 			.HeaderContent()
 			[
-				HeaderContent
+				SNew(SBox)
+				.Padding(FMargin(6.0f, 0.0f, 0.0f, 0.0f))
+				[
+					HeaderContent
+				]
 			]
 			.BodyContent()
 			[
@@ -100,17 +128,16 @@ void SCollectionView::Construct( const FArguments& InArgs )
 	else
 	{
 		Content = SNew( SVerticalBox )
-			+SVerticalBox::Slot()
-			.AutoHeight()
-			[
-				HeaderContent
+		+SVerticalBox::Slot()
+		.AutoHeight()
+		[
+			HeaderContent
 		]
 
-			+SVerticalBox::Slot()
-			.AutoHeight()
-			[
-				BodyContent
-	];
+		+SVerticalBox::Slot()
+		[
+			BodyContent
+		];
 	}
 
 	ChildSlot
@@ -124,19 +151,16 @@ void SCollectionView::Construct( const FArguments& InArgs )
 void SCollectionView::HandleCollectionCreated( const FCollectionNameType& Collection )
 {
 	UpdateCollectionItems();
-	CollectionListPtr->RequestListRefresh();
 }
 
 void SCollectionView::HandleCollectionRenamed( const FCollectionNameType& OriginalCollection, const FCollectionNameType& NewCollection )
 {
 	UpdateCollectionItems();
-	CollectionListPtr->RequestListRefresh();
 }
 
 void SCollectionView::HandleCollectionDestroyed( const FCollectionNameType& Collection )
 {
 	UpdateCollectionItems();
-	CollectionListPtr->RequestListRefresh();
 }
 
 void SCollectionView::UpdateCollectionItems()
@@ -168,6 +192,41 @@ void SCollectionView::UpdateCollectionItems()
 	}
 
 	CollectionItems.Sort( FCollectionItem::FCompareFCollectionItemByName() );
+
+	ApplyCollectionsSearchFilter();
+}
+
+void SCollectionView::ApplyCollectionsSearchFilter()
+{
+	ApplyCollectionsSearchFilter( SearchBoxPtr->GetText() );
+}
+
+void SCollectionView::ApplyCollectionsSearchFilter( const FText& InSearchText )
+{
+	if ( InSearchText.IsEmptyOrWhitespace() )
+	{
+		FilteredCollectionItems = CollectionItems;
+	}
+	else
+	{
+		const FString& SearchTextString = InSearchText.ToString();
+
+		FilteredCollectionItems.Reset();
+		for ( const auto& CollectionItem : CollectionItems )
+		{
+			if ( CollectionItem->CollectionName.Contains(SearchTextString) )
+			{
+				FilteredCollectionItems.Add(CollectionItem);
+			}
+		}
+	}
+
+	CollectionListPtr->RequestListRefresh();
+}
+
+FText SCollectionView::GetFilterText() const
+{
+	return SearchBoxPtr->GetText();
 }
 
 void SCollectionView::SetSelectedCollections(const TArray<FCollectionNameType>& CollectionsToSelect)
@@ -220,6 +279,14 @@ TArray<FCollectionNameType> SCollectionView::GetSelectedCollections() const
 	}
 
 	return RetArray;
+}
+
+void SCollectionView::SetSelectedAssets(const TArray<FAssetData>& SelectedAssets)
+{
+	if ( QuickAssetManagement.IsValid() )
+	{
+		QuickAssetManagement->SetCurrentAssets(SelectedAssets);
+	}
 }
 
 void SCollectionView::ApplyHistoryData ( const FHistoryData& History )
@@ -349,6 +416,18 @@ FReply SCollectionView::MakeAddCollectionMenu()
 	return FReply::Handled();
 }
 
+EVisibility SCollectionView::GetCollectionsTitleTextVisibility() const
+{
+	// Only show the title text if we have an expansion area, but are collapsed
+	return (CollectionsExpandableAreaPtr.IsValid() && !CollectionsExpandableAreaPtr->IsExpanded()) ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+EVisibility SCollectionView::GetCollectionsSearchBoxVisibility() const
+{
+	// Only show the search box if we have an expanded expansion area, or aren't currently using an expansion area
+	return (!CollectionsExpandableAreaPtr.IsValid() || CollectionsExpandableAreaPtr->IsExpanded()) ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
 EVisibility SCollectionView::GetAddCollectionButtonVisibility() const
 {
 	return (bAllowCollectionButtons && ( !CollectionsExpandableAreaPtr.IsValid() || CollectionsExpandableAreaPtr->IsExpanded() ) ) ? EVisibility::Visible : EVisibility::Collapsed;
@@ -365,12 +444,16 @@ void SCollectionView::CreateCollectionItem( ECollectionShareType::Type Collectio
 		CollectionManagerModule.Get().CreateUniqueCollectionName(BaseCollectionName, CollectionType, CollectionName);
 		TSharedPtr<FCollectionItem> NewItem = MakeShareable(new FCollectionItem(CollectionName.ToString(), CollectionType));
 
+		// Adding a new collection now, so clear any filter we may have applied
+		SearchBoxPtr->SetText(FText::GetEmpty());
+
 		// Mark the new collection for rename and that it is new so it will be created upon successful rename
 		NewItem->bRenaming = true;
 		NewItem->bNewCollection = true;
 
 		CollectionItems.Add( NewItem );
 		CollectionItems.Sort( FCollectionItem::FCompareFCollectionItemByName() );
+		ApplyCollectionsSearchFilter();
 		CollectionListPtr->RequestScrollIntoView(NewItem);
 		CollectionListPtr->SetSelection( NewItem );
 	}
@@ -423,7 +506,7 @@ void SCollectionView::RemoveCollectionItems( const TArray<TSharedPtr<FCollection
 	}
 
 	// Refresh the list
-	CollectionListPtr->RequestListRefresh();
+	ApplyCollectionsSearchFilter();
 }
 
 EVisibility SCollectionView::GetCollectionListVisibility() const
@@ -434,6 +517,17 @@ EVisibility SCollectionView::GetCollectionListVisibility() const
 TSharedRef<ITableRow> SCollectionView::GenerateCollectionRow( TSharedPtr<FCollectionItem> CollectionItem, const TSharedRef<STableViewBase>& OwnerTable )
 {
 	check(CollectionItem.IsValid());
+
+	// Only bind the check box callbacks if we're allowed to show check boxes
+	TAttribute<bool> IsCollectionCheckBoxEnabledAttribute;
+	TAttribute<ECheckBoxState> IsCollectionCheckedAttribute;
+	FOnCheckStateChanged OnCollectionCheckStateChangedDelegate;
+	if ( QuickAssetManagement.IsValid() )
+	{
+		IsCollectionCheckBoxEnabledAttribute.Bind(TAttribute<bool>::FGetter::CreateSP(this, &SCollectionView::IsCollectionCheckBoxEnabled, CollectionItem));
+		IsCollectionCheckedAttribute.Bind(TAttribute<ECheckBoxState>::FGetter::CreateSP(this, &SCollectionView::IsCollectionChecked, CollectionItem));
+		OnCollectionCheckStateChangedDelegate.BindSP(this, &SCollectionView::OnCollectionCheckStateChanged, CollectionItem);
+	}
 
 	TSharedPtr< STableRow< TSharedPtr<FTreeItem> > > TableRow = SNew( STableRow< TSharedPtr<FTreeItem> >, OwnerTable );
 	TableRow->SetContent
@@ -446,6 +540,10 @@ TSharedRef<ITableRow> SCollectionView::GenerateCollectionRow( TSharedPtr<FCollec
 			.OnAssetsDragDropped(this, &SCollectionView::CollectionAssetsDropped)
 			.IsSelected( TableRow.Get(), &STableRow< TSharedPtr<FTreeItem> >::IsSelectedExclusively )
 			.IsReadOnly(this, &SCollectionView::IsCollectionNotRenamable)
+			.HighlightText( this, &SCollectionView::GetFilterText)
+			.IsCheckBoxEnabled( IsCollectionCheckBoxEnabledAttribute )
+			.IsCollectionChecked( IsCollectionCheckedAttribute )
+			.OnCollectionCheckStateChanged( OnCollectionCheckStateChangedDelegate )
 		);
 
 	return TableRow.ToSharedRef();
@@ -459,6 +557,40 @@ TSharedPtr<SWidget> SCollectionView::MakeCollectionListContextMenu()
 	}
 
 	return CollectionContextMenu->MakeCollectionListContextMenu(Commands);
+}
+
+bool SCollectionView::IsCollectionCheckBoxEnabled( TSharedPtr<FCollectionItem> CollectionItem ) const
+{
+	return QuickAssetManagement.IsValid() && QuickAssetManagement->IsCollectionEnabled(FCollectionNameType(*CollectionItem->CollectionName, CollectionItem->CollectionType));
+}
+
+ECheckBoxState SCollectionView::IsCollectionChecked( TSharedPtr<FCollectionItem> CollectionItem ) const
+{
+	if ( QuickAssetManagement.IsValid() )
+	{
+		return QuickAssetManagement->GetCollectionCheckState(FCollectionNameType(*CollectionItem->CollectionName, CollectionItem->CollectionType));
+	}
+	return ECheckBoxState::Unchecked;
+}
+
+void SCollectionView::OnCollectionCheckStateChanged( ECheckBoxState NewState, TSharedPtr<FCollectionItem> CollectionItem )
+{
+	if ( QuickAssetManagement.IsValid() )
+	{
+		switch(NewState)
+		{
+		case ECheckBoxState::Checked:
+			QuickAssetManagement->AddCurrentAssetsToCollection(FCollectionNameType(*CollectionItem->CollectionName, CollectionItem->CollectionType));
+			break;
+
+		case ECheckBoxState::Unchecked:
+			QuickAssetManagement->RemoveCurrentAssetsFromCollection(FCollectionNameType(*CollectionItem->CollectionName, CollectionItem->CollectionType));
+			break;
+
+		default:
+			break;
+		}
+	}
 }
 
 void SCollectionView::CollectionSelectionChanged( TSharedPtr< FCollectionItem > CollectionItem, ESelectInfo::Type /*SelectInfo*/ )
@@ -489,9 +621,20 @@ void SCollectionView::CollectionAssetsDropped(const TArray<FAssetData>& AssetLis
 	int32 NumAdded = 0;
 	if ( CollectionManagerModule.Get().AddToCollection(FName(*CollectionItem->CollectionName), CollectionItem->CollectionType, ObjectPaths, &NumAdded) )
 	{
-		FFormatNamedArguments Args;
-		Args.Add( TEXT("Number"), NumAdded );
-		OutMessage = FText::Format( LOCTEXT("CollectionAssetsAdded", "Added {Number} asset(s)"), Args );
+		if ( AssetList.Num() == 1 )
+		{
+			FFormatNamedArguments Args;
+			Args.Add( TEXT("AssetName"), FText::FromName(AssetList[0].AssetName) );
+			Args.Add( TEXT("CollectionName"), FText::FromString(CollectionItem->CollectionName) );
+			OutMessage = FText::Format( LOCTEXT("CollectionAssetsAdded", "Added {AssetName} to {CollectionName}"), Args );
+		}
+		else
+		{
+			FFormatNamedArguments Args;
+			Args.Add( TEXT("Number"), NumAdded );
+			Args.Add( TEXT("CollectionName"), FText::FromString(CollectionItem->CollectionName) );
+			OutMessage = FText::Format( LOCTEXT("CollectionAssetsAdded", "Added {Number} asset(s) to {CollectionName}"), Args );
+		}
 	}
 	else
 	{
@@ -532,7 +675,7 @@ bool SCollectionView::CollectionNameChangeCommit( const TSharedPtr< FCollectionI
 		if ( !bChangeConfirmed )
 		{
 			CollectionItems.Remove(CollectionItem);
-			CollectionListPtr->RequestListRefresh();
+			ApplyCollectionsSearchFilter();
 			return false;
 		}
 
@@ -540,7 +683,7 @@ bool SCollectionView::CollectionNameChangeCommit( const TSharedPtr< FCollectionI
 		{
 			// Failed to add the collection, remove it from the list
 			CollectionItems.Remove(CollectionItem);
-			CollectionListPtr->RequestListRefresh();
+			ApplyCollectionsSearchFilter();
 
 			OutWarningMessage = FText::Format( LOCTEXT("CreateCollectionFailed", "Failed to create the collection. {0}"), CollectionManagerModule.Get().GetLastError());
 			return false;
@@ -552,6 +695,12 @@ bool SCollectionView::CollectionNameChangeCommit( const TSharedPtr< FCollectionI
 		if ( CollectionItem->CollectionName == NewNameFinal )
 		{
 			return true;
+		}
+
+		// If the new name doesn't pass our current filter, we need to clear it
+		if ( !NewNameFinal.Contains(SearchBoxPtr->GetText().ToString()) )
+		{
+			SearchBoxPtr->SetText(FText::GetEmpty());
 		}
 
 		// Otherwise perform the rename

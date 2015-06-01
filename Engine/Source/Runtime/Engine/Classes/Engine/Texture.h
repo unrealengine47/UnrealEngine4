@@ -357,13 +357,14 @@ private:
 	FGuid LightingGuid;
 
 public:
-	/** Path to the resource used to construct this texture. Relative to the object's package, BaseDir() or absolute */
-	UPROPERTY(Category=Texture, VisibleAnywhere, BlueprintReadWrite)
-	FString SourceFilePath;
+	
+	UPROPERTY()
+	FString SourceFilePath_DEPRECATED;
 
-	/** Date/Time-stamp of the file from the last import. */
-	UPROPERTY(Category=Texture, VisibleAnywhere, BlueprintReadWrite)
-	FString SourceFileTimestamp;
+	UPROPERTY()
+	class UAssetImportData* AssetImportData;
+
+public:
 
 	/** Static texture brightness adjustment (scales HSV value.)  (Non-destructive; Requires texture source art to be available.) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Adjustments, meta=(DisplayName = "Brightness"))
@@ -488,6 +489,14 @@ public:
 	/** This should be unchecked if using alpha channels individually as masks. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Texture, meta=(DisplayName="sRGB"), AssetRegistrySearchable)
 	uint32 SRGB:1;
+
+#if WITH_EDITORONLY_DATA
+
+	/** A flag for using the simplified legacy gamma space e.g pow(color,1/2.2) for converting from FColor to FLinearColor, if we're doing sRGB. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Texture, AdvancedDisplay)
+	uint32 bUseLegacyGamma:1;
+
+#endif // WITH_EDITORONLY_DATA
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Texture, AssetRegistrySearchable, AdvancedDisplay)
 	uint32 NeverStream:1;
