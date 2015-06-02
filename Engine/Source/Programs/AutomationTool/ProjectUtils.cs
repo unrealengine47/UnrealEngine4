@@ -7,6 +7,8 @@ using System.Text;
 using System.IO;
 using UnrealBuildTool;
 using System.Diagnostics;
+using Tools.DotNETCommon.CaselessDictionary;
+using Tools.DotNETCommon.ExecutingAssembly;
 
 namespace AutomationTool
 {
@@ -192,10 +194,10 @@ namespace AutomationTool
 			string oldCWD = Directory.GetCurrentDirectory();
 			if (BuildConfiguration.RelativeEnginePath == "../../Engine/")
 			{
-				string EngineSourceDirectory = Path.Combine(UnrealBuildTool.Utils.GetExecutingAssemblyDirectory(), "..", "..", "..", "Engine", "Source");
+				string EngineSourceDirectory = Path.Combine(ExecutingAssembly.GetDirectory(), "..", "..", "..", "Engine", "Source");
 				if (!Directory.Exists(EngineSourceDirectory)) // only set the directory if it exists, this should only happen if we are launching the editor from an artist sync
 				{
-					EngineSourceDirectory = Path.Combine(UnrealBuildTool.Utils.GetExecutingAssemblyDirectory(), "..", "..", "..", "Engine", "Binaries");
+					EngineSourceDirectory = Path.Combine(ExecutingAssembly.GetDirectory(), "..", "..", "..", "Engine", "Binaries");
 				}
 				Directory.SetCurrentDirectory(EngineSourceDirectory);
 			}
@@ -219,7 +221,7 @@ namespace AutomationTool
 				foreach(PluginInfo Plugin in AvailablePlugins)
 				{
 					bool bPluginEnabledForProject = UProjectInfo.IsPluginEnabledForProject(Plugin, Project, TargetPlatformType);
-					if (bPluginEnabledForProject != Plugin.Descriptor.bEnabledByDefault || (bPluginEnabledForProject && Plugin.Descriptor.bInstalled))
+					if ((bPluginEnabledForProject && !Plugin.Descriptor.bEnabledByDefault) || (bPluginEnabledForProject && Plugin.Descriptor.bInstalled))
 					{
 						if(Plugin.Descriptor.Modules.Any(Module => Module.IsCompiledInConfiguration(TargetPlatformType, TargetRules.TargetType.Game, bBuildDeveloperTools: false, bBuildEditor: false)))
 						{
