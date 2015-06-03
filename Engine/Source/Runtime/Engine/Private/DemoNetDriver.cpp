@@ -227,9 +227,27 @@ bool UDemoNetDriver::InitConnect( FNetworkNotify* InNotify, const FURL& ConnectU
 	ServerConnection = NewObject<UNetConnection>(GetTransientPackage(), UDemoNetConnection::StaticClass());
 	ServerConnection->InitConnection( this, USOCK_Pending, ConnectURL, 1000000 );
 
+	TArray< FString > UserNames;
+
+	if ( GetWorld()->GetGameInstance()->GetFirstGamePlayer() != nullptr )
+	{
+		TSharedPtr<const FUniqueNetId> ViewerId = GetWorld()->GetGameInstance()->GetFirstGamePlayer()->GetPreferredUniqueNetId();
+
+		if ( ViewerId.IsValid() )
+		{ 
+			UserNames.Add( ViewerId->ToString() );
+		}
+	}
+
 	bWasStartStreamingSuccessful = true;
-	// Friendly name isn't important for loading an existing replay.
-	ReplayStreamer->StartStreaming( DemoFilename, FString(), false, FNetworkVersion::GetReplayVersion(), FOnStreamReadyDelegate::CreateUObject( this, &UDemoNetDriver::ReplayStreamingReady ) );
+
+	ReplayStreamer->StartStreaming( 
+		DemoFilename, 
+		FString(),		// Friendly name isn't important for loading an existing replay.
+		UserNames, 
+		false, 
+		FNetworkVersion::GetReplayVersion(), 
+		FOnStreamReadyDelegate::CreateUObject( this, &UDemoNetDriver::ReplayStreamingReady ) );
 
 	return bWasStartStreamingSuccessful;
 }
@@ -396,9 +414,17 @@ bool UDemoNetDriver::InitListen( FNetworkNotify* InNotify, FURL& ListenURL, bool
 
 	const TCHAR* FriendlyNameOption = ListenURL.GetOption( TEXT("DemoFriendlyName="), nullptr );
 
+	TArray< FString > UserNames;
+
+	for ( int32 i = 0; i < GetWorld()->GameState->PlayerArray.Num(); i++ )
+	{
+		UserNames.Add( GetWorld()->GameState->PlayerArray[i]->UniqueId.ToString() );
+	}
+
 	ReplayStreamer->StartStreaming(
 		DemoFilename,
 		FriendlyNameOption != nullptr ? FString(FriendlyNameOption) : World->GetMapName(),
+		UserNames,
 		true,
 		FNetworkVersion::GetReplayVersion(),
 		FOnStreamReadyDelegate::CreateUObject( this, &UDemoNetDriver::ReplayStreamingReady ) );

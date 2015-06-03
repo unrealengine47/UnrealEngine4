@@ -332,6 +332,17 @@ void UModel::PostLoad()
 			CurSurf.bHiddenEdTemporary = ( ( CurSurf.PolyFlags & PF_HiddenEd ) != 0 );
 			CurSurf.bHiddenEdLevel = 0;
 		}
+
+#if WITH_EDITOR
+		if (ABrush* Owner = Cast<ABrush>(GetOuter()))
+		{
+			OwnerLocationWhenLastBuilt = Owner->GetActorLocation();
+			OwnerPrepivotWhenLastBuilt = Owner->GetPrePivot();
+			OwnerScaleWhenLastBuilt = Owner->GetActorScale();
+			OwnerRotationWhenLastBuilt = -Owner->GetActorRotation();
+			bCachedOwnerTransformValid = true;
+		}
+#endif
 	}
 }
 

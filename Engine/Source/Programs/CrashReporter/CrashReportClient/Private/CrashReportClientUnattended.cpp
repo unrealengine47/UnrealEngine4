@@ -2,13 +2,16 @@
 
 #include "CrashReportClientApp.h"
 #include "CrashReportClientUnattended.h"
+#include "CrashReportUtil.h"
 
 FCrashReportClientUnattended::FCrashReportClientUnattended(const FPlatformErrorReport& ErrorReport)
 	: Uploader( FCrashReportClientConfig::Get().GetReceiverAddress() )
 {
-	// Prevent uploader waiting for a diagnosis file
-	Uploader.LocalDiagnosisSkipped();	
-	Uploader.BeginUpload(ErrorReport);
+	// Process the report synchronously
+	ErrorReport.DiagnoseReport();
+	auto DiagnosticsFilePath = ErrorReport.GetReportDirectory() / FCrashReportClientConfig::Get().GetDiagnosticsFilename();
+	Uploader.LocalDiagnosisComplete( FPaths::FileExists( DiagnosticsFilePath ) ? DiagnosticsFilePath : TEXT( "" ) );
+	Uploader.BeginUpload( ErrorReport );
 	StartTicker();
 }
 
