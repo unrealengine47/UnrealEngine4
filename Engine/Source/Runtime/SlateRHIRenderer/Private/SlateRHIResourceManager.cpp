@@ -11,6 +11,13 @@ DECLARE_DWORD_ACCUMULATOR_STAT(TEXT("Num Texture Atlases"), STAT_SlateNumTexture
 DECLARE_DWORD_ACCUMULATOR_STAT(TEXT("Num Non-Atlased Textures"), STAT_SlateNumNonAtlasedTextures, STATGROUP_SlateMemory);
 DECLARE_DWORD_ACCUMULATOR_STAT(TEXT("Num Dynamic Textures"), STAT_SlateNumDynamicTextures, STATGROUP_SlateMemory);
 
+FDynamicResourceMap::FDynamicResourceMap()
+	: TextureMemorySincePurge(0)
+	, LastExpiredMaterialNumMarker(0)
+{
+
+}
+
 TSharedPtr<FSlateDynamicTextureResource> FDynamicResourceMap::GetDynamicTextureResource( FName ResourceName ) const
 {
 	return NativeTextureMap.FindRef( ResourceName );
@@ -20,7 +27,7 @@ TSharedPtr<FSlateUTextureResource> FDynamicResourceMap::GetUTextureResource( UTe
 {
 	if(TextureObject)
 	{
-		return UTextureResourceMap.FindRef(TextureObject);
+		return TextureMap.FindRef(TextureObject);
 	}
 
 	return nullptr;
@@ -28,7 +35,7 @@ TSharedPtr<FSlateUTextureResource> FDynamicResourceMap::GetUTextureResource( UTe
 
 TSharedPtr<FSlateMaterialResource> FDynamicResourceMap::GetMaterialResource( UMaterialInterface* Material ) const
 {
-	return MaterialResourceMap.FindRef( Material );
+	return MaterialMap.FindRef( Material );
 }
 
 
@@ -39,17 +46,22 @@ void FDynamicResourceMap::AddDynamicTextureResource( FName ResourceName, TShared
 
 void FDynamicResourceMap::AddUTextureResource( UTexture2D* TextureObject, TSharedRef<FSlateUTextureResource> InResource)
 {
-	if(TextureObject)
+	if ( TextureObject )
 	{
 		check(TextureObject == InResource->TextureObject);
-		UTextureResourceMap.Add(TextureObject, InResource);
+		TextureMap.Add(TextureObject, InResource);
+
+		TextureMemorySincePurge += TextureObject->GetResourceSize(EResourceSizeMode::Inclusive);
+		RemoveExpiredTextureResources();
 	}
 }
 
 void FDynamicResourceMap::AddMaterialResource( UMaterialInterface* Material, TSharedRef<FSlateMaterialResource> InMaterialResource )
 {
 	check( Material == InMaterialResource->GetMaterialObject() );
-	MaterialResourceMap.Add( Material, InMaterialResource );
+	MaterialMap.Add(Material, InMaterialResource);
+
+	RemoveExpiredMaterialResources();
 }
 
 void FDynamicResourceMap::RemoveDynamicTextureResource(FName ResourceName)
@@ -61,14 +73,14 @@ void FDynamicResourceMap::RemoveUTextureResource( UTexture2D* TextureObject )
 {
 	if(TextureObject)
 	{
-		UTextureResourceMap.Remove(TextureObject);
+		TextureMap.Remove(TextureObject);
+		TextureMemorySincePurge -= TextureObject->GetResourceSize(EResourceSizeMode::Inclusive);
 	}
 }
 
-
 void FDynamicResourceMap::RemoveMaterialResource( UMaterialInterface* Material )
 {
-	MaterialResourceMap.Remove( Material );
+	MaterialMap.Remove(Material);
 }
 
 void FDynamicResourceMap::Empty()
@@ -85,14 +97,14 @@ void FDynamicResourceMap::EmptyDynamicTextureResources()
 
 void FDynamicResourceMap::EmptyUTextureResources()
 {
-	UTextureResourceMap.Empty();
+	TextureMap.Empty();
+	TextureMemorySincePurge = 0;
 }
 
 void FDynamicResourceMap::EmptyMaterialResources()
 {
-	MaterialResourceMap.Empty();
+	MaterialMap.Empty();
 }
-
 
 void FDynamicResourceMap::ReleaseResources()
 {
@@ -101,13 +113,48 @@ void FDynamicResourceMap::ReleaseResources()
 		BeginReleaseResource(It.Value()->RHIRefTexture);
 	}
 	
-	for (TMap<TWeakObjectPtr<UTexture2D>, TSharedPtr<FSlateUTextureResource> >::TIterator It(UTextureResourceMap); It; ++It)
+	for ( TextureResourceMap::TIterator It(TextureMap); It; ++It )
 	{
 		It.Value()->UpdateRenderResource(nullptr);
 	}
-
 }
 
+void FDynamicResourceMap::RemoveExpiredTextureResources()
+{
+	// We attempt to purge every 10Mb of accumulated textures.
+	static const uint64 PurgeAfterAddingNewBytes = 1024 * 1024 * 10; // 10Mb
+
+	if ( TextureMemorySincePurge >= PurgeAfterAddingNewBytes )
+	{
+		for ( TextureResourceMap::TIterator It(TextureMap); It; ++It )
+		{
+			if ( It.Key().IsStale() )
+			{
+				It.RemoveCurrent();
+			}
+		}
+
+		TextureMemorySincePurge = 0;
+	}
+}
+
+void FDynamicResourceMap::RemoveExpiredMaterialResources()
+{
+	static const int32 CheckingIncrement = 10;
+
+	if ( MaterialMap.Num() > ( LastExpiredMaterialNumMarker + CheckingIncrement ) )
+	{
+		for ( MaterialResourceMap::TIterator It(MaterialMap); It; ++It )
+		{
+			if ( It.Key().IsStale() )
+			{
+				It.RemoveCurrent();
+			}
+		}
+
+		LastExpiredMaterialNumMarker = MaterialMap.Num();
+	}
+}
 
 FSlateRHIResourceManager::FSlateRHIResourceManager()
 	: BadResourceTexture(nullptr)

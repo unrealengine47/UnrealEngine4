@@ -162,50 +162,6 @@ namespace EditorBuildPromotionTestUtils
 	};
 
 	/**
-	* Sets an editor keyboard shortcut
-	*
-	* @param CommandContext - The context of the command
-	* @param Command - The command name to set
-	* @param NewChord - The new input chord to assign
-	*/
-	static void SetEditorKeybinding(const FString& CommandContext, const FString& Command, const FInputChord& NewChord)
-	{
-		TSharedPtr<FUICommandInfo> UICommand = FInputBindingManager::Get().FindCommandInContext(*CommandContext, *Command);
-		if (UICommand.IsValid())
-		{
-			UICommand->SetActiveChord(NewChord);
-			FInputBindingManager::Get().NotifyActiveChordChanged(*UICommand.Get());
-			FInputBindingManager::Get().SaveInputBindings();
-		}
-		else
-		{
-			UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("Could not find keybinding for %s using context %s"), *Command, *CommandContext);
-		}
-	}
-
-	/**
-	* Gets an editor keyboard shortcut
-	*
-	* @param CommandContext - The context of the command
-	* @param Command - The command name to get
-	* @param NewChord - The current input chord that is assigned
-	*/
-	static bool GetEditorKeybinding(const FString& CommandContext, const FString& Command, FInputChord& CurrentChord)
-	{
-		TSharedPtr<FUICommandInfo> UICommand = FInputBindingManager::Get().FindCommandInContext(*CommandContext, *Command);
-		if (UICommand.IsValid())
-		{
-			TSharedRef<const FInputChord> ActiveChord = UICommand->GetActiveChord();
-			CurrentChord = ActiveChord.Get();
-		}
-		else
-		{
-			UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("Could not find keybinding for %s using context %s"), *Command, *CommandContext);
-		}
-		return true;
-	}
-
-	/**
 	* Exports the current editor keybindings
 	*
 	* @param TargetFilename - The name of the file to export to
@@ -254,105 +210,16 @@ namespace EditorBuildPromotionTestUtils
 	}
 
 	/**
-	* Finds a visible widget by type.     SLOW!!!!!
-	*
-	* @param InParent - We search this widget and its children for a matching widget (recursive)
-	* @param InWidgetType - The widget type we are searching for
-	*/
-	static TSharedPtr<SWidget> FindFirstWidgetByClass(TSharedRef<SWidget> InParent, const FName& InWidgetType)
-	{
-		if (InParent->GetType() == InWidgetType)
-		{
-			return InParent;
-		}
-		FChildren* Children = InParent->GetChildren();
-		for (int32 i = 0; i < Children->Num(); ++i)
-		{
-			TSharedRef<SWidget> ChildWidget = Children->GetChildAt(i);
-			TSharedPtr<SWidget> FoundWidget = FindFirstWidgetByClass(ChildWidget, InWidgetType);
-			if (FoundWidget.IsValid())
-			{
-				return FoundWidget;
-			}
-		}
-		return NULL;
-	}
-
-	/**
-	* Sends a UI command to the active top level window after focusing on a widget of a given type
-	*
-	* @param InChord - The chord to send to the window
-	* @param WidgetTypeToFocus - The widget type to find and focus on
-	*/
-	static void SendCommandToCurrentEditor(const FInputChord& InChord, const FName& WidgetTypeToFocus)
-	{
-		//Focus the asset Editor / Graph 
-		TSharedRef<SWindow> EditorWindow = FSlateApplication::Get().GetActiveTopLevelWindow().ToSharedRef();
-		FSlateApplication::Get().ProcessWindowActivatedEvent(FWindowActivateEvent(FWindowActivateEvent::EA_Activate, EditorWindow));
-		TSharedPtr<SWidget> FocusWidget = FindFirstWidgetByClass(EditorWindow, WidgetTypeToFocus);
-		if (FocusWidget.IsValid())
-		{
-			FSlateApplication::Get().SetKeyboardFocus(FocusWidget.ToSharedRef(), EFocusCause::SetDirectly);
-
-			//Send the command
-			FModifierKeysState ModifierKeys(InChord.NeedsShift(), false, InChord.NeedsControl(), false, InChord.NeedsAlt(), false, InChord.NeedsCommand(), false, false);
-			FKeyEvent KeyEvent(InChord.Key, ModifierKeys, 0/*UserIndex*/, false, 0, 0);
-			FSlateApplication::Get().ProcessKeyDownEvent(KeyEvent);
-			FSlateApplication::Get().ProcessKeyUpEvent(KeyEvent);
-		}
-		else
-		{
-			UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("Could not find widget %s to send UI command"), *WidgetTypeToFocus.ToString());
-		}
-	}
-
-	/**
-	* Gets the current input chord or sets a new one if it doesn't exist
-	*
-	* @param Context - The context of the UI Command
-	* @param Command - The name of the UI command
-	*/
-	static FInputChord GetOrSetUICommand(const FString& Context, const FString& Command)
-	{
-		FInputChord CurrentChord;
-		GetEditorKeybinding(Context, Command, CurrentChord);
-
-		//If there is no current keybinding, set one
-		if (!CurrentChord.Key.IsValid())
-		{
-			FInputChord NewChord(EKeys::J, EModifierKey::Control);
-			SetEditorKeybinding(Context, Command, NewChord);
-			CurrentChord = NewChord;
-		}
-
-		return CurrentChord;
-	}
-
-	/**
 	* Sends the MaterialEditor->Apply UI command
 	*/
 	static void SendUpdateMaterialCommand()
 	{
 		const FString Context = TEXT("MaterialEditor");
 		const FString Command = TEXT("Apply");
-		FInputChord CurrentApplyChord = GetOrSetUICommand(Context, Command);
+		FInputChord CurrentApplyChord = FEditorPromotionTestUtilities::GetOrSetUICommand(Context, Command);
 
 		const FName FocusWidgetType(TEXT("SGraphEditor"));
-		SendCommandToCurrentEditor(CurrentApplyChord, FocusWidgetType);
-	}
-
-	/**
-	* Sends the AssetEditor->SaveAsset UI command
-	*/
-	static void SendSaveCascadeCommand()
-	{
-		const FString Context = TEXT("AssetEditor");
-		const FString Command = TEXT("SaveAsset");
-
-		FInputChord CurrentSaveChord = GetOrSetUICommand(Context, Command);
-
-		const FName FocusWidgetType(TEXT("SCascadeEmitterCanvas"));
-		SendCommandToCurrentEditor(CurrentSaveChord, FocusWidgetType);
+		FEditorPromotionTestUtilities::SendCommandToCurrentEditor(CurrentApplyChord, FocusWidgetType);
 	}
 
 	/**
@@ -363,10 +230,10 @@ namespace EditorBuildPromotionTestUtils
 		const FString Context = TEXT("BlueprintEditor");
 		const FString Command = TEXT("ResetCamera");
 
-		FInputChord CurrentSaveChord = GetOrSetUICommand(Context, Command);
+		FInputChord CurrentSaveChord = FEditorPromotionTestUtilities::GetOrSetUICommand(Context, Command);
 
 		const FName FocusWidgetType(TEXT("SSCSEditorViewport"));
-		SendCommandToCurrentEditor(CurrentSaveChord, FocusWidgetType);
+		FEditorPromotionTestUtilities::SendCommandToCurrentEditor(CurrentSaveChord, FocusWidgetType);
 	}
 
 	/**
@@ -446,6 +313,7 @@ namespace EditorBuildPromotionTestUtils
 	*/
 	static void SetComponentAsRoot(UBlueprint* InBlueprint, USCS_Node* NewRoot)
 	{
+		// @FIXME: Current usages doesn't guarantee NewRoot is valid!!! Check first!
 		//Get all the construction script nodes
 		TArray<USCS_Node*> AllNodes = InBlueprint->SimpleConstructionScript->GetAllNodes();
 
@@ -868,24 +736,49 @@ namespace EditorBuildPromotionTestUtils
 	}
 
 	/**
-	* Sets an object property value by name
+	* Creates a new keybinding chord and sets it for the supplied command and context
 	*
-	* @param TargetObject - The object to modify
-	* @param InVariableName - The name of the property
+	* @param CommandContext - The context of the command
+	* @param Command - The command name to get
+	* @param Key - The keybinding chord key
+	* @param ModifierKey - The keybinding chord modifier key
 	*/
-	static void SetPropertyByName(UObject* TargetObject, const FString& InVariableName, const FString& NewValueString)
+	static FInputChord SetKeybinding(const FString& CommandContext, const FString& Command, const FKey Key, const EModifierKey::Type ModifierKey)
 	{
-		UProperty* FoundProperty = FindField<UProperty>(TargetObject->GetClass(), *InVariableName);
-		if (FoundProperty)
+		FInputChord NewChord(Key, ModifierKey);
+		if (!FEditorPromotionTestUtilities::SetEditorKeybinding(CommandContext, Command, NewChord))
 		{
-			const FScopedTransaction PropertyChanged(LOCTEXT("PropertyChanged", "Object Property Change"));
+			// Trigger a failure when used in an automated test
+			UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("Could not find keybinding for %s using context %s"), *Command, *CommandContext);
+		}
+		return NewChord;
+	}
 
-			TargetObject->Modify();
-
-			TargetObject->PreEditChange(FoundProperty);
-			FoundProperty->ImportText(*NewValueString, FoundProperty->ContainerPtrToValuePtr<uint8>(TargetObject), 0, TargetObject);
-			FPropertyChangedEvent PropertyChangedEvent(FoundProperty, EPropertyChangeType::ValueSet);
-			TargetObject->PostEditChangeProperty(PropertyChangedEvent);
+	/**
+	* Retrieves the current keybinding for a command and compares it against the expected binding.
+	* Triggers an automation test failure if keybind cannot be retrieved or does not match expected binding.
+	*
+	* @param CommandContext - The context of the command
+	* @param Command - The command name to get
+	* @param ExpectedChord - The chord value to compare against
+	*/
+	static void CompareKeybindings(const FString& CommandContext, const FString& Command, FInputChord ExpectedChord)
+	{
+		FInputChord CurrentChord = FEditorPromotionTestUtilities::GetEditorKeybinding(CommandContext, Command);
+		if (!CurrentChord.IsValidChord())
+		{
+			UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("Could not find keybinding for %s using context %s"), *Command, *CommandContext);
+		}
+		else
+		{
+			if (CurrentChord == ExpectedChord)
+			{
+				UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("%s keybinding correct."), *Command);
+			}
+			else
+			{
+				UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("%s keybinding incorrect."), *Command);
+			}
 		}
 	}
 
@@ -1028,7 +921,7 @@ namespace EditorBuildPromotionTestUtils
 		}
 		else
 		{
-			UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("Failed to apply material to static mesh because mesh does not exist"));
+			UE_LOG(LogEditorBuildPromotionTests, Warning, TEXT("Failed to apply material to static mesh because mesh does not exist"));
 			return false;
 		}
 	}
@@ -1085,39 +978,6 @@ namespace EditorBuildPromotionTestUtils
 				UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("Failed to place %s in the level"), *InObject->GetName());
 			}
 		}
-	}
-
-	/**
-	* Imports an asset using the supplied factory, class, and name
-	*
-	* @param CreateFactory - The factory to use to create the asset
-	* @param AssetClass - The class of the new asset
-	* @param AssetName - The name to use for the new asset
-	*/
-	static UObject* CreateAsset(UFactory* CreateFactory, UClass* AssetClass, const FString& AssetName)
-	{
-		FString PackageName = FString::Printf(TEXT("%s/%s"), *FEditorPromotionTestUtilities::GetGamePath(), *AssetName);
-		UPackage* AssetPackage = CreatePackage(NULL, *PackageName);
-		EObjectFlags Flags = RF_Public | RF_Standalone;
-
-		UObject* CreatedAsset = CreateFactory->FactoryCreateNew(AssetClass, AssetPackage, FName(*AssetName), Flags, NULL, GWarn);
-
-		if (CreatedAsset)
-		{
-			// Notify the asset registry
-			FAssetRegistryModule::AssetCreated(CreatedAsset);
-
-			// Mark the package dirty...
-			AssetPackage->MarkPackageDirty();
-
-			UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Created asset %s (%s)"), *AssetName, *AssetClass->GetName());
-		}
-		else
-		{
-			UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("Unable to create asset of type %s"), *AssetClass->GetName());
-		}
-
-		return CreatedAsset;
 	}
 
 	/**
@@ -1406,7 +1266,7 @@ namespace BuildPromotionTestHelper
 		}
 
 		/**
-		* Modifies a property on the current asset
+		* Modifies a property on the current asset, undoes and redoes the property change, then saves changed asset
 		*/
 		void ChangeProperty()
 		{
@@ -1415,7 +1275,7 @@ namespace BuildPromotionTestHelper
 			FString NewPropertyValue = Assets[AssetIndex].PropertyValue;
 
 			FString OldPropertyValue = EditorBuildPromotionTestUtils::GetPropertyByName(CurrentAsset, PropertyName);
-			EditorBuildPromotionTestUtils::SetPropertyByName(CurrentAsset, PropertyName, NewPropertyValue);
+			FEditorPromotionTestUtilities::SetPropertyByName(CurrentAsset, PropertyName, NewPropertyValue);
 			UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Modified asset.  %s = %s"), *PropertyName, *NewPropertyValue);
 
 			//Get the property again and use that to compare the redo action.  Parsing the new value may change the formatting a bit. ie) 100 becomes 100.0000
@@ -1600,8 +1460,8 @@ namespace BuildPromotionTestHelper
 		UMaterial* SCTestMat;
 		FString ChosenMaterialColor;
 
-		/** Particle System created from the "Creating a Particle System" stage */
-		UParticleSystem* CreatedPS;
+		/** Particle System loaded from Automation Settings for Blueprint Pass */
+		UParticleSystem* LoadedParticleSystem;
 
 		/** Helper for opening, modifying, and placing assets */
 		FOpenAssetHelper* OpenAssetHelper;
@@ -1670,9 +1530,6 @@ namespace BuildPromotionTestHelper
 			ADD_TEST_STAGE(EndSection,						TEXT("Geometry Workflow"));
 
 			// 3) Lighting
-			ADD_TEST_STAGE(Lighting_PlaceAPointLight,		TEXT("Place a Point Light"));
-			ADD_TEST_STAGE(Lighting_PointLightProperties,	TEXT("Point Light Properties"));
-			ADD_TEST_STAGE(Lighting_DuplicatePointLight,	TEXT("Duplicate Point Light"));
 			ADD_TEST_STAGE(Lighting_BuildLighting_Part1,	TEXT("Build Lighting"));
 			ADD_TEST_STAGE(Lighting_BuildLighting_Part2,	TEXT("Build Lighting"));
 			ADD_TEST_STAGE(EndSection, TEXT("Lighting Workflow"));
@@ -1691,8 +1548,6 @@ namespace BuildPromotionTestHelper
 			ADD_TEST_STAGE(ContentBrowser_OpenAssets_Part2,				TEXT("Open Asset Types"));
 			ADD_TEST_STAGE(ContentBrowser_ReimportAsset,				TEXT("Re-import Assets"));
 			ADD_TEST_STAGE(ContentBrowser_AssignAMaterial,				TEXT("Assigning a Material"));
-			ADD_TEST_STAGE(ContentBrowser_CreateAParticleSystem_Part1,	TEXT("Creating a Particle System"));
-			ADD_TEST_STAGE(ContentBrowser_CreateAParticleSystem_Part2,	TEXT("Creating a Particle System"));
 			ADD_TEST_STAGE(EndSection, TEXT("Content Browser"));
 
 			// 6) Blueprints
@@ -1888,111 +1743,6 @@ namespace BuildPromotionTestHelper
 			return true;
 		}
 		
-		/**
-		* Lighting Test Stage: Place a point Light
-		*    Adds a point light to the map and sets its location, rotation, and scale
-		*/
-		bool Lighting_PlaceAPointLight()
-		{
-			const FTransform Transform(FVector(0.0f, 50.0f, 400.0f));
-			PointLight = Cast<APointLight>(GEditor->AddActor(CurrentWorld->GetCurrentLevel(), APointLight::StaticClass(), Transform));
-			if (PointLight)
-			{
-				UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Placed a PointLight"));
-				PointLight->SetActorLocation(FVector(100.f, 50.f, 200.f));
-				UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Modified the PointLight's Location"));
-				PointLight->SetActorRotation(FRotator(300, 250, -91));
-				UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Modified the PointLight's Rotation"));
-				PointLight->SetActorScale3D(FVector(2.f, 2.f, 2.f));
-				UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Modified the PointLight's Scale"));
-			}
-			else
-			{
-				UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("Error creating point light"));
-			}
-
-			return true;
-		}
-
-		/**
-		* Lighting Test Stage: Point Light Properties
-		*    Modifies the point light properties (Intensity, LightColor, and AttenuationRadius)
-		*/
-		bool Lighting_PointLightProperties()
-		{
-			if (PointLight)
-			{
-				UPointLightComponent* PointLightComp = PointLight->PointLightComponent;
-				EditorBuildPromotionTestUtils::SetPropertyByName(PointLightComp, TEXT("Intensity"), TEXT("1000.f"));
-				UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Modified the PointLight's Intensity"));
-				EditorBuildPromotionTestUtils::SetPropertyByName(PointLightComp, TEXT("LightColor"), TEXT("(R=0,G=0,B=255)"));
-				UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Modified the PointLight's LightColor"));
-				EditorBuildPromotionTestUtils::SetPropertyByName(PointLightComp, TEXT("AttenuationRadius"), TEXT("1024.f"));
-				UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Modified the PointLight's AttenuationRadius"));
-			}
-			else
-			{
-				SkippedTests.Add(TEXT("Lighting: Point Light Properties. (Failed to create light)"));
-			}
-
-			return true;
-		}
-
-		/**
-		* Lighting Test Stage: Duplicate point light
-		*    Duplicates the point light created earlier using Copy/Paste and Duplicate
-		*/
-		bool Lighting_DuplicatePointLight()
-		{
-			if (PointLight)
-			{
-				int32 StartingLightCount = EditorBuildPromotionTestUtils::GetNumActors(CurrentWorld, APointLight::StaticClass());
-
-				//Select the light
-				GEditor->SelectNone(false, true, false);
-				GEditor->SelectActor(PointLight, true, false, true);
-
-				GEngine->Exec(CurrentWorld, TEXT("EDIT COPY"));
-				GEngine->Exec(CurrentWorld, TEXT("EDIT PASTE"));
-
-				//Check if we gained a new light
-				int32 CurrentLightCount = EditorBuildPromotionTestUtils::GetNumActors(CurrentWorld, APointLight::StaticClass());
-				if (CurrentLightCount - StartingLightCount == 1)
-				{
-					UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Duplicated the PointLight using copy / paste"));
-				}
-				else
-				{
-					UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("Failed to duplicate light using copy / paste"));
-				}
-
-				//Reset the starting count
-				StartingLightCount = CurrentLightCount;
-
-				//Select the light
-				GEditor->SelectNone(false, true, false);
-				GEditor->SelectActor(PointLight, true, false, true);
-
-				GEngine->Exec(CurrentWorld, TEXT("DUPLICATE"));
-
-				//Check if we gained a new light
-				CurrentLightCount = EditorBuildPromotionTestUtils::GetNumActors(CurrentWorld, APointLight::StaticClass());
-				if (CurrentLightCount - StartingLightCount == 1)
-				{
-					UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Duplicated the PointLight using duplicate"));
-				}
-				else
-				{
-					UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("Failed to duplicate light using duplicate"));
-				}
-			}
-			else
-			{
-				SkippedTests.Add(TEXT("Lighting: Duplicate point light. (Failed to create light)"));
-			}
-
-			return true;
-		}
 
 		/**
 		* Lighting Test Stage: Build Lighting (Part 1)
@@ -2317,7 +2067,7 @@ namespace BuildPromotionTestHelper
 					if (ColorParam)
 					{
 						EditorMaterial->Modify();
-						EditorBuildPromotionTestUtils::SetPropertyByName(ColorParam, TEXT("Constant"), ColorValue);
+						FEditorPromotionTestUtilities::SetPropertyByName(ColorParam, TEXT("Constant"), ColorValue);
 						MaterialEditor->UpdateMaterialAfterGraphChange();
 						MaterialEditor->ForceRefreshExpressionPreviews();
 						EditorBuildPromotionTestUtils::SendUpdateMaterialCommand();
@@ -2456,7 +2206,7 @@ namespace BuildPromotionTestHelper
 			}
 			
 			// Particle System
-			AssetPackagePath = AutomationTestSettings->BuildPromotionTest.OpenAssets.ParticleSystemAsset.FilePath;
+			AssetPackagePath = AutomationTestSettings->BuildPromotionTest.OpenAssets.ParticleSystemAsset.FilePath;  // @TODO: Use an Engine asset
 			if (AssetPackagePath.Len() > 0)
 			{
 				AssetData = FEditorAutomationTestUtilities::GetAssetDataFromPackagePath(AssetPackagePath);
@@ -2639,74 +2389,10 @@ namespace BuildPromotionTestHelper
 		}
 
 		/**
-		* ContentBrowser Test Stage: Creating a particle system (Part 1)
-		*    Creates a new particle system and opens the cascade editor
-		*/
-		bool ContentBrowser_CreateAParticleSystem_Part1()
-		{
-			//Create a Particle system
-			UParticleSystemFactoryNew* PSFactory = NewObject<UParticleSystemFactoryNew>();
-			const FString& PSName(TEXT("BP_ParticleSystem"));
-			CreatedPS = Cast<UParticleSystem>(EditorBuildPromotionTestUtils::CreateAsset(PSFactory, UParticleSystem::StaticClass(), PSName));
-			if (CreatedPS)
-			{
-				FAssetEditorManager::Get().OpenEditorForAsset(CreatedPS);
-				UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Opened the cascade editor"));
-			}
-			else
-			{
-				UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("Failed to create a new ParticleSystem"));
-			}
-
-			return true;
-		}
-
-		/**
-		* ContentBrowser Test Stage: Creating a particle system (Part 2)
-		*    Finds and modifies the StartSize of the particle system, saves the asset, and then closes the editor
-		*/
-		bool ContentBrowser_CreateAParticleSystem_Part2()
-		{
-			if (CreatedPS)
-			{
-				IAssetEditorInstance* AssetEditor = FAssetEditorManager::Get().FindEditorForAsset(CreatedPS, true);
-
-				bool bModifiedSize = false;
-				UParticleLODLevel* DefaultLOD = CreatedPS->Emitters[0]->LODLevels[0];
-				for (int32 i = 0; i < DefaultLOD->Modules.Num(); ++i)
-				{
-					UParticleModuleSize* SizeModule = Cast<UParticleModuleSize>(DefaultLOD->Modules[i]);
-					if (SizeModule)
-					{
-						UDistributionVectorUniform* Distribution = Cast<UDistributionVectorUniform>(SizeModule->StartSize.Distribution);
-						EditorBuildPromotionTestUtils::SetPropertyByName(Distribution, TEXT("Max"), TEXT("(X=100,Y=100,Z=100)"));
-						EditorBuildPromotionTestUtils::SetPropertyByName(Distribution, TEXT("Min"), TEXT("(X=100,Y=100,Z=100)"));
-						bModifiedSize = true;
-					}
-				}
-
-				if (bModifiedSize)
-				{
-					UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Modified ParticleSystem StartSize (Min and Max)"));
-					EditorBuildPromotionTestUtils::SendSaveCascadeCommand();
-					UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Saved the particle system"));
-				}
-				else
-				{
-					UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("Failed to modify ParticleSystem StartSize"));
-				}
-
-				FAssetEditorManager::Get().CloseAllAssetEditors();
-				UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Closed the cascade editor"));
-			}
-			return true;
-		}
-
-		/**
 		* Saves the blueprint stored in BlueprintObject
 		*/
 		void SaveBlueprint()
-		{
+		{  // @FIXME: Saving BP currently fails.
 			if (BlueprintObject && BlueprintPackage)
 			{
 				BlueprintPackage->SetDirtyFlag(true);
@@ -2748,7 +2434,14 @@ namespace BuildPromotionTestHelper
 				SecondBlueprintMesh = Cast<UStaticMesh>(AssetData.GetAsset());
 			}
 
-			if (FirstBlueprintMesh && SecondBlueprintMesh && CreatedPS)
+			const FString ParticleSystemPath = AutomationTestSettings->ParticleEditorPromotionTest.DefaultParticleAsset.FilePath;
+			if (ParticleSystemPath.Len() > 0)
+			{
+				AssetData = FEditorAutomationTestUtilities::GetAssetDataFromPackagePath(ParticleSystemPath);
+				LoadedParticleSystem = Cast<UParticleSystem>(AssetData.GetAsset());
+			}
+
+			if (FirstBlueprintMesh && SecondBlueprintMesh && LoadedParticleSystem)
 			{
 				UBlueprintFactory* Factory = NewObject<UBlueprintFactory>();
 				Factory->ParentClass = AActor::StaticClass();
@@ -2786,8 +2479,8 @@ namespace BuildPromotionTestHelper
 			}
 			else
 			{
-				SkippedTests.Add(TEXT("All Blueprint tests. (Missing a required mesh)"));
-				UE_LOG(LogEditorBuildPromotionTests, Warning, TEXT("SKIPPING BLUEPRINT TESTS.  Invalid or missing FirstMeshPath or SecondMeshPath in AutomationTestSettings."));
+				SkippedTests.Add(TEXT("All Blueprint tests. (Missing a required mesh or particle system)"));
+				UE_LOG(LogEditorBuildPromotionTests, Warning, TEXT("SKIPPING BLUEPRINT TESTS.  Invalid or missing FirstMeshPath or SecondMeshPath in AutomationTestSettings, or particle system was not created."));
 			}
 			
 			return true;
@@ -2900,7 +2593,7 @@ namespace BuildPromotionTestHelper
 					UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("Failed to create the second mesh component"));
 				}
 
-				PSNode = EditorBuildPromotionTestUtils::CreateBlueprintComponent(BlueprintObject, CreatedPS);
+				PSNode = EditorBuildPromotionTestUtils::CreateBlueprintComponent(BlueprintObject, LoadedParticleSystem);
 				if (PSNode)
 				{
 					UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Added a particle system component"));
@@ -2911,6 +2604,7 @@ namespace BuildPromotionTestHelper
 				}
 
 				//Set the Particle System as the root
+				// @FIXME: This will probably do bad things if PSNode doesn't exist?
 				EditorBuildPromotionTestUtils::SetComponentAsRoot(BlueprintObject, PSNode);
 				UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Set the particle system component as the new root"));
 
@@ -2923,6 +2617,7 @@ namespace BuildPromotionTestHelper
 				FBlueprintEditorUtils::RenameComponentMemberVariable(BlueprintObject, OtherMeshNode, OtherMeshName);
 				UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Renamed the second mesh component to SecondMesh"));
 
+				// @FIXME: This will probably also do bad things if PSNode doesn't exist?
 				const FName PSName(TEXT("ParticleSys"));
 				FBlueprintEditorUtils::RenameComponentMemberVariable(BlueprintObject, PSNode, PSName);
 				UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Renamed the particle system component to ParticleSys"));
@@ -3384,7 +3079,7 @@ namespace BuildPromotionTestHelper
 					UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("Failed to create a new function graph"));
 				}
 
-				AddParticleSystemNode = EditorBuildPromotionTestUtils::CreateAddComponentActionNode(BlueprintObject, CustomGraph, CreatedPS);
+				AddParticleSystemNode = EditorBuildPromotionTestUtils::CreateAddComponentActionNode(BlueprintObject, CustomGraph, LoadedParticleSystem);
 				if (AddParticleSystemNode)
 				{
 					UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Created an AddParticleSystem node"));
@@ -3454,7 +3149,7 @@ namespace BuildPromotionTestHelper
 				if (PlacedBlueprint)
 				{
 					//Set the text
-					EditorBuildPromotionTestUtils::SetPropertyByName(PlacedBlueprint, EditorBuildPromotionTestUtils::BlueprintStringVariableName.ToString(), TEXT("Print String works!"));
+					FEditorPromotionTestUtilities::SetPropertyByName(PlacedBlueprint, EditorBuildPromotionTestUtils::BlueprintStringVariableName.ToString(), TEXT("Print String works!"));
 					UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Placed the blueprint and set the display string to \"Print String works!\""));
 				}
 				else
@@ -4005,22 +3700,18 @@ bool FBuildPromotionSettingsTest::RunTest(const FString& Parameters)
 	EditorBuildPromotionTestUtils::ExportEditorSettings(TargetOriginalPreferenceFile);
 
 //New Editor Settings
-	UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Binding create empty layer shortcut"));
-
 	//Bind H to CreateEmptyLayer keybinding
-	FInputChord NewCreateChord(EKeys::H, EModifierKey::None);
-	EditorBuildPromotionTestUtils::SetEditorKeybinding(TEXT("LayersView"), TEXT("CreateEmptyLayer"), NewCreateChord);
-
-	UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Binding request rename layer shortcut"));
-
+	UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Binding create empty layer shortcut"));
+	FInputChord NewCreateChord = EditorBuildPromotionTestUtils::SetKeybinding(TEXT("LayersView"), TEXT("CreateEmptyLayer"), EKeys::H, EModifierKey::None);
+	
 	//Bind J to RequestRenameLayer
-	FInputChord NewRenameChord(EKeys::J, EModifierKey::None);
-	EditorBuildPromotionTestUtils::SetEditorKeybinding(TEXT("LayersView"), TEXT("RequestRenameLayer"), NewRenameChord);
-
+	UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Binding request rename layer shortcut"));
+	FInputChord NewRenameChord = EditorBuildPromotionTestUtils::SetKeybinding(TEXT("LayersView"), TEXT("RequestRenameLayer"), EKeys::J, EModifierKey::None);
+	
+	// Bind CTRL+L to PIE
 	UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Binding play shortcut (PIE)"));
-	FInputChord NewPIEChord(EKeys::L, EModifierKey::Control);
-	EditorBuildPromotionTestUtils::SetEditorKeybinding(TEXT("PlayWorld"), TEXT("RepeatLastPlay"), NewPIEChord);
-
+	FInputChord NewPIEChord = EditorBuildPromotionTestUtils::SetKeybinding(TEXT("PlayWorld"), TEXT("RepeatLastPlay"), EKeys::L, EModifierKey::Control);
+	
 	//Export the keybindings
 	const FString TargetKeybindFile = FString::Printf(TEXT("%s/BuildPromotion/Keybindings-%d.ini"), *FPaths::AutomationDir(), GEngineVersion.GetChangelist());
 	UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Exporting keybind"));
@@ -4029,7 +3720,7 @@ bool FBuildPromotionSettingsTest::RunTest(const FString& Parameters)
 
 	UEditorStyleSettings* EditorStyleSettings = GetMutableDefault<UEditorStyleSettings>();
 	FString OldStyleSetting = EditorBuildPromotionTestUtils::GetPropertyByName(EditorStyleSettings, TEXT("bUseSmallToolBarIcons"));
-	EditorBuildPromotionTestUtils::SetPropertyByName(EditorStyleSettings, TEXT("bUseSmallToolBarIcons"), TEXT("true"));
+	FEditorPromotionTestUtilities::SetPropertyByName(EditorStyleSettings, TEXT("bUseSmallToolBarIcons"), TEXT("true"));
 
 	UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Set UseSmallToolBarIcons"));
 
@@ -4043,29 +3734,12 @@ bool FBuildPromotionSettingsTest::RunTest(const FString& Parameters)
 	UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("Exported keybindings and preferences to %s/BuildPromotion"), *FPaths::AutomationDir());
 
 	//Change the setting back
-	EditorBuildPromotionTestUtils::SetPropertyByName(EditorStyleSettings, TEXT("bUseSmallToolBarIcons"), OldStyleSetting);
+	FEditorPromotionTestUtilities::SetPropertyByName(EditorStyleSettings, TEXT("bUseSmallToolBarIcons"), OldStyleSetting);
 
-	FInputChord CurrentCreateChord;
-	EditorBuildPromotionTestUtils::GetEditorKeybinding(TEXT("LayersView"), TEXT("CreateEmptyLayer"), CurrentCreateChord);
-	if (CurrentCreateChord.Key == NewCreateChord.Key)
-	{
-		UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("CreateEmptyLayer keybinding correct."));
-	}
-	else
-	{
-		UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("CreateEmptyLayer keybinding incorrect."));
-	}
-
-	FInputChord CurrentRenameChord;
-	EditorBuildPromotionTestUtils::GetEditorKeybinding(TEXT("LayersView"), TEXT("RequestRenameLayer"), CurrentRenameChord);
-	if (CurrentRenameChord.Key == NewRenameChord.Key)
-	{
-		UE_LOG(LogEditorBuildPromotionTests, Display, TEXT("RequestRenameLayer keybinding correct."));
-	}
-	else
-	{
-		UE_LOG(LogEditorBuildPromotionTests, Error, TEXT("RequestRenameLayer keybinding incorrect."));
-	}
+	// Verify keybindings were assigned correctly
+	EditorBuildPromotionTestUtils::CompareKeybindings(TEXT("LayersView"), TEXT("CreateEmptyLayer"), NewCreateChord);
+	EditorBuildPromotionTestUtils::CompareKeybindings(TEXT("LayersView"), TEXT("RequestRenameLayer"), NewRenameChord);
+	EditorBuildPromotionTestUtils::CompareKeybindings(TEXT("PlayWorld"), TEXT("RepeatLastPlay"), NewPIEChord);
 
 	//Focus the main editor
 	TArray< TSharedRef<SWindow> > AllWindows;

@@ -1212,18 +1212,6 @@ void AActor::SetOwner( AActor *NewOwner )
 	}
 }
 
-AActor* AActor::GetOwner() const
-{ 
-	return Owner; 
-}
-
-const AActor* AActor::GetNetOwner() const
-{
-	// NetOwner is the Actor Owner unless otherwise overridden (see PlayerController/Pawn/Beacon)
-	// Used in ServerReplicateActors
-	return Owner;
-}
-
 bool AActor::HasNetOwner() const
 {
 	if (Owner == NULL)
@@ -2397,9 +2385,10 @@ void AActor::PostSpawnInitialize(FVector const& SpawnLocation, FRotator const& S
 	// This should be the same sequence for deferred or nondeferred spawning.
 
 	// It's not safe to call UWorld accessor functions till the world info has been spawned.
-	bool const bActorsInitialized = GetWorld() && GetWorld()->AreActorsInitialized();
+	UWorld* World = GetWorld();
+	bool const bActorsInitialized = World && World->AreActorsInitialized();
 
-	CreationTime = GetWorld()->GetTimeSeconds();
+	CreationTime = (World ? World->GetTimeSeconds() : 0.f);
 
 	// Set network role.
 	check(Role == ROLE_Authority);
@@ -2464,7 +2453,8 @@ void AActor::FinishSpawning(const FTransform& Transform, bool bIsDefaultTransfor
 
 void AActor::PostActorConstruction()
 {
-	bool const bActorsInitialized = GetWorld() && GetWorld()->AreActorsInitialized();
+	UWorld* World = GetWorld();
+	bool const bActorsInitialized = World && World->AreActorsInitialized();
 
 	if (bActorsInitialized)
 	{
@@ -2485,7 +2475,7 @@ void AActor::PostActorConstruction()
 			UE_LOG(LogActor, Fatal, TEXT("%s failed to route PostInitializeComponents.  Please call Super::PostInitializeComponents() in your <className>::PostInitializeComponents() function. "), *GetFullName() );
 		}
 
-		if (GetWorld()->HasBegunPlay() && !deferBeginPlayAndUpdateOverlaps)
+		if (World->HasBegunPlay() && !deferBeginPlayAndUpdateOverlaps)
 		{
 			BeginPlay();
 		}
@@ -2552,11 +2542,6 @@ void AActor::CopyRemoteRoleFrom(const AActor* CopyFromActor)
 	{
 		GetWorld()->AddNetworkActor(this);
 	}
-}
-
-ENetRole AActor::GetRemoteRole() const
-{
-	return RemoteRole;
 }
 
 void AActor::PostNetInit()
@@ -3004,11 +2989,6 @@ void AActor::SetActorEnableCollision(bool bNewActorEnableCollision)
 }
 
 
-bool AActor::GetActorEnableCollision() const
-{
-	return bActorEnableCollision;
-}
-
 bool AActor::Destroy( bool bNetForce, bool bShouldModifyLevel )
 {
 	// It's already pending kill or in DestroyActor(), no need to beat the corpse
@@ -3031,11 +3011,6 @@ bool AActor::Destroy( bool bNetForce, bool bShouldModifyLevel )
 void AActor::K2_DestroyActor()
 {
 	Destroy();
-}
-
-bool AActor::HasAuthority() const
-{
-	return (Role == ROLE_Authority);
 }
 
 void AActor::K2_DestroyComponent(UActorComponent* Component)

@@ -44,9 +44,17 @@ enum ELoadFlags
 	LOAD_None						= 0x00000000,	// No flags.
 	LOAD_SeekFree					= 0x00000001,	// Loads the package via the seek free loading path/ reader
 	LOAD_NoWarn						= 0x00000002,	// Don't display warning if load fails.
+//	LOAD_Unused						= 0x00000004,
+//	LOAD_Unused						= 0x00000008,
 	LOAD_Verify						= 0x00000010,	// Only verify existance; don't actually load.
 	LOAD_AllowDll					= 0x00000020,	// Allow plain DLLs.
+//	LOAD_Unused						= 0x00000040
 	LOAD_NoVerify					= 0x00000080,   // Don't verify imports yet.
+//	LOAD_Unused						= 0x00000100,
+//	LOAD_Unused						= 0x00000200,
+//	LOAD_Unused						= 0x00000400,
+//	LOAD_Unused						= 0x00000800,
+//	LOAD_Unused						= 0x00001000,
 	LOAD_Quiet						= 0x00002000,   // No log warnings.
 	LOAD_FindIfFail					= 0x00004000,	// Tries FindObject if a linker cannot be obtained (e.g. package is currently being compiled)
 	LOAD_MemoryReader				= 0x00008000,	// Loads the file into memory and serializes from there.
@@ -83,6 +91,15 @@ enum EPackageFlags
 	PKG_ServerSideOnly				= 0x00000004,   // Only needed on the server side.
 	PKG_CompiledIn					= 0x00000010,   // This package is from "compiled in" classes.
 	PKG_ForDiffing					= 0x00000020,	// This package was loaded just for the purposes of diff'ing
+//	PKG_Unused						= 0x00000040
+//  PKG_Unused						= 0x00000080,
+//	PKG_Unused						= 0x00000100,
+//	PKG_Unused						= 0x00000200,
+//	PKG_Unused						= 0x00000400,
+//	PKG_Unused						= 0x00000800,
+//	PKG_Unused						= 0x00001000,
+//	PKG_Unused						= 0x00002000,
+//	PKG_Unused						= 0x00004000,
 	PKG_Need						= 0x00008000,	// Client needs to download this package.
 	PKG_Compiling					= 0x00010000,	// package is currently being compiled
 	PKG_ContainsMap					= 0x00020000,	// Set if the package contains a ULevel/ UWorld object
@@ -100,9 +117,10 @@ enum EPackageFlags
 //	PKG_Unused						= 0x20000000,
 	PKG_ReloadingForCooker			= 0x40000000,   // this package is reloading in the cooker, try to avoid getting data we will never need. We won't save this package.
 	PKG_FilterEditorOnly			= 0x80000000,	// Package has editor-only data filtered
-
-	PKG_InMemoryOnly				= PKG_CompiledIn | PKG_NewlyCreated, // Flag mask that indicates if this package is a package that exists in memory only.
 };
+
+#define PKG_InMemoryOnly	(EPackageFlags)(PKG_CompiledIn | PKG_NewlyCreated) // Flag mask that indicates if this package is a package that exists in memory only.
+
 ENUM_CLASS_FLAGS(EPackageFlags);
 
 //
@@ -259,6 +277,10 @@ enum EClassFlags
 	CLASS_AllFlags			= 0xFFFFFFFF,
 };
 
+
+
+
+
 /**
  * Flags used for quickly casting classes of certain types; all class cast flags are inherited
  */
@@ -406,6 +428,7 @@ enum EObjectFlags
 {
 	// Do not add new flags unless they truly belong here. There are alternatives.
 	// if you change any the bit of any of the RF_Load flags, then you will need legacy serialization
+	RF_NoFlags						= 0x00000000,	///< No flags, used to avoid a cast
 
 	// This first group of flags mostly has to do with what kind of object it is. Other than transient, these are the persistent object flags.
 	// The garbage collector also tends to look at these.
@@ -439,17 +462,15 @@ enum EObjectFlags
 	RF_LoadCompleted			=0x00200000,	///< Object has been completely serialized by linkerload at least once. DO NOT USE THIS FLAG, It should be replaced with RF_WasLoaded.
 	RF_InheritableComponentTemplate = 0x00400000, ///< Archetype of the object can be in its super class
 	RF_Async = 0x00800000, ///< Object exists only on a different thread than the game thread.
+	RF_StrongRefOnFrame			= 0x01000000,	///< References to this object from persistent function frame are handled as strong ones.
+};
 
 	// Special all and none masks
-	RF_AllFlags					=0x00ffffff,	///< All flags, used mainly for error checking
-	RF_NoFlags					=0x00000000,	///< No flags, used to avoid a cast
+#define RF_AllFlags				(EObjectFlags)0x00ffffff	///< All flags, used mainly for error checking
 
 	// Predefined groups of the above
-	RF_Load						= RF_Public | RF_Standalone | RF_Native | RF_Transactional | RF_ClassDefaultObject | RF_ArchetypeObject | RF_DefaultSubObject | RF_TextExportTransient | RF_InheritableComponentTemplate, // Flags to load from Unrealfiles.
-	RF_PropagateToSubObjects	= RF_Public | RF_ArchetypeObject | RF_Transactional | RF_Transient,		// Sub-objects will inherit these flags from their SuperObject.
-
-	
-};
+#define RF_Load						((EObjectFlags)(RF_Public | RF_Standalone | RF_Native | RF_Transactional | RF_ClassDefaultObject | RF_ArchetypeObject | RF_DefaultSubObject | RF_TextExportTransient | RF_InheritableComponentTemplate)) // Flags to load from Unrealfiles.
+#define RF_PropagateToSubObjects	((EObjectFlags)(RF_Public | RF_ArchetypeObject | RF_Transactional | RF_Transient))		// Sub-objects will inherit these flags from their SuperObject.
 
 FORCEINLINE EObjectFlags operator|(EObjectFlags Arg1,EObjectFlags Arg2)
 {
@@ -958,6 +979,9 @@ namespace UM
 		/// [ClassMetadata] Indicates that when placing blueprint nodes in graphs owned by this class that the hidden world context pin should be visible because the self context of the class cannot
 		///                 provide the world context and it must be wired in manually
 		ShowWorldContextPin,
+
+		//[ClassMetadata] Do not spawn an object of the class using Generic Create Object node in Blueprint. It makes sense only for a BluprintType class, that is neither Actor, nor ActorComponent.
+		DontUseGenericSpawnObject,
 	};
 
 	// Metadata usable in USTRUCT

@@ -134,7 +134,6 @@ UGameplayDebuggingComponent::UGameplayDebuggingComponent(const FObjectInitialize
 		
 	PrimaryComponentTick.bCanEverTick = true;
 	bWantsInitializeComponent = true;
-	bAutoActivate = false;
 	PrimaryComponentTick.bStartWithTickEnabled = false;
 
 	LastStoredPathTimeStamp = -1.f;
@@ -799,7 +798,6 @@ void UGameplayDebuggingComponent::ServerReplicateData(uint32 InMessage, uint32  
 void UGameplayDebuggingComponent::OnChangeEQSQuery()
 {
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-	AGameplayDebuggingReplicator* Replicator = Cast<AGameplayDebuggingReplicator>(GetOwner());
 	if (++CurrentEQSIndex >= EQSLocalData.Num())
 	{
 		CurrentEQSIndex = 0;

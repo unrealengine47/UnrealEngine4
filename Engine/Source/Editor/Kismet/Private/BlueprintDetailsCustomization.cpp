@@ -420,7 +420,7 @@ void FBlueprintVarActionDetails::CustomizeDetails( IDetailLayoutBuilder& DetailL
 
 	Category.AddCustomRow( LOCTEXT("CategoryLabel", "Category") )
 		.Visibility(GetPropertyOwnerBlueprint()? EVisibility::Visible : EVisibility::Hidden)
-		.NameContent()
+	.NameContent()
 	[
 		SNew(STextBlock)
 		.Text( LOCTEXT("CategoryLabel", "Category") )
@@ -561,7 +561,7 @@ void FBlueprintVarActionDetails::CustomizeDetails( IDetailLayoutBuilder& DetailL
 	TSharedPtr<SToolTip> ReplicationTooltip = IDocumentation::Get()->CreateToolTip(LOCTEXT("VariableReplicate_Tooltip", "Should this Variable be replicated over the network?"), NULL, DocLink, TEXT("Replication"));
 
 	Category.AddCustomRow( LOCTEXT("VariableReplicationLabel", "Replication") )
-		.Visibility(TAttribute<EVisibility>(this, &FBlueprintVarActionDetails::ReplicationVisibility))
+	.Visibility(TAttribute<EVisibility>(this, &FBlueprintVarActionDetails::ReplicationVisibility))
 	.NameContent()
 	[
 		SNew(STextBlock)
@@ -766,6 +766,26 @@ void FBlueprintVarActionDetails::CustomizeDetails( IDetailLayoutBuilder& DetailL
 			.IsEnabled(IsVariableInBlueprint())
 			.ToolTip(SaveGameTooltip)
 		];
+
+		TSharedPtr<SToolTip> AdvancedDisplayTooltip = IDocumentation::Get()->CreateToolTip(LOCTEXT("VariableAdvancedDisplay_Tooltip", "Hide this variable in Class Defaults windows by default"), NULL, DocLink, TEXT("AdvancedDisplay"));
+
+		Category.AddCustomRow(LOCTEXT("VariableAdvancedDisplay", "Advanced Display"), true)
+			.Visibility(TAttribute<EVisibility>(this, &FBlueprintVarActionDetails::GetAdvancedDisplayVisibility))
+			.NameContent()
+			[
+				SNew(STextBlock)
+				.ToolTip(AdvancedDisplayTooltip)
+				.Text(LOCTEXT("VariableAdvancedDisplay", "Advanced Display"))
+				.Font(DetailFontInfo)
+			]
+		.ValueContent()
+			[
+				SNew(SCheckBox)
+				.IsChecked(this, &FBlueprintVarActionDetails::OnGetAdvancedDisplayCheckboxState)
+				.OnCheckStateChanged(this, &FBlueprintVarActionDetails::OnAdvancedDisplayChanged)
+				.IsEnabled(IsVariableInBlueprint())
+				.ToolTip(AdvancedDisplayTooltip)
+			];
 
 		TSharedPtr<SToolTip> PropertyFlagsTooltip = IDocumentation::Get()->CreateToolTip(LOCTEXT("DefinedPropertyFlags_Tooltip", "List of defined flags for this property"), NULL, DocLink, TEXT("PropertyFlags"));
 
@@ -1882,6 +1902,39 @@ void FBlueprintVarActionDetails::OnSaveGameChanged(ECheckBoxState InNewState)
 	{
 		const bool bSaveGameFlag = (InNewState == ECheckBoxState::Checked);
 		FBlueprintEditorUtils::SetVariableSaveGameFlag(GetBlueprintObj(), Property->GetFName(), bSaveGameFlag);
+	}
+}
+
+EVisibility FBlueprintVarActionDetails::GetAdvancedDisplayVisibility() const
+{
+	UProperty* VariableProperty = CachedVariableProperty.Get();
+	if (VariableProperty)
+	{
+		if (IsABlueprintVariable(VariableProperty))
+		{
+			return EVisibility::Visible;
+		}
+	}
+	return EVisibility::Collapsed;
+}
+
+ECheckBoxState FBlueprintVarActionDetails::OnGetAdvancedDisplayCheckboxState() const
+{
+	UProperty* Property = CachedVariableProperty.Get();
+	if (Property)
+	{
+		return (Property && Property->HasAnyPropertyFlags(CPF_AdvancedDisplay)) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+	}
+	return ECheckBoxState::Unchecked;
+}
+
+void FBlueprintVarActionDetails::OnAdvancedDisplayChanged(ECheckBoxState InNewState)
+{
+	UProperty* Property = CachedVariableProperty.Get();
+	if (Property)
+	{
+		const bool bAdvancedFlag = (InNewState == ECheckBoxState::Checked);
+		FBlueprintEditorUtils::SetVariableAdvancedDisplayFlag(GetBlueprintObj(), Property->GetFName(), bAdvancedFlag);
 	}
 }
 
@@ -4817,6 +4870,7 @@ void FBlueprintComponentDetails::OnBrowseSocket()
 					// Pop up a combo box to pick socket from mesh
 					FSlateApplication::Get().PushMenu(
 						Editor.ToSharedRef(),
+						FWidgetPath(),
 						SNew(SSocketChooserPopup)
 						.SceneComponent( ParentSceneComponent )
 						.OnSocketChosen( this, &FBlueprintComponentDetails::OnSocketSelection ),

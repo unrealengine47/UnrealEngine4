@@ -604,12 +604,17 @@ DECLARE_CYCLE_STAT(TEXT("AfterBasePass"), STAT_CLM_AfterBasePass, STATGROUP_Comm
 DECLARE_CYCLE_STAT(TEXT("Lighting"), STAT_CLM_Lighting, STATGROUP_CommandListMarkers);
 DECLARE_CYCLE_STAT(TEXT("AfterLighting"), STAT_CLM_AfterLighting, STATGROUP_CommandListMarkers);
 DECLARE_CYCLE_STAT(TEXT("Translucency"), STAT_CLM_Translucency, STATGROUP_CommandListMarkers);
+DECLARE_CYCLE_STAT(TEXT("RenderDistortion"), STAT_CLM_RenderDistortion, STATGROUP_CommandListMarkers);
 DECLARE_CYCLE_STAT(TEXT("AfterTranslucency"), STAT_CLM_AfterTranslucency, STATGROUP_CommandListMarkers);
+DECLARE_CYCLE_STAT(TEXT("RenderDistanceFieldLighting"), STAT_CLM_RenderDistanceFieldLighting, STATGROUP_CommandListMarkers);
+DECLARE_CYCLE_STAT(TEXT("LightShaftBloom"), STAT_CLM_LightShaftBloom, STATGROUP_CommandListMarkers);
+DECLARE_CYCLE_STAT(TEXT("PostProcessing"), STAT_CLM_PostProcessing, STATGROUP_CommandListMarkers);
 DECLARE_CYCLE_STAT(TEXT("Velocity"), STAT_CLM_Velocity, STATGROUP_CommandListMarkers);
 DECLARE_CYCLE_STAT(TEXT("AfterVelocity"), STAT_CLM_AfterVelocity, STATGROUP_CommandListMarkers);
+DECLARE_CYCLE_STAT(TEXT("RenderFinish"), STAT_CLM_RenderFinish, STATGROUP_CommandListMarkers);
 DECLARE_CYCLE_STAT(TEXT("AfterFrame"), STAT_CLM_AfterFrame, STATGROUP_CommandListMarkers);
 
-FGraphEventRef FDeferredShadingSceneRenderer::OcclusionSubmittedFence;
+FGraphEventRef FDeferredShadingSceneRenderer::OcclusionSubmittedFence[2];
 
 /**
  * Returns true if the depth Prepass needs to run
@@ -682,7 +687,12 @@ void FDeferredShadingSceneRenderer::RenderOcclusion(FRHICommandListImmediate& RH
 		if (bRenderQueries && GRHIThread)
 		{
 			QUICK_SCOPE_CYCLE_COUNTER(STAT_OcclusionSubmittedFence_Dispatch);
-			OcclusionSubmittedFence = RHICmdList.RHIThreadFence();
+			int32 NumFrames = FOcclusionQueryHelpers::GetNumBufferedFrames();
+			for (int32 Dest = 1; Dest < NumFrames; Dest++)
+			{
+				OcclusionSubmittedFence[Dest] = OcclusionSubmittedFence[Dest - 1];
+			}
+			OcclusionSubmittedFence[0] = RHICmdList.RHIThreadFence();
 		}
 	}
 }
@@ -701,8 +711,9 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 	if (GRHIThread)
 	{
 		QUICK_SCOPE_CYCLE_COUNTER(STAT_OcclusionSubmittedFence_Wait);
-		FRHICommandListExecutor::WaitOnRHIThreadFence(OcclusionSubmittedFence);
-		OcclusionSubmittedFence = nullptr;
+		int32 BlockFrame = FOcclusionQueryHelpers::GetNumBufferedFrames() - 1;
+		FRHICommandListExecutor::WaitOnRHIThreadFence(OcclusionSubmittedFence[BlockFrame]);
+		OcclusionSubmittedFence[BlockFrame] = nullptr;
 	}
 
 	if(!ViewFamily.EngineShowFlags.Rendering)
@@ -873,9 +884,9 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 			bOnce = true;
 			GPrevPerBoneMotionBlur.SetVelocityPassCallback(			
 				// this is a strange intermodule bridge so that the skeletal mesh vertex factory knows when to add bone data in a parallel thread
-				[](FRHICommandList& RHICmdList)->bool
+				[](FRHICommandList& InRHICmdList)->bool
 			{
-				return FSceneRenderTargets::Get(RHICmdList).IsVelocityPass();
+				return FSceneRenderTargets::Get(InRHICmdList).IsVelocityPass();
 			});
 		}
 	}
@@ -1164,7 +1175,6 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 
 		RHICmdList.SetCurrentStat(GET_STATID(STAT_CLM_Translucency));
 		RenderTranslucency(RHICmdList);
-		RHICmdList.SetCurrentStat(GET_STATID(STAT_CLM_AfterTranslucency));
 		ServiceLocalQueue();
 
 		if (ViewFamily.EngineShowFlags.Refraction)
@@ -1172,14 +1182,17 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 			// To apply refraction effect by distorting the scene color.
 			// After non separate translucency as that is considered at scene depth anyway
 			// It allows skybox translucency (set to non separate translucency) to be refracted.
+			RHICmdList.SetCurrentStat(GET_STATID(STAT_CLM_RenderDistortion));
 			RenderDistortion(RHICmdList);
 			ServiceLocalQueue();
 		}
+		RHICmdList.SetCurrentStat(GET_STATID(STAT_CLM_AfterTranslucency));
 	}
 
 	if (ViewFamily.EngineShowFlags.LightShafts)
 	{
 		QUICK_SCOPE_CYCLE_COUNTER(STAT_FDeferredShadingSceneRenderer_RenderLightShaftBloom);
+		RHICmdList.SetCurrentStat(GET_STATID(STAT_CLM_LightShaftBloom));
 		RenderLightShaftBloom(RHICmdList);
 		ServiceLocalQueue();
 	}
@@ -1189,6 +1202,7 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		// Use the skylight's max distance if there is one, to be consistent with DFAO shadowing on the skylight
 		const float OcclusionMaxDistance = Scene->SkyLight && !Scene->SkyLight->bWantsStaticShadowing ? Scene->SkyLight->OcclusionMaxDistance : GDefaultDFAOMaxOcclusionDistance;
 		TRefCountPtr<IPooledRenderTarget> DummyOutput;
+		RHICmdList.SetCurrentStat(GET_STATID(STAT_CLM_RenderDistanceFieldLighting));
 		RenderDistanceFieldLighting(RHICmdList, FDistanceFieldAOParameters(OcclusionMaxDistance), VelocityRT, DummyOutput, DummyOutput, ViewFamily.EngineShowFlags.VisualizeDistanceFieldAO, ViewFamily.EngineShowFlags.VisualizeDistanceFieldGI);
 		ServiceLocalQueue();
 	}
@@ -1210,6 +1224,7 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		SCOPED_DRAW_EVENT(RHICmdList, PostProcessing);
 		SCOPE_CYCLE_COUNTER(STAT_FinishRenderViewTargetTime);
 
+		RHICmdList.SetCurrentStat(GET_STATID(STAT_CLM_PostProcessing));
 		for(int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
 		{
 			SCOPED_CONDITIONAL_DRAW_EVENTF(RHICmdList, EventView, Views.Num() > 1, TEXT("View%d"), ViewIndex);
@@ -1238,6 +1253,7 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 
 	{
 		QUICK_SCOPE_CYCLE_COUNTER(STAT_FDeferredShadingSceneRenderer_RenderFinish);
+		RHICmdList.SetCurrentStat(GET_STATID(STAT_CLM_RenderFinish));
 		RenderFinish(RHICmdList);
 		RHICmdList.SetCurrentStat(GET_STATID(STAT_CLM_AfterFrame));
 	}
@@ -1514,22 +1530,21 @@ bool FDeferredShadingSceneRenderer::RenderBasePass(FRHICommandListImmediate& RHI
 		if (GRHICommandList.UseParallelAlgorithms() && CVarParallelBasePass.GetValueOnRenderThread())
 		{
 			FScopedCommandListWaitForTasks Flusher(CVarRHICmdFlushRenderThreadTasksBasePass.GetValueOnRenderThread() > 0 || CVarRHICmdFlushRenderThreadTasks.GetValueOnRenderThread() > 0, RHICmdList);
-			for(int32 ViewIndex = 0;ViewIndex < Views.Num();ViewIndex++)
+			for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
 			{
 				SCOPED_CONDITIONAL_DRAW_EVENTF(RHICmdList, EventView, Views.Num() > 1, TEXT("View%d"), ViewIndex);
 				FViewInfo& View = Views[ViewIndex];
 				RenderBasePassViewParallel(View, RHICmdList);
-				bDirty = true; // assume dirty since we are not going to wait
-				if (FVelocityRendering::OutputsToGBuffer())
-				{
-					GPrevPerBoneMotionBlur.EndAppendFence(RHICmdList);
-					FSceneRenderTargets::Get(RHICmdList).SetVelocityPass(false);
-				}
+			}
+			bDirty = true; // assume dirty since we are not going to wait
+			if (FVelocityRendering::OutputsToGBuffer())
+			{
+				GPrevPerBoneMotionBlur.EndAppendFence(RHICmdList);
 			}
 		}
 		else
 		{
-			for(int32 ViewIndex = 0;ViewIndex < Views.Num();ViewIndex++)
+			for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
 			{
 				SCOPED_CONDITIONAL_DRAW_EVENTF(RHICmdList, EventView, Views.Num() > 1, TEXT("View%d"), ViewIndex);
 				FViewInfo& View = Views[ViewIndex];
@@ -1537,7 +1552,10 @@ bool FDeferredShadingSceneRenderer::RenderBasePass(FRHICommandListImmediate& RHI
 				bDirty |= RenderBasePassView(RHICmdList, View);
 			}
 		}
-
+		if (FVelocityRendering::OutputsToGBuffer())
+		{
+			FSceneRenderTargets::Get(RHICmdList).SetVelocityPass(false);
+		}
 	}
 
 	return bDirty;

@@ -39,8 +39,15 @@ struct FNiagaraEmitterProperties
 	GENERATED_USTRUCT_BODY()
 public:
 	FNiagaraEmitterProperties() : 
-		bIsEnabled(true), SpawnRate(50), UpdateScript(nullptr), SpawnScript(nullptr), Material(nullptr), 
-		RenderModuleType(RMT_Sprites), RendererProperties(nullptr)
+		bIsEnabled(true),
+		SpawnRate(50),
+		UpdateScript(nullptr),
+		SpawnScript(nullptr),
+		Material(nullptr), 
+		RenderModuleType(RMT_Sprites),
+		StartTime(0.0f),
+		EndTime(0.0f),
+		RendererProperties(nullptr)
 	{
 		Name = FString(TEXT("New Emitter"));
 	}
@@ -58,6 +65,12 @@ public:
 	UMaterial *Material;
 	UPROPERTY(EditAnywhere, Category = "Emitter Properties")
 	TEnumAsByte<EEmitterRenderModuleType> RenderModuleType;
+
+	UPROPERTY(EditAnywhere, Category = "Emitter Properties")
+	float StartTime;
+	UPROPERTY(EditAnywhere, Category = "Emitter Properties")
+	float EndTime;
+
 
 	UPROPERTY()
 	class UNiagaraEffectRendererProperties *RendererProperties;

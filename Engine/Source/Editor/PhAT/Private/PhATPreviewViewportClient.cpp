@@ -86,6 +86,8 @@ FPhATEdPreviewViewportClient::FPhATEdPreviewViewportClient(TWeakPtr<FPhAT> InPhA
 
 	SetViewModes(VMI_Lit, VMI_Lit);
 
+	SetCameraSpeedSetting(3);
+
 	bUsingOrbitCamera = true;
 
 	if (!FPhAT::IsPIERunning())
@@ -124,7 +126,7 @@ void FPhATEdPreviewViewportClient::DrawCanvas( FViewport& InViewport, FSceneView
 		FText::AsNumber(SharedData->PhysicsAsset->ConstraintSetup.Num()) ).ToString();
 
 	TextItem.Text = FText::FromString( StatusString );
-	Canvas.DrawItem( TextItem, XOffset, 3 );
+	//Canvas.DrawItem( TextItem, XOffset, 3 );	//NOTE: Turning off as I'm not sure how useful this text is, but there seems to be a lot of information on the screen already
 	
 	TextItem.Text = FText::GetEmpty();
 	if (SharedData->bRunningSimulation)
@@ -678,7 +680,7 @@ void FPhATEdPreviewViewportClient::Tick(float DeltaSeconds)
 		SharedData->EditorSkelComp->SetPhysicsBlendWeight(SharedData->EditorSimOptions->PhysicsBlend);
 	}
 
-	World->Tick(LEVELTICK_All, DeltaSeconds);
+	World->Tick(LEVELTICK_All, DeltaSeconds * SharedData->EditorSimOptions->TimeDilation);
 
 	if(SharedData->Recorder.InRecording())
 	{
@@ -708,6 +710,7 @@ void FPhATEdPreviewViewportClient::OpenBodyMenu()
 
 		FSlateApplication::Get().PushMenu(
 			ParentWidget.ToSharedRef(),
+			FWidgetPath(),
 			MenuWidget.ToSharedRef(),
 			MouseCursorLocation,
 			FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu)
@@ -726,6 +729,7 @@ void FPhATEdPreviewViewportClient::OpenConstraintMenu()
 
 		FSlateApplication::Get().PushMenu(
 			ParentWidget.ToSharedRef(),
+			FWidgetPath(),
 			MenuWidget.ToSharedRef(),
 			MouseCursorLocation,
 			FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu)

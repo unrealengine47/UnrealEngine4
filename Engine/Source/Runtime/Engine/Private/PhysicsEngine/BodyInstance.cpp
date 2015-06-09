@@ -87,12 +87,6 @@ void FCollisionResponse::ReplaceChannels(ECollisionResponse OldResponse, ECollis
 #endif
 }
 
-/** Returns the response set on the specified channel */
-ECollisionResponse FCollisionResponse::GetResponse(ECollisionChannel Channel) const
-{
-	return ResponseToChannels.GetResponse(Channel);
-}
-
 /** Set all channels from ChannelResponse Array **/
 void FCollisionResponse::SetCollisionResponseContainer(const FCollisionResponseContainer& InResponseToChannels)
 {
@@ -422,22 +416,12 @@ void FBodyInstance::InvalidateCollisionProfileName()
 	CollisionProfileName = UCollisionProfile::CustomCollisionProfileName;
 }
 
-ECollisionResponse FBodyInstance::GetResponseToChannel(ECollisionChannel Channel) const
-{
-	return CollisionResponses.GetResponse(Channel);
-}
-
 void FBodyInstance::SetResponseToChannel(ECollisionChannel Channel, ECollisionResponse NewResponse)
 {
 	InvalidateCollisionProfileName();
 	ResponseToChannels_DEPRECATED.SetResponse(Channel, NewResponse);
 	CollisionResponses.SetResponse(Channel, NewResponse);
 	UpdatePhysicsFilterData();
-}
-
-const FCollisionResponseContainer& FBodyInstance::GetResponseToChannels() const
-{
-	return CollisionResponses.GetResponseContainer();
 }
 
 void FBodyInstance::SetResponseToAllChannels(ECollisionResponse NewResponse)
@@ -470,11 +454,6 @@ void FBodyInstance::SetObjectType(ECollisionChannel Channel)
 	UpdatePhysicsFilterData();
 }
 
-ECollisionChannel FBodyInstance::GetObjectType() const
-{
-	return ObjectType;
-}
-
 void FBodyInstance::SetCollisionProfileName(FName InCollisionProfileName)
 {
 	if (CollisionProfileName != InCollisionProfileName)
@@ -483,11 +462,6 @@ void FBodyInstance::SetCollisionProfileName(FName InCollisionProfileName)
 		// now Load ProfileData
 		LoadProfileData(false);
 	}
-}
-
-FName FBodyInstance::GetCollisionProfileName() const
-{
-	return CollisionProfileName;
 }
 
 bool FBodyInstance::DoesUseCollisionProfile() const
@@ -2490,17 +2464,6 @@ void FBodyInstance::SetInstanceSimulatePhysics(bool bSimulate, bool bMaintainPhy
 	}
 
 	UpdateInstanceSimulatePhysics();
-}
-
-bool FBodyInstance::IsInstanceSimulatingPhysics()
-{
-	// if I'm simulating or owner is simulating
-	return ShouldInstanceSimulatingPhysics() && IsValidBodyInstance();
-}
-
-bool FBodyInstance::ShouldInstanceSimulatingPhysics()
-{
-	return bSimulatePhysics;
 }
 
 bool FBodyInstance::IsValidBodyInstance() const

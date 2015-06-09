@@ -111,6 +111,9 @@ UActorComponent::UActorComponent(const FObjectInitializer& ObjectInitializer /*=
 	bAutoRegister = true;
 	bNetAddressable = false;
 	bEditableWhenInherited = true;
+#if WITH_EDITOR
+	bCanUseCachedOwner = true;
+#endif
 }
 
 void UActorComponent::PostInitProperties()
@@ -129,9 +132,13 @@ void UActorComponent::PostLoad()
 
 	if (GetLinkerUE4Version() < VER_UE4_ACTOR_COMPONENT_CREATION_METHOD)
 	{
-		if (bCreatedByConstructionScript_DEPRECATED)
+		if (IsTemplate())
 		{
-				CreationMethod = EComponentCreationMethod::SimpleConstructionScript;
+			CreationMethod = EComponentCreationMethod::Native;
+		}
+		else if (bCreatedByConstructionScript_DEPRECATED)
+		{
+			CreationMethod = EComponentCreationMethod::SimpleConstructionScript;
 		}
 		else if (bInstanceComponent_DEPRECATED)
 		{

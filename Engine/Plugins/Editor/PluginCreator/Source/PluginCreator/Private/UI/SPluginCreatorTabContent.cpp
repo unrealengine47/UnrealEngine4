@@ -18,6 +18,8 @@
 
 #include "SNotificationList.h"
 #include "NotificationManager.h"
+#include "PluginCreatorStyle.h"
+#include "PluginCreatorPlugin.h"
 
 #define LOCTEXT_NAMESPACE "PluginCreatorPluginModule"
 
@@ -549,7 +551,8 @@ bool SPluginCreatorTabContent::WritePluginDescriptor(const FString& PluginModule
 	}
 
 	// Save the descriptor using JSon
-	if (FPluginHelpers::SavePluginDescriptor(UPluginFilePath, Descriptor))
+	FText FailReason;
+	if (Descriptor.Save(UPluginFilePath, FailReason))
 	{
 		return true;
 	}

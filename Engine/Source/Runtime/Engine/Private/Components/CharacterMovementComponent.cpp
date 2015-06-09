@@ -39,6 +39,7 @@ DECLARE_CYCLE_STAT(TEXT("Char CombineNetMove"), STAT_CharacterMovementCombineNet
 DECLARE_CYCLE_STAT(TEXT("Char SmoothClientPosition"), STAT_CharacterMovementSmoothClientPosition, STATGROUP_Character);
 DECLARE_CYCLE_STAT(TEXT("Char Physics Interation"), STAT_CharPhysicsInteraction, STATGROUP_Character);
 DECLARE_CYCLE_STAT(TEXT("Char StepUp"), STAT_CharStepUp, STATGROUP_Character);
+DECLARE_CYCLE_STAT(TEXT("Char FindFloor"), STAT_CharFindFloor, STATGROUP_Character);
 DECLARE_CYCLE_STAT(TEXT("Char AdjustFloorHeight"), STAT_CharAdjustFloorHeight, STATGROUP_Character);
 DECLARE_CYCLE_STAT(TEXT("Char Update Acceleration"), STAT_CharUpdateAcceleration, STATGROUP_Character);
 DECLARE_CYCLE_STAT(TEXT("Char MoveUpdateDelegate"), STAT_CharMoveUpdateDelegate, STATGROUP_Character);
@@ -113,38 +114,6 @@ static TAutoConsoleVariable<float> CVarNetCorrectionLifetime(
 	ECVF_Cheat);
 #endif // !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 
-// Version that does not use inverse sqrt estimate, for higher precision.
-FORCEINLINE FVector GetSafeNormalPrecise(const FVector& V)
-{
-	const float VSq = V.SizeSquared();
-	if (VSq < SMALL_NUMBER)
-	{
-		return FVector::ZeroVector;
-	}
-	else
-	{
-		return V * (1.f / FMath::Sqrt(VSq));
-	}
-}
-
-// Version that does not use inverse sqrt estimate, for higher precision.
-FORCEINLINE FVector GetClampedToMaxSizePrecise(const FVector& V, float MaxSize)
-{
-	if (MaxSize < KINDA_SMALL_NUMBER)
-	{
-		return FVector::ZeroVector;
-	}
-
-	const float VSq = V.SizeSquared();
-	if (VSq > FMath::Square(MaxSize))
-	{
-		return V * (MaxSize / FMath::Sqrt(VSq));
-	}
-	else
-	{
-		return V;
-	}
-}
 
 
 void FFindFloorResult::SetFromSweep(const FHitResult& InHit, const float InSweepFloorDist, const bool bIsWalkableFloor)
@@ -1374,7 +1343,7 @@ void UCharacterMovementComponent::UpdateBasedMovement(float DeltaSeconds)
 	}
 
 	// Find change in rotation
-	const bool bRotationChanged = !OldBaseQuat.Equals(NewBaseQuat);
+	const bool bRotationChanged = !OldBaseQuat.Equals(NewBaseQuat, 1e-6f);
 	if (bRotationChanged)
 	{
 		DeltaQuat = NewBaseQuat * OldBaseQuat.Inverse();
@@ -2306,11 +2275,11 @@ void UCharacterMovementComponent::CalcVelocity(float DeltaTime, float Friction, 
 		// In consideration order for direction: Acceleration, then Velocity, then Pawn's rotation.
 		if (Acceleration.SizeSquared() > SMALL_NUMBER)
 		{
-			Acceleration = GetSafeNormalPrecise(Acceleration) * MaxAccel;
+			Acceleration = Acceleration.GetSafeNormal() * MaxAccel;
 		}
 		else 
 		{
-			Acceleration = MaxAccel * (Velocity.SizeSquared() < SMALL_NUMBER ? UpdatedComponent->GetForwardVector() : GetSafeNormalPrecise(Velocity));
+			Acceleration = MaxAccel * (Velocity.SizeSquared() < SMALL_NUMBER ? UpdatedComponent->GetForwardVector() : Velocity.GetSafeNormal());
 		}
 
 		AnalogInputModifier = 1.f;
@@ -2333,13 +2302,13 @@ void UCharacterMovementComponent::CalcVelocity(float DeltaTime, float Friction, 
 		// Don't allow braking to lower us below max speed if we started above it.
 		if (bVelocityOverMax && Velocity.SizeSquared() < FMath::Square(MaxSpeed) && FVector::DotProduct(Acceleration, OldVelocity) > 0.0f)
 		{
-			Velocity = GetSafeNormalPrecise(OldVelocity) * MaxSpeed;
+			Velocity = OldVelocity.GetSafeNormal() * MaxSpeed;
 		}
 	}
 	else if (!bZeroAcceleration)
 	{
 		// Friction affects our ability to change direction. This is only done for input acceleration, not path following.
-		const FVector AccelDir = GetSafeNormalPrecise(Acceleration);
+		const FVector AccelDir = Acceleration.GetSafeNormal();
 		const float VelSize = Velocity.Size();
 		Velocity = Velocity - (Velocity - AccelDir * VelSize) * FMath::Min(DeltaTime * Friction, 1.f);
 	}
@@ -2354,7 +2323,7 @@ void UCharacterMovementComponent::CalcVelocity(float DeltaTime, float Friction, 
 	const float NewMaxSpeed = (IsExceedingMaxSpeed(MaxSpeed)) ? Velocity.Size() : MaxSpeed;
 	Velocity += Acceleration * DeltaTime;
 	Velocity += RequestedAcceleration * DeltaTime;
-	Velocity = GetClampedToMaxSizePrecise(Velocity, NewMaxSpeed);
+	Velocity = Velocity.GetClampedToMaxSize(NewMaxSpeed);
 
 	if (bUseRVOAvoidance)
 	{
@@ -2728,7 +2697,7 @@ void UCharacterMovementComponent::ApplyVelocityBraking(float DeltaTime, float Fr
 	const float MaxTimeStep = (1.0f / 33.0f);
 
 	// Decelerate to brake to a stop
-	const FVector RevAccel = (bZeroBraking ? FVector::ZeroVector : (-BrakingDeceleration * GetSafeNormalPrecise(Velocity)));
+	const FVector RevAccel = (bZeroBraking ? FVector::ZeroVector : (-BrakingDeceleration * Velocity.GetSafeNormal()));
 	while( RemainingTime >= MIN_TICK_TIME )
 	{
 		// Zero friction uses constant deceleration, so no need for iteration.
@@ -4832,6 +4801,8 @@ void UCharacterMovementComponent::ComputeFloorDist(const FVector& CapsuleLocatio
 
 void UCharacterMovementComponent::FindFloor(const FVector& CapsuleLocation, FFindFloorResult& OutFloorResult, bool bZeroDelta, const FHitResult* DownwardSweepResult) const
 {
+	SCOPE_CYCLE_COUNTER(STAT_CharFindFloor);
+
 	// No collision, no floor...
 	if (!HasValidData() || !UpdatedComponent->IsCollisionEnabled())
 	{
@@ -5530,21 +5501,19 @@ void UCharacterMovementComponent::ForceReplicationUpdate()
 
 FVector UCharacterMovementComponent::ConstrainInputAcceleration(const FVector& InputAcceleration) const
 {
-	FVector NewAccel = InputAcceleration;
-
 	// walking or falling pawns ignore up/down sliding
-	if (IsMovingOnGround() || IsFalling())
+	if (InputAcceleration.Z != 0.f && (IsMovingOnGround() || IsFalling()))
 	{
-		NewAccel.Z = 0.f;
+		return FVector(InputAcceleration.X, InputAcceleration.Y, 0.f);
 	}
 
-	return NewAccel;
+	return InputAcceleration;
 }
 
 
 FVector UCharacterMovementComponent::ScaleInputAcceleration(const FVector& InputAcceleration) const
 {
-	return GetMaxAcceleration() * GetClampedToMaxSizePrecise(InputAcceleration, 1.0f);
+	return GetMaxAcceleration() * InputAcceleration.GetClampedToMaxSize(1.0f);
 }
 
 

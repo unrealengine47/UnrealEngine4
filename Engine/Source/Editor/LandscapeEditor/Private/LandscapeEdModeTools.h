@@ -504,6 +504,8 @@ public:
 	// X2/Y2 Coordinates are "inclusive" max values
 	void SetCachedData(int32 X1, int32 Y1, int32 X2, int32 Y2, TArray<AccessorType>& Data, ELandscapeLayerPaintingRestriction::Type PaintingRestriction = ELandscapeLayerPaintingRestriction::None)
 	{
+		checkSlow(Data.Num() == (1 + Y2 - Y1) * (1 + X2 - X1));
+
 		// Update cache
 		for (int32 Y = Y1; Y <= Y2; Y++)
 		{
@@ -1247,17 +1249,35 @@ struct FWeightmapToolTarget
 };
 
 /**
-* FLandscapeToolStrokeBase - base class for tool strokes (used by FLandscapeToolBase)
-*/
+ * FLandscapeToolStrokeBase - base class for tool strokes (used by FLandscapeToolBase)
+ */
 
-class FLandscapeToolStrokeBase
+class FLandscapeToolStrokeBase : protected FGCObject
 {
 public:
 	// Whether to call Apply() every frame even if the mouse hasn't moved
 	enum { UseContinuousApply = false };
 
-	// Signature of Apply() method:
+	// This is also the expected signature of derived class constructor used by FLandscapeToolBase
+	FLandscapeToolStrokeBase(FEdModeLandscape* InEdMode, const FLandscapeToolTarget& InTarget)
+		: EdMode(InEdMode)
+		, Target(InTarget)
+		, LandscapeInfo(InTarget.LandscapeInfo.Get())
+	{
+	}
+
+	// Signature of Apply() method for derived strokes
 	// void Apply(FEditorViewportClient* ViewportClient, FLandscapeBrush* Brush, const ULandscapeEditorObject* UISettings, const TArray<FLandscapeToolMousePosition>& MousePositions);
+
+	virtual void AddReferencedObjects(FReferenceCollector& Collector) override
+	{
+		Collector.AddReferencedObject(LandscapeInfo);
+	}
+
+protected:
+	FEdModeLandscape* EdMode;
+	const FLandscapeToolTarget& Target;
+	ULandscapeInfo* LandscapeInfo;
 };
 
 
