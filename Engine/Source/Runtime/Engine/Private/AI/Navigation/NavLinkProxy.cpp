@@ -10,6 +10,7 @@
 #include "AI/Navigation/NavLinkProxy.h"
 #include "AI/Navigation/NavLinkRenderingComponent.h"
 #include "NavigationSystemHelpers.h"
+#include "VisualLogger.h"
 
 ANavLinkProxy::ANavLinkProxy(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
 {
@@ -86,6 +87,17 @@ void ANavLinkProxy::PostEditChangeProperty(FPropertyChangedEvent& PropertyChange
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 }
 #endif // WITH_EDITOR
+
+#if ENABLE_VISUAL_LOG
+void ANavLinkProxy::BeginPlay()
+{
+	UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(GetWorld());
+	if (NavSys)
+	{
+		REDIRECT_OBJECT_TO_VLOG(this, NavSys);
+	}
+}
+#endif // ENABLE_VISUAL_LOG
 
 void ANavLinkProxy::GetNavigationData(FNavigationRelevantData& Data) const
 {
