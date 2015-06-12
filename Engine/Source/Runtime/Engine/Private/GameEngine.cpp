@@ -38,6 +38,7 @@
 #include "GameFramework/GameUserSettings.h"
 #include "GameFramework/GameMode.h"
 #include "GameDelegates.h"
+#include "Engine/CoreSettings.h"
 
 ENGINE_API bool GDisallowNetworkTravel = false;
 
@@ -297,7 +298,14 @@ TSharedRef<SWindow> UGameEngine::CreateGameWindow()
 	// Do not set fullscreen mode here, since it doesn't take 
 	// HMDDevice into account. The window mode will be set properly later
 	// from SwitchGameWindowToUseGameViewport() method (see ResizeWindow call).
-	Window->SetWindowMode(EWindowMode::Windowed);
+	if (WindowMode == EWindowMode::Fullscreen)
+	{
+		Window->SetWindowMode(EWindowMode::WindowedFullscreen);
+	}
+	else
+	{
+		Window->SetWindowMode(WindowMode);
+	}
 
 	Window->ShowWindow();
 
@@ -369,10 +377,6 @@ void UGameEngine::RedrawViewports( bool bShouldPresent /*= true*/ )
 UEngine::UEngine(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AsyncLoadingTimeLimit = 5.0f;
-	bAsyncLoadingUseFullTimeLimit = true;
-	PriorityAsyncLoadingExtraTime = 20.0f;
-
 	C_WorldBox = FColor(0, 0, 40, 255);
 	C_BrushWire = FColor(192, 0, 0, 255);
 	C_AddWire = FColor(127, 127, 255, 255);
@@ -472,13 +476,13 @@ void UGameEngine::Init(IEngineLoop* InEngineLoop)
 			SwitchGameWindowToUseGameViewport();
 		}
 
-		UGameViewportClient::OnViewportCreated().Broadcast();
-
 		FString Error;
 		if(ViewportClient->SetupInitialLocalPlayer(Error) == NULL)
 		{
 			UE_LOG(LogEngine, Fatal,TEXT("%s"),*Error);
 		}
+
+		UGameViewportClient::OnViewportCreated().Broadcast();
 	}
 
 	GameInstance->StartGameInstance();
@@ -842,7 +846,7 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 	// Update subsystems.
 	{
 		// This assumes that UObject::StaticTick only calls ProcessAsyncLoading.
-		StaticTick(DeltaSeconds, bAsyncLoadingUseFullTimeLimit, AsyncLoadingTimeLimit / 1000.f);
+		StaticTick(DeltaSeconds, GetDefault<UStreamingSettings>()->bAsyncLoadingUseFullTimeLimit, GetDefault<UStreamingSettings>()->AsyncLoadingTimeLimit / 1000.f);
 	}
 
 	// -----------------------------------------------------

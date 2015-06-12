@@ -620,8 +620,6 @@ void UNetDriver::Shutdown()
 				}
 			}
 
-			UE_LOG(LogNet, Display, TEXT("JMDEBUG Shutdown:  CleanUp client connection %d"), ClientIndex);
-
 			// Calls Close() internally and removes from ClientConnections
 			ClientConnections[ClientIndex]->CleanUp();
 		}
@@ -656,13 +654,7 @@ void UNetDriver::TickDispatch( float DeltaTime )
 		{
 			if( ClientConnections[i]->State==USOCK_Closed )
 			{
-				UE_LOG(LogNet, Display, TEXT("JMDEBUG TickDispatch:   CleanUp client connection %d"), i);
 				ClientConnections[i]->CleanUp();
-
-				if (i >= ClientConnections.Num())
-				{
-					UE_LOG(LogNet, Display, TEXT("JMDEBUG TickDispatch:   ClientConnection array mismatch"), i);
-				}
 			}
 		}
 	}
@@ -808,8 +800,6 @@ void UNetDriver::InternalProcessRemoteFunction
 		Ch->BeginContentBlock(TargetObj, Bunch);
 	}
 	
-	const int NumStartingHeaderBits = Bunch.GetNumBits();
-
 	//UE_LOG(LogScript, Log, TEXT("   Call %s"),Function->GetFullName());
 	if ( Connection->InternalAck )
 	{
@@ -822,7 +812,7 @@ void UNetDriver::InternalProcessRemoteFunction
 		Bunch.WriteIntWrapped(FieldCache->FieldNetIndex, ClassCache->GetMaxIndex()+1);
 	}
 
-	const int HeaderBits = Bunch.GetNumBits() - NumStartingHeaderBits;
+	const int HeaderBits = Bunch.GetNumBits();
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	Bunch.DebugString = FString::Printf(TEXT("%.2f RPC: %s - %s"), Connection->Driver->Time, *Actor->GetName(), *Function->GetName());

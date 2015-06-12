@@ -22,7 +22,8 @@ public:
 	 * @param InListType The list type.
 	 */
 	FFriendItem(TSharedPtr< FOnlineFriend > InOnlineFriend, TSharedPtr< FOnlineUser > InOnlineUser, EFriendsDisplayLists::Type InListType, const TSharedRef<class FFriendsAndChatManager>& FriendsAndChatManager)
-		: bIsUpdated(true)
+		: FriendsAndChatManager(FriendsAndChatManager)
+		, bIsUpdated(true)
 		, GroupName(TEXT(""))
 		, OnlineFriend( InOnlineFriend )
 		, OnlineUser( InOnlineUser )
@@ -31,7 +32,6 @@ public:
 		, bIsPendingAccepted(false)
 		, bIsPendingInvite(false)
 		, bIsPendingDelete(false)
-		, FriendsAndChatManager(FriendsAndChatManager)
 	{ }
 
 	/**
@@ -116,6 +116,12 @@ public:
 	virtual TSharedPtr<const FUniqueNetId> GetGameSessionId() const override;
 
 	/**
+	 * Obtain info needed to join a party for this friend item
+	 * @return party info if available or null
+	 */
+	virtual TSharedPtr<IOnlinePartyJoinInfo> GetPartyJoinInfo() const override;
+
+	/**
 	 * Get the Unique ID.
 	 * @return The Unique Net ID.
 	 */
@@ -187,6 +193,8 @@ protected:
 		, GroupName(TEXT(""))
 	{ };
 
+	TWeakPtr<class FFriendsAndChatManager> FriendsAndChatManager;
+
 private:
 
 	/** Holds if this item has been updated. */
@@ -215,6 +223,4 @@ private:
 
 	/** Holds if we are pending delete. */
 	bool bIsPendingDelete;
-
-	TWeakPtr<class FFriendsAndChatManager> FriendsAndChatManager;
 };

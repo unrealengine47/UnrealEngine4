@@ -38,7 +38,7 @@ public:
 #if ENABLE_NAN_DIAGNOSTIC
 	FORCEINLINE void DiagnosticCheckNaN() const
 	{
-		checkf(!ContainsNaN(), TEXT("FVector contains NaN: %s"), *ToString());
+		ensureOnceMsgf(!ContainsNaN(), TEXT("FVector contains NaN: %s"), *ToString());
 	}
 #else
 	FORCEINLINE void DiagnosticCheckNaN() const {}
@@ -909,6 +909,12 @@ public:
 		return Ar << V.X << V.Y << V.Z;
 	}
 	
+	bool Serialize( FArchive& Ar )
+	{
+		Ar << *this;
+		return true;
+	}
+
 	/** 
 	 * Network serialization function.
 	 * FVectors NetSerialize without quantization (ie exact values are serialized).

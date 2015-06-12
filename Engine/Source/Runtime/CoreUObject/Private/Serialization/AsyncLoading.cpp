@@ -213,6 +213,30 @@ public:
 static TAutoPtr<FAsyncLoadingExec> GAsyncLoadingExec;
 #endif
 
+static int32 GWarnIfTimeLimitExceeded = 0;
+static FAutoConsoleVariableRef CVarWarnIfTimeLimitExceeded(
+	TEXT("WarnIfTimeLimitExceeded"),
+	GWarnIfTimeLimitExceeded,
+	TEXT("Enables log warning if time limit for time-sliced package streaming has been exceeded."),
+	ECVF_Default
+	);
+
+static float GTimeLimitExceededMultiplier = 1.5f;
+static FAutoConsoleVariableRef CVarTimeLimitExceededMultiplier(
+	TEXT("TimeLimitExceededMultiplier"),
+	GTimeLimitExceededMultiplier,
+	TEXT("Multiplier for time limit exceeded warning time threshold."),
+	ECVF_Default
+	);
+
+static float GTimeLimitExceededMinTime = 0.005f;
+static FAutoConsoleVariableRef CVarTimeLimitExceededMinTime(
+	TEXT("TimeLimitExceededMinTime"),
+	GTimeLimitExceededMinTime,
+	TEXT("Multiplier for time limit exceeded warning time threshold."),
+	ECVF_Default
+	);
+
 static FORCEINLINE bool IsTimeLimitExceeded(double InTickStartTime, bool bUseTimeLimit, float InTimeLimit, const TCHAR* InLastTypeOfWorkPerformed = nullptr, UObject* InLastObjectWorkWasPerformedOn = nullptr)
 {
 	bool bTimeLimitExceeded = false;
@@ -224,18 +248,26 @@ static FORCEINLINE bool IsTimeLimitExceeded(double InTickStartTime, bool bUseTim
 		// One time init for ini override if we should log a warning when time limit is exceeded
 		static struct FWarnIfTimeLimitExceeded
 		{
-			bool Value;
+			bool WarningEnabled;
+			double TimeMultiplier;
+			double MinTime;
 			FWarnIfTimeLimitExceeded()
+				: WarningEnabled(true)
+				, TimeMultiplier(1.0)
+				, MinTime(0.005)
 			{
 				check(GConfig);
-				bool bConfigValue = true; // Default to true
-				GConfig->GetBool(TEXT("Core.System"), TEXT("WarnIfTimeLimitExceeded"), bConfigValue, GEngineIni);
-				Value = bConfigValue;
+				GConfig->GetBool(TEXT("Core.System"), TEXT("WarnIfTimeLimitExceeded"), WarningEnabled, GEngineIni);
+				GConfig->GetDouble(TEXT("Core.System"), TEXT("TimeLimitExceededMultiplier"), TimeMultiplier, GEngineIni);
+				GConfig->GetDouble(TEXT("Core.System"), TEXT("TimeLimitExceededMinTime"), MinTime, GEngineIni);
 			}
 		} WarnIfTimeLimitExceeded;
 
 		// Log single operations that take longer than time limit (but only in cooked builds)
-		if (FPlatformProperties::RequiresCookedData() && WarnIfTimeLimitExceeded.Value && (CurrentTime - InTickStartTime) > (1.5 * InTimeLimit))
+		if (FPlatformProperties::RequiresCookedData() && 
+			WarnIfTimeLimitExceeded.WarningEnabled && 
+			(CurrentTime - InTickStartTime) > WarnIfTimeLimitExceeded.MinTime &&
+			(CurrentTime - InTickStartTime) > (WarnIfTimeLimitExceeded.TimeMultiplier * InTimeLimit))
 		{			
 			UE_LOG(LogStreaming, Warning, TEXT("IsTimeLimitExceeded: %s %s took (less than) %5.2f ms"),
 				InLastTypeOfWorkPerformed ? InLastTypeOfWorkPerformed : TEXT("unknown"),
@@ -874,7 +906,11 @@ double FAsyncPackage::GetLoadStartTime() const
 void FAsyncPackage::ResetLoader()
 {
 	// Reset loader.
-	if (Linker)
+	if (bLoadHasFailed)
+	{
+		Linker = nullptr;
+	}
+	else if (Linker)
 	{
 		delete Linker;
 		Linker = nullptr;

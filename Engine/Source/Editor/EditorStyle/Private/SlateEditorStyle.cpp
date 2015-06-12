@@ -427,6 +427,7 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 				);
 		}
 
+		Set("FontAwesome.7", TTF_FONT("Fonts/FontAwesome", 7));
 		Set("FontAwesome.8", TTF_FONT("Fonts/FontAwesome", 8));
 		Set("FontAwesome.9", TTF_FONT("Fonts/FontAwesome", 9));
 		Set("FontAwesome.10", TTF_FONT("Fonts/FontAwesome", 10));
@@ -1599,8 +1600,16 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 			.SetPressed( IMAGE_BRUSH("Sequencer/AddKey_Details", FVector2D(11,11), SelectionColor_Pressed ) )
 			.SetNormalPadding(FMargin(0, 1))
 			.SetPressedPadding(FMargin(0, 2, 0, 0));
-
 		Set( "Sequencer.AddKey.Details", DetailsKeyButton );
+
+		const FSplitterStyle OutlinerSplitterStyle = FSplitterStyle()
+			.SetHandleNormalBrush( FSlateNoResource() )
+			.SetHandleHighlightBrush( FSlateNoResource() );
+		Set( "Sequencer.AnimationOutliner.Splitter", OutlinerSplitterStyle );
+
+		const FSpinBoxStyle KeyEditorSpinBoxStyle = FSpinBoxStyle(GetWidgetStyle<FSpinBoxStyle>("SpinBox"))
+			.SetTextPadding(FMargin(2, 0));
+		Set( "Sequencer.AnimationOutliner.KeyEditorSpinBoxStyle", KeyEditorSpinBoxStyle );
 	}
 
 	// Foliage Edit Mode
@@ -4039,15 +4048,15 @@ void FSlateEditorStyle::FStyle::SetupGraphEditorStyles()
 			{
 				/* Set images for various SCheckBox states of style Graph.Checkbox ... */
 				const FCheckBoxStyle BasicGraphCheckBoxStyle = FCheckBoxStyle()
-					.SetUncheckedImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox", Icon16x16 ) )
-					.SetUncheckedHoveredImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Hovered", Icon16x16 ) )
-					.SetUncheckedPressedImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Hovered", Icon16x16 ) )
-					.SetCheckedImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Checked", Icon16x16 ) )
-					.SetCheckedHoveredImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Checked_Hovered", Icon16x16 ) )
-					.SetCheckedPressedImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Checked", Icon16x16, FLinearColor( 0.5f, 0.5f, 0.5f ) ) )
-					.SetUndeterminedImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Undetermined", Icon16x16 ) )
-					.SetUndeterminedHoveredImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Undetermined_Hovered", Icon16x16 ) )
-					.SetUndeterminedPressedImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Undetermined_Hovered", Icon16x16, FLinearColor( 0.5f, 0.5f, 0.5f ) ) );
+					.SetUncheckedImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox", Icon20x20 ) )
+					.SetUncheckedHoveredImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Hovered", Icon20x20 ) )
+					.SetUncheckedPressedImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Hovered", Icon20x20 ) )
+					.SetCheckedImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Checked", Icon20x20 ) )
+					.SetCheckedHoveredImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Checked_Hovered", Icon20x20 ) )
+					.SetCheckedPressedImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Checked", Icon20x20, FLinearColor( 0.5f, 0.5f, 0.5f ) ) )
+					.SetUndeterminedImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Undetermined", Icon20x20 ) )
+					.SetUndeterminedHoveredImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Undetermined_Hovered", Icon20x20 ) )
+					.SetUndeterminedPressedImage( IMAGE_BRUSH( "/Graph/CommonWidgets/CheckBox_Undetermined_Hovered", Icon20x20, FLinearColor( 0.5f, 0.5f, 0.5f ) ) );
 
 				/* ... and add the new style */
 				Set( "Graph.Checkbox", BasicGraphCheckBoxStyle );

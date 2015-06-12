@@ -176,27 +176,27 @@ public:
 	bool IsNormalized() const;
 };
 
-struct FNodeDebugData
+struct ENGINE_API FNodeDebugData
 {
 private:
 	struct DebugItem
 	{
 		DebugItem(FString Data, bool bInPoseSource) : DebugData(Data), bPoseSource(bInPoseSource) {}
 		
-		// This node items debug text to display
+		/** This node item's debug text to display. */
 		FString DebugData;
 
-		// Whether we are supplying a pose instead of modifying one (e.g. an playing animation)
-		bool	bPoseSource;
+		/** Whether we are supplying a pose instead of modifying one (e.g. an playing animation). */
+		bool bPoseSource;
 
-		// Nodes that we are connected to
+		/** Nodes that we are connected to. */
 		TArray<FNodeDebugData> ChildNodeChain;
 	};
 
-	// This nodes final contribution weight (based on its own weight and the weight of its parents)
-	float			AbsoluteWeight;
+	/** This nodes final contribution weight (based on its own weight and the weight of its parents). */
+	float AbsoluteWeight;
 
-	// Nodes that we are dependent on
+	/** Nodes that we are dependent on. */
 	TArray<DebugItem> NodeChain;
 
 public:
@@ -204,10 +204,10 @@ public:
 	{
 		FFlattenedDebugData(FString Line, float AbsWeight, int32 InIndent, int32 InChainID, bool bInPoseSource) : DebugLine(Line), AbsoluteWeight(AbsWeight), Indent(InIndent), ChainID(InChainID), bPoseSource(bInPoseSource){}
 		FString DebugLine;
-		float	AbsoluteWeight;
-		int32	Indent;
-		int32	ChainID;
-		bool	bPoseSource;
+		float AbsoluteWeight;
+		int32 Indent;
+		int32 ChainID;
+		bool bPoseSource;
 
 		bool IsOnActiveBranch() { return AbsoluteWeight > ZERO_ANIMWEIGHT_THRESH; }
 	};
@@ -215,8 +215,8 @@ public:
 	FNodeDebugData(const class UAnimInstance* InAnimInstance) : AbsoluteWeight(1.f), AnimInstance(InAnimInstance) {}
 	FNodeDebugData(const class UAnimInstance* InAnimInstance, const float AbsWeight) : AbsoluteWeight(AbsWeight), AnimInstance(InAnimInstance) {}
 
-	void			AddDebugItem(FString DebugData, bool bPoseSource = false);
-	FNodeDebugData&	BranchFlow(float BranchWeight);
+	void AddDebugItem(FString DebugData, bool bPoseSource = false);
+	FNodeDebugData& BranchFlow(float BranchWeight);
 
 	template<class Type>
 	FString GetNodeName(Type* Node)
@@ -235,25 +235,25 @@ public:
 	}
 
 	// Anim instance that we are generating debug data for
-	const class UAnimInstance* AnimInstance;
+	const UAnimInstance* AnimInstance;
 };
 
-// The display mode of editable values on an animation node
+/** The display mode of editable values on an animation node. */
 UENUM()
 namespace EPinHidingMode
 {
 	enum Type
 	{
-		// Never show this property as a pin, it is only editable in the details panel (default for everything but FPoseLink properties)
+		/** Never show this property as a pin, it is only editable in the details panel (default for everything but FPoseLink properties). */
 		NeverAsPin,
 
-		// Hide this property by default, but allow the user to expose it as a pin via the details panel
+		/** Hide this property by default, but allow the user to expose it as a pin via the details panel. */
 		PinHiddenByDefault,
 
-		// Show this property as a pin by default, but allow the user to hide it via the details panel
+		/** Show this property as a pin by default, but allow the user to hide it via the details panel. */
 		PinShownByDefault,
 
-		// Always show this property as a pin; it never makes sense to edit it in the details panel (default for FPoseLink properties)
+		/** Always show this property as a pin; it never makes sense to edit it in the details panel (default for FPoseLink properties). */
 		AlwaysAsPin
 	};
 }
@@ -264,21 +264,21 @@ struct ENGINE_API FPoseLinkBase
 {
 	GENERATED_USTRUCT_BODY()
 
-	// Serialized link ID, used to build the non-serialized pointer map
+	/** Serialized link ID, used to build the non-serialized pointer map. */
 	UPROPERTY()
 	int32 LinkID;
 
 #if WITH_EDITORONLY_DATA
-	// The source link ID, used for debug visualization
+	/** The source link ID, used for debug visualization. */
 	UPROPERTY()
 	int32 SourceLinkID;
 #endif
 
 protected:
-	// The non serialized node pointer
+	/** The non serialized node pointer. */
 	struct FAnimNode_Base* LinkedNode;
 
-	// Flag to prevent reentry when dealing with circular trees
+	/** Flag to prevent reentry when dealing with circular trees. */
 	bool bProcessed;
 
 public:
@@ -293,12 +293,13 @@ public:
 	}
 
 	// Interface
+
 	void Initialize(const FAnimationInitializeContext& Context);
 	void CacheBones(const FAnimationCacheBonesContext& Context) ;
 	void Update(const FAnimationUpdateContext& Context);
 	void GatherDebugData(FNodeDebugData& DebugData);
 
-	// Try to re-establish the linked node pointer
+	/** Try to re-establish the linked node pointer. */
 	void AttemptRelink(const FAnimationBaseContext& Context);
 };
 

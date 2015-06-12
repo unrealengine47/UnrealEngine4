@@ -60,9 +60,6 @@ void FStatsMemoryDumpCommand::InternalRun()
 
 		const int64 CurrentFilePos = FileReader->Tell();
 
-		// Update profiler's metadata.
-		CreateThreadsMapping();
-
 		// Read frames offsets.
 		Stream.ReadFramesOffsets( *FileReader );
 
@@ -77,8 +74,8 @@ void FStatsMemoryDumpCommand::InternalRun()
 		int64 TotalStatMessagesNum = 0;
 		int64 MaximumPacketSize = 0;
 		int64 TotalPacketsNum = 0;
-		// Read all packets sequentially, force by the memory profiler which is now a part of the raw stats.
-		// !!CAUTION!! Frame number in the raw stats is pointless, because it is time based, not frame based.
+		// Read all packets sequentially, forced by the memory profiler which is now a part of the raw stats.
+		// !!CAUTION!! Frame number in the raw stats is pointless, because it is time/cycles based, not frame based.
 		// Background threads usually execute time consuming operations, so the frame number won't be valid.
 		// Needs to be combined by the thread and the time, not by the frame number.
 		{
@@ -358,14 +355,14 @@ void FStatsMemoryDumpCommand::ProcessMemoryOperations( const TMap<int64, FStatPa
 	PreviousSeconds -= NumSecondsBetweenLogs;
 	for( int32 FrameIndex = 0; FrameIndex < Frames.Num(); ++FrameIndex )
 	{
-        {
-            const double CurrentSeconds = FPlatformTime::Seconds();
-            if( CurrentSeconds > PreviousSeconds + NumSecondsBetweenLogs )
-            {
-                UE_LOG( LogStats, Warning, TEXT( "Processing frame %i/%i" ), FrameIndex+1, Frames.Num() );
-                PreviousSeconds = CurrentSeconds;
-            }
-        }
+		{
+			const double CurrentSeconds = FPlatformTime::Seconds();
+			if( CurrentSeconds > PreviousSeconds + NumSecondsBetweenLogs )
+			{
+				UE_LOG( LogStats, Warning, TEXT( "Processing frame %i/%i" ), FrameIndex+1, Frames.Num() );
+				PreviousSeconds = CurrentSeconds;
+			}
+		}
 
 		const int64 TargetFrame = Frames[FrameIndex];
 		const int64 Diff = TargetFrame - FirstFrame;
@@ -374,19 +371,18 @@ void FStatsMemoryDumpCommand::ProcessMemoryOperations( const TMap<int64, FStatPa
 		bool bAtLeastOnePacket = false;
 		for( int32 PacketIndex = 0; PacketIndex < Frame.Packets.Num(); PacketIndex++ )
 		{
-            {
-                const double CurrentSeconds = FPlatformTime::Seconds();
-                if( CurrentSeconds > PreviousSeconds + NumSecondsBetweenLogs )
-                {
-                    UE_LOG( LogStats, Log, TEXT( "Processing packet %i/%i" ), PacketIndex, Frame.Packets.Num() );
-                    PreviousSeconds = CurrentSeconds;
-                    bAtLeastOnePacket = true;
-                }
-            }
+			{
+				const double CurrentSeconds = FPlatformTime::Seconds();
+				if( CurrentSeconds > PreviousSeconds + NumSecondsBetweenLogs )
+				{
+					UE_LOG( LogStats, Log, TEXT( "Processing packet %i/%i" ), PacketIndex, Frame.Packets.Num() );
+					PreviousSeconds = CurrentSeconds;
+					bAtLeastOnePacket = true;
+				}
+			}
 
 			const FStatPacket& StatPacket = *Frame.Packets[PacketIndex];
 			const FName& ThreadFName = StatsThreadStats.Threads.FindChecked( StatPacket.ThreadId );
-			const uint32 NewThreadID = ThreadIDtoStatID.FindChecked( StatPacket.ThreadId );
 
 			FStackState* StackState = StackStates.Find( ThreadFName );
 			if( !StackState )
@@ -703,42 +699,6 @@ void FStatsMemoryDumpCommand::GenerateMemoryUsageReport( const TMap<uint64, FAll
 	{
 		ProcessingUObjectAllocations( AllocationMap );
 		ProcessingScopedAllocations( AllocationMap );
-	}
-}
-
-void FStatsMemoryDumpCommand::CreateThreadsMapping()
-{
-	int32 UniqueID = 15;
-
-	for( auto It = StatsThreadStats.ShortNameToLongName.CreateConstIterator(); It; ++It )
-	{
-		const FStatMessage& LongName = It.Value();
-
-		const FName GroupName = LongName.NameAndInfo.GetGroupName();
-		
-		// Setup thread id to stat id.
-		if( GroupName == FStatConstants::NAME_ThreadGroup )
-		{
-			const FName StatName = It.Key();
-			UniqueID++;
-
-			uint32 ThreadID = 0;
-			for( auto ThreadsIt = StatsThreadStats.Threads.CreateConstIterator(); ThreadsIt; ++ThreadsIt )
-			{
-				if( ThreadsIt.Value() == StatName )
-				{
-					ThreadID = ThreadsIt.Key();
-					break;
-				}
-			}
-			ThreadIDtoStatID.Add( ThreadID, UniqueID );
-
-			// Game thread is always NAME_GameThread
-			if( StatName == NAME_GameThread )
-			{
-				GameThreadID = ThreadID;
-			}
-		}
 	}
 }
 

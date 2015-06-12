@@ -9,30 +9,34 @@ namespace EPartyReservationResult
 {
 	enum Type
 	{
-		// Empty state
+		/** Empty state. */
 		NoResult,
-		// Pending request due to async operation, server will contact client shortly
+		/** Pending request due to async operation, server will contact client shortly. */
 		RequestPending,
-		// An unknown error happened
+		/** An unknown error happened. */
 		GeneralError,
-		// All available reservations are booked
+		/** All available reservations are booked. */
 		PartyLimitReached,
-		// Wrong number of players to join the session
+		/** Wrong number of players to join the session. */
 		IncorrectPlayerCount,
-		// No response from the host
+		/** No response from the host. */
 		RequestTimedOut,
-		// Already have a reservation entry for the requesting party leader
+		/** Already have a reservation entry for the requesting party leader. */
 		ReservationDuplicate,
-		// Couldn't find the party leader specified for a reservation update request 
+		/** Couldn't find the party leader specified for a reservation update request. */
 		ReservationNotFound,
-		// Space was available and it's time to join
+		/** Space was available and it's time to join. */
 		ReservationAccepted,
-		// The beacon is paused and not accepting new connections
+		/** The beacon is paused and not accepting new connections. */
 		ReservationDenied,
-		// This player is banned
+		/** This player is banned. */
 		ReservationDenied_Banned,
-		// The reservation request was canceled before being sent
-		ReservationRequestCanceled
+		/** The reservation request was canceled before being sent. */
+		ReservationRequestCanceled,
+		// The reservation was rejected because it was badly formed
+		ReservationInvalid,
+		// The reservation was rejected because this was the wrong session
+		BadSessionId
 	};
 }
 
@@ -91,6 +95,14 @@ namespace EPartyReservationResult
 			{
 				return TEXT("Request Canceled");
 			}
+			case ReservationInvalid:
+			{
+				return TEXT("Invalid reservation");
+			}
+			case BadSessionId:
+			{
+				return TEXT("Bad Session Id");
+			}
 		}
 		return TEXT("");
 	}
@@ -116,7 +128,10 @@ namespace EPartyReservationResult
 			return NSLOCTEXT("EPartyReservationResult", "Accepted", "Accepted");
 		case EPartyReservationResult::ReservationDuplicate:
 			return NSLOCTEXT("EPartyReservationResult", "DuplicateReservation", "Duplicate reservation detected");
+		case EPartyReservationResult::ReservationInvalid:
+			return NSLOCTEXT("EPartyReservationResult", "InvalidReservation", "Bad reservation request");
 		case EPartyReservationResult::NoResult:
+		case EPartyReservationResult::BadSessionId:
 		default:
 			return FText::GetEmpty();
 		}
@@ -129,11 +144,9 @@ struct FPlayerReservation
 {
 	GENERATED_USTRUCT_BODY()
 	
-	#if CPP
 	FPlayerReservation() :
 		ElapsedTime(0.0f)
 	{}
-	#endif
 
 	/** Unique id for this reservation */
 	UPROPERTY(Transient)
@@ -153,6 +166,10 @@ USTRUCT()
 struct ONLINESUBSYSTEMUTILS_API FPartyReservation
 {
 	GENERATED_USTRUCT_BODY()
+
+	FPartyReservation() :
+		TeamNum(INDEX_NONE)
+	{}
 
 	/** Team assigned to this party */
 	UPROPERTY(Transient)
@@ -220,6 +237,24 @@ class ONLINESUBSYSTEMUTILS_API UPartyBeaconState : public UObject
 	 * @return true if successful, false if reservation not found
 	 */
 	virtual bool RemoveReservation(const FUniqueNetIdRepl& PartyLeader);
+
+	/**
+	 * Register user auth ticket with the reservation system
+	 * Must have an existing reservation entry
+	 *
+	 * @param InPartyMemberId id of player logging in 
+	 * @param InAuthTicket auth ticket reported by the user
+	 */
+	void RegisterAuthTicket(const FUniqueNetIdRepl& InPartyMemberId, const FString& InAuthTicket);
+
+	/**
+	 * Update party leader for a given player with the reservation beacon
+	 * (needed when party leader leaves, reservation beacon is in a temp/bad state until someone updates this)
+	 *
+	 * @param InPartyMemberId party member making the update
+	 * @param PartyLeaderId id of new leader
+	 */
+	virtual void UpdatePartyLeader(const FUniqueNetIdRepl& InPartyMemberId, const FUniqueNetIdRepl& NewPartyLeaderId);
 
 	/**
 	 * Swap the parties between teams, parties must be able to fit on other team after swap

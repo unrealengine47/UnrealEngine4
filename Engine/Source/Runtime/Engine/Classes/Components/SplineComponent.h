@@ -6,7 +6,7 @@
 
 
 
-/** Permitted spline point types for SplineComponent */
+/** Permitted spline point types for SplineComponent. */
 UENUM()
 namespace ESplinePointType
 {
@@ -20,7 +20,7 @@ namespace ESplinePointType
 	};
 }
 
-/** Types of coordinate space accepted by the functions */
+/** Types of coordinate space accepted by the functions. */
 UENUM()
 namespace ESplineCoordinateSpace
 {
@@ -109,7 +109,6 @@ public:
 
 	// Begin UActorComponent interface.
 	virtual FActorComponentInstanceData* GetComponentInstanceData() const override;
-	virtual FName GetComponentInstanceDataType() const override;
 	// End UActorComponent interface.
 
 	void ApplyComponentInstanceData(class FSplineInstanceData* ComponentInstanceData, const bool bPostUCS);

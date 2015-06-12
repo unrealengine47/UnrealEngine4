@@ -21,7 +21,6 @@
 namespace SceneComponentStatics
 {
 	static const FName DefaultSceneRootVariableName(TEXT("DefaultSceneRoot"));
-	static const FName SceneComponentInstanceDataTypeName(TEXT("SceneComponentInstanceData"));
 	static const FName MobilityName(TEXT("Mobility"));
 	static const FText MobilityWarnText = LOCTEXT("InvalidMove", "move");
 	static const FName PhysicsVolumeTraceName(TEXT("PhysicsVolumeTrace"));
@@ -49,6 +48,7 @@ USceneComponent::USceneComponent(const FObjectInitializer& ObjectInitializer /*=
 	RelativeScale3D = FVector(1.0f, 1.0f, 1.0f);
 	// default behavior is visible
 	bVisible = true;
+	bAutoActivate = false;
 
 	NetUpdateTransform = false;
 }
@@ -516,6 +516,12 @@ void USceneComponent::EndScopedMovementUpdate(class FScopedMovementUpdate& Compl
 					UPrimitiveComponent* PrimitiveThis = CastChecked<UPrimitiveComponent>(this);
 					for (const FHitResult& Hit : CurrentScopedUpdate->BlockingHits)
 					{
+						// Overlaps may have caused us to be destroyed, as could other queued blocking hits.
+						if (PrimitiveThis->IsPendingKill())
+						{
+							break;
+						}
+
 						// Collision response may change (due to overlaps or multiple blocking hits), make sure it's still considered blocking.
 						if (PrimitiveThis->GetCollisionResponseToComponent(Hit.GetComponent()) == ECR_Block)
 						{
@@ -728,7 +734,7 @@ void USceneComponent::SetRelativeLocationAndRotation(FVector NewLocation, const 
 
 	const FTransform DesiredRelTransform(NewRotation, NewLocation);
 	const FTransform DesiredWorldTransform = CalcNewComponentToWorld(DesiredRelTransform);
-	const FVector DesiredDelta = DesiredWorldTransform.GetTranslation() - ComponentToWorld.GetTranslation();
+	const FVector DesiredDelta = FTransform::SubtractTranslations(DesiredWorldTransform, ComponentToWorld);
 
 	MoveComponent(DesiredDelta, DesiredWorldTransform.GetRotation(), bSweep, OutSweepHitResult);
 }
@@ -790,7 +796,7 @@ void USceneComponent::AddWorldRotation(const FQuat& DeltaRotation, bool bSweep, 
 void USceneComponent::AddWorldTransform(const FTransform& DeltaTransform, bool bSweep, FHitResult* OutSweepHitResult)
 {
 	const FQuat NewWorldRotation = DeltaTransform.GetRotation() * ComponentToWorld.GetRotation();
-	const FVector NewWorldLocation = DeltaTransform.GetTranslation() + ComponentToWorld.GetTranslation();
+	const FVector NewWorldLocation = FTransform::AddTranslations(DeltaTransform, ComponentToWorld);
 	SetWorldTransform(FTransform(NewWorldRotation, NewWorldLocation, FVector(1,1,1)));
 }
 
@@ -1483,11 +1489,6 @@ FActorComponentInstanceData* USceneComponent::GetComponentInstanceData() const
 	return InstanceData;
 }
 
-FName USceneComponent::GetComponentInstanceDataType() const
-{
-	return SceneComponentStatics::SceneComponentInstanceDataTypeName;
-}
-
 void USceneComponent::UpdateChildTransforms(bool bSkipPhysicsMove, bool bTeleport)
 {
 	for(int32 i=0; i<AttachChildren.Num(); i++)
@@ -1914,7 +1915,7 @@ bool USceneComponent::MoveComponentImpl( const FVector& Delta, const FQuat& NewR
 	SCOPE_CYCLE_COUNTER(STAT_MoveComponentSceneComponentTime);
 
 	// static things can move before they are registered (e.g. immediately after streaming), but not after.
-	if (CheckStaticMobilityAndWarn(SceneComponentStatics::MobilityWarnText))
+	if (IsPendingKill() || CheckStaticMobilityAndWarn(SceneComponentStatics::MobilityWarnText))
 	{
 		if (OutHit)
 		{
@@ -2450,7 +2451,7 @@ const TArray<FOverlapInfo>* FScopedMovementUpdate::GetOverlapsAtEnd(class UPrimi
 			else
 			{
 				// Fill in EndOverlaps with overlaps valid at the end location.
-				const bool bMatchingScale = InitialTransform.GetScale3D().Equals(PrimComponent.GetComponentScale());
+				const bool bMatchingScale = FTransform::AreScale3DsEqual(InitialTransform, PrimComponent.GetComponentTransform());
 				if (bMatchingScale)
 				{
 					EndOverlapsPtr = PrimComponent.ConvertSweptOverlapsToCurrentOverlaps(

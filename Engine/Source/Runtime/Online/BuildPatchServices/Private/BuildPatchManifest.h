@@ -88,8 +88,11 @@ namespace EManifestFileHeader
 	enum Type
 	{
 		// Storage flags, can be raw or a combination of others.
-		STORED_RAW = 0x0, // Zero means raw data
-		STORED_COMPRESSED = 0x1, // Flag for compressed
+
+		/** Zero means raw data. */
+		STORED_RAW = 0x0,
+		/** Flag for compressed. */
+		STORED_COMPRESSED = 0x1,
 	};
 }
 
@@ -318,17 +321,23 @@ struct FFileChunkPart
 	{}
 };
 
+// Required to allow private access to manifest builder for now..
+namespace BuildPatchServices
+{
+	class FManifestBuilderImpl;
+}
+
 /**
  * Declare the FBuildPatchAppManifest object class. This holds the UObject data, and the implemented build manifest functionality
  */
 class FBuildPatchAppManifest
-	: public IBuildManifest
+	: public IBuildManifest, FGCObject
 {
 	// Allow access to build processor classes
 	friend class FBuildDataGenerator;
-	friend class FBuildDataChunkProcessor;
 	friend class FBuildDataFileProcessor;
 	friend class FBuildPatchInstaller;
+	friend class BuildPatchServices::FManifestBuilderImpl;
 public:
 
 	/**
@@ -564,6 +573,10 @@ public:
 
 	/** @return True if this manifest is for the same build, i.e. same ID, Name, and Version */
 	bool IsSameAs(FBuildPatchAppManifestRef InstallManifest) const;
+public:
+
+	// FGCObject API
+	virtual void AddReferencedObjects( FReferenceCollector& Collector ) override;
 
 private:
 

@@ -9,9 +9,9 @@ struct FVirtualPointerPosition;
 UENUM()
 enum class EWidgetSpace : uint8
 {
-	// The widget is rendered in the world as mesh, it can be occluded like any other mesh in the world.
+	/** The widget is rendered in the world as mesh, it can be occluded like any other mesh in the world. */
 	World,
-	// The widget is rendered in the screen, completely outside of the world, never occluded.
+	/** The widget is rendered in the screen, completely outside of the world, never occluded. */
 	Screen
 };
 
@@ -44,7 +44,6 @@ public:
 	virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction) override;
 
 	virtual FActorComponentInstanceData* GetComponentInstanceData() const override;
-	virtual FName GetComponentInstanceDataType() const override;
 
 	void ApplyComponentInstanceData(class FWidgetComponentInstanceData* ComponentInstanceData);
 

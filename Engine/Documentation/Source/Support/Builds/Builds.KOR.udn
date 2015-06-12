@@ -1,4 +1,4 @@
-﻿INTSourceChangelist:2574308
+﻿INTSourceChangelist:2582973
 Availability:Public
 Title: 빌드
 Crumbs:%ROOT%
@@ -14,7 +14,20 @@ Description: 언리얼 엔진 빌드 릴리즈 노트입니다.
 	[PARAM:description]
 	[/PARAM]
 	[PARAM:links]
+	* [](Support/Builds/ReleaseNotes/2015/4_8)
 	* [](Support/Builds/ReleaseNotes/2015/4_7)
+	[/PARAM]
+[/OBJECT]
+
+[OBJECT:TopicButtonList]
+	[PARAM:icon]
+	[/PARAM]
+	[PARAM:title]
+	2014
+	[/PARAM]
+	[PARAM:description]
+	[/PARAM]
+	[PARAM:links]
 	* [](Support/Builds/ReleaseNotes/2014/4_6)
 	* [](Support/Builds/ReleaseNotes/2014/4_5)
 	* [](Support/Builds/ReleaseNotes/2014/4_4)

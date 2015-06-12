@@ -348,7 +348,7 @@ public:
 #if ENABLE_NAN_DIAGNOSTIC
 	FORCEINLINE void DiagnosticCheckNaN() const
 	{
-		checkf(!ContainsNaN(), TEXT("FVector contains NaN: %s"), *ToString());
+		ensureOnceMsgf(!ContainsNaN(), TEXT("FVector contains NaN: %s"), *ToString());
 	}
 #else
 	FORCEINLINE void DiagnosticCheckNaN() const { }
@@ -366,6 +366,12 @@ public:
 	friend FArchive& operator<<( FArchive& Ar, FVector4& V )
 	{
 		return Ar << V.X << V.Y << V.Z << V.W;
+	}
+
+	bool Serialize( FArchive& Ar )
+	{
+		Ar << *this;
+		return true;
 	}
 
 } GCC_ALIGN(16);
@@ -678,3 +684,5 @@ FORCEINLINE FVector4 FVector4::operator/( const FVector4& V ) const
 {
 	return FVector4( X / V.X, Y / V.Y, Z / V.Z, W / V.W );
 }
+
+template <> struct TIsPODType<FVector4> { enum { Value = true }; };

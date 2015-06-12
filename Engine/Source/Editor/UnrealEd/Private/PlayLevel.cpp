@@ -531,6 +531,7 @@ void UEditorEngine::TeardownPlaySession(FWorldContext &PieWorldContext)
 	if (PhysScene)
 	{
 		PhysScene->WaitPhysScenes();
+		PhysScene->KillVisualDebugger();
 	}
 
 	// Clean up the temporary play level.
@@ -1156,7 +1157,7 @@ void UEditorEngine::PlayStandaloneLocalPc(FString MapNameOverride, FIntPoint* Wi
 	{
 		CmdLine = GenerateCmdLineForNextPieInstance(*WindowPos, PIENum, bIsServer && CanPlayNetDedicated);
 	}
-	
+
 	const FString URLParms = bIsServer && !CanPlayNetDedicated ? TEXT("?Listen") : FString();
 
 	// select map to play
@@ -1186,22 +1187,20 @@ void UEditorEngine::PlayStandaloneLocalPc(FString MapNameOverride, FIntPoint* Wi
 	}
 
 	FString GameNameOrProjectFile;
-	FString AdditionalParameters(TEXT(""));
 	if (FPaths::IsProjectFilePathSet())
 	{
 		GameNameOrProjectFile = FString::Printf(TEXT("\"%s\""), *FPaths::GetProjectFilePath());
-
-		//@todo.Rocket: Add shipping support
-		bool bRunningDebug = FParse::Param(FCommandLine::Get(), TEXT("debug"));
-
-		if (bRunningDebug)
-		{
-			AdditionalParameters = TEXT(" -debug");
-		}
 	}
 	else
 	{
 		GameNameOrProjectFile = FApp::GetGameName();
+	}
+
+	FString AdditionalParameters(TEXT(""));
+	bool bRunningDebug = FParse::Param(FCommandLine::Get(), TEXT("debug"));
+	if (bRunningDebug)
+	{
+		AdditionalParameters += TEXT(" -debug");
 	}
 
 	// apply additional settings
@@ -1228,15 +1227,36 @@ void UEditorEngine::PlayStandaloneLocalPc(FString MapNameOverride, FIntPoint* Wi
 	FIntPoint WinSize(0, 0);
 	GetWindowSizeForInstanceType(WinSize, PlayInSettings);
 	
-	FString Params = FString::Printf(TEXT("%s %s -game -PIEVIACONSOLE -ResX=%d -ResY=%d %s%s %s"),
-		*GameNameOrProjectFile,
-		*BuildPlayWorldURL(*SavedMapNames[0], false, URLParms),
-		WinSize.X,
-		WinSize.Y,
-		*FCommandLine::GetSubprocessCommandline(),
-		*AdditionalParameters,
-		*CmdLine
-	);
+	// Check if centered
+	FString Params;
+	if (PlayInSettings->CenterStandaloneWindow)
+	{
+		Params = FString::Printf(TEXT("%s %s -game -PIEVIACONSOLE -ResX=%d -ResY=%d %s%s %s"),
+			*GameNameOrProjectFile,
+			*BuildPlayWorldURL(*SavedMapNames[0], false, URLParms),
+			WinSize.X,
+			WinSize.Y,
+			*FCommandLine::GetSubprocessCommandline(),
+			*AdditionalParameters,
+			*CmdLine
+			);
+	}
+	else
+	{
+		FIntPoint WinPos(0, 0);
+
+		Params = FString::Printf(TEXT("%s %s -game -PIEVIACONSOLE -WinX=%d -WinY=%d -ResX=%d -ResY=%d %s%s %s"),
+			*GameNameOrProjectFile,
+			*BuildPlayWorldURL(*SavedMapNames[0], false, URLParms),
+			PlayInSettings->StandaloneWindowPosition.X,
+			PlayInSettings->StandaloneWindowPosition.Y,
+			WinSize.X,
+			WinSize.Y,
+			*FCommandLine::GetSubprocessCommandline(),
+			*AdditionalParameters,
+			*CmdLine
+		);
+	}
 
 	// launch the game process
 	FString GamePath = FPlatformProcess::GenerateApplicationPath(FApp::GetName(), FApp::GetBuildConfiguration());
@@ -1793,6 +1813,12 @@ void UEditorEngine::PlayForMovieCapture()
 	if ( FRocketSupport::IsRocket() )
 	{
 		Params += TEXT(" -rocket");
+	}
+
+	bool bRunningDebug = FParse::Param(FCommandLine::Get(), TEXT("debug"));
+	if (bRunningDebug)
+	{
+		Params += TEXT(" -debug");
 	}
 
 	FProcHandle ProcessHandle = FPlatformProcess::CreateProc(*GamePath, *Params, true, false, false, NULL, 0, NULL, NULL);
@@ -2980,6 +3006,8 @@ UGameInstance* UEditorEngine::CreatePIEGameInstance(int32 PIEInstance, bool bInS
 					}
 				}
 			}
+
+			UGameViewportClient::OnViewportCreated().Broadcast();
 		}
 	}
 

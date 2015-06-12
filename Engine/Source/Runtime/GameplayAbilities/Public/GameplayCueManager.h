@@ -46,7 +46,7 @@ class UGameplayCueSet;
  *	
  */
 
-/** Type of payload to pass along with this cue */
+/** Type of payload to pass along with this cue. */
 UENUM()
 enum class EGameplayCuePayloadType : uint8
 {
@@ -55,7 +55,7 @@ enum class EGameplayCuePayloadType : uint8
 	FromSpec,
 };
 
-/** Structure to keep track of pending gameplay cues that haven't been applied yet */
+/** Structure to keep track of pending gameplay cues that haven't been applied yet. */
 USTRUCT()
 struct FGameplayCuePendingExecute
 {
@@ -100,6 +100,9 @@ struct GAMEPLAYABILITIES_API FScopedGameplayCueSendContext
 	FScopedGameplayCueSendContext();
 	~FScopedGameplayCueSendContext();
 };
+
+/** Delegate for when GC notifies are added or removed from manager */
+DECLARE_MULTICAST_DELEGATE(FOnGameplayCueNotifyChange);
 
 /**
  *	A self contained handler of a GameplayCue. These are similar to AnimNotifies in implementation.
@@ -189,6 +192,8 @@ class GAMEPLAYABILITIES_API UGameplayCueManager : public UDataAsset
 	bool RegisteredEditorCallbacks;
 
 	bool bAccelerationMapOutdated;
+
+	FOnGameplayCueNotifyChange	OnGameplayCueNotifyAddOrRemove;
 #endif
 
 protected:

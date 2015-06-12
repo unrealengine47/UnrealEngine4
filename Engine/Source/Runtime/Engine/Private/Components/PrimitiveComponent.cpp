@@ -39,7 +39,6 @@ namespace PrimitiveComponentStatics
 	static const FText MobilityWarnText = LOCTEXT("InvalidMove", "move");
 	static const FName MoveComponentName(TEXT("MoveComponent"));
 	static const FName UpdateOverlapsName(TEXT("UpdateOverlaps"));
-	static const FName PrimitiveComponentInstanceDataTypeName(TEXT("PrimitiveComponentInstanceData"));
 }
 
 DEFINE_LOG_CATEGORY_STATIC(LogPrimitiveComponent, Log, All);
@@ -423,11 +422,6 @@ FActorComponentInstanceData* UPrimitiveComponent::GetComponentInstanceData() con
 	}
 
 	return InstanceData;
-}
-
-FName UPrimitiveComponent::GetComponentInstanceDataType() const
-{
-	return PrimitiveComponentStatics::PrimitiveComponentInstanceDataTypeName;
 }
 
 void UPrimitiveComponent::OnAttachmentChanged()
@@ -1366,18 +1360,8 @@ bool UPrimitiveComponent::MoveComponentImpl( const FVector& Delta, const FQuat& 
 	CLOCK_CYCLES(MoveCompTakingLongTime);
 #endif
 
-	if ( IsPendingKill() )
-	{
-		//UE_LOG(LogPrimitiveComponent, Log, TEXT("%s deleted move physics %d"),*Actor->GetName(),Actor->Physics);
-		if (OutHit)
-		{
-			*OutHit = FHitResult();
-		}
-		return false;
-	}
-
 	// static things can move before they are registered (e.g. immediately after streaming), but not after.
-	if (CheckStaticMobilityAndWarn(PrimitiveComponentStatics::MobilityWarnText))
+	if (IsPendingKill() || CheckStaticMobilityAndWarn(PrimitiveComponentStatics::MobilityWarnText))
 	{
 		if (OutHit)
 		{
@@ -1641,8 +1625,8 @@ bool UPrimitiveComponent::MoveComponentImpl( const FVector& Delta, const FQuat& 
 		}
 	}
 
-	// Handle blocking hit notifications.
-	if (BlockingHit.bBlockingHit)
+	// Handle blocking hit notifications. Avoid if pending kill (which could happen after overlaps).
+	if (BlockingHit.bBlockingHit && !IsPendingKill())
 	{
 		if (IsDeferringMovementUpdates())
 		{

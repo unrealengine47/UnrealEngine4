@@ -61,10 +61,10 @@ enum EPlayModeType
 	/** Runs in VR. */
 	PlayMode_InVR,
 
-	/** Simulates in viewport without possessing the player */
+	/** Simulates in viewport without possessing the player. */
 	PlayMode_Simulate,
 
-	/** The number of different Play Modes */
+	/** The number of different Play Modes. */
 	PlayMode_Count,
 };
 
@@ -81,13 +81,13 @@ enum EPlayNetMode
 UENUM()
 enum EPlayOnBuildMode
 {
-	/** Always build */
+	/** Always build. */
 	PlayOnBuild_Always UMETA(DisplayName="Always Build"),
 
 	/** Never build. */
 	PlayOnBuild_Never UMETA(DisplayName="Never Build"),
 
-	/** Build based on project type */
+	/** Build based on project type. */
 	PlayOnBuild_Default UMETA(DisplayName="Only Build Code Projects"),
 };
 
@@ -199,6 +199,14 @@ public:
 	/** The height of the standalone game window in pixels (0 = use the desktop's screen resolution). */
 	UPROPERTY(config, EditAnywhere, Category=PlayInStandaloneGame)
 	int32 StandaloneWindowHeight;
+
+	/** The position of the standalone game window on the screen in pixels. */
+	UPROPERTY(config, EditAnywhere, Category=PlayInStandaloneGame)
+	FIntPoint StandaloneWindowPosition;
+
+	/** Whether the standalone game window should be centered on the screen. */
+	UPROPERTY(config, EditAnywhere, Category=PlayInStandaloneGame)
+	bool CenterStandaloneWindow;
 
 	/** Whether sound should be disabled when playing standalone games. */
 	UPROPERTY(config , EditAnywhere, Category=PlayInStandaloneGame, AdvancedDisplay)

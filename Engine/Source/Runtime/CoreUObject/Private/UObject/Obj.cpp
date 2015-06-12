@@ -438,8 +438,15 @@ void UObject::PropagatePostEditChange( TArray<UObject*>& AffectedObjects, FPrope
 	{
 		UObject* Obj = Instances[i];
 
+		// check for and set up the active member node
+		FPropertyChangedEvent PropertyEvent(PropertyChangedEvent.PropertyChain.GetActiveNode()->GetValue(), PropertyChangedEvent.ChangeType);
+		if ( PropertyChangedEvent.PropertyChain.GetActiveMemberNode() )
+		{
+			PropertyEvent.SetActiveMemberProperty(PropertyChangedEvent.PropertyChain.GetActiveMemberNode()->GetValue());
+		}
+
 		// notify the object that all changes are complete
-		Obj->PostEditChangeProperty(PropertyChangedEvent);
+		Obj->PostEditChangeProperty(PropertyEvent);
 
 		// now recurse into this object, loading its instances
 		Obj->PropagatePostEditChange(AffectedObjects, PropertyChangedEvent);
@@ -2196,34 +2203,6 @@ void UObject::RetrieveReferencers( TArray<FReferencerInformation>* OutInternalRe
 		}
 	}
 }
-
-UObject* UObject::CreateArchetype( const TCHAR* ArchetypeName, UObject* ArchetypeOuter, UObject* AlternateArchetype/*=NULL*/, FObjectInstancingGraph* InstanceGraph/*=NULL*/ )
-{
-	check(ArchetypeName);
-	check(ArchetypeOuter);
-
-	EObjectFlags ArchetypeObjectFlags = RF_Public | RF_ArchetypeObject;
-	
-	// Archetypes residing directly in packages need to be marked RF_Standalone
-	if( dynamic_cast<UPackage*>(ArchetypeOuter) )
-	{
-		ArchetypeObjectFlags |= RF_Standalone;
-	}
-
-	UObject* ArchetypeObject = StaticConstructObject_Internal(GetClass(), ArchetypeOuter, ArchetypeName, ArchetypeObjectFlags, this, true, InstanceGraph);
-	check(ArchetypeObject);
-
-	UObject* NewArchetype = AlternateArchetype == NULL
-		? GetArchetype()
-		: AlternateArchetype;
-
-	check(NewArchetype);
-	// make sure the alternate archetype has the same class
-	check(NewArchetype->GetClass()==GetClass());
-
-	return ArchetypeObject;
-}
-
 
 void UObject::ParseParms( const TCHAR* Parms )
 {

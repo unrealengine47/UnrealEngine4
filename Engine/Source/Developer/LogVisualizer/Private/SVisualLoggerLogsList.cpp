@@ -64,7 +64,7 @@ FReply SVisualLoggerLogsList::OnKeyDown(const FGeometry& MyGeometry, const FKeyE
 		return FReply::Handled();
 	}
 
-	return FReply::Unhandled();
+	return SVisualLoggerBaseWidget::OnKeyDown(MyGeometry, InKeyEvent);
 }
 
 void SVisualLoggerLogsList::OnFiltersChanged()
@@ -105,6 +105,7 @@ TSharedRef<ITableRow> SVisualLoggerLogsList::LogEntryLinesGenerateRow(TSharedPtr
 						.ColorAndOpacity(FSlateColor(Item->Verbosity == ELogVerbosity::Error ? FLinearColor::Red : (Item->Verbosity == ELogVerbosity::Warning ? FLinearColor::Yellow : FLinearColor::Gray)))
 						.Text(FText::FromString(Item->Line))
 						.HighlightText(this, &SVisualLoggerLogsList::GetFilterText)
+						.TextStyle(FLogVisualizerStyle::Get(), TEXT("TextLogs.Text"))
 					]
 			];
 

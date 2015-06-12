@@ -19,6 +19,11 @@ public:
 		: RecentPlayer(InRecentPlayer)
 	{ }
 
+	FFriendRecentPlayerItem(const TSharedPtr<const FUniqueNetId> InUniqueID, const FText InUsername)
+		:UniqueID(InUniqueID)
+		,Username(InUsername)
+	{}
+
 public:
 
 	/**
@@ -77,7 +82,7 @@ public:
 	 * Get the Unique ID.
 	 * @return The Unique Net ID.
 	 */
-	virtual const TSharedRef<const FUniqueNetId> GetUniqueID() const override;
+	virtual const TSharedRef< const FUniqueNetId > GetUniqueID() const override;
 
 	/**
 	 * Is this friend in the default list.
@@ -127,6 +132,8 @@ public:
 
 	/** Get if the user is online and his game is joinable */
 	virtual TSharedPtr<const FUniqueNetId> GetGameSessionId() const override;
+	
+	virtual TSharedPtr<IOnlinePartyJoinInfo> GetPartyJoinInfo() const override;
 
 	/**
 	 * Get the invitation status.
@@ -146,4 +153,6 @@ private:
 	// Holds the recent player struct
 	TSharedPtr< FOnlineRecentPlayer > RecentPlayer;
 	TSharedPtr<FOnlineUser> OnlineUser;
+	const TSharedPtr<const FUniqueNetId> UniqueID;
+	FText Username;
 };

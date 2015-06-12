@@ -22,7 +22,11 @@ const FString FFriendRecentPlayerItem::GetName() const
 	{
 		return OnlineUser->GetDisplayName();
 	}
-	return RecentPlayer->GetDisplayName();
+	if (RecentPlayer.IsValid())
+	{
+		return RecentPlayer->GetDisplayName();
+	}
+	return Username.ToString();
 }
 
 const FText FFriendRecentPlayerItem::GetFriendLocation() const
@@ -52,7 +56,11 @@ const EOnlinePresenceState::Type FFriendRecentPlayerItem::GetOnlineStatus() cons
 
 const TSharedRef<const FUniqueNetId> FFriendRecentPlayerItem::GetUniqueID() const
 {
-	return RecentPlayer->GetUserId();
+	if (RecentPlayer.IsValid())
+	{
+		return RecentPlayer->GetUserId();
+	}
+	return UniqueID.ToSharedRef();
 }
 
 const EFriendsDisplayLists::Type FFriendRecentPlayerItem::GetListType() const
@@ -103,6 +111,11 @@ bool FFriendRecentPlayerItem::CanInvite() const
 }
 
 TSharedPtr<const FUniqueNetId> FFriendRecentPlayerItem::GetGameSessionId() const
+{
+	return nullptr;
+}
+
+TSharedPtr<IOnlinePartyJoinInfo> FFriendRecentPlayerItem::GetPartyJoinInfo() const
 {
 	return nullptr;
 }

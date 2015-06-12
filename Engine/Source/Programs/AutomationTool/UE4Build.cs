@@ -896,301 +896,301 @@ namespace AutomationTool
 				XGEFinishBuildWithUBT(Item);
 			}
 			return true;
-		}
+			}
 
         private static bool CombineXGEItemFiles(List<XGEItem> Actions, string TaskFilePath, out XmlDocument XGETaskDocument)
         {
             XGETaskDocument = new XmlDocument();
 
-            // <BuildSet FormatVersion="1">...</BuildSet>
-            XmlElement BuildSetElement = XGETaskDocument.CreateElement("BuildSet");
-            XGETaskDocument.AppendChild(BuildSetElement);
-            BuildSetElement.SetAttribute("FormatVersion", "1");
+			// <BuildSet FormatVersion="1">...</BuildSet>
+			XmlElement BuildSetElement = XGETaskDocument.CreateElement("BuildSet");
+			XGETaskDocument.AppendChild(BuildSetElement);
+			BuildSetElement.SetAttribute("FormatVersion", "1");
 
-            // <Environments>...</Environments>
-            XmlElement EnvironmentsElement = XGETaskDocument.CreateElement("Environments");
-            BuildSetElement.AppendChild(EnvironmentsElement);
+			// <Environments>...</Environments>
+			XmlElement EnvironmentsElement = XGETaskDocument.CreateElement("Environments");
+			BuildSetElement.AppendChild(EnvironmentsElement);
 
-            int Job = 0;
-            int Env = 0;
-            Dictionary<string, XmlElement> EnvStringToEnv = new Dictionary<string, XmlElement>();
-            Dictionary<string, XmlElement> EnvStringToProject = new Dictionary<string, XmlElement>();
-            Dictionary<string, string> ParamsToTool = new Dictionary<string, string>();
-            Dictionary<string, XmlElement> ParamsToToolElement = new Dictionary<string, XmlElement>();
-            Dictionary<string, string> ToolToAction = new Dictionary<string, string>();
-            foreach (var Item in Actions)
-            {
-                var CurrentDependencies = new List<string>();
-                foreach (var XGEFile in Item.XgeXmlFiles)
-                {
-                    if (!FileExists_NoExceptions(XGEFile))
-                    {
-                        throw new AutomationException("BUILD FAILED: Couldn't find file: {0}", XGEFile);
-                    }
-                    var TargetFile = TaskFilePath + "." + Path.GetFileName(XGEFile);
-                    CopyFile(XGEFile, TargetFile);
-                    CopyFile_NoExceptions(XGEFile, TaskFilePath);
-                    XmlDocument UBTTask = new XmlDocument();
-                    UBTTask.XmlResolver = null;
-                    UBTTask.Load(XGEFile);
-                    DeleteFile(XGEFile);
+			int Job = 0;
+			int Env = 0;
+			Dictionary<string, XmlElement> EnvStringToEnv = new Dictionary<string, XmlElement>();
+			Dictionary<string, XmlElement> EnvStringToProject = new Dictionary<string, XmlElement>();
+			Dictionary<string, string> ParamsToTool = new Dictionary<string, string>();
+			Dictionary<string, XmlElement> ParamsToToolElement = new Dictionary<string, XmlElement>();
+			Dictionary<string, string> ToolToAction = new Dictionary<string, string>();
+			foreach (var Item in Actions)
+			{
+				var CurrentDependencies = new List<string>();
+				foreach (var XGEFile in Item.XgeXmlFiles)
+				{
+					if (!FileExists_NoExceptions(XGEFile))
+					{
+						throw new AutomationException("BUILD FAILED: Couldn't find file: {0}", XGEFile);
+					}
+					var TargetFile = TaskFilePath + "." + Path.GetFileName(XGEFile);
+					CopyFile(XGEFile, TargetFile);
+					CopyFile_NoExceptions(XGEFile, TaskFilePath);
+					XmlDocument UBTTask = new XmlDocument();
+					UBTTask.XmlResolver = null;
+					UBTTask.Load(XGEFile);
+					DeleteFile(XGEFile);
 
-                    var All = new List<string>();
-                    {
-                        var Elements = UBTTask.GetElementsByTagName("Variable");
-                        foreach (XmlElement Element in Elements)
-                        {
-                            string Pair = Element.Attributes["Name"].Value + "=" + Element.Attributes["Value"].Value;
-                            All.Add(Pair);
-                        }
-                    }
-                    All.Sort();
-                    string AllString = "";
-                    foreach (string Element in All)
-                    {
-                        AllString += Element + "\n";
-                    }
-                    XmlElement ToolsElement;
-                    XmlElement ProjectElement;
+					var All = new List<string>();
+					{
+						var Elements = UBTTask.GetElementsByTagName("Variable");
+						foreach (XmlElement Element in Elements)
+						{
+							string Pair = Element.Attributes["Name"].Value + "=" + Element.Attributes["Value"].Value;
+							All.Add(Pair);
+						}
+					}
+					All.Sort();
+					string AllString = "";
+					foreach (string Element in All)
+					{
+						AllString += Element + "\n";
+					}
+					XmlElement ToolsElement;
+					XmlElement ProjectElement;
 
-                    if (EnvStringToEnv.ContainsKey(AllString))
-                    {
-                        ToolsElement = EnvStringToEnv[AllString];
-                        ProjectElement = EnvStringToProject[AllString];
-                    }
-                    else
-                    {
-                        string EnvName = string.Format("Env_{0}", Env);
-                        Env++;
-                        // <Environment Name="Win32">...</Environment>
-                        XmlElement EnvironmentElement = XGETaskDocument.CreateElement("Environment");
-                        EnvironmentsElement.AppendChild(EnvironmentElement);
-                        EnvironmentElement.SetAttribute("Name", EnvName);
+					if (EnvStringToEnv.ContainsKey(AllString))
+					{
+						ToolsElement = EnvStringToEnv[AllString];
+						ProjectElement = EnvStringToProject[AllString];
+					}
+					else
+					{
+						string EnvName = string.Format("Env_{0}", Env);
+						Env++;
+						// <Environment Name="Win32">...</Environment>
+						XmlElement EnvironmentElement = XGETaskDocument.CreateElement("Environment");
+						EnvironmentsElement.AppendChild(EnvironmentElement);
+						EnvironmentElement.SetAttribute("Name", EnvName);
 
-                        // <Tools>...</Tools>
-                        ToolsElement = XGETaskDocument.CreateElement("Tools");
-                        EnvironmentElement.AppendChild(ToolsElement);
+						// <Tools>...</Tools>
+						ToolsElement = XGETaskDocument.CreateElement("Tools");
+						EnvironmentElement.AppendChild(ToolsElement);
 
-                        {
-                            // <Variables>...</Variables>
-                            XmlElement VariablesElement = XGETaskDocument.CreateElement("Variables");
-                            EnvironmentElement.AppendChild(VariablesElement);
+						{
+							// <Variables>...</Variables>
+							XmlElement VariablesElement = XGETaskDocument.CreateElement("Variables");
+							EnvironmentElement.AppendChild(VariablesElement);
 
-                            var Elements = UBTTask.GetElementsByTagName("Variable");
-                            foreach (XmlElement Element in Elements)
-                            {
-                                // <Variable>...</Variable>
-                                XmlElement VariableElement = XGETaskDocument.CreateElement("Variable");
-                                VariablesElement.AppendChild(VariableElement);
-                                VariableElement.SetAttribute("Name", Element.Attributes["Name"].Value);
-                                VariableElement.SetAttribute("Value", Element.Attributes["Value"].Value);
-                            }
-                        }
+							var Elements = UBTTask.GetElementsByTagName("Variable");
+							foreach (XmlElement Element in Elements)
+							{
+								// <Variable>...</Variable>
+								XmlElement VariableElement = XGETaskDocument.CreateElement("Variable");
+								VariablesElement.AppendChild(VariableElement);
+								VariableElement.SetAttribute("Name", Element.Attributes["Name"].Value);
+								VariableElement.SetAttribute("Value", Element.Attributes["Value"].Value);
+							}
+						}
 
-                        // <Project Name="Default" Env="Default">...</Project>
-                        ProjectElement = XGETaskDocument.CreateElement("Project");
-                        BuildSetElement.AppendChild(ProjectElement);
-                        ProjectElement.SetAttribute("Name", EnvName);
-                        ProjectElement.SetAttribute("Env", EnvName);
+						// <Project Name="Default" Env="Default">...</Project>
+						ProjectElement = XGETaskDocument.CreateElement("Project");
+						BuildSetElement.AppendChild(ProjectElement);
+						ProjectElement.SetAttribute("Name", EnvName);
+						ProjectElement.SetAttribute("Env", EnvName);
 
-                        EnvStringToEnv.Add(AllString, ToolsElement);
-                        EnvStringToProject.Add(AllString, ProjectElement);
+						EnvStringToEnv.Add(AllString, ToolsElement);
+						EnvStringToProject.Add(AllString, ProjectElement);
 
-                    }
+					}
 
-                    Dictionary<string, string> ToolToTool = new Dictionary<string, string>();
-                    Dictionary<string, string> ActionToAction = new Dictionary<string, string>();
+					Dictionary<string, string> ToolToTool = new Dictionary<string, string>();
+					Dictionary<string, string> ActionToAction = new Dictionary<string, string>();
 
-                    {
-                        var Elements = UBTTask.GetElementsByTagName("Tool");
-                        foreach (XmlElement Element in Elements)
-                        {
-                            string Key = Element.Attributes["Path"].Value;
-                            Key += " ";
-                            Key += Element.Attributes["Params"].Value;
+					{
+						var Elements = UBTTask.GetElementsByTagName("Tool");
+						foreach (XmlElement Element in Elements)
+						{
+							string Key = Element.Attributes["Path"].Value;
+							Key += " ";
+							Key += Element.Attributes["Params"].Value;
 
-                            //hack hack hack
-                            string ElementParams = Element.Attributes["Params"].Value;
-                            if (!String.IsNullOrEmpty(ElementParams))
-                            {
-                                int YcIndex = ElementParams.IndexOf(" /Yc\"");
-                                if (YcIndex >= 0)
-                                {
-                                    // /Fp&quot;D:\BuildFarm\buildmachine_++depot+UE4\Engine\Intermediate\BuildData\Win64\UE4Editor\Development\SharedPCHs\CoreUObject.h.pch&quot
-                                    string Fp = " /Fp\"";
-                                    int FpIndex = ElementParams.IndexOf(Fp, YcIndex);
-                                    if (FpIndex >= 0)
-                                    {
-                                        int EndIndex = ElementParams.IndexOf("\"", FpIndex + Fp.Length);
-                                        if (EndIndex >= 0)
-                                        {
-                                            string PCHFileName = ElementParams.Substring(FpIndex + Fp.Length, EndIndex - FpIndex - Fp.Length);
-                                            if (PCHFileName.Contains(@"\SharedPCHs\") && PCHFileName.Contains(@"\UE4Editor\"))
-                                            {
-                                                Key = "SharedEditorPCH$ " + PCHFileName;
-                                                Log("Hack: detected Shared PCH, which will use a different key {0}", Key);
+							//hack hack hack
+							string ElementParams = Element.Attributes["Params"].Value;
+							if (!String.IsNullOrEmpty(ElementParams))
+							{
+								int YcIndex = ElementParams.IndexOf(" /Yc\"");
+								if (YcIndex >= 0)
+								{
+									// /Fp&quot;D:\BuildFarm\buildmachine_++depot+UE4\Engine\Intermediate\BuildData\Win64\UE4Editor\Development\SharedPCHs\CoreUObject.h.pch&quot
+									string Fp = " /Fp\"";
+									int FpIndex = ElementParams.IndexOf(Fp, YcIndex);
+									if (FpIndex >= 0)
+									{
+										int EndIndex = ElementParams.IndexOf("\"", FpIndex + Fp.Length);
+										if (EndIndex >= 0)
+										{
+											string PCHFileName = ElementParams.Substring(FpIndex + Fp.Length, EndIndex - FpIndex - Fp.Length);
+											if (PCHFileName.Contains(@"\SharedPCHs\") && PCHFileName.Contains(@"\UE4Editor\"))
+											{
+												Key = "SharedEditorPCH$ " + PCHFileName;
+												Log("Hack: detected Shared PCH, which will use a different key {0}", Key);
 
-                                            }
-                                        }
-                                    }
-                                }
+											}
+										}
+									}
+								}
 
-                            }
+							}
 
-                            string ToolName = string.Format("{0}_{1}", Element.Attributes["Name"].Value, Job);
-                            string OriginalToolName = ToolName;
+							string ToolName = string.Format("{0}_{1}", Element.Attributes["Name"].Value, Job);
+							string OriginalToolName = ToolName;
 
-                            if (ParamsToTool.ContainsKey(Key))
-                            {
-                                ToolName = ParamsToTool[Key];
-                                ToolToTool.Add(OriginalToolName, ToolName);
+							if (ParamsToTool.ContainsKey(Key))
+							{
+								ToolName = ParamsToTool[Key];
+								ToolToTool.Add(OriginalToolName, ToolName);
 
-                                XmlElement ToolElement = ParamsToToolElement[Key];
-                                ToolElement.SetAttribute("GroupPrefix", ToolElement.Attributes["GroupPrefix"].Value + " + " + Item.OutputCaption);
-                            }
-                            else
-                            {
-                                // <Tool ... />
-                                XmlElement ToolElement = XGETaskDocument.CreateElement("Tool");
-                                ToolsElement.AppendChild(ToolElement);
+								XmlElement ToolElement = ParamsToToolElement[Key];
+								ToolElement.SetAttribute("GroupPrefix", ToolElement.Attributes["GroupPrefix"].Value + " + " + Item.OutputCaption);
+							}
+							else
+							{
+								// <Tool ... />
+								XmlElement ToolElement = XGETaskDocument.CreateElement("Tool");
+								ToolsElement.AppendChild(ToolElement);
 
-                                ParamsToTool.Add(Key, ToolName);
-                                ParamsToToolElement.Add(Key, ToolElement);
+								ParamsToTool.Add(Key, ToolName);
+								ParamsToToolElement.Add(Key, ToolElement);
 
-                                ToolElement.SetAttribute("Name", ToolName);
-                                ToolElement.SetAttribute("AllowRemote", Element.Attributes["AllowRemote"].Value);
-                                if (Element.HasAttribute("OutputPrefix"))
-                                {
-                                    ToolElement.SetAttribute("OutputPrefix", Element.Attributes["OutputPrefix"].Value);
-                                }
-                                ToolElement.SetAttribute("GroupPrefix", "** For " + Item.OutputCaption);
+								ToolElement.SetAttribute("Name", ToolName);
+								ToolElement.SetAttribute("AllowRemote", Element.Attributes["AllowRemote"].Value);
+								if (Element.HasAttribute("OutputPrefix"))
+								{
+									ToolElement.SetAttribute("OutputPrefix", Element.Attributes["OutputPrefix"].Value);
+								}
+								ToolElement.SetAttribute("GroupPrefix", "** For " + Item.OutputCaption);
 
-                                ToolElement.SetAttribute("Params", Element.Attributes["Params"].Value);
-                                ToolElement.SetAttribute("Path", Element.Attributes["Path"].Value);
-                                if(Element.HasAttribute("VCCompiler"))
-                                {
-                                    ToolElement.SetAttribute("VCCompiler", Element.Attributes["VCCompiler"].Value);
-                                }
-                                ToolElement.SetAttribute("SkipIfProjectFailed", Element.Attributes["SkipIfProjectFailed"].Value);
-                                if (Element.HasAttribute("AutoReserveMemory"))
-                                {
-                                    ToolElement.SetAttribute("AutoReserveMemory", Element.Attributes["AutoReserveMemory"].Value);
-                                }
-                                ToolElement.SetAttribute("OutputFileMasks", Element.Attributes["OutputFileMasks"].Value);
-                                //ToolElement.SetAttribute("AllowRestartOnLocal", "false");  //vs2012 can't really restart, so we will go with this for now
-                                if (Element.Attributes["OutputFileMasks"].Value == "PCLaunch.rc.res")
-                                {
-                                    // total hack, when doing clean compiles, this output directory does not exist, we need to create it now
-                                    string Parms = Element.Attributes["Params"].Value;
-                                    string Start = "/fo \"";
-                                    int StartIndex = Parms.IndexOf(Start);
-                                    if (StartIndex >= 0)
-                                    {
-                                        Parms = Parms.Substring(StartIndex + Start.Length);
-                                        int EndIndex = Parms.IndexOf("\"");
-                                        if (EndIndex > 0)
-                                        {
-                                            string ResLocation = CombinePaths(Parms.Substring(0, EndIndex));
-                                            if (!DirectoryExists_NoExceptions(GetDirectoryName(ResLocation)))
-                                            {
-                                                CreateDirectory(GetDirectoryName(ResLocation));
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    {
-                        var NextDependencies = new List<string>();
+								ToolElement.SetAttribute("Params", Element.Attributes["Params"].Value);
+								ToolElement.SetAttribute("Path", Element.Attributes["Path"].Value);
+								if(Element.HasAttribute("VCCompiler"))
+								{
+									ToolElement.SetAttribute("VCCompiler", Element.Attributes["VCCompiler"].Value);
+								}
+								ToolElement.SetAttribute("SkipIfProjectFailed", Element.Attributes["SkipIfProjectFailed"].Value);
+								if (Element.HasAttribute("AutoReserveMemory"))
+								{
+									ToolElement.SetAttribute("AutoReserveMemory", Element.Attributes["AutoReserveMemory"].Value);
+								}
+								ToolElement.SetAttribute("OutputFileMasks", Element.Attributes["OutputFileMasks"].Value);
+								//ToolElement.SetAttribute("AllowRestartOnLocal", "false");  //vs2012 can't really restart, so we will go with this for now
+								if (Element.Attributes["OutputFileMasks"].Value == "PCLaunch.rc.res")
+								{
+									// total hack, when doing clean compiles, this output directory does not exist, we need to create it now
+									string Parms = Element.Attributes["Params"].Value;
+									string Start = "/fo \"";
+									int StartIndex = Parms.IndexOf(Start);
+									if (StartIndex >= 0)
+									{
+										Parms = Parms.Substring(StartIndex + Start.Length);
+										int EndIndex = Parms.IndexOf("\"");
+										if (EndIndex > 0)
+										{
+											string ResLocation = CombinePaths(Parms.Substring(0, EndIndex));
+											if (!DirectoryExists_NoExceptions(GetDirectoryName(ResLocation)))
+											{
+												CreateDirectory(GetDirectoryName(ResLocation));
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+					{
+						var NextDependencies = new List<string>();
 
-                        var Elements = UBTTask.GetElementsByTagName("Task");
-                        foreach (XmlElement Element in Elements)
-                        {
-                            string ToolName = string.Format("{0}_{1}", Element.Attributes["Tool"].Value, Job);
-                            string ActionName = string.Format("{0}_{1}", Element.Attributes["Name"].Value, Job);
-                            string OriginalActionName = ActionName;
+						var Elements = UBTTask.GetElementsByTagName("Task");
+						foreach (XmlElement Element in Elements)
+						{
+							string ToolName = string.Format("{0}_{1}", Element.Attributes["Tool"].Value, Job);
+							string ActionName = string.Format("{0}_{1}", Element.Attributes["Name"].Value, Job);
+							string OriginalActionName = ActionName;
 
-                            if (ToolToTool.ContainsKey(ToolName))
-                            {
-                                ToolName = ToolToTool[ToolName];
-                                ActionName = ToolToAction[ToolName];
-                                ActionToAction.Add(OriginalActionName, ActionName);
-                            }
-                            else
-                            {
-                                ActionToAction.Add(OriginalActionName, ActionName);
-                                ToolToAction.Add(ToolName, ActionName);
-                                // <Task ... />
-                                XmlElement TaskElement = XGETaskDocument.CreateElement("Task");
-                                ProjectElement.AppendChild(TaskElement);
+							if (ToolToTool.ContainsKey(ToolName))
+							{
+								ToolName = ToolToTool[ToolName];
+								ActionName = ToolToAction[ToolName];
+								ActionToAction.Add(OriginalActionName, ActionName);
+							}
+							else
+							{
+								ActionToAction.Add(OriginalActionName, ActionName);
+								ToolToAction.Add(ToolName, ActionName);
+								// <Task ... />
+								XmlElement TaskElement = XGETaskDocument.CreateElement("Task");
+								ProjectElement.AppendChild(TaskElement);
 
-                                TaskElement.SetAttribute("SourceFile", Element.Attributes["SourceFile"].Value);
-                                if (Element.HasAttribute("Caption"))
-                                {
-                                    TaskElement.SetAttribute("Caption", Element.Attributes["Caption"].Value);
-                                }
-                                TaskElement.SetAttribute("Name", ActionName);
-                                NextDependencies.Add(ActionName);
-                                TaskElement.SetAttribute("Tool", ToolName);
-                                TaskElement.SetAttribute("WorkingDir", Element.Attributes["WorkingDir"].Value);
-                                TaskElement.SetAttribute("SkipIfProjectFailed", Element.Attributes["SkipIfProjectFailed"].Value);
+								TaskElement.SetAttribute("SourceFile", Element.Attributes["SourceFile"].Value);
+								if (Element.HasAttribute("Caption"))
+								{
+									TaskElement.SetAttribute("Caption", Element.Attributes["Caption"].Value);
+								}
+								TaskElement.SetAttribute("Name", ActionName);
+								NextDependencies.Add(ActionName);
+								TaskElement.SetAttribute("Tool", ToolName);
+								TaskElement.SetAttribute("WorkingDir", Element.Attributes["WorkingDir"].Value);
+								TaskElement.SetAttribute("SkipIfProjectFailed", Element.Attributes["SkipIfProjectFailed"].Value);
 
-                                string NewDepends = "";
-                                if (Element.HasAttribute("DependsOn"))
-                                {
-                                    string Depends = Element.Attributes["DependsOn"].Value;
-                                    while (Depends.Length > 0)
-                                    {
-                                        string ThisAction = Depends;
-                                        int Semi = Depends.IndexOf(";");
-                                        if (Semi >= 0)
-                                        {
-                                            ThisAction = Depends.Substring(0, Semi);
-                                            Depends = Depends.Substring(Semi + 1);
-                                        }
-                                        else
-                                        {
-                                            Depends = "";
-                                        }
-                                        if (ThisAction.Length > 0)
-                                        {
-                                            if (NewDepends.Length > 0)
-                                            {
-                                                NewDepends += ";";
-                                            }
-                                            string ActionJob = ThisAction + string.Format("_{0}", Job);
-                                            if (!ActionToAction.ContainsKey(ActionJob))
-                                            {
-                                                throw new AutomationException("Action not found '{0}' in {1}->{2}", ActionJob, XGEFile, TargetFile);
-                                                // the XGE schedule is not topologically sorted. Hmmm. Well, we make a scary assumption here that this 
-                                            }
-                                            NewDepends += ActionToAction[ActionJob];
-                                        }
-                                    }
-                                }
-                                foreach (var Dep in CurrentDependencies)
-                                {
-                                    if (NewDepends.Length > 0)
-                                    {
-                                        NewDepends += ";";
-                                    }
-                                    NewDepends += Dep;
-                                }
-                                if (NewDepends != "")
-                                {
-                                    TaskElement.SetAttribute("DependsOn", NewDepends);
-                                }
-                            }
+								string NewDepends = "";
+								if (Element.HasAttribute("DependsOn"))
+								{
+									string Depends = Element.Attributes["DependsOn"].Value;
+									while (Depends.Length > 0)
+									{
+										string ThisAction = Depends;
+										int Semi = Depends.IndexOf(";");
+										if (Semi >= 0)
+										{
+											ThisAction = Depends.Substring(0, Semi);
+											Depends = Depends.Substring(Semi + 1);
+										}
+										else
+										{
+											Depends = "";
+										}
+										if (ThisAction.Length > 0)
+										{
+											if (NewDepends.Length > 0)
+											{
+												NewDepends += ";";
+											}
+											string ActionJob = ThisAction + string.Format("_{0}", Job);
+											if (!ActionToAction.ContainsKey(ActionJob))
+											{
+												throw new AutomationException("Action not found '{0}' in {1}->{2}", ActionJob, XGEFile, TargetFile);
+												// the XGE schedule is not topologically sorted. Hmmm. Well, we make a scary assumption here that this 
+											}
+											NewDepends += ActionToAction[ActionJob];
+										}
+									}
+								}
+								foreach (var Dep in CurrentDependencies)
+								{
+									if (NewDepends.Length > 0)
+									{
+										NewDepends += ";";
+									}
+									NewDepends += Dep;
+								}
+								if (NewDepends != "")
+								{
+									TaskElement.SetAttribute("DependsOn", NewDepends);
+								}
+							}
 
-                        }
-                        CurrentDependencies.AddRange(NextDependencies);
-                    }
-                    Job++;
-                }
-            }
+						}
+						CurrentDependencies.AddRange(NextDependencies);
+					}
+					Job++;
+				}
+			}
 			return (Job > 0);
-        }
+		}
 
 		public void ClearExportedXGEXML()
 		{
@@ -1366,7 +1366,7 @@ namespace AutomationTool
 
 				if (DeleteBuildProducts)
 				{
-					foreach(var Target in Agenda.Targets)
+					foreach (var Target in Agenda.Targets)
 					{
 						CleanWithUBT(Target.ProjectName, Target.TargetName, Target.Platform, Target.Config.ToString(), Target.UprojectPath, bForceMonolithic, bForceNonUnity, bForceDebugInfo, Target.UBTArgs, bForceUnity);
 					}

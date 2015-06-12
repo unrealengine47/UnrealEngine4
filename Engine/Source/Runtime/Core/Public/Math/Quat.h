@@ -380,7 +380,7 @@ public:
 #if ENABLE_NAN_DIAGNOSTIC
 	FORCEINLINE void DiagnosticCheckNaN() const
 	{
-		checkf(!ContainsNaN(), TEXT("FQuat contains NaN: %s"), *ToString());
+		ensureOnceMsgf(!ContainsNaN(), TEXT("FQuat contains NaN: %s"), *ToString());
 	}
 #else
 	FORCEINLINE void DiagnosticCheckNaN() const {}
@@ -453,6 +453,12 @@ public:
 	friend FArchive& operator<<( FArchive& Ar, FQuat& F )
 	{
 		return Ar << F.X << F.Y << F.Z << F.W;
+	}
+
+	bool Serialize( FArchive& Ar )
+	{
+		Ar << *this;
+		return true;
 	}
 
 } GCC_ALIGN(16);

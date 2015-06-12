@@ -465,10 +465,11 @@ public:
 	/** 
 	 * Perform the actual promote to variable action on the given pin in the given blueprint.
 	 *
-	 * @param	InBlueprint	The blueprint in which to create the variable.
-	 * @param	InTargetPin The pin on which to base the variable.
+	 * @param	InBlueprint				The blueprint in which to create the variable.
+	 * @param	InTargetPin				The pin on which to base the variable.
+	 * @param	bInToMemberVariable		TRUE if attempting to create a member variable, FALSE if the variable should be local
 	 */
-	void DoPromoteToVariable( UBlueprint* InBlueprint, UEdGraphPin* InTargetPin );		
+	void DoPromoteToVariable( UBlueprint* InBlueprint, UEdGraphPin* InTargetPin, bool bInToMemberVariable );		
 
 	/** Called when node is spawned by keymap */
 	void OnNodeSpawnedByKeymap();
@@ -641,8 +642,8 @@ protected:
 	UEdGraphPin* GetCurrentlySelectedPin() const;
 
 	// UI Action functionality
-	void OnPromoteToVariable();
-	bool CanPromoteToVariable() const;
+	void OnPromoteToVariable(bool bInToMemberVariable);
+	bool CanPromoteToVariable(bool bInToMemberVariable) const;
 
 	void OnSplitStructPin();
 	bool CanSplitStructPin() const;
@@ -869,7 +870,7 @@ protected:
 	void RenameGraph(class UEdGraphNode* GraphNode, const FString& NewName);
 
 	/** Called when a node's title is being committed for a rename so it can be verified */
-	bool OnNodeVerifyTitleCommit(const FText& NewText, UEdGraphNode* NodeBeingChanged);
+	bool OnNodeVerifyTitleCommit(const FText& NewText, UEdGraphNode* NodeBeingChanged, FText& OutErrorMessage);
 
 	/**Load macro & function blueprint libraries from asset registry*/
 	void LoadLibrariesFromAssetRegistry();

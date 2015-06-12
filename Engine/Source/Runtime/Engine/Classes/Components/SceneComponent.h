@@ -49,9 +49,12 @@ enum EDetailMode
 UENUM()
 enum ERelativeTransformSpace
 {
-	RTS_World, // World space transform
-	RTS_Actor, // Actor space transform
-	RTS_Component, // Component space transform
+	/** World space transform. */
+	RTS_World,
+	/** Actor space transform. */
+	RTS_Actor,
+	/** Component space transform. */
+	RTS_Component,
 };
 
 //
@@ -533,7 +536,6 @@ public:
 	virtual void OnComponentDestroyed() override;
 	virtual void ApplyWorldOffset(const FVector& InOffset, bool bWorldShift) override;
 	virtual class FActorComponentInstanceData* GetComponentInstanceData() const override;
-	virtual FName GetComponentInstanceDataType() const override;
 	// End ActorComponent interface
 
 	// Call UpdateComponentToWorld if bWorldToComponentUpdated is false.
