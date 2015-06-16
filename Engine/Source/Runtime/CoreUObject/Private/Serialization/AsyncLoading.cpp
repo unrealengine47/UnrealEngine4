@@ -59,30 +59,23 @@ class FAsyncObjectsReferencer : FGCObject
 	FAsyncObjectsReferencer() {}
 
 	/** List of referenced objects */
-	TArray<UObject*> ReferencedObjects;
+	TSet<UObject*> ReferencedObjects;
 #if THREADSAFE_UOBJECTS
 	/** Critical section for referenced objects list */
 	FCriticalSection ReferencedObjectsCritical;
 #endif
 
+public:
 #if !UE_BUILD_SHIPPING
-	int32 IndexOf(UObject* InObj)
+	bool Contains(UObject* InObj)
 	{
 #if THREADSAFE_UOBJECTS
 		FScopeLock ReferencedObjectsLock(&ReferencedObjectsCritical);
 #endif
-		for (int32 Index = 0; Index < ReferencedObjects.Num(); ++Index)
-		{
-			if (ReferencedObjects[Index] == InObj)
-			{
-				return Index;
-			}
-		}
-		return INDEX_NONE;
+		return ReferencedObjects.Contains(InObj);
 	}
 #endif
 
-public:
 	/** Returns the one and only instance of this object */
 	static FAsyncObjectsReferencer& Get();
 	/** FGCObject interface */
@@ -114,7 +107,10 @@ public:
 #else
 				check(IsInGameThread());
 #endif
-				ReferencedObjects.Add(InObject);
+				if (!ReferencedObjects.Contains(InObject))
+				{
+					ReferencedObjects.Add(InObject);
+				}
 			}
 			InObject->ThisThreadAtomicallyClearedRFUnreachable();
 		}
@@ -169,7 +165,7 @@ public:
 			UObject* Obj = *It;
 			if (Obj->HasAnyFlags(RF_AsyncLoading|RF_Async))
 			{
-				if (IndexOf(Obj) == INDEX_NONE)
+				if (!Contains(Obj))
 				{
 					UE_LOG(LogStreaming, Error, TEXT("%s has RF_AsyncLoading|RF_Async set but is not referenced by FAsyncObjectsReferencer"), *Obj->GetPathName());
 				}
@@ -233,7 +229,7 @@ static float GTimeLimitExceededMinTime = 0.005f;
 static FAutoConsoleVariableRef CVarTimeLimitExceededMinTime(
 	TEXT("TimeLimitExceededMinTime"),
 	GTimeLimitExceededMinTime,
-	TEXT("Multiplier for time limit exceeded warning time threshold."),
+	TEXT("Minimum time the time limit exceeded warning will be triggered by."),
 	ECVF_Default
 	);
 
@@ -245,29 +241,10 @@ static FORCEINLINE bool IsTimeLimitExceeded(double InTickStartTime, bool bUseTim
 		double CurrentTime = FPlatformTime::Seconds();
 		bTimeLimitExceeded = CurrentTime - InTickStartTime > InTimeLimit;
 
-		// One time init for ini override if we should log a warning when time limit is exceeded
-		static struct FWarnIfTimeLimitExceeded
-		{
-			bool WarningEnabled;
-			double TimeMultiplier;
-			double MinTime;
-			FWarnIfTimeLimitExceeded()
-				: WarningEnabled(true)
-				, TimeMultiplier(1.0)
-				, MinTime(0.005)
-			{
-				check(GConfig);
-				GConfig->GetBool(TEXT("Core.System"), TEXT("WarnIfTimeLimitExceeded"), WarningEnabled, GEngineIni);
-				GConfig->GetDouble(TEXT("Core.System"), TEXT("TimeLimitExceededMultiplier"), TimeMultiplier, GEngineIni);
-				GConfig->GetDouble(TEXT("Core.System"), TEXT("TimeLimitExceededMinTime"), MinTime, GEngineIni);
-			}
-		} WarnIfTimeLimitExceeded;
-
 		// Log single operations that take longer than time limit (but only in cooked builds)
-		if (FPlatformProperties::RequiresCookedData() && 
-			WarnIfTimeLimitExceeded.WarningEnabled && 
-			(CurrentTime - InTickStartTime) > WarnIfTimeLimitExceeded.MinTime &&
-			(CurrentTime - InTickStartTime) > (WarnIfTimeLimitExceeded.TimeMultiplier * InTimeLimit))
+		if (GWarnIfTimeLimitExceeded && 
+			(CurrentTime - InTickStartTime) > GTimeLimitExceededMinTime &&
+			(CurrentTime - InTickStartTime) > (GTimeLimitExceededMultiplier * InTimeLimit))
 		{			
 			UE_LOG(LogStreaming, Warning, TEXT("IsTimeLimitExceeded: %s %s took (less than) %5.2f ms"),
 				InLastTypeOfWorkPerformed ? InLastTypeOfWorkPerformed : TEXT("unknown"),
@@ -472,7 +449,7 @@ void FAsyncLoadingThread::InsertPackage(FAsyncPackage* Package)
 	}
 }
 
-EAsyncPackageState::Type FAsyncLoadingThread::ProcessAsyncLoading(int32& OutPackagesProcessed, bool bUseTimeLimit /*= false*/, bool bUseFullTimeLimit /*= false*/, float TimeLimit /*= 0.0f*/, FName ExcludeType /*= NAME_None*/)
+EAsyncPackageState::Type FAsyncLoadingThread::ProcessAsyncLoading(int32& OutPackagesProcessed, bool bUseTimeLimit /*= false*/, bool bUseFullTimeLimit /*= false*/, float TimeLimit /*= 0.0f*/)
 {
 	SCOPE_CYCLE_COUNTER(STAT_FAsyncLoadingThread_ProcessAsyncLoading);
 	
@@ -487,12 +464,6 @@ EAsyncPackageState::Type FAsyncLoadingThread::ProcessAsyncLoading(int32& OutPack
 
 		// Package to be loaded.
 		FAsyncPackage* Package = AsyncPackages[PackageIndex];
-
-		if (ExcludeType != NAME_None && ExcludeType == Package->GetPackageType())
-		{
-			// We should skip packages of this type
-			continue;
-		}
 
 		if (Package->HasFinishedLoading() == false)
 		{
@@ -541,7 +512,7 @@ EAsyncPackageState::Type FAsyncLoadingThread::ProcessAsyncLoading(int32& OutPack
 }
 
 
-EAsyncPackageState::Type FAsyncLoadingThread::ProcessLoadedPackages(bool bUseTimeLimit, bool bUseFullTimeLimit, float TimeLimit, FName ExcludeType)
+EAsyncPackageState::Type FAsyncLoadingThread::ProcessLoadedPackages(bool bUseTimeLimit, bool bUseFullTimeLimit, float TimeLimit)
 {
 	EAsyncPackageState::Type Result = EAsyncPackageState::Complete;
 
@@ -607,7 +578,7 @@ EAsyncPackageState::Type FAsyncLoadingThread::ProcessLoadedPackages(bool bUseTim
 
 
 
-EAsyncPackageState::Type FAsyncLoadingThread::TickAsyncLoading(bool bUseTimeLimit, bool bUseFullTimeLimit, float TimeLimit, FName ExcludeType)
+EAsyncPackageState::Type FAsyncLoadingThread::TickAsyncLoading(bool bUseTimeLimit, bool bUseFullTimeLimit, float TimeLimit)
 {
 	const bool bLoadingSuspended = IsAsyncLoadingSuspended();
 	const bool bIsMultithreaded = FAsyncLoadingThread::IsMultithreaded();
@@ -627,7 +598,7 @@ EAsyncPackageState::Type FAsyncLoadingThread::TickAsyncLoading(bool bUseTimeLimi
 		if (Result != EAsyncPackageState::TimeOut && !IsTimeLimitExceeded(TickStartTime, bUseTimeLimit, TimeLimit, TEXT("Pre-ProcessLoadedPackages")))
 		{
 			double RemainingTimeLimit = FMath::Max(0.0, TimeLimit - TimeLimitUsedForPreloading);
-			Result = ProcessLoadedPackages(bUseTimeLimit, bUseFullTimeLimit, RemainingTimeLimit, ExcludeType);
+			Result = ProcessLoadedPackages(bUseTimeLimit, bUseFullTimeLimit, RemainingTimeLimit);
 		}
 
 		if (Result != EAsyncPackageState::TimeOut && !IsTimeLimitExceeded(TickStartTime, bUseTimeLimit, TimeLimit, TEXT("Pre-EmptyReferencedObjects")))
@@ -720,7 +691,7 @@ EAsyncPackageState::Type  FAsyncLoadingThread::TickAsyncThread(bool bUseTimeLimi
 		if (AsyncThreadReady.GetValue())
 		{
 			CreateAsyncPackagesFromQueue();
-			Result = ProcessAsyncLoading(ProcessedRequests, bUseTimeLimit, bUseFullTimeLimit, TimeLimit, NAME_None);
+			Result = ProcessAsyncLoading(ProcessedRequests, bUseTimeLimit, bUseFullTimeLimit, TimeLimit);
 		}
 		if (ProcessedRequests == 0 && IsMultithreaded())
 		{
@@ -892,6 +863,11 @@ FAsyncPackage::FAsyncPackage(const FAsyncPackageDesc& InDesc)
 {
 }
 
+FAsyncPackage::~FAsyncPackage()
+{
+	DetachLinker();
+}
+
 /**
  * @return Time load begun. This is NOT the time the load was requested in the case of other pending requests.
  */
@@ -906,13 +882,22 @@ double FAsyncPackage::GetLoadStartTime() const
 void FAsyncPackage::ResetLoader()
 {
 	// Reset loader.
-	if (bLoadHasFailed)
+	if (Linker)
 	{
+		check(Linker->AsyncRoot == this || Linker->AsyncRoot == nullptr);
+		Linker->AsyncRoot = nullptr;
+		delete Linker;
 		Linker = nullptr;
 	}
-	else if (Linker)
+}
+
+void FAsyncPackage::DetachLinker()
+{	
+	if (Linker)
 	{
-		delete Linker;
+		check(bLoadHasFinished || bLoadHasFailed);
+		check(Linker->AsyncRoot == this || Linker->AsyncRoot == nullptr);
+		Linker->AsyncRoot = nullptr;
 		Linker = nullptr;
 	}
 }
@@ -1163,6 +1148,10 @@ EAsyncPackageState::Type FAsyncPackage::CreateLinker()
 #endif
 			Linker = FLinkerLoad::CreateLinkerAsync( Package, *PackageFileName, LinkerFlags );
 		}
+
+		// Associate this async package with the linker
+		check(Linker->AsyncRoot == nullptr);
+		Linker->AsyncRoot = this;
 
 		UE_LOG(LogStreaming, Verbose, TEXT("FAsyncPackage::CreateLinker for %s finished."), *Desc.NameToLoad.ToString());
 	}
@@ -1612,6 +1601,8 @@ EAsyncPackageState::Type FAsyncPackage::PostLoadObjects()
 		}
 		// All object must be finalized on the game thread
 		DeferredFinalizeObjects.Add(Object);
+		// Make sure all objects in DeferredFinalizeObjects are referenced too
+		FAsyncObjectsReferencer::Get().AddObject(Object);
 	}
 
 	// New objects might have been loaded during PostLoad.
@@ -1818,7 +1809,7 @@ void FAsyncPackage::UpdateLoadPercentage()
 /*-----------------------------------------------------------------------------
 	UObject async (pre)loading.
 -----------------------------------------------------------------------------*/
-void LoadPackageAsync(const FString& InName, const FGuid* InGuid /*= nullptr*/, FName InType /*= NAME_None*/, const TCHAR* InPackageToLoadFrom /*= nullptr*/, FLoadPackageAsyncDelegate InCompletionDelegate /*= FLoadPackageAsyncDelegate()*/, EPackageFlags InPackageFlags /*= PKG_None*/, int32 InPIEInstanceID /*= INDEX_NONE*/, uint32 InPackagePriority /*= 0*/)
+void LoadPackageAsync(const FString& InName, const FGuid* InGuid /*= nullptr*/, const TCHAR* InPackageToLoadFrom /*= nullptr*/, FLoadPackageAsyncDelegate InCompletionDelegate /*= FLoadPackageAsyncDelegate()*/, EPackageFlags InPackageFlags /*= PKG_None*/, int32 InPIEInstanceID /*= INDEX_NONE*/, uint32 InPackagePriority /*= 0*/)
 {
 	// The comments clearly state that it should be a package name but we also handle it being a filename as this function is not perf critical
 	// and LoadPackage handles having a filename being passed in as well.
@@ -1850,7 +1841,7 @@ void LoadPackageAsync(const FString& InName, const FGuid* InGuid /*= nullptr*/, 
 		UE_LOG(LogStreaming, Fatal, TEXT("Async loading code requires long package names (%s)."), *PackageNameToLoad);
 	}
 
-	FAsyncPackageDesc PackageDesc(*PackageName, *PackageNameToLoad, InGuid ? *InGuid : FGuid(), InType, InCompletionDelegate, InPackageFlags, InPIEInstanceID, InPackagePriority);
+	FAsyncPackageDesc PackageDesc(*PackageName, *PackageNameToLoad, InGuid ? *InGuid : FGuid(), InCompletionDelegate, InPackageFlags, InPIEInstanceID, InPackagePriority);
 	FAsyncLoadingThread::Get().QueuePackage(PackageDesc);
 }
 
@@ -1858,7 +1849,12 @@ void LoadPackageAsync(const FString& PackageName, FLoadPackageAsyncDelegate Comp
 {
 	const FGuid* Guid = nullptr;
 	const TCHAR* PackageToLoadFrom = nullptr;
-	LoadPackageAsync(PackageName, Guid, NAME_None, PackageToLoadFrom, CompletionDelegate, InPackageFlags, -1, InPackagePriority );
+	LoadPackageAsync(PackageName, Guid, PackageToLoadFrom, CompletionDelegate, InPackageFlags, -1, InPackagePriority );
+}
+
+void LoadPackageAsync(const FString& InName, const FGuid* InGuid, FName InType /* Unused, deprecated */, const TCHAR* InPackageToLoadFrom /*= nullptr*/, FLoadPackageAsyncDelegate InCompletionDelegate /*= FLoadPackageAsyncDelegate()*/, EPackageFlags InPackageFlags /*= PKG_None*/, int32 InPIEInstanceID /*= INDEX_NONE*/, uint32 InPackagePriority /*= 0*/)
+{
+	LoadPackageAsync(InName, InGuid, InPackageToLoadFrom, InCompletionDelegate, InPackageFlags, InPIEInstanceID, InPackagePriority);
 }
 
 void CancelAsyncLoading()
@@ -1885,7 +1881,7 @@ bool IsInAsyncLoadingThreadCoreUObjectInternal()
 	return FAsyncLoadingThread::Get().IsInAsyncLoadThread();
 }
 
-void FlushAsyncLoading(FName ExcludeType/*=NAME_None*/)
+void FlushAsyncLoading()
 {
 	if (IsAsyncLoading())
 	{
@@ -1904,7 +1900,7 @@ void FlushAsyncLoading(FName ExcludeType/*=NAME_None*/)
 			SCOPE_CYCLE_COUNTER(STAT_FAsyncPackage_TickAsyncLoadingGameThread);
 			while (IsAsyncLoading())
 			{
-				FAsyncLoadingThread::Get().TickAsyncLoading(false, false, 0, ExcludeType);
+				FAsyncLoadingThread::Get().TickAsyncLoading(false, false, 0);
 				if (FAsyncLoadingThread::Get().IsMultithreaded())
 				{
 					FPlatformProcess::SleepNoStats(0.0001f);
@@ -1912,15 +1908,16 @@ void FlushAsyncLoading(FName ExcludeType/*=NAME_None*/)
 			}
 		}
 
-		if (ExcludeType == NAME_None)
-		{
-			// It's fine to have pending loads if we excluded some from the check
-			check( !IsAsyncLoading() );
-		}
+		check( !IsAsyncLoading() );
 
 		// Reset min priority again.
 		FIOSystem::Get().SetMinPriority( AIOP_MIN );
 	}
+}
+
+void FlushAsyncLoading(FName ExcludeType)
+{
+	FlushAsyncLoading();
 }
 
 int32 GetNumAsyncPackages()
@@ -1928,13 +1925,13 @@ int32 GetNumAsyncPackages()
 	return FAsyncLoadingThread::Get().GetAsyncPackagesCount();
 }
 
-EAsyncPackageState::Type ProcessAsyncLoading(bool bUseTimeLimit, bool bUseFullTimeLimit, float TimeLimit, FName ExcludeType)
+EAsyncPackageState::Type ProcessAsyncLoading(bool bUseTimeLimit, bool bUseFullTimeLimit, float TimeLimit)
 {
 	SCOPE_CYCLE_COUNTER(STAT_AsyncLoadingTime);
 
 	{
 		SCOPE_CYCLE_COUNTER(STAT_FAsyncPackage_TickAsyncLoadingGameThread);
-		FAsyncLoadingThread::Get().TickAsyncLoading(bUseTimeLimit, bUseFullTimeLimit, TimeLimit, ExcludeType);
+		FAsyncLoadingThread::Get().TickAsyncLoading(bUseTimeLimit, bUseFullTimeLimit, TimeLimit);
 	}
 
 	return IsAsyncLoading() ? EAsyncPackageState::TimeOut : EAsyncPackageState::Complete;

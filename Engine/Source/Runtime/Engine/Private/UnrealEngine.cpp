@@ -34,7 +34,6 @@
 #include "AudioEffect.h"
 #include "Net/NetworkProfiler.h"
 #include "MallocProfiler.h"
-#include "../../Launch/Resources/Version.h"
 #include "StereoRendering.h"
 #include "IHeadMountedDisplayModule.h"
 #include "IHeadMountedDisplay.h"
@@ -2635,7 +2634,7 @@ bool UEngine::HandleStopMovieCaptureCommand( const TCHAR* Cmd, FOutputDevice& Ar
 bool UEngine::HandleGameVerCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 {
 	FString VersionString = FString::Printf(TEXT("GameVersion Branch: %s, Configuration: %s, Version: %s, CommandLine: %s"), 
-		TEXT(BRANCH_NAME), EBuildConfigurations::ToString(FApp::GetBuildConfiguration()), *GEngineVersion.ToString(), FCommandLine::Get());
+		*FApp::GetBranchName(), EBuildConfigurations::ToString(FApp::GetBuildConfiguration()), *GEngineVersion.ToString(), FCommandLine::Get());
 
 	Ar.Logf( *VersionString );
 	FPlatformMisc::ClipboardCopy( *VersionString );
@@ -3218,7 +3217,8 @@ bool UEngine::HandleShowLogCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 bool UEngine::HandleStartFPSChartCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 {
 	// start the chart data capture
-	StartFPSChart();
+	FString Label = FParse::Token(Cmd, 0);
+	StartFPSChart( Label );
 	return true;
 }
 
@@ -10040,7 +10040,7 @@ void UEngine::ConditionalCommitMapChange(FWorldContext &Context)
 		// Block on remaining async data.
 		if( !IsReadyForMapChange(Context) )
 		{
-			FlushAsyncLoading( NAME_None );
+			FlushAsyncLoading();
 			check( IsReadyForMapChange(Context) );
 		}
 		

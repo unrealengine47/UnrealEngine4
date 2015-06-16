@@ -30,6 +30,7 @@
 #include "SNotificationList.h"
 #include "NotificationManager.h"
 #include "Engine/Selection.h"
+#include "PhysicsEngine/BodySetup.h"
 
 #define LOCTEXT_NAMESPACE "StaticMeshEditor"
 
@@ -1525,6 +1526,8 @@ UStaticMesh* FStaticMeshEditor::GetFirstSelectedStaticMeshInContentBrowser() con
 
 void FStaticMeshEditor::SetEditorMesh(UStaticMesh* InStaticMesh)
 {
+	ClearSelectedPrims();
+
 	StaticMesh = InStaticMesh;
 
 	//Init stat arrays.

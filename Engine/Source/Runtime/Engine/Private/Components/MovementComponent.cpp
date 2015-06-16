@@ -400,6 +400,11 @@ void UMovementComponent::SetPlaneConstraintOrigin(FVector PlaneOrigin)
 	PlaneConstraintOrigin = PlaneOrigin;
 }
 
+void UMovementComponent::SetPlaneConstraintEnabled(bool bEnabled)
+{
+	bConstrainToPlane = bEnabled;
+}
+
 const FVector& UMovementComponent::GetPlaneConstraintOrigin() const
 {
 	return PlaneConstraintOrigin;
@@ -618,7 +623,7 @@ float UMovementComponent::SlideAlongSurface(const FVector& Delta, float Time, co
 
 	if ((SlideDelta | Delta) > 0.f)
 	{
-		const FRotator Rotation = UpdatedComponent->GetComponentRotation();
+		const FQuat Rotation = UpdatedComponent->GetComponentQuat();
 		SafeMoveUpdatedComponent(SlideDelta, Rotation, true, Hit);
 
 		const float FirstHitPercent = Hit.Time;
@@ -634,8 +639,8 @@ float UMovementComponent::SlideAlongSurface(const FVector& Delta, float Time, co
 			// Compute new slide normal when hitting multiple surfaces.
 			TwoWallAdjust(SlideDelta, Hit, OldHitNormal);
 
-			// Only proceed if the new direction is of significant length.
-			if (!SlideDelta.IsNearlyZero(1e-3f))
+			// Only proceed if the new direction is of significant length and not in reverse of original attempted move.
+			if (!SlideDelta.IsNearlyZero(1e-3f) && (SlideDelta | Delta) > 0.f)
 			{
 				// Perform second move
 				SafeMoveUpdatedComponent(SlideDelta, Rotation, true, Hit);

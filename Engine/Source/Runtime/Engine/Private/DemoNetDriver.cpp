@@ -53,18 +53,19 @@ bool UDemoNetDriver::InitBase( bool bInitAsClient, FNetworkNotify* InNotify, con
 {
 	if ( Super::InitBase( bInitAsClient, InNotify, URL, bReuseAddressAndPort, Error ) )
 	{
-		DemoFilename			= URL.Map;
-		Time					= 0;
-		bIsRecordingDemoFrame	= false;
-		bDemoPlaybackDone		= false;
-		bChannelsArePaused		= false;
-		TimeToSkip				= 0.0f;
-		bIsFastForwarding		= false;
+		DemoFilename					= URL.Map;
+		Time							= 0;
+		bIsRecordingDemoFrame			= false;
+		bDemoPlaybackDone				= false;
+		bChannelsArePaused				= false;
+		TimeToSkip						= 0.0f;
+		bIsFastForwarding				= false;
 		GotoCheckpointSkipExtraTimeInMS = -1;
-		QueuedGotoTimeInSeconds	= -1.0f;
-		bIsLoadingCheckpoint	= false;
-		InitialLiveDemoTime		= 0;
-		bWasStartStreamingSuccessful = true;
+		QueuedGotoTimeInSeconds			= -1.0f;
+		bIsLoadingCheckpoint			= false;
+		InitialLiveDemoTime				= 0;
+		InitialLiveDemoTimeRealtime		= 0;
+		bWasStartStreamingSuccessful	= true;
 
 		ResetDemoState();
 
@@ -466,6 +467,7 @@ void UDemoNetDriver::TickDispatch(float DeltaSeconds)
 	{
 		UE_LOG( LogDemo, Error, TEXT( "UDemoNetDriver::TickFlush: ReplayStreamer ERROR: %s" ), ENetworkReplayError::ToString( ReplayStreamer->GetLastError() ) );
 		StopDemo();
+		World->GetGameInstance()->HandleDemoPlaybackFailure( EDemoPlayFailure::Generic, FString( EDemoPlayFailure::ToString( EDemoPlayFailure::Generic ) ) );
 		return;
 	}
 
@@ -1257,10 +1259,18 @@ void UDemoNetDriver::TickDemoPlayback( float DeltaSeconds )
 		}
 		else
 		{
-			const uint32 TotalDemoTimeInMS = ReplayStreamer->GetTotalDemoTime();
-
 			// Wait for the most recent live time
-			if ( ReplayStreamer->GetTotalDemoTime() == InitialLiveDemoTime )
+			const bool bHasNewReplayTime = ( ReplayStreamer->GetTotalDemoTime() != InitialLiveDemoTime );
+				
+			// If we haven't gotten a new time from the demo by now, assume it might not be live, and just jump to the end now so we don't hang forever
+			const bool bTimeExpired = ( FPlatformTime::Seconds() - InitialLiveDemoTimeRealtime >= 15 );
+
+			if ( bTimeExpired )
+			{
+				UE_LOG( LogDemo, Warning, TEXT( "UDemoNetDriver::TickDemoPlayback: Too much time since last live update." ) );
+			}
+
+			if ( !bHasNewReplayTime && !bTimeExpired )
 			{
 				return;
 			}
@@ -1325,6 +1335,12 @@ void UDemoNetDriver::TickDemoPlayback( float DeltaSeconds )
 		TimeToSkip = 0.0f;
 	}
 
+	// If we have a checkpoint but and we don't need to fine scrub, we can load it now
+	if ( GotoCheckpointArchive != NULL && GotoCheckpointSkipExtraTimeInMS == -1 )
+	{
+		LoadCheckpoint();
+	}
+
 	// Make sure there is data available to read
 	if ( !ReplayStreamer->IsDataAvailable() )
 	{
@@ -1337,6 +1353,8 @@ void UDemoNetDriver::TickDemoPlayback( float DeltaSeconds )
 	{
 		LoadCheckpoint();
 	}
+
+	check( GotoCheckpointArchive == NULL );
 
 	// If we're at the end of the demo, just pause channels and return
 	if ( bDemoPlaybackDone )
@@ -1437,6 +1455,7 @@ void UDemoNetDriver::ReplayStreamingReady( bool bSuccess, bool bRecord )
 	if ( !bSuccess )
 	{
 		UE_LOG( LogDemo, Warning, TEXT( "UDemoNetConnection::ReplayStreamingReady: Failed." ) );
+		StopDemo();
 		GetWorld()->GetGameInstance()->HandleDemoPlaybackFailure( EDemoPlayFailure::DemoNotFound, FString( EDemoPlayFailure::ToString( EDemoPlayFailure::DemoNotFound ) ) );
 		return;
 	}
@@ -1463,6 +1482,7 @@ void UDemoNetDriver::ReplayStreamingReady( bool bSuccess, bool bRecord )
 			{
 				UE_LOG( LogDemo, Log, TEXT( "UDemoNetConnection::ReplayStreamingReady: Deferring checkpoint until next available time." ) );
 				InitialLiveDemoTime = ReplayStreamer->GetTotalDemoTime();
+				InitialLiveDemoTimeRealtime = FPlatformTime::Seconds();
 			}
 		}
 	}
@@ -1493,8 +1513,6 @@ void UDemoNetDriver::LoadCheckpoint()
 		UE_LOG( LogDemo, Warning, TEXT( "UDemoNetConnection::LoadCheckpoint: GotoCheckpointArchive == NULL." ) );
 		return;
 	}
-
-	bIsLoadingCheckpoint = true;
 
 	// Reset the never-queue GUID list, we'll rebuild it
 	NonQueuedGUIDsForScrubbing.Empty();
@@ -1630,11 +1648,14 @@ void UDemoNetDriver::LoadCheckpoint()
 		if ( GotoCheckpointSkipExtraTimeInMS != -1 )
 		{
 			DemoCurrentTime += (float)GotoCheckpointSkipExtraTimeInMS / 1000;
-			bIsFastForwarding = true;
+
+			bIsFastForwarding		= true;
+			bIsLoadingCheckpoint	= true;
 		}
 		else
 		{
-			bIsLoadingCheckpoint = false;
+			bIsLoadingCheckpoint	= false;
+			bIsFastForwarding		= false;
 		}
 
 		GotoCheckpointArchive			= NULL;
@@ -1676,7 +1697,16 @@ void UDemoNetDriver::LoadCheckpoint()
 
 	DemoCurrentTime = (float)SavedAbsTimeMS / 1000.0f;
 
-	bIsFastForwarding = true;
+	if ( GotoCheckpointSkipExtraTimeInMS != -1 )
+	{
+		bIsLoadingCheckpoint = true;
+		bIsFastForwarding = true;
+	}
+	else
+	{
+		bIsLoadingCheckpoint = false;
+		bIsFastForwarding = false;
+	}
 
 	ReadDemoFrame( GotoCheckpointArchive );
 
@@ -1684,10 +1714,6 @@ void UDemoNetDriver::LoadCheckpoint()
 	if ( GotoCheckpointSkipExtraTimeInMS != -1 )
 	{
 		DemoCurrentTime += (float)GotoCheckpointSkipExtraTimeInMS / 1000;
-	}
-	else
-	{
-		bIsLoadingCheckpoint = false;
 	}
 
 	GotoCheckpointSkipExtraTimeInMS = -1;

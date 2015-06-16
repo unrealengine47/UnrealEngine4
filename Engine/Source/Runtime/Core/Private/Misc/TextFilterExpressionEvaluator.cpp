@@ -407,19 +407,16 @@ bool FTextFilterExpressionEvaluator::SetFilterText(const FText& InFilterText)
 	using namespace TextFilterExpressionParser;
 	using TextFilterExpressionParser::FTextToken;
 
-	// Sanitize the new string
-	const FText NewText = FText::TrimPrecedingAndTrailing(InFilterText);
-
-	// Has anything changed?
-	if (NewText.EqualTo(FilterText))
+	// Has anything changed? (need to test case as the operators are case-sensitive)
+	if (FilterText.ToString().Equals(InFilterText.ToString(), ESearchCase::CaseSensitive))
 	{
 		return false;
 	}
 
 	FilterType = ETextFilterExpressionType::Invalid;
-	FilterText = NewText;
+	FilterText = InFilterText;
 
-	if (FilterText.IsEmpty())
+	if (FilterText.IsEmptyOrWhitespace())
 	{
 		// If the filter is empty, just clear out the compiled filter so we match everything
 		FilterType = ETextFilterExpressionType::Empty;
@@ -429,14 +426,14 @@ bool FTextFilterExpressionEvaluator::SetFilterText(const FText& InFilterText)
 	else
 	{
 		// Otherwise, re-parse the filter text into a compiled expression
-		auto LexResult = ExpressionParser::Lex(*NewText.ToString(), TokenDefinitions);
+		auto LexResult = ExpressionParser::Lex(*FilterText.ToString(), TokenDefinitions);
 		if (LexResult.IsValid())
 		{
 			auto& TmpLexTokens = LexResult.GetValue();
 
 			// We process the tokens in two passes (doing these separately minimizes the combinations required by step 2):
 			//	Pass 1) We process and remove any text comparison modification tokens (FTextCmpExact and FTextCmpAnchor)
-			//	Pass 2) We inject OR operators between any adjacent text and sub-expression tokens to mimic the old search filter behavior
+			//	Pass 2) We inject AND operators between any adjacent text and sub-expression tokens to mimic the old search filter behavior
 			TArray<FExpressionToken> FinalTokens;
 			FinalTokens.Reserve(TmpLexTokens.Num());
 
@@ -497,13 +494,13 @@ bool FTextFilterExpressionEvaluator::SetFilterText(const FText& InFilterText)
 						bIsComplexExpression = true;
 					}
 
-					// We need to inject OR operators between any adjacent text and sub-expression tokens to mimic the old search filter behavior
+					// We need to inject AND operators between any adjacent text and sub-expression tokens to mimic the old search filter behavior
 					if ((LastTokenType == ETextNodeType::Text || LastTokenType == ETextNodeType::SubExpressionEnd) &&
 						(CurrentTokenType == ETextNodeType::Text || CurrentTokenType == ETextNodeType::SubExpressionStart)
 						)
 					{
 						// Inject the new token between the current one and the previous one, and then skip over the newly added token
-						FinalTokens.Insert(FExpressionToken(CurrentToken.Context, FOr()), FinalTokenIndex++);
+						FinalTokens.Insert(FExpressionToken(CurrentToken.Context, FAnd()), FinalTokenIndex++);
 					}
 				}
 			}

@@ -12,6 +12,7 @@
 #include "Serialization/DeferredMessageLog.h"
 #include "UObject/UObjectThreadContext.h"
 #include "GatherableTextData.h"
+#include "Serialization/AsyncLoading.h"
 
 #define LOCTEXT_NAMESPACE "LinkerLoad"
 
@@ -673,6 +674,7 @@ FLinkerLoad::FLinkerLoad(UPackage* InParent, const TCHAR* InFilename, uint32 InL
 , LoadFlags(InLoadFlags)
 , bHaveImportsBeenVerified(false)
 , Loader(nullptr)
+, AsyncRoot(nullptr)
 , NameMapIndex(0)
 , GatherableTextDataMapIndex(0)
 , ImportMapIndex(0)
@@ -4013,6 +4015,11 @@ void FLinkerLoad::Detach()
 		LinkerRoot->LinkerLoad = nullptr;
 		LinkerRoot = nullptr;
 	}
+	if (AsyncRoot)
+	{
+		AsyncRoot->DetachLinker();
+		AsyncRoot = nullptr;
+	}
 }
 
 #if WITH_EDITOR
@@ -4681,8 +4688,12 @@ FLinkerLoad::ELinkerStatus FLinkerLoad::FixupExportMap()
 	}
 }
 
-void FLinkerLoad::InitLinkers()
+void FLinkerLoad::FlushCache()
 {
+	if (Loader)
+	{
+		Loader->FlushCache();
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

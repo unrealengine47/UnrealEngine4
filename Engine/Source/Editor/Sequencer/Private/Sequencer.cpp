@@ -56,7 +56,7 @@ void FSequencer::InitSequencer( const FSequencerInitParams& InitParams, const TA
 
 		ToolkitHost = InitParams.ToolkitHost;
 
-		LastViewRange = InitParams.ViewParams.InitalViewRange;
+		LastViewRange = TargetViewRange = InitParams.ViewParams.InitalViewRange;
 		ScrubPosition = InitParams.ViewParams.InitialScrubPosition;
 
 		ObjectChangeListener = InitParams.ObjectChangeListener;
@@ -74,10 +74,10 @@ void FSequencer::InitSequencer( const FSequencerInitParams& InitParams, const TA
 
 		// Make internal widgets
 		SequencerWidget = SNew( SSequencer, SharedThis( this ) )
-			.ViewRange( this, &FSequencer::OnGetViewRange )
+			.ViewRange( this, &FSequencer::GetViewRange )
 			.ScrubPosition( this, &FSequencer::OnGetScrubPosition )
 			.OnScrubPositionChanged( this, &FSequencer::OnScrubPositionChanged )
-			.OnViewRangeChanged( this, &FSequencer::OnViewRangeChanged, false )
+			.OnViewRangeChanged( this, &FSequencer::OnViewRangeChanged )
 			.OnGetAddMenuContent(InitParams.ViewParams.OnGetAddMenuContent);
 
 		// When undo occurs, get a notification so we can make sure our view is up to date
@@ -113,9 +113,9 @@ void FSequencer::InitSequencer( const FSequencerInitParams& InitParams, const TA
 
 
 		ZoomAnimation = FCurveSequence();
-		ZoomCurve = ZoomAnimation.AddCurve(0.f, 0.35f, ECurveEaseFunction::QuadIn);
+		ZoomCurve = ZoomAnimation.AddCurve(0.f, 0.2f, ECurveEaseFunction::QuadIn);
 		OverlayAnimation = FCurveSequence();
-		OverlayCurve = OverlayAnimation.AddCurve(0.f, 0.35f, ECurveEaseFunction::QuadIn);
+		OverlayCurve = OverlayAnimation.AddCurve(0.f, 0.2f, ECurveEaseFunction::QuadIn);
 
 		// Update initial movie scene data
 		NotifyMovieSceneDataChanged();
@@ -485,10 +485,17 @@ void FSequencer::NotifyMovieSceneDataChanged()
 }
 
 
-TRange<float> FSequencer::OnGetViewRange() const
+FAnimatedRange FSequencer::GetViewRange() const
 {
-	return TRange<float>(FMath::Lerp(LastViewRange.GetLowerBoundValue(), TargetViewRange.GetLowerBoundValue(), ZoomCurve.GetLerp()),
+	FAnimatedRange AnimatedRange(FMath::Lerp(LastViewRange.GetLowerBoundValue(), TargetViewRange.GetLowerBoundValue(), ZoomCurve.GetLerp()),
 		FMath::Lerp(LastViewRange.GetUpperBoundValue(), TargetViewRange.GetUpperBoundValue(), ZoomCurve.GetLerp()));
+
+	if (ZoomAnimation.IsPlaying())
+	{
+		AnimatedRange.AnimationTarget = TargetViewRange;
+	}
+
+	return AnimatedRange;
 }
 
 bool FSequencer::IsAutoKeyEnabled() const 
@@ -536,7 +543,8 @@ FGuid FSequencer::GetHandleToObject( UObject* Object )
 
 	FGuid ObjectGuid = ObjectBindingManager->FindGuidForObject( *FocusedMovieScene, *Object );
 
-	if (ObjectGuid.IsValid())
+	// Check here for spawnable otherwise spawnables get recreated as possessables, which doesn't make sense
+	if (ObjectGuid.IsValid() && !FocusedMovieScene->FindSpawnable(ObjectGuid))
 	{
 		// Make sure that the possessable is still valid, if it's not remove the binding so new one 
 		// can be created.  This can happen due to undo.
@@ -708,10 +716,10 @@ void FSequencer::DestroySpawnablesForAllMovieScenes()
 	}
 }
 
-FReply FSequencer::OnPlay()
+FReply FSequencer::OnPlay(bool bTogglePlay)
 {
-	if( PlaybackState == EMovieScenePlayerStatus::Playing ||
-		PlaybackState == EMovieScenePlayerStatus::Recording )
+	if( (PlaybackState == EMovieScenePlayerStatus::Playing ||
+		 PlaybackState == EMovieScenePlayerStatus::Recording) && bTogglePlay )
 	{
 		PlaybackState = EMovieScenePlayerStatus::Stopped;
 		// Update on stop (cleans up things like sounds that are playing)
@@ -856,18 +864,23 @@ TRange<float> FSequencer::GetFilteringShotsTimeBounds() const
 	return TRange<float>::Empty();
 }
 
-
-
-void FSequencer::OnViewRangeChanged( TRange<float> NewViewRange, bool bSmoothZoom )
+void FSequencer::OnViewRangeChanged( TRange<float> NewViewRange, EViewRangeInterpolation Interpolation )
 {
+	const float AnimationLengthSeconds = Interpolation == EViewRangeInterpolation::Immediate ? 0.f : 0.1f;
+
 	if (!NewViewRange.IsEmpty())
 	{
-		if (bSmoothZoom)
+		if (AnimationLengthSeconds != 0.f)
 		{
+			if (ZoomAnimation.GetCurve(0).DurationSeconds != AnimationLengthSeconds)
+			{
+				ZoomAnimation = FCurveSequence();
+				ZoomCurve = ZoomAnimation.AddCurve(0.f, AnimationLengthSeconds, ECurveEaseFunction::QuadIn);
+			}
+
 			if (!ZoomAnimation.IsPlaying())
 			{
 				LastViewRange = TargetViewRange;
-
 				ZoomAnimation.Play( SequencerWidget.ToSharedRef() );
 			}
 			TargetViewRange = NewViewRange;
@@ -1181,7 +1194,7 @@ void FSequencer::ZoomToSelectedSections()
 
 	if (!BoundsHull.IsEmpty() && !BoundsHull.IsDegenerate())
 	{
-		OnViewRangeChanged(BoundsHull, true);
+		OnViewRangeChanged(BoundsHull);
 	}
 }
 
@@ -1238,7 +1251,7 @@ void FSequencer::FilterToShotSections(const TArray< TWeakObjectPtr<class UMovieS
 	if( bZoomToShotBounds )
 	{
 		// zoom in
-		OnViewRangeChanged(GetTimeBounds(), true);
+		OnViewRangeChanged(GetTimeBounds());
 	}
 
 	SequencerWidget->UpdateBreadcrumbs(ActualShotSections);
@@ -1339,6 +1352,31 @@ void FSequencer::DeleteSelectedItems()
 	}
 }
 
+void FSequencer::TogglePlay()
+{
+	OnPlay();
+}
+
+void FSequencer::PlayForward()
+{
+	OnPlay(false);
+}
+
+void FSequencer::Rewind()
+{
+	OnStepToBeginning();
+}
+
+void FSequencer::StepForward()
+{
+	OnStepForward();
+}
+
+void FSequencer::StepBackward()
+{
+	OnStepBackward();
+}
+
 void FSequencer::SetKey()
 {
 	USelection* CurrentSelection = GEditor->GetSelectedActors();
@@ -1360,7 +1398,6 @@ void FSequencer::SetKey()
 	}
 }
 
-
 void FSequencer::BindSequencerCommands()
 {
 	const FSequencerCommands& Commands = FSequencerCommands::Get();
@@ -1368,6 +1405,26 @@ void FSequencer::BindSequencerCommands()
 	SequencerCommandBindings->MapAction(
 		FGenericCommands::Get().Delete,
 		FExecuteAction::CreateSP( this, &FSequencer::DeleteSelectedItems ) );
+
+	SequencerCommandBindings->MapAction(
+		Commands.TogglePlay,
+		FExecuteAction::CreateSP( this, &FSequencer::TogglePlay ) );
+
+	SequencerCommandBindings->MapAction(
+		Commands.PlayForward,
+		FExecuteAction::CreateSP( this, &FSequencer::PlayForward ) );
+
+	SequencerCommandBindings->MapAction(
+		Commands.Rewind,
+		FExecuteAction::CreateSP( this, &FSequencer::Rewind ) );
+
+	SequencerCommandBindings->MapAction(
+		Commands.StepForward,
+		FExecuteAction::CreateSP( this, &FSequencer::StepForward ) );
+
+	SequencerCommandBindings->MapAction(
+		Commands.StepBackward,
+		FExecuteAction::CreateSP( this, &FSequencer::StepBackward ) );
 
 	SequencerCommandBindings->MapAction(
 		Commands.SetKey,

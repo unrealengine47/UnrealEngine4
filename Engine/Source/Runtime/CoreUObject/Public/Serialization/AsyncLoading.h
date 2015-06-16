@@ -19,6 +19,7 @@ struct FAsyncPackage
 	 * Constructor
 	 */
 	FAsyncPackage(const FAsyncPackageDesc& InDesc);
+	~FAsyncPackage();
 
 	/**
 	 * Ticks the async loading code.
@@ -50,19 +51,16 @@ struct FAsyncPackage
 	void ResetLoader();
 
 	/**
+	* Disassociates linker from this package
+	*/
+	void DetachLinker();
+
+	/**
 	 * Returns the name of the package to load.
 	 */
 	FORCEINLINE const FName& GetPackageName() const
 	{
 		return Desc.Name;
-	}
-
-	/**
-	 * Returns the type name associated with this package
-	 */
-	const FName &GetPackageType() const
-	{
-		return Desc.Type;
 	}
 
 	void AddCompletionCallback(const FLoadPackageAsyncDelegate& Callback, bool bInternal);

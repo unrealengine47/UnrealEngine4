@@ -246,7 +246,7 @@ private:
 		}
 	
 		TArray<TSharedRef<FChatItemViewModel>> Messages = ViewModel->GetMessages();
-		for (LastMessageIndex; LastMessageIndex < Messages.Num(); ++LastMessageIndex)
+		for (;LastMessageIndex < Messages.Num(); ++LastMessageIndex)
 		{
 			TSharedRef<FChatItemViewModel> ChatItem = Messages[LastMessageIndex];
 

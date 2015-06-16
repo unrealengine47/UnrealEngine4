@@ -2,7 +2,7 @@
 
 #include "CorePrivatePCH.h"
 #include "EventPool.h"
-#include "Public/Modules/ModuleVersion.h"
+#include "EngineVersion.h"
 #include "Templates/Function.h"
 
 
@@ -12,6 +12,8 @@
 #endif
 
 DEFINE_STAT(STAT_Sleep);
+DEFINE_STAT(STAT_EventWait);
+
 
 void* FGenericPlatformProcess::GetDllHandle( const TCHAR* Filename )
 {
@@ -33,7 +35,7 @@ void* FGenericPlatformProcess::GetDllExport( void* DllHandle, const TCHAR* ProcN
 int32 FGenericPlatformProcess::GetDllApiVersion( const TCHAR* Filename )
 {
 	UE_LOG(LogHAL, Fatal, TEXT("FPlatformProcess::GetBinaryFileVersion not implemented on this platform"));
-	return MODULE_API_VERSION;
+	return GCompatibleWithEngineVersion.GetChangelist();
 }
 
 uint32 FGenericPlatformProcess::GetCurrentProcessId()
@@ -297,11 +299,11 @@ void FGenericPlatformProcess::ConditionalSleep(const TFunctionRef<bool()>& Condi
 
 #include "PThreadEvent.h"
 
-DECLARE_CYCLE_STAT(TEXT("CPU Stall - Wait For Event"),STAT_EventWait,STATGROUP_CPUStalls);
-
 bool FPThreadEvent::Wait(uint32 WaitTime, const bool bIgnoreThreadIdleStats /*= false*/)
 {
-	FScopeCycleCounter Counter(StatID);
+	//WaitForStats();
+
+	SCOPE_CYCLE_COUNTER(STAT_EventWait);
 	FThreadIdleStats::FScopeIdle Scope(bIgnoreThreadIdleStats);
 
 	check(bInitialized);
