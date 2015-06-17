@@ -2486,6 +2486,11 @@ void FEngineLoop::Tick()
 			// Delete the objects which were enqueued for deferred cleanup before the previous frame.
 			delete PreviousPendingCleanupObjects;
 
+			// Destroy all linkers pending delete
+#if WITH_COREUOBJECT
+			DeleteLoaders();
+#endif
+
 			FTicker::GetCoreTicker().Tick(FApp::GetDeltaTime());
 
 			FSingleThreadManager::Get().Tick();

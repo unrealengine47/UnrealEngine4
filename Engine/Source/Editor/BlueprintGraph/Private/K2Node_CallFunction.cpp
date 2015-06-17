@@ -508,6 +508,7 @@ void UK2Node_CallFunction::GetPinHoverText(const UEdGraphPin& Pin, FString& Hove
 	{
 		for (auto& P : Pins)
 		{
+			P->PinToolTip.Empty();
 			GeneratePinTooltip(*P);
 		}
 
@@ -1416,6 +1417,10 @@ FText UK2Node_CallFunction::GetKeywordsForFunction(const UFunction* Function)
 		Args.Add(TEXT("Name"), FText::FromString(Keywords));
 		Args.Add(TEXT("MetadataKeywords"), MetadataKeywords);
 		ResultKeywords = FText::Format(FText::FromString("{Name} {MetadataKeywords}"), Args);
+	}
+	else
+	{
+		ResultKeywords = FText::FromString(Keywords);
 	}
 
 	return ResultKeywords;
