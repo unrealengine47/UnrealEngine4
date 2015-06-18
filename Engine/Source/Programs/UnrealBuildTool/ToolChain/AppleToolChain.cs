@@ -23,6 +23,12 @@ namespace UnrealBuildTool
 				{
 					// on the Mac, run xcode-select directly
 					DeveloperDir = Utils.RunLocalProcessAndReturnStdOut("xcode-select", "--print-path");
+
+					// make sure we get a full path
+					if (Directory.Exists(DeveloperDir) == false)
+					{
+						throw new BuildException("Selected Xcode ('{0}') doesn't exist, cannot continue.", DeveloperDir);
+					}
 				}
 				else
 				{
@@ -38,12 +44,6 @@ namespace UnrealBuildTool
 					// we expect this to end with a slash
 					DeveloperDir += "/";
 				}
-			}
-
-			// make sure we get a full path
-			if (Directory.Exists(DeveloperDir) == false)
-			{
-				throw new BuildException("Selected Xcode ('{0}') doesn't exist, cannot continue.", DeveloperDir);
 			}
 
 			if (bVerbose && !DeveloperDir.StartsWith("/Applications/Xcode.app"))
@@ -131,7 +131,7 @@ namespace UnrealBuildTool
 			}
 
 			// make sure we have a valid SDK directory
-			if (!Directory.Exists(Path.Combine(BaseSDKDir, OSPrefix + PlatformSDKVersion + ".sdk")))
+			if (Utils.IsRunningOnMono && !Directory.Exists(Path.Combine(BaseSDKDir, OSPrefix + PlatformSDKVersion + ".sdk")))
 			{
 				throw new BuildException("Invalid SDK {0}{1}.sdk, not found in {2}", OSPrefix, PlatformSDKVersion, BaseSDKDir);
 			}
