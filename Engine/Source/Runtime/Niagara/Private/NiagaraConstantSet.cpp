@@ -7,6 +7,16 @@
 //////////////////////////////////////////////////////////////////////////
 // FNiagaraConstantMap
 
+template<>
+struct TStructOpsTypeTraits<FNiagaraConstantMap> : public TStructOpsTypeTraitsBase
+{
+	enum
+	{
+		WithSerializer = true
+	};
+};
+IMPLEMENT_STRUCT(NiagaraConstantMap);
+
 void FNiagaraConstantMap::Empty()
 {
 	ScalarConstants.Empty();
@@ -137,6 +147,21 @@ void FNiagaraConstantMap::Merge(FNiagaraConstantMap &InMap)
 	}
 }
 
+const TMap<FNiagaraVariableInfo, float> &FNiagaraConstantMap::GetScalarConstants()	const
+{
+	return ScalarConstants;
+}
+
+const TMap<FNiagaraVariableInfo, FVector4> &FNiagaraConstantMap::GetVectorConstants()	const
+{
+	return VectorConstants;
+}
+
+const TMap<FNiagaraVariableInfo, FMatrix> &FNiagaraConstantMap::GetMatrixConstants()	const
+{
+	return MatrixConstants;
+}
+
 const TMap<FNiagaraVariableInfo, class UNiagaraDataObject*> &FNiagaraConstantMap::GetDataConstants()	const
 {
 	return DataConstants;
@@ -182,7 +207,7 @@ void FNiagaraConstants::Init(UNiagaraEmitterProperties* EmitterProps, FNiagaraEm
 	check(EmitterProps);
 
 	//Copy the script constants, retaining any altered values.
-	FNiagaraConstants& ScriptConstants = ScriptProps->Script->ConstantData.ExposedConstants;
+	const FNiagaraConstants& ScriptConstants = ScriptProps->Script->ConstantData.GetExternalConstants();
 
 	TArray<FNiagaraConstants_Float> NewScalarConstants = ScriptConstants.ScalarConstants;
 	for (auto& Override : ScalarConstants)
@@ -215,10 +240,10 @@ void FNiagaraConstants::Init(UNiagaraEmitterProperties* EmitterProps, FNiagaraEm
 	}
 	MatrixConstants = NewMatrixConstants;
 
-	TArray<FNiagaraConstants_DataObject>& ScriptDataObjectConstants = ScriptConstants.DataObjectConstants;
+	const TArray<FNiagaraConstants_DataObject>& ScriptDataObjectConstants = ScriptConstants.DataObjectConstants;
 	TArray<FNiagaraConstants_DataObject> OldDataObjectConstants = DataObjectConstants;
 	DataObjectConstants.Empty();
-	for (FNiagaraConstants_DataObject& ScriptConst : ScriptDataObjectConstants)
+	for (const FNiagaraConstants_DataObject& ScriptConst : ScriptDataObjectConstants)
 	{
 		int32 OverrideIdx = OldDataObjectConstants.IndexOfByPredicate([&](const FNiagaraConstants_DataObject& C){ return ScriptConst.Name == C.Name && ScriptConst.Value && C.Value &&ScriptConst.Value->GetClass() == C.Value->GetClass(); });
 		
@@ -235,6 +260,35 @@ void FNiagaraConstants::Init(UNiagaraEmitterProperties* EmitterProps, FNiagaraEm
 			//Otherwise, duplicate the data from the script.
 			DataObjectConstants[AddIndex].Value = CastChecked<UNiagaraDataObject>(StaticDuplicateObject(ScriptConst.Value, EmitterProps, NULL));
 		}
+	}
+}
+
+/** 
+Copies constants in from the script as usual but allows overrides from old data in an FNiagaraConstantMap.
+Only used for BC. DO NOT USE.
+*/
+void FNiagaraConstants::InitFromOldMap(FNiagaraConstantMap& OldMap)
+{
+	const TMap<FNiagaraVariableInfo, float>& OldScalarConsts = OldMap.GetScalarConstants();
+	const TMap<FNiagaraVariableInfo, FVector4>& OldVectorConsts = OldMap.GetVectorConstants();
+	const TMap<FNiagaraVariableInfo, FMatrix>& OldMatrixConsts = OldMap.GetMatrixConstants();
+	const TMap<FNiagaraVariableInfo, UNiagaraDataObject*>& OldDataObjectConstants = OldMap.GetDataConstants();
+
+	for (const TPair<FNiagaraVariableInfo, float> Pair : OldScalarConsts)
+	{
+		ScalarConstants.Add(FNiagaraConstants_Float(Pair.Key.Name, Pair.Value));
+	}
+	for (const TPair<FNiagaraVariableInfo, FVector4>& Pair : OldVectorConsts)
+	{
+		VectorConstants.Add(FNiagaraConstants_Vector(Pair.Key.Name, Pair.Value));
+	}
+	for (const TPair<FNiagaraVariableInfo, FMatrix>& Pair : OldMatrixConsts)
+	{
+		MatrixConstants.Add(FNiagaraConstants_Matrix(Pair.Key.Name, Pair.Value));
+	}
+	for (const TPair<FNiagaraVariableInfo, UNiagaraDataObject*>& Pair : OldDataObjectConstants)
+	{
+		DataObjectConstants.Add(FNiagaraConstants_DataObject(Pair.Key.Name, Pair.Value));
 	}
 }
 

@@ -47,12 +47,30 @@ bool FSequencer::IsSequencerEnabled()
 	return true;
 }
 
+namespace
+{
+	TSharedPtr<FSequencer> ActiveSequencer;
+}
 
 void FSequencer::InitSequencer( const FSequencerInitParams& InitParams, const TArray<FOnCreateTrackEditor>& TrackEditorDelegates )
 {
 	if( IsSequencerEnabled() )
 	{
 		bIsEditingWithinLevelEditor = InitParams.bEditWithinLevelEditor;
+
+		// If this sequencer edits the level, close out the existing active sequencer and mark this as the active sequencer.
+		if (bIsEditingWithinLevelEditor)
+		{
+			if (ActiveSequencer.IsValid())
+			{
+				ActiveSequencer->OnClose();
+			}
+			ActiveSequencer = SharedThis(this);
+
+			// Register for saving the level so that the state of the scene can be restored before saving and updated after saving.
+			FEditorDelegates::PreSaveWorld.AddSP(this, &FSequencer::OnPreSaveWorld);
+			FEditorDelegates::PostSaveWorld.AddSP(this, &FSequencer::OnPostSaveWorld);
+		}
 
 		ToolkitHost = InitParams.ToolkitHost;
 
@@ -149,12 +167,25 @@ FSequencer::~FSequencer()
 	GEditor->UnregisterForUndo( this );
 
 	DestroySpawnablesForAllMovieScenes();
-	
 	ObjectBindingManager.Reset();
 
 	TrackEditors.Empty();
 
 	SequencerWidget.Reset();
+}
+
+void
+FSequencer::OnClose()
+{
+	if (ActiveSequencer.IsValid() && ActiveSequencer.Get() == this)
+	{
+		RootMovieSceneInstance->RestoreState();
+
+		FEditorDelegates::PreSaveWorld.RemoveAll(this);
+		FEditorDelegates::PostSaveWorld.RemoveAll(this);
+
+		ActiveSequencer.Reset();
+	}
 }
 
 void FSequencer::Tick(float InDeltaTime)
@@ -1173,6 +1204,17 @@ void FSequencer::PostUndo(bool bSuccess)
 	NotifyMovieSceneDataChanged();
 }
 
+void FSequencer::OnPreSaveWorld(uint32 SaveFlags, class UWorld* World)
+{
+	// Restore the saved state so that the level save can save that instead of the animated state.
+	RootMovieSceneInstance->RestoreState();
+}
+
+void FSequencer::OnPostSaveWorld(uint32 SaveFlags, class UWorld* World, bool bSuccess)
+{
+	// Reset the time after saving so that an update will be triggered to put objects back to their animated state.
+	SetGlobalTime(GetGlobalTime());
+}
 
 void FSequencer::OnSectionSelectionChanged()
 {
@@ -1382,6 +1424,16 @@ void FSequencer::StepBackward()
 	OnStepBackward();
 }
 
+void FSequencer::ToggleExpandCollapseNodes()
+{
+	SequencerWidget->ToggleExpandCollapseSelectedNodes();
+}
+
+void FSequencer::ToggleExpandCollapseNodesAndDescendants()
+{
+	SequencerWidget->ToggleExpandCollapseSelectedNodes(true);
+}
+
 void FSequencer::SetKey()
 {
 	USelection* CurrentSelection = GEditor->GetSelectedActors();
@@ -1430,6 +1482,14 @@ void FSequencer::BindSequencerCommands()
 	SequencerCommandBindings->MapAction(
 		Commands.StepBackward,
 		FExecuteAction::CreateSP( this, &FSequencer::StepBackward ) );
+
+	SequencerCommandBindings->MapAction(
+		Commands.ToggleExpandCollapseNodes,
+		FExecuteAction::CreateSP(this, &FSequencer::ToggleExpandCollapseNodes));
+
+	SequencerCommandBindings->MapAction(
+		Commands.ToggleExpandCollapseNodesAndDescendants,
+		FExecuteAction::CreateSP(this, &FSequencer::ToggleExpandCollapseNodesAndDescendants));
 
 	SequencerCommandBindings->MapAction(
 		Commands.SetKey,

@@ -613,8 +613,30 @@ EActiveTimerReturnType SSequencer::EnsureSlateTickDuringPlayback(double InCurren
 	return EActiveTimerReturnType::Stop;
 }
 
+void RestoreSelectionState(const TArray<TSharedRef<FSequencerDisplayNode>>& DisplayNodes, TSet<FString>& SelectedPathNames, FSequencerSelection* SequencerSelection)
+{
+	for (TSharedRef<FSequencerDisplayNode> DisplayNode : DisplayNodes)
+	{
+		if (SelectedPathNames.Contains(DisplayNode->GetPathName()))
+		{
+			SequencerSelection->AddToSelection(DisplayNode);
+		}
+		for (TSharedRef<FSequencerDisplayNode> ChildDisplayNode : DisplayNode->GetChildNodes())
+		{
+			RestoreSelectionState(DisplayNode->GetChildNodes(), SelectedPathNames, SequencerSelection);
+		}
+	}
+}
+
 void SSequencer::UpdateLayoutTree()
-{	
+{
+	// Cache the selected path names so selection can be restored after the update.
+	TSet<FString> SelectedPathNames;
+	for (TSharedRef<const FSequencerDisplayNode> SelectedDisplayNode : Sequencer.Pin()->GetSelection()->GetSelectedOutlinerNodes()->Array())
+	{
+		SelectedPathNames.Add(SelectedDisplayNode->GetPathName());
+	}
+
 	// Update the node tree
 	SequencerNodeTree->Update();
 
@@ -622,6 +644,9 @@ void SSequencer::UpdateLayoutTree()
 	Factory.Repopulate( *SequencerNodeTree );
 
 	CurveEditor->SetSequencerNodeTree(SequencerNodeTree);
+
+	// Restore the selection state.
+	RestoreSelectionState(SequencerNodeTree->GetRootNodes(), SelectedPathNames, Sequencer.Pin()->GetSelection());
 
 	SequencerNodeTree->UpdateCachedVisibilityBasedOnShotFiltersChanged();
 }
@@ -811,7 +836,7 @@ void SSequencer::OnAssetsDropped( const FAssetDragDropOp& DragDropOp )
 		}
 	}
 
-	const TSet< TSharedRef<const FSequencerDisplayNode> >* SelectedNodes = Sequencer.Pin()->GetSelection()->GetSelectedOutlinerNodes();
+	const TSet< TSharedRef<FSequencerDisplayNode> >* SelectedNodes = Sequencer.Pin()->GetSelection()->GetSelectedOutlinerNodes();
 	FGuid TargetObjectGuid;
 	// if exactly one object node is selected, we have a target object guid
 	TSharedPtr<const FSequencerDisplayNode> DisplayNode;
@@ -976,7 +1001,7 @@ FText SSequencer::GetShotSectionTitle(UMovieSceneSection* ShotSection) const
 
 void SSequencer::DeleteSelectedNodes()
 {
-	const TSet< TSharedRef<const FSequencerDisplayNode> >* SelectedNodes = Sequencer.Pin()->GetSelection()->GetSelectedOutlinerNodes();
+	const TSet< TSharedRef<FSequencerDisplayNode> >* SelectedNodes = Sequencer.Pin()->GetSelection()->GetSelectedOutlinerNodes();
 
 	if( SelectedNodes->Num() > 0 )
 	{
@@ -989,8 +1014,49 @@ void SSequencer::DeleteSelectedNodes()
 			if( SelectedNode->IsVisible() )
 			{
 				// Delete everything in the entire node
-				SequencerRef.OnRequestNodeDeleted( SelectedNode );
+				TSharedRef<const FSequencerDisplayNode> NodeToBeDeleted = StaticCastSharedRef<const FSequencerDisplayNode>(SelectedNode);
+				SequencerRef.OnRequestNodeDeleted( NodeToBeDeleted );
 			}
+		}
+	}
+}
+
+void SSequencer::ExpandCollapseNode(TSharedRef<FSequencerDisplayNode> Node, bool bDescendants, bool bExpand)
+{
+	if (Node->IsExpanded() != bExpand)
+	{
+		Node->ToggleExpansion();
+	}
+
+	if (bDescendants)
+	{
+		for (auto ChildNode : Node->GetChildNodes())
+		{
+			ExpandCollapseNode(ChildNode, bDescendants, bExpand);
+		}
+	}
+}
+
+void SSequencer::ToggleExpandCollapseSelectedNodes(bool bDescendants)
+{
+	const TSet< TSharedRef<FSequencerDisplayNode> >* SelectedNodes = Sequencer.Pin()->GetSelection()->GetSelectedOutlinerNodes();
+
+	TSet< TSharedRef<FSequencerDisplayNode> > Nodes(*SelectedNodes);
+
+	if (Nodes.Num() == 0)
+	{
+		TSet<TSharedRef<FSequencerDisplayNode>> RootNodes(SequencerNodeTree->GetRootNodes());
+		Nodes = RootNodes;
+	}
+
+	if (Nodes.Num() > 0)
+	{
+		auto It = Nodes.CreateConstIterator();
+		bool bExpand = !(*It).Get().IsExpanded();
+
+		for (auto Node : Nodes)
+		{
+			ExpandCollapseNode(Node, bDescendants, bExpand);
 		}
 	}
 }

@@ -1087,35 +1087,32 @@ void FFriendsAndChatManager::OnQueryRecentPlayersComplete(const FUniqueNetId& Us
 	}
 	else
 	{
-		if (bWasSuccessful)
+		RecentPlayersList.Empty();
+		TArray< TSharedRef<FOnlineRecentPlayer> > Players;
+		if (FriendsInterface->GetRecentPlayers(UserId, FString(), Players))
 		{
-			RecentPlayersList.Empty();
-			TArray< TSharedRef<FOnlineRecentPlayer> > Players;
-			if (FriendsInterface->GetRecentPlayers(UserId, FString(), Players))
+			for (const auto& RecentPlayer : Players)
 			{
-				for (const auto& RecentPlayer : Players)
+				if (RecentPlayer->GetDisplayName().IsEmpty())
 				{
-					if (RecentPlayer->GetDisplayName().IsEmpty())
-					{
-						QueryUserIds.Add(RecentPlayer->GetUserId());
-					}
-					else
-					{
-						RecentPlayersList.Add(MakeShareable(new FFriendRecentPlayerItem(RecentPlayer)));
-					}
-				}
-
-				if (QueryUserIds.Num())
-				{
-					check(OnlineSub != nullptr && OnlineSub->GetUserInterface().IsValid());
-					IOnlineUserPtr UserInterface = OnlineSub->GetUserInterface();
-					UserInterface->QueryUserInfo(LocalControllerIndex, QueryUserIds);
-					bFoundAllIds = false;
+					QueryUserIds.Add(RecentPlayer->GetUserId());
 				}
 				else
 				{
-					OnFriendsListUpdated().Broadcast();
+					RecentPlayersList.Add(MakeShareable(new FFriendRecentPlayerItem(RecentPlayer)));
 				}
+			}
+
+			if (QueryUserIds.Num())
+			{
+				check(OnlineSub != nullptr && OnlineSub->GetUserInterface().IsValid());
+				IOnlineUserPtr UserInterface = OnlineSub->GetUserInterface();
+				UserInterface->QueryUserInfo(LocalControllerIndex, QueryUserIds);
+				bFoundAllIds = false;
+			}
+			else
+			{
+				OnFriendsListUpdated().Broadcast();
 			}
 		}
 
@@ -1606,8 +1603,11 @@ void FFriendsAndChatManager::OnPresenceReceived(const FUniqueNetId& UserId, cons
 				FString InviteSessionID = It.Value()->GetGameSessionId().IsValid() ? It.Value()->GetGameSessionId()->ToString() : TEXT("");
 				if ((CurrentSessionID == InviteSessionID) || (GetOnlineStatus() != EOnlinePresenceState::Offline && !It.Value()->IsOnline()))
 				{
-					// Already in the same session so remove
-					InvitesToRemove.Add(It.Key());
+					if (!CurrentSessionID.IsEmpty())
+					{
+						// Already in the same session so remove
+						InvitesToRemove.Add(It.Key());
+					}
 				}
 			}
 			for (auto It = InvitesToRemove.CreateConstIterator(); It; ++It)
