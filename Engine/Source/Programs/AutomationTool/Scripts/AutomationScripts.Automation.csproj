@@ -73,7 +73,6 @@
     <Compile Include="DeployCommand.Automation.cs" />
     <Compile Include="FixupRedirects.Automation.cs" />
     <Compile Include="GenerateDSYM.Automation.cs" />
-    <Compile Include="GUBP.Automation.cs" />
     <Compile Include="RocketBuild.Automation.cs" />
     <Compile Include="IPhonePackager.Automation.cs" />
     <Compile Include="LauncherLocalization.Automation.cs" />
@@ -100,6 +99,11 @@
     <ProjectReference Include="..\..\UnrealBuildTool\UnrealBuildTool.csproj">
       <Project>{fd7c5e1a-cfe4-4fd5-a525-1eb1599a39ac}</Project>
       <Name>UnrealBuildTool</Name>
+      <Private>False</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\GUBP\GUBP.Automation.csproj">
+      <Project>{9a1a118b-37fc-4f33-bbf4-b431b6e3b3ac}</Project>
+      <Name>GUBP.Automation</Name>
       <Private>False</Private>
     </ProjectReference>
   </ItemGroup>

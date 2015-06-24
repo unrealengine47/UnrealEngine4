@@ -815,6 +815,8 @@ public:
 	GLuint GetOpenGLFramebuffer(uint32 ArrayIndices, uint32 MipmapLevels);
 #endif
 
+	void InvalidateTextureResourceInCache();
+
 private:
 	uint32 MemorySize		: 31;
 	uint32 bIsPowerOfTwo	: 1;
@@ -910,7 +912,53 @@ public:
 		}
 	}
 
-	virtual ~TOpenGLTexture();
+	virtual ~TOpenGLTexture()
+	{
+		if (GIsRHIInitialized)
+		{
+			VERIFY_GL_SCOPE();
+
+			OpenGLTextureDeleted(this);
+
+			if (Resource != 0)
+			{
+				switch (Target)
+				{
+					case GL_TEXTURE_2D:
+					case GL_TEXTURE_2D_MULTISAMPLE:
+					case GL_TEXTURE_3D:
+					case GL_TEXTURE_CUBE_MAP:
+					case GL_TEXTURE_2D_ARRAY:
+					case GL_TEXTURE_CUBE_MAP_ARRAY:
+					{
+						InvalidateTextureResourceInCache();
+						FOpenGL::DeleteTextures(1, &Resource);
+						break;
+					}
+					case GL_RENDERBUFFER:
+					{
+						if (!(this->GetFlags() & TexCreate_Presentable))
+						{
+							glDeleteRenderbuffers(1, &Resource);
+						}
+						break;
+					}
+					default:
+					{
+						checkNoEntry();
+					}
+				}
+			}
+
+			if (TextureRange)
+			{
+				delete[] TextureRange;
+				TextureRange = nullptr;
+			}
+
+			ReleaseOpenGLFramebuffers(OpenGLRHI, this);
+		}
+	}
 
 	/**
 	 * Locks one of the texture's mip-maps.

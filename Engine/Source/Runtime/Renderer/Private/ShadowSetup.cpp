@@ -727,6 +727,10 @@ void FProjectedShadowInfo::AddSubjectPrimitive(FPrimitiveSceneInfo* PrimitiveSce
 			// Update the primitive component's last render time. Allows the component to update when using bCastWhenHidden.
 			const float CurrentWorldTime = Views[0]->Family->CurrentWorldTime;
 			*(PrimitiveSceneInfo->ComponentLastRenderTime) = CurrentWorldTime;
+			if (PrimitiveSceneInfo->NeedsLazyUpdateForRendering())
+			{
+				PrimitiveSceneInfo->ConditionalLazyUpdateForRendering(FRHICommandListExecutor::GetImmediateCommandList());
+			}
 		}
 
 		if (bOpaqueRelevance && bShadowRelevance)
@@ -2265,7 +2269,7 @@ void FSceneRenderer::AddViewDependentWholeSceneShadowsForView(
 			FSceneViewState* ViewState = (FSceneViewState*)View.State;
 			if (ViewState)
 			{
-				FLightPropagationVolume* LightPropagationVolume = ViewState->GetLightPropagationVolume();
+				FLightPropagationVolume* LightPropagationVolume = ViewState->GetLightPropagationVolume(View.GetFeatureLevel());
 				
 				FLightPropagationVolumeSettings& LPVSettings = View.FinalPostProcessSettings.BlendableManager.GetSingleFinalData<FLightPropagationVolumeSettings>();
 

@@ -802,7 +802,7 @@ struct FRelevancePacket
 	FRelevancePrimSet<FTranslucentPrimSet::FSortedPrim> SortedTranslucencyPrims;
 	FRelevancePrimSet<FPrimitiveSceneProxy*> DistortionPrimSet;
 	FRelevancePrimSet<FPrimitiveSceneProxy*> CustomDepthSet;
-	FRelevancePrimSet<FPrimitiveSceneInfo*> UpdateStaticMeshes;
+	FRelevancePrimSet<FPrimitiveSceneInfo*> LazyUpdates;
 	FRelevancePrimSet<FPrimitiveSceneInfo*> VisibleEditorPrimitives;
 	uint16 CombinedShadingModelMask;
 	bool bUsesGlobalDistanceField;
@@ -941,9 +941,9 @@ struct FRelevancePacket
 				PrimitiveSceneInfo->CachedReflectionCaptureProxy = Scene->FindClosestReflectionCapture(Scene->PrimitiveBounds[BitIndex].Origin);
 				PrimitiveSceneInfo->bNeedsCachedReflectionCaptureUpdate = false;
 			}
-			if (PrimitiveSceneInfo->NeedsUpdateStaticMeshes())
+			if (PrimitiveSceneInfo->NeedsLazyUpdateForRendering())
 			{
-				UpdateStaticMeshes.AddPrim(PrimitiveSceneInfo);
+				LazyUpdates.AddPrim(PrimitiveSceneInfo);
 			}
 		}
 	}
@@ -1047,9 +1047,9 @@ struct FRelevancePacket
 		DistortionPrimSet.AppendTo(WriteView.DistortionPrimSet);
 		CustomDepthSet.AppendTo(WriteView.CustomDepthSet);
 
-		for (int32 Index = 0; Index < UpdateStaticMeshes.NumPrims; Index++)
+		for (int32 Index = 0; Index < LazyUpdates.NumPrims; Index++)
 		{
-			UpdateStaticMeshes.Prims[Index]->UpdateStaticMeshes(RHICmdList);
+			LazyUpdates.Prims[Index]->ConditionalLazyUpdateForRendering(RHICmdList);
 		}
 	}
 };
@@ -1584,6 +1584,8 @@ void FSceneRenderer::PreVisibilityFrameSetup(FRHICommandListImmediate& RHICmdLis
 					if(!ViewFamily.bWorldIsPaused)
 					{
 						ViewState->PrevViewMatrices = ViewState->PendingPrevViewMatrices;
+						ViewState->TemporalAAHistoryRT = ViewState->PendingTemporalAAHistoryRT;
+						ViewState->PendingTemporalAAHistoryRT.SafeRelease();
 
 						// pending is needed as we are in init view and still need to render.
 						ViewState->PendingPrevViewMatrices = View.ViewMatrices;

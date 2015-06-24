@@ -745,6 +745,7 @@ void FDesktopPlatformBase::CheckForLauncherEngineInstallation(const FString &App
 {
 	FString ManifestText;
 	FString ManifestFileName = FString(FPlatformProcess::ApplicationSettingsDir()) / FString::Printf(TEXT("UnrealEngineLauncher/Data/Manifests/%s.manifest"), *AppId);
+
 	if (FFileHelper::LoadFileToString(ManifestText, *ManifestFileName))
 	{
 		TSharedPtr< FJsonObject > RootObject;
@@ -913,6 +914,13 @@ bool FDesktopPlatformBase::EnumerateProjectsKnownByEngine(const FString &Identif
 
 	// Find the editor game-agnostic settings
 	FConfigSection* Section = GameAgnosticConfig.Find(TEXT("/Script/UnrealEd.EditorSettings"));
+
+	if (Section == NULL)
+	{
+		FConfigCacheIni::LoadExternalIniFile(GameAgnosticConfig, TEXT("EditorGameAgnostic"), NULL, *GameAgnosticConfigDir, false);
+		Section = GameAgnosticConfig.Find(TEXT("/Script/UnrealEd.EditorGameAgnosticSettings"));
+	}
+
 	if(Section != NULL)
 	{
 		// Add in every path that the user has ever created a project file. This is to catch new projects showing up in the user's project folders

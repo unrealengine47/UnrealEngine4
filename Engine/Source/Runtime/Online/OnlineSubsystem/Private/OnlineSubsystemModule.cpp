@@ -73,7 +73,7 @@ void FOnlineSubsystemModule::StartupModule()
 		}
 		else
 		{
-			UE_LOG(LogOnline, Warning, TEXT("Unable to load default OnlineSubsystem module %s, using NULL interface"), *InterfaceString);
+			UE_LOG(LogOnline, Log, TEXT("Unable to load default OnlineSubsystem module %s, using NULL interface"), *InterfaceString);
 			InterfaceString = TEXT("Null");
 			InterfaceName = FName(*InterfaceString);
 
@@ -88,7 +88,7 @@ void FOnlineSubsystemModule::StartupModule()
 	}
 	else
 	{
-		UE_LOG(LogOnline, Warning, TEXT("No default platform service specified for OnlineSubsystem"));
+		UE_LOG(LogOnline, Log, TEXT("No default platform service specified for OnlineSubsystem"));
 	}
 }
 
@@ -203,11 +203,11 @@ IOnlineSubsystem* FOnlineSubsystemModule::GetOnlineSubsystem(const FName InSubsy
 				}
 				else
 				{
-					bool* bWarnedPreviously = OnlineSubsystemFailureWarnings.Find(KeyName);
-					if (!bWarnedPreviously || !(*bWarnedPreviously))
+					bool* bNotedPreviously = OnlineSubsystemFailureNotes.Find(KeyName);
+					if (!bNotedPreviously || !(*bNotedPreviously))
 					{
-						UE_LOG(LogOnline, Warning, TEXT("Unable to create OnlineSubsystem module %s"), *SubsystemName.ToString());
-						OnlineSubsystemFailureWarnings.Add(KeyName, true);
+						UE_LOG(LogOnline, Log, TEXT("Unable to create OnlineSubsystem module %s"), *SubsystemName.ToString());
+						OnlineSubsystemFailureNotes.Add(KeyName, true);
 					}
 				}
 			}
@@ -235,7 +235,7 @@ void FOnlineSubsystemModule::DestroyOnlineSubsystem(const FName InSubsystemName)
 		if (OnlineSubsystem.IsValid())
 		{
 			OnlineSubsystem->Shutdown();
-			OnlineSubsystemFailureWarnings.Remove(KeyName);
+			OnlineSubsystemFailureNotes.Remove(KeyName);
 		}
 		else
 		{

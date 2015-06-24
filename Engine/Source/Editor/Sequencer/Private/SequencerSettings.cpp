@@ -15,6 +15,7 @@ USequencerSettings::USequencerSettings( const FObjectInitializer& ObjectInitiali
 	CurveValueSnapInterval = 10.0f;
 	bSnapCurveValueToInterval = true;
 	bIsUsingCleanView = false;
+	bAutoScrollEnabled = true;
 	bShowCurveEditor = false;
 	bShowCurveEditorCurveToolTips = true;
 	CurveVisibility = ESequencerCurveVisibility::AllCurves;
@@ -160,6 +161,21 @@ void USequencerSettings::SetIsUsingCleanView(bool InbIsUsingCleanView )
 	}
 }
 
+bool USequencerSettings::GetAutoScrollEnabled() const
+{
+	return bAutoScrollEnabled;
+}
+
+void USequencerSettings::SetAutoScrollEnabled(bool bInAutoScrollEnabled)
+{
+	if (bAutoScrollEnabled != bInAutoScrollEnabled)
+	{
+		bAutoScrollEnabled = bInAutoScrollEnabled;
+		SaveConfig();
+	}
+}
+
+
 bool USequencerSettings::GetShowCurveEditor() const
 {
 	return bShowCurveEditor;
@@ -170,6 +186,7 @@ void USequencerSettings::SetShowCurveEditor(bool InbShowCurveEditor)
 	if (bShowCurveEditor != InbShowCurveEditor)
 	{
 		bShowCurveEditor = InbShowCurveEditor;
+		OnShowCurveEditorChanged.Broadcast();
 		SaveConfig();
 	}
 }
@@ -213,4 +230,9 @@ float USequencerSettings::SnapTimeToInterval( float InTimeValue ) const
 USequencerSettings::FOnCurveVisibilityChanged* USequencerSettings::GetOnCurveVisibilityChanged()
 {
 	return &OnCurveVisibilityChanged;
+}
+
+USequencerSettings::FOnShowCurveEditorChanged* USequencerSettings::GetOnShowCurveEditorChanged()
+{
+	return &OnShowCurveEditorChanged;
 }

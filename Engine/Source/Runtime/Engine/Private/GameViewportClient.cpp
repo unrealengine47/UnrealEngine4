@@ -2326,13 +2326,19 @@ void UGameViewportClient::ToggleShowCollision()
 		}
 
 		NumViewportsShowingCollision++;
-		ShowCollisionOnSpawnedActorsDelegateHandle = GetWorld()->AddOnActorSpawnedHandler(FOnActorSpawned::FDelegate::CreateUObject(this, &UGameViewportClient::ShowCollisionOnSpawnedActors));
+		if (World != nullptr)
+		{
+			ShowCollisionOnSpawnedActorsDelegateHandle = World->AddOnActorSpawnedHandler(FOnActorSpawned::FDelegate::CreateUObject(this, &UGameViewportClient::ShowCollisionOnSpawnedActors));
+		}
 	}
 	else
 	{
 		NumViewportsShowingCollision--;
 		check(NumViewportsShowingCollision >= 0);
-		GetWorld()->RemoveOnActorSpawnedHandler(ShowCollisionOnSpawnedActorsDelegateHandle);
+		if (World != nullptr)
+		{
+			World->RemoveOnActorSpawnedHandler(ShowCollisionOnSpawnedActorsDelegateHandle);
+		}
 	}
 
 	CollisionComponentVisibilityMap& Mapping = GetCollisionComponentVisibilityMap();
@@ -2350,12 +2356,17 @@ void UGameViewportClient::ToggleShowCollision()
 	}
 	Mapping.Empty();
 
+	if (World == nullptr)
+	{
+		return;
+	}
+
 	if (NumViewportsShowingCollision > 0)
 	{
 		for (TObjectIterator<UPrimitiveComponent> It; It; ++It)
 		{
 			UPrimitiveComponent* PrimitiveComponent = *It;
-			if (!PrimitiveComponent->IsVisible() && PrimitiveComponent->IsCollisionEnabled() && PrimitiveComponent->GetScene() == GetWorld()->Scene)
+			if (!PrimitiveComponent->IsVisible() && PrimitiveComponent->IsCollisionEnabled() && PrimitiveComponent->GetScene() == World->Scene)
 			{
 				if (PrimitiveComponent->GetOwner() && PrimitiveComponent->GetOwner()->GetWorld() && PrimitiveComponent->GetOwner()->GetWorld()->IsGameWorld())
 				{
@@ -2371,7 +2382,7 @@ void UGameViewportClient::ToggleShowCollision()
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	if (EngineShowFlags.Collision)
 	{
-		for (FLocalPlayerIterator It((UEngine*)GetOuter(), GetWorld()); It; ++It)
+		for (FLocalPlayerIterator It((UEngine*)GetOuter(), World); It; ++It)
 		{
 			APlayerController* PC = It->PlayerController;
 			if (PC != NULL && PC->GetPawn() != NULL)

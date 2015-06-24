@@ -172,7 +172,7 @@ bool FStreamLevelAction::UpdateLevel( ULevelStreaming* LevelStreamingObject )
 		return true;
 	}
 	// Level shouldn't be loaded but is as background level streaming is enabled so we need to fire finished event regardless.
-	else if (LevelStreamingObject->GetLoadedLevel() && !LevelStreamingObject->bShouldBeLoaded && !GetDefault<UStreamingSettings>()->bUseBackgroundLevelStreaming)
+	else if (LevelStreamingObject->GetLoadedLevel() && !LevelStreamingObject->bShouldBeLoaded && !GUseBackgroundLevelStreaming)
 	{
 		return true;
 	}
@@ -482,6 +482,7 @@ bool ULevelStreaming::RequestLevel(UWorld* PersistentWorld, bool bAllowLevelLoad
 			UWorld::WorldTypePreLoadMap.FindOrAdd(DesiredPackageName) = PersistentWorld->WorldType;
 
 			// Kick off async load request.
+			STAT_ADD_CUSTOMMESSAGE_NAME( STAT_NamedMarker, *(FString( TEXT( "RequestLevel - " ) + DesiredPackageName.ToString() )) );
 			LoadPackageAsync(DesiredPackageName.ToString(), nullptr, *PackageNameToLoadFrom, FLoadPackageAsyncDelegate::CreateUObject(this, &ULevelStreaming::AsyncLevelLoadComplete), PackageFlags, PIEInstanceID);
 
 			// streamingServer: server loads everything?
@@ -643,6 +644,8 @@ void ULevelStreaming::AsyncLevelLoadComplete(const FName& InPackageName, UPackag
 	// Clean up the world type list and owning world list now that PostLoad has occurred
 	UWorld::WorldTypePreLoadMap.Remove(InPackageName);
 	ULevel::StreamedLevelsOwningWorld.Remove(InPackageName);
+
+	STAT_ADD_CUSTOMMESSAGE_NAME( STAT_NamedMarker, *(FString( TEXT( "RequestLevelComplete - " ) + InPackageName.ToString() )) );
 }
 
 bool ULevelStreaming::IsLevelVisible() const
@@ -967,6 +970,15 @@ bool ULevelStreamingKismet::ShouldBeVisible() const
 bool ULevelStreamingKismet::ShouldBeLoaded() const
 {
 	return bShouldBeLoaded;
+}
+
+ALevelScriptActor* ULevelStreaming::GetLevelScriptActor()
+{
+	if (LoadedLevel)
+	{
+		return LoadedLevel->GetLevelScriptActor();
+	}
+	return nullptr;
 }
 
 /*-----------------------------------------------------------------------------

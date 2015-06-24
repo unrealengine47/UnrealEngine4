@@ -33,6 +33,47 @@
 #define LOCTEXT_NAMESPACE "Sequencer"
 
 
+class SSequencerScrollBox : public SScrollBox
+{
+public:
+	void Construct( const FArguments& InArgs, TSharedRef<FSequencer> InSequencer);
+
+	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
+
+	/** The sequencer which owns this widget. */
+	TWeakPtr<FSequencer> Sequencer;
+};
+
+void SSequencerScrollBox::Construct(const FArguments& InArgs, TSharedRef<FSequencer> InSequencer)
+{
+	Sequencer = InSequencer;
+	SScrollBox::Construct(InArgs);
+}
+
+FReply SSequencerScrollBox::OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
+{
+	// Clear the selection if no sequencer display nodes were clicked on
+	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+	{
+		if (Sequencer.Pin()->GetSelection()->GetSelectedOutlinerNodes()->Num() != 0)
+		{
+			Sequencer.Pin()->GetSelection()->EmptySelectedOutlinerNodes();
+
+			if (Sequencer.Pin()->IsLevelEditorSequencer())
+			{
+				const bool bNotifySelectionChanged = false;
+				const bool bDeselectBSP = true;
+				const bool bWarnAboutTooManyActors = false;
+
+				const FScopedTransaction Transaction(NSLOCTEXT("UnrealEd", "ClickingOnActors", "Clicking on Actors"));
+				GEditor->SelectNone(bNotifySelectionChanged, bDeselectBSP, bWarnAboutTooManyActors);
+				return FReply::Handled();
+			}
+		}
+	}
+	return FReply::Unhandled();
+}
+
 /**
  * The shot filter overlay displays the overlay needed to filter out widgets based on
  * which shots are actively in use.
@@ -147,6 +188,11 @@ void SSequencer::Construct( const FArguments& InArgs, TSharedRef< class FSequenc
 {
 	Sequencer = InSequencer;
 	bIsActiveTimerRegistered = false;
+	bUserIsSelecting = false;
+
+	USelection::SelectionChangedEvent.AddSP(this, &SSequencer::OnActorSelectionChanged);
+
+	GetMutableDefault<USequencerSettings>()->GetOnShowCurveEditorChanged()->AddSP(this, &SSequencer::OnCurveEditorVisibilityChanged);
 
 	// Create a node tree which contains a tree of movie scene data to display in the sequence
 	SequencerNodeTree = MakeShareable( new FSequencerNodeTree( InSequencer.Get() ) );
@@ -157,6 +203,8 @@ void SSequencer::Construct( const FArguments& InArgs, TSharedRef< class FSequenc
 	TimeSliderArgs.ViewRange = InArgs._ViewRange;
 	TimeSliderArgs.OnViewRangeChanged = InArgs._OnViewRangeChanged;
 	TimeSliderArgs.ScrubPosition = InArgs._ScrubPosition;
+	TimeSliderArgs.OnBeginScrubberMovement = InArgs._OnBeginScrubbing;
+	TimeSliderArgs.OnEndScrubberMovement = InArgs._OnEndScrubbing;
 	TimeSliderArgs.OnScrubPositionChanged = InArgs._OnScrubPositionChanged;
 
 	TSharedRef<FSequencerTimeSliderController> TimeSliderController( new FSequencerTimeSliderController( TimeSliderArgs ) );
@@ -190,7 +238,8 @@ void SSequencer::Construct( const FArguments& InArgs, TSharedRef< class FSequenc
 
 	SAssignNew( CurveEditor, SSequencerCurveEditor, PinnedSequencer, TimeSliderController )
 		.Visibility( this, &SSequencer::GetCurveEditorVisibility )
-		.ViewRange( FAnimatedRange::WrapAttribute(InArgs._ViewRange) );
+		.OnViewRangeChanged( InArgs._OnViewRangeChanged )
+		.ViewRange( InArgs._ViewRange );
 
 	const int32 				Column0	= 0,	Column1	= 1;
 	const int32 Row0	= 0,
@@ -251,7 +300,7 @@ void SSequencer::Construct( const FArguments& InArgs, TSharedRef< class FSequenc
 
 							+ SOverlay::Slot()
 							[
-								SNew( SScrollBox )
+								SNew( SSequencerScrollBox, Sequencer.Pin().ToSharedRef() )
 								.ExternalScrollbar(ScrollBar)
 
 								+ SScrollBox::Slot()
@@ -444,6 +493,10 @@ TSharedRef<SWidget> SSequencer::MakeToolBar()
 		{
 			ToolBarBuilder.AddToolBarButton( FSequencerCommands::Get().ToggleCleanView );
 		}
+
+		ToolBarBuilder.SetLabelVisibility(EVisibility::Collapsed);
+		ToolBarBuilder.AddToolBarButton( FSequencerCommands::Get().ToggleAutoScroll, NAME_None, TAttribute<FText>( FText::GetEmpty() ) );
+		ToolBarBuilder.SetLabelVisibility(EVisibility::Visible);
 	}
 	ToolBarBuilder.EndSection();
 
@@ -587,6 +640,8 @@ TSharedRef<SWidget> SSequencer::MakeTransportControls()
 
 SSequencer::~SSequencer()
 {
+	USelection::SelectionChangedEvent.RemoveAll(this);
+	GetMutableDefault<USequencerSettings>()->GetOnShowCurveEditorChanged()->RemoveAll(this);
 }
 
 void SSequencer::RegisterActiveTimerForPlayback()
@@ -967,6 +1022,47 @@ void SSequencer::OnActorsDropped( FActorDragDropGraphEdOp& DragDropOp )
 	Sequencer.Pin()->OnActorsDropped( DragDropOp.Actors );
 }
 
+void SSequencer::OnActorSelectionChanged(UObject* obj)
+{
+	if (!Sequencer.IsValid())
+	{
+		return;
+	}
+
+	if (!Sequencer.Pin()->IsLevelEditorSequencer())
+	{
+		return;
+	}
+
+	// If the user is selecting within the sequencer, ignore
+	if (bUserIsSelecting)
+	{
+		return;
+	}
+
+	TSet<TSharedRef<FSequencerDisplayNode>> RootNodes(SequencerNodeTree->GetRootNodes());
+
+	// Clear selection
+	Sequencer.Pin()->GetSelection()->EmptySelectedOutlinerNodes();
+
+	// Select the nodes that have runtime objects that are selected in the level
+	for (auto Node : RootNodes)
+	{
+		TSharedRef<FObjectBindingNode> ObjectBindingNode = StaticCastSharedRef<FObjectBindingNode>(Node);
+		TArray<UObject*> RuntimeObjects;
+		Sequencer.Pin()->GetRuntimeObjects( Sequencer.Pin()->GetFocusedMovieSceneInstance(), ObjectBindingNode->GetObjectBinding(), RuntimeObjects );
+		
+		for (int32 RuntimeIndex = 0; RuntimeIndex < RuntimeObjects.Num(); ++RuntimeIndex )
+		{
+			if (GEditor->GetSelectedActors()->IsSelected(RuntimeObjects[RuntimeIndex]))
+			{
+				Sequencer.Pin()->GetSelection()->AddToSelection(Node);
+				break;
+			}
+		}
+	}
+}
+
 void SSequencer::OnCrumbClicked(const FSequencerBreadcrumb& Item)
 {
 	if (Item.BreadcrumbType != FSequencerBreadcrumb::ShotType)
@@ -1090,6 +1186,15 @@ EVisibility SSequencer::GetTrackAreaVisibility() const
 EVisibility SSequencer::GetCurveEditorVisibility() const
 {
 	return GetDefault<USequencerSettings>()->GetShowCurveEditor() ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+void SSequencer::OnCurveEditorVisibilityChanged()
+{
+	if (CurveEditor.IsValid())
+	{
+		// Only zoom horizontally if the editor is visible
+		CurveEditor->SetZoomToFit(true, GetDefault<USequencerSettings>()->GetShowCurveEditor());
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

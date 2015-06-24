@@ -256,9 +256,6 @@ void FUnrealEdMisc::OnInit()
 	// Check for automated build/submit option
 	const bool bDoAutomatedMapBuild = FParse::Param( ParsedCmdLine, TEXT("AutomatedMapBuild") );
 
-	// This adds mount points for the template shared resources if we are editing a template project.
-	MountTemplateSharedPaths();
-
 	// Load startup map (conditionally)
 	SlowTask.EnterProgressFrame(60);
 	{
@@ -1653,7 +1650,7 @@ void FUnrealEdMisc::MountTemplateSharedPaths()
 			}
 			else if (EachPack.DetailLevels.Num() == 0)
 			{
-				// If no levels are supplied, assume standard
+				// If no levels are supplied we cant really use this pack !
 				UE_LOG(LogUnrealEdMisc, Warning, TEXT("No detail levels defined for %s in %s."), *EachPack.MountName, *TemplateFilename );
 				continue;
 			}

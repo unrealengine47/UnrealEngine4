@@ -94,6 +94,8 @@ void FSequencer::InitSequencer( const FSequencerInitParams& InitParams, const TA
 		SequencerWidget = SNew( SSequencer, SharedThis( this ) )
 			.ViewRange( this, &FSequencer::GetViewRange )
 			.ScrubPosition( this, &FSequencer::OnGetScrubPosition )
+			.OnBeginScrubbing( this, &FSequencer::OnBeginScrubbing )
+			.OnEndScrubbing( this, &FSequencer::OnEndScrubbing )
 			.OnScrubPositionChanged( this, &FSequencer::OnScrubPositionChanged )
 			.OnViewRangeChanged( this, &FSequencer::OnViewRangeChanged )
 			.OnGetAddMenuContent(InitParams.ViewParams.OnGetAddMenuContent);
@@ -149,6 +151,7 @@ FSequencer::FSequencer()
 	: SequencerCommandBindings( new FUICommandList )
 	, TargetViewRange(0.f, 5.f)
 	, LastViewRange(0.f, 5.f)
+	, bAutoScrollEnabled(true)
 	, PlaybackState( EMovieScenePlayerStatus::Stopped )
 	, ScrubPosition( 0.0f )
 	, bLoopingEnabled( false )
@@ -157,7 +160,7 @@ FSequencer::FSequencer()
 	, bIsEditingWithinLevelEditor( false )
 	, bNeedTreeRefresh( false )
 {
-
+	
 }
 
 FSequencer::~FSequencer()
@@ -197,6 +200,15 @@ void FSequencer::Tick(float InDeltaTime)
 
 		SequencerWidget->UpdateLayoutTree();
 		bNeedTreeRefresh = false;
+	}
+	
+	// Animate the autoscroll offset if it's set
+	if (AutoscrollOffset.IsSet())
+	{
+		static const float AutoScrollFactor = 0.1f;
+		float Offset = AutoscrollOffset.GetValue() * AutoScrollFactor;
+		OnViewRangeChanged(TRange<float>(TargetViewRange.GetLowerBoundValue() + Offset, TargetViewRange.GetUpperBoundValue() + Offset), EViewRangeInterpolation::Immediate);
+		SetGlobalTime(GetGlobalTime() + Offset);
 	}
 
 	float NewTime = GetGlobalTime() + InDeltaTime;
@@ -560,17 +572,55 @@ void FSequencer::SetGlobalTime( float NewTime )
 {
 	float LastTime = ScrubPosition;
 
+	if (bAutoScrollEnabled && PlaybackState != EMovieScenePlayerStatus::Scrubbing)
+	{
+		float RangeOffset = CalculateAutoscrollEncroachment(NewTime).Get(0.f);
+			
+		// When not scrubbing, we auto scroll the view range immediately
+		if (RangeOffset != 0.f)
+		{
+			OnViewRangeChanged(
+				TRange<float>(TargetViewRange.GetLowerBoundValue() + RangeOffset, TargetViewRange.GetUpperBoundValue() + RangeOffset),
+				EViewRangeInterpolation::Immediate
+				);
+		}
+	}
+
 	// Update the position
 	ScrubPosition = NewTime;
 
 	RootMovieSceneInstance->Update( ScrubPosition, LastTime, *this );
 }
 
+TOptional<float> FSequencer::CalculateAutoscrollEncroachment(float NewTime) const
+{
+	enum class EDirection { Positive, Negative };
+	const EDirection Movement = NewTime - ScrubPosition >= 0 ? EDirection::Positive : EDirection::Negative;
+
+	const TRange<float> CurrentRange = GetViewRange();
+	const float RangeMin = CurrentRange.GetLowerBoundValue(), RangeMax = CurrentRange.GetUpperBoundValue();
+	const float AutoScrollThreshold = (RangeMax - RangeMin) * 0.1f;
+
+	if (Movement == EDirection::Negative && NewTime < RangeMin + AutoScrollThreshold)
+	{
+		// Scrolling backwards in time, and have hit the threshold
+		return NewTime - (RangeMin + AutoScrollThreshold);
+	}
+	else if (Movement == EDirection::Positive && ScrubPosition > RangeMax - AutoScrollThreshold)
+	{
+		// Scrolling forwards in time, and have hit the threshold
+		return NewTime - (RangeMax - AutoScrollThreshold);
+	}
+	else
+	{
+		return TOptional<float>();
+	}
+}
+
 void FSequencer::SetPerspectiveViewportPossessionEnabled(bool bEnabled)
 {
 	bPerspectiveViewportPossessionEnabled = bEnabled;
 }
-
 
 FGuid FSequencer::GetHandleToObject( UObject* Object )
 {
@@ -579,51 +629,55 @@ FGuid FSequencer::GetHandleToObject( UObject* Object )
 
 	FGuid ObjectGuid = ObjectBindingManager->FindGuidForObject( *FocusedMovieScene, *Object );
 
-	// Check here for spawnable otherwise spawnables get recreated as possessables, which doesn't make sense
-	if (ObjectGuid.IsValid() && !FocusedMovieScene->FindSpawnable(ObjectGuid))
+	// Check here for spawnable otherwise spawnables get recreated as possessables, which doesn't make sens
+	FMovieSceneSpawnable* Spawnable = FocusedMovieScene->FindSpawnable(ObjectGuid);
+	if( !Spawnable )
 	{
-		// Make sure that the possessable is still valid, if it's not remove the binding so new one 
-		// can be created.  This can happen due to undo.
-		FMovieScenePossessable* Possessable = FocusedMovieScene->FindPossessable(ObjectGuid);
-		if (Possessable == nullptr )
+		if(ObjectGuid.IsValid())
 		{
-			ObjectBindingManager->UnbindPossessableObjects(ObjectGuid);
-			ObjectGuid.Invalidate();
-		}
-	}
-	
-	bool bPossessableAdded = false;
-	
-	// If the object guid was not found attempt to add it
-	// Note: Only possessed actors can be added like this
-	if( !ObjectGuid.IsValid() && ObjectBindingManager->CanPossessObject( *Object ) )
-	{
-		// @todo sequencer: Undo doesn't seem to be working at all
-		const FScopedTransaction Transaction( LOCTEXT("UndoPossessingObject", "Possess Object with MovieScene") );
-		
-		// Possess the object!
-		{
-			// Create a new possessable
-			FocusedMovieScene->Modify();
-
-			ObjectGuid = FocusedMovieScene->AddPossessable( Object->GetName(), Object->GetClass() );
-			
-			if ( IsShotFilteringOn() )
+			// Make sure that the possessable is still valid, if it's not remove the binding so new one 
+			// can be created.  This can happen due to undo.
+			FMovieScenePossessable* Possessable = FocusedMovieScene->FindPossessable(ObjectGuid);
+			if(Possessable == nullptr)
 			{
-				AddUnfilterableObject(ObjectGuid);
+				ObjectBindingManager->UnbindPossessableObjects(ObjectGuid);
+				ObjectGuid.Invalidate();
 			}
-			
-			ObjectBindingManager->BindPossessableObject( ObjectGuid, *Object );
-			
-			bPossessableAdded = true;
 		}
-	}
-	
-	if( bPossessableAdded )
-	{
-		SpawnOrDestroyPuppetObjects( GetFocusedMovieSceneInstance() );
-			
-		NotifyMovieSceneDataChanged();
+
+		bool bPossessableAdded = false;
+
+		// If the object guid was not found attempt to add it
+		// Note: Only possessed actors can be added like this
+		if(!ObjectGuid.IsValid() && ObjectBindingManager->CanPossessObject(*Object))
+		{
+			// @todo sequencer: Undo doesn't seem to be working at all
+			const FScopedTransaction Transaction(LOCTEXT("UndoPossessingObject", "Possess Object with MovieScene"));
+
+			// Possess the object!
+			{
+				// Create a new possessable
+				FocusedMovieScene->Modify();
+
+				ObjectGuid = FocusedMovieScene->AddPossessable(Object->GetName(), Object->GetClass());
+
+				if(IsShotFilteringOn())
+				{
+					AddUnfilterableObject(ObjectGuid);
+				}
+
+				ObjectBindingManager->BindPossessableObject(ObjectGuid, *Object);
+
+				bPossessableAdded = true;
+			}
+		}
+
+		if(bPossessableAdded)
+		{
+			SpawnOrDestroyPuppetObjects(GetFocusedMovieSceneInstance());
+
+			NotifyMovieSceneDataChanged();
+		}
 	}
 	
 	return ObjectGuid;
@@ -931,23 +985,46 @@ void FSequencer::OnViewRangeChanged( TRange<float> NewViewRange, EViewRangeInter
 
 void FSequencer::OnScrubPositionChanged( float NewScrubPosition, bool bScrubbing )
 {
-	if (bScrubbing)
+	if (PlaybackState == EMovieScenePlayerStatus::Scrubbing)
 	{
-		PlaybackState =
-			PlaybackState == EMovieScenePlayerStatus::BeginningScrubbing || PlaybackState == EMovieScenePlayerStatus::Scrubbing ?
-			EMovieScenePlayerStatus::Scrubbing : EMovieScenePlayerStatus::BeginningScrubbing;
-	}
-	else
-	{
-		PlaybackState = EMovieScenePlayerStatus::Stopped;
+		if (!bScrubbing)
+		{
+			OnEndScrubbing();
+		}
+		else if (bAutoScrollEnabled)
+		{
+			// When scrubbing, we animate auto-scrolled scrub position in Tick()
+			AutoscrollOffset = CalculateAutoscrollEncroachment(NewScrubPosition);
+			if (AutoscrollOffset.IsSet())
+			{
+				return;
+			}
+		}
 	}
 
 	SetGlobalTime( NewScrubPosition );
 }
 
+void FSequencer::OnBeginScrubbing()
+{
+	PlaybackState = EMovieScenePlayerStatus::Scrubbing;
+}
+
+void FSequencer::OnEndScrubbing()
+{
+	PlaybackState = EMovieScenePlayerStatus::Stopped;
+	AutoscrollOffset.Reset();
+}
+
 void FSequencer::OnToggleAutoKey()
 {
 	bAllowAutoKey = !bAllowAutoKey;
+}
+
+void FSequencer::OnToggleAutoScroll()
+{
+	bAutoScrollEnabled = !bAutoScrollEnabled;
+	GetMutableDefault<USequencerSettings>()->SetAutoScrollEnabled(bAutoScrollEnabled);
 }
 
 FGuid FSequencer::AddSpawnableForAssetOrClass( UObject* Object, UObject* CounterpartGamePreviewObject )
@@ -1502,6 +1579,13 @@ void FSequencer::BindSequencerCommands()
 		FExecuteAction::CreateSP( this, &FSequencer::OnToggleAutoKey ),
 		FCanExecuteAction::CreateLambda( []{ return true; } ),
 		FIsActionChecked::CreateSP( this, &FSequencer::OnGetAllowAutoKey ) );
+
+	bAutoScrollEnabled = Settings->GetAutoScrollEnabled();
+	SequencerCommandBindings->MapAction(
+		Commands.ToggleAutoScroll,
+		FExecuteAction::CreateSP( this, &FSequencer::OnToggleAutoScroll ),
+		FCanExecuteAction::CreateLambda( []{ return true; } ),
+		FIsActionChecked::CreateSP( this, &FSequencer::GetAutoScrollEnabled ) );
 
 	SequencerCommandBindings->MapAction(
 		Commands.ToggleCleanView,

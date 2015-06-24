@@ -982,7 +982,7 @@ void UEditorEngine::Tick( float DeltaSeconds, bool bIdleMode )
 	// Update subsystems.
 	{
 		// This assumes that UObject::StaticTick only calls ProcessAsyncLoading.	
-		StaticTick(DeltaSeconds, GetDefault<UStreamingSettings>()->bAsyncLoadingUseFullTimeLimit, GetDefault<UStreamingSettings>()->AsyncLoadingTimeLimit / 1000.f);
+		StaticTick(DeltaSeconds, !!GAsyncLoadingUseFullTimeLimit, GAsyncLoadingTimeLimit / 1000.f);
 	}
 
 	// Look for realtime flags.
@@ -3683,6 +3683,8 @@ bool UEditorEngine::SavePackage( UPackage* InOuter, UObject* InBase, EObjectFlag
 
 	UWorld* World = Cast<UWorld>(Base);
 	bool bInitializedPhysicsSceneForSave = false;
+	
+	UWorld *OriginalOwningWorld = nullptr;
 	if ( World )
 	{
 		// We need a physics scene at save time in case code does traces during onsave events.
@@ -3700,6 +3702,7 @@ bool UEditorEngine::SavePackage( UPackage* InOuter, UObject* InBase, EObjectFlag
 			bHasPhysicsScene = (World->GetPhysicsScene() != nullptr);
 		}
 
+		
 		// If we didn't find any physics scene we will synthesize one and remove it after save
 		if (!bHasPhysicsScene)
 		{
@@ -3725,6 +3728,9 @@ bool UEditorEngine::SavePackage( UPackage* InOuter, UObject* InBase, EObjectFlag
 		}
 
 		OnPreSaveWorld(SaveFlags, World);
+
+		OriginalOwningWorld = World->PersistentLevel->OwningWorld;
+		World->PersistentLevel->OwningWorld = World;
 	}
 
 	// See if the package is a valid candidate for being auto-added to the default changelist.
@@ -3765,6 +3771,11 @@ bool UEditorEngine::SavePackage( UPackage* InOuter, UObject* InBase, EObjectFlag
 
 	if ( World )
 	{
+		if (OriginalOwningWorld)
+		{
+			World->PersistentLevel->OwningWorld = OriginalOwningWorld;
+		}
+
 		OnPostSaveWorld(SaveFlags, World, OriginalPackageFlags, bSuccess);
 
 		if (bInitializedPhysicsSceneForSave)

@@ -13,6 +13,7 @@ public class PluginCreator : ModuleRules
 			{ 
 				"DesktopPlatform", 
  				"HardwareTargeting",
+				"PropertyEditor",
 			});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
@@ -20,6 +21,7 @@ public class PluginCreator : ModuleRules
 				"Core",
 				"CoreUObject",
 				"Slate",
+                "Engine",
 				"SlateCore",
  				"InputCore",
 				"UnrealEd",

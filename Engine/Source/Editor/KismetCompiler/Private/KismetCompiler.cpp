@@ -2692,6 +2692,19 @@ void FKismetCompilerContext::CreateAndProcessUbergraph()
 		}
 	}
 
+	// We need to stop the old EventGraphs from having the Blueprint as an outer, it impacts renaming.
+	if(!Blueprint->HasAnyFlags(RF_NeedLoad|RF_NeedPostLoad))
+	{
+		for(UEdGraph* OldEventGraph : Blueprint->EventGraphs)
+		{
+			if (OldEventGraph)
+			{
+				OldEventGraph->Rename(NULL, GetTransientPackage());
+			}
+		}
+	}
+	Blueprint->EventGraphs.Empty();
+
 	if (ConsolidatedEventGraph->Nodes.Num())
 	{
 		// Add a dummy entry point to the uber graph, to get the function signature correct
@@ -2716,19 +2729,6 @@ void FKismetCompilerContext::CreateAndProcessUbergraph()
 			UbergraphContext->MarkAsEventGraph();
 			UbergraphContext->MarkAsInternalOrCppUseOnly();
 			UbergraphContext->SetExternalNetNameMap(&ClassScopeNetNameMap);
-
-			// We need to stop the old EventGraphs from having the Blueprint as an outer, it impacts renaming.
-			if(!Blueprint->HasAnyFlags(RF_NeedLoad|RF_NeedPostLoad))
-			{
-				for(UEdGraph* OldEventGraph : Blueprint->EventGraphs)
-				{
-					if (OldEventGraph)
-					{
-						OldEventGraph->Rename(NULL, GetTransientPackage());
-					}
-				}
-			}
-			Blueprint->EventGraphs.Empty();
 
 			// Validate all the nodes in the graph
 			for (int32 ChildIndex = 0; ChildIndex < ConsolidatedEventGraph->Nodes.Num(); ++ChildIndex)
@@ -3653,12 +3653,17 @@ void FKismetCompilerContext::Compile()
 				UE_LOG(LogK2Compiler, Log, TEXT("%5d:\t%-64s\t%s"), Prop->GetOffset_ForGC(), *GetNameSafe(Prop), *Prop->GetCPPType());
 			}
 
-			if (NewClass->UberGraphFunction)
+			for (auto LocFunction : TFieldRange<UFunction>(NewClass, EFieldIteratorFlags::ExcludeSuper))
 			{
-				UE_LOG(LogK2Compiler, Log, TEXT("\n\nLAYOUT FRAME %s:"), *GetNameSafe(NewClass->UberGraphFunction));
-				for (auto Prop : TFieldRange<UProperty>(NewClass->UberGraphFunction))
+				UE_LOG(LogK2Compiler, Log, TEXT("\n\nLAYOUT FUNCTION %s:"), *GetNameSafe(LocFunction));
+				for (auto Prop : TFieldRange<UProperty>(LocFunction))
 				{
-					UE_LOG(LogK2Compiler, Log, TEXT("%5d:\t%-64s\t%s"), Prop->GetOffset_ForGC(), *GetNameSafe(Prop), *Prop->GetCPPType());
+					const bool bOutParam = Prop && (0 != (Prop->PropertyFlags & CPF_OutParm));
+					const bool bInParam = Prop && !bOutParam && (0 != (Prop->PropertyFlags & CPF_Parm));
+					UE_LOG(LogK2Compiler, Log, TEXT("%5d:\t%-64s\t%s %s%s")
+						, Prop->GetOffset_ForGC(), *GetNameSafe(Prop), *Prop->GetCPPType()
+						, bInParam ? TEXT("Input") : TEXT("")
+						, bOutParam ? TEXT("Output") : TEXT(""));
 				}
 			}
 		}

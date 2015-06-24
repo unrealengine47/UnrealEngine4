@@ -4,6 +4,8 @@
 
 #include "KismetCompiler.h"
 #include "VariableSetHandler.h"
+#include "BlueprintActionDatabaseRegistrar.h"
+#include "BlueprintNodeSpawner.h"
 
 struct FFillDefaultPinValueHelper
 {
@@ -64,6 +66,14 @@ public:
 		// Do not register as a default any Pin that comes from being Split
 		if (Net->ParentPin == nullptr)
 		{
+			for (auto& ResultTerm : Context.Results)
+			{
+				if ((ResultTerm.Name == Net->PinName) && (ResultTerm.Type == Net->PinType))
+				{
+					Context.NetMap.Add(Net, &ResultTerm);
+					return;
+				}
+			}
 			FBPTerminal* Term = new (Context.Results) FBPTerminal();
 			Term->CopyFromPin(Net, Net->PinName);
 			Context.NetMap.Add(Net, Term);
@@ -104,7 +114,11 @@ UK2Node_FunctionResult::UK2Node_FunctionResult(const FObjectInitializer& ObjectI
 
 FText UK2Node_FunctionResult::GetNodeTitle(ENodeTitleType::Type TitleType) const
 {
-	return NSLOCTEXT("K2Node", "ReturnNode", "ReturnNode");
+	if (ENodeTitleType::MenuTitle == TitleType)
+	{
+		return NSLOCTEXT("K2Node", "ReturnNodeMenuTitle", "Add Return Node...");
+	}
+	return NSLOCTEXT("K2Node", "ReturnNode", "Return Node");
 }
 
 void UK2Node_FunctionResult::AllocateDefaultPins()
@@ -147,4 +161,111 @@ UEdGraphPin* UK2Node_FunctionResult::CreatePinFromUserDefinition(const TSharedPt
 FNodeHandlingFunctor* UK2Node_FunctionResult::CreateNodeHandler(FKismetCompilerContext& CompilerContext) const
 {
 	return new FKCHandler_FunctionResult(CompilerContext);
+}
+
+FText UK2Node_FunctionResult::GetTooltipText() const
+{
+	return NSLOCTEXT("K2Node", "ReturnNodeTooltip", "The node terminates the function's execution. It returns output parameters.");
+}
+
+void UK2Node_FunctionResult::GetMenuActions(FBlueprintActionDatabaseRegistrar& ActionRegistrar) const
+{
+	// actions get registered under specific object-keys; the idea is that 
+	// actions might have to be updated (or deleted) if their object-key is  
+	// mutated (or removed)... here we use the node's class (so if the node 
+	// type disappears, then the action should go with it)
+	UClass* ActionKey = GetClass();
+	// to keep from needlessly instantiating a UBlueprintNodeSpawner, first   
+	// check to make sure that the registrar is looking for actions of this type
+	// (could be regenerating actions for a specific asset, and therefore the 
+	// registrar would only accept actions corresponding to that asset)
+	if (ActionRegistrar.IsOpenForRegistration(ActionKey))
+	{
+		UBlueprintNodeSpawner* NodeSpawner = UBlueprintNodeSpawner::Create(GetClass());
+		check(NodeSpawner != nullptr);
+
+		ActionRegistrar.AddBlueprintAction(ActionKey, NodeSpawner);
+	}
+}
+
+bool UK2Node_FunctionResult::IsCompatibleWithGraph(UEdGraph const* Graph) const
+{
+	const EGraphType GraphType = Graph->GetSchema()->GetGraphType(Graph);
+	const bool bIsCompatible = GraphType == EGraphType::GT_Function;
+	return bIsCompatible && Super::IsCompatibleWithGraph(Graph);
+}
+
+TArray<UK2Node_FunctionResult*> UK2Node_FunctionResult::GetAllResultNodes() const
+{
+	TArray<UK2Node_FunctionResult*> AllResultNodes;
+	if (auto Graph = GetGraph())
+	{
+		Graph->GetNodesOfClass(AllResultNodes);
+	}
+	return AllResultNodes;
+}
+
+void UK2Node_FunctionResult::PostPlacedNewNode()
+{
+	Super::PostPlacedNewNode();
+
+	UK2Node_FunctionResult* PrimaryNode = nullptr;
+	TArray<UK2Node_FunctionResult*> AllResultNodes = GetAllResultNodes();
+	for (auto ResultNode : AllResultNodes)
+	{
+		if (ResultNode && (this != ResultNode))
+		{
+			PrimaryNode = ResultNode;
+			break;
+		}
+	}
+
+	if (PrimaryNode)
+	{
+		{
+			TArray< TSharedPtr<FUserPinInfo> > UDPinsCopy = UserDefinedPins;
+			for (auto UDPin : UDPinsCopy)
+			{
+				RemoveUserDefinedPin(UDPin);
+			}
+			UserDefinedPins.Empty();
+		}
+
+		SignatureClass = PrimaryNode->SignatureClass;
+		SignatureName = PrimaryNode->SignatureName;
+		bIsEditable = PrimaryNode->bIsEditable;
+
+		for (auto UDPin : PrimaryNode->UserDefinedPins)
+		{
+			if (UDPin.IsValid())
+			{
+				TSharedPtr<FUserPinInfo> NewPinInfo = MakeShareable(new FUserPinInfo());
+				NewPinInfo->PinName = UDPin->PinName;
+				NewPinInfo->PinType = UDPin->PinType;
+				NewPinInfo->DesiredPinDirection = UDPin->DesiredPinDirection;
+				UserDefinedPins.Add(NewPinInfo);
+				CreatePinFromUserDefinition(NewPinInfo);
+			}
+		}
+	}
+}
+
+void UK2Node_FunctionResult::ValidateNodeDuringCompilation(class FCompilerResultsLog& MessageLog) const
+{
+	Super::ValidateNodeDuringCompilation(MessageLog);
+
+	auto AllResultNodes = GetAllResultNodes();
+	UK2Node_FunctionResult* OtherResult = AllResultNodes.Num() ? AllResultNodes[0] : nullptr;
+	if (OtherResult && (OtherResult != this))
+	{
+		for (auto Pin : Pins)
+		{
+			auto OtherPin = OtherResult->FindPin(Pin->PinName);
+			if (!OtherPin || (OtherPin->PinType != Pin->PinType))
+			{
+				MessageLog.Error(*NSLOCTEXT("K2Node", "FunctionResult_DifferentReturnError", "Return nodes don't match each other: @@, @@").ToString(), this, OtherResult);
+				break;
+			}
+		}
+	}
 }

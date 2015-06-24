@@ -973,19 +973,19 @@ void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(
 	for (int32 ViewIndex = 0, Num = Views.Num(); ViewIndex < Num; ViewIndex++)
 	{
 		FViewInfo& View = Views[ViewIndex];
+		FSceneViewState* ViewState = (FSceneViewState*)View.State;
 
 		bool bLPV = false;
-		FSceneViewState* ViewState = (FSceneViewState*)View.State;
 		
-		const FLightPropagationVolumeSettings& LPVSettings = View.FinalPostProcessSettings.BlendableManager.GetSingleFinalDataConst<FLightPropagationVolumeSettings>();
-
-		if ( ViewState != nullptr && ViewState->GetLightPropagationVolume() != nullptr && LPVSettings.LPVIntensity > 0.0f )
+		if(ViewState && ViewState->GetLightPropagationVolume(View.GetFeatureLevel()))
 		{
-			bLPV = true;
+			const FLightPropagationVolumeSettings& LPVSettings = View.FinalPostProcessSettings.BlendableManager.GetSingleFinalDataConst<FLightPropagationVolumeSettings>();
+
+			bLPV = LPVSettings.LPVIntensity > 0.0f;
 		} 
 		
 		bool bAmbient = View.FinalPostProcessSettings.ContributingCubemaps.Num() > 0;
-		bool bMixing = CVarLPVMixing.GetValueOnRenderThread() != 0;
+		bool bMixing = bLPV && (CVarLPVMixing.GetValueOnRenderThread() != 0);
 		bool bEnvironmentMixing = bMixing && (bAmbient || bLPV);
 		bool bRequiresApply = bSkyLight
 			// If Reflection Environment is active and mixed with indirect lighting (Ambient + LPV), apply is required!

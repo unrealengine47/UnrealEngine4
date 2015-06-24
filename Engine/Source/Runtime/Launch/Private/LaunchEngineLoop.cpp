@@ -1049,6 +1049,16 @@ int32 FEngineLoop::PreInit( const TCHAR* CmdLine )
 	}
 #endif
 
+	// initialize task graph sub-system with potential multiple threads
+	FTaskGraphInterface::Startup( FPlatformMisc::NumberOfCores() );
+	FTaskGraphInterface::Get().AttachToThread( ENamedThreads::GameThread );
+
+#if STATS
+	FThreadStats::StartThread();
+#endif
+
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "FEngineLoop::PreInit.AfterStats" ), STAT_FEngineLoop_PreInit_AfterStats, STATGROUP_LoadTime );
+
 	// Load Core modules required for everything else to work (needs to be loaded before InitializeRenderingCVarsCaching)
 	LoadCoreModules();
 
@@ -1077,14 +1087,6 @@ int32 FEngineLoop::PreInit( const TCHAR* CmdLine )
 		PRIVATE_GIsRunningCommandlet = true;
 	}
 #endif //WITH_EDITOR
-
-	// initialize task graph sub-system with potential multiple threads
-	FTaskGraphInterface::Startup( FPlatformMisc::NumberOfCores() );
-	FTaskGraphInterface::Get().AttachToThread( ENamedThreads::GameThread );
-
-#if STATS
-	FThreadStats::StartThread();
-#endif
 
 	if (FPlatformProcess::SupportsMultithreading())
 	{
@@ -1459,6 +1461,11 @@ int32 FEngineLoop::PreInit( const TCHAR* CmdLine )
 		StartRenderingThread();
 	}
 	
+#if WITH_EDITOR
+	// We need to mount the shared resources for templates (if there are any) before we try and load and game classes
+	FUnrealEdMisc::Get().MountTemplateSharedPaths();
+#endif
+
 	if ( !LoadStartupModules() )
 	{
 		// At least one startup module failed to load, return 1 to indicate an error
@@ -2012,6 +2019,8 @@ void GameLoopIsStarved()
 
 int32 FEngineLoop::Init()
 {
+	DECLARE_SCOPE_CYCLE_COUNTER( TEXT( "FEngineLoop::Init" ), STAT_FEngineLoop_Init, STATGROUP_LoadTime );
+
 	FScopedSlowTask SlowTask(100);
 	SlowTask.EnterProgressFrame(10);
 
@@ -2090,6 +2099,8 @@ int32 FEngineLoop::Init()
 
 void FEngineLoop::Exit()
 {
+	STAT_ADD_CUSTOMMESSAGE_NAME( STAT_NamedMarker, TEXT( "EngineLoop.Exit" ) );
+
 	GIsRunning	= 0;
 	GLogConsole	= NULL;
 
@@ -2176,6 +2187,7 @@ void FEngineLoop::Exit()
 	// order they were loaded in, so that systems can unregister and perform general clean up.
 	FModuleManager::Get().UnloadModulesAtShutdown();
 
+	// Move earlier?
 #if STATS
 	FThreadStats::StopThread();
 #endif
@@ -2419,14 +2431,16 @@ void FEngineLoop::Tick()
 #endif
 
 #if WITH_EDITOR
-#if WITH_ENGINE
-		QUICK_SCOPE_CYCLE_COUNTER(STAT_FEngineLoop_Tick_AutomationController);
-#endif
-		static FName AutomationController("AutomationController");
-		//Check if module loaded to support the change to allow this to be hot compilable.
-		if (FModuleManager::Get().IsModuleLoaded(AutomationController))
 		{
-			FModuleManager::GetModuleChecked<IAutomationControllerModule>(AutomationController).Tick();
+#if WITH_ENGINE
+			QUICK_SCOPE_CYCLE_COUNTER( STAT_FEngineLoop_Tick_AutomationController );
+#endif
+			static FName AutomationController( "AutomationController" );
+			//Check if module loaded to support the change to allow this to be hot compilable.
+			if (FModuleManager::Get().IsModuleLoaded( AutomationController ))
+			{
+				FModuleManager::GetModuleChecked<IAutomationControllerModule>( AutomationController ).Tick();
+			}
 		}
 #endif
 
@@ -2505,15 +2519,15 @@ void FEngineLoop::Tick()
 			RHICmdList.EndFrame();
 			RHICmdList.PopEvent();
 		});
+
+		// Check for async platform hardware survey results
+		GEngine->TickHardwareSurvey();
+
+		// Set CPU utilization stats.
+		const FCPUTime CPUTime = FPlatformTime::GetCPUTime();
+		SET_FLOAT_STAT( STAT_CPUTimePct, CPUTime.CPUTimePct );
+		SET_FLOAT_STAT( STAT_CPUTimePctRelative, CPUTime.CPUTimePctRelative );
 	} 
-
-	// Check for async platform hardware survey results
-	GEngine->TickHardwareSurvey();
-
-	// Set CPU utilization stats.
-	const FCPUTime CPUTime = FPlatformTime::GetCPUTime();
-	SET_FLOAT_STAT(STAT_CPUTimePct,CPUTime.CPUTimePct);
-	SET_FLOAT_STAT(STAT_CPUTimePctRelative,CPUTime.CPUTimePctRelative);
 }
 
 void FEngineLoop::ClearPendingCleanupObjects()
@@ -2821,7 +2835,10 @@ bool FEngineLoop::AppInit( )
 	// Because most, if not all online subsystems will load HTTP themselves. This can cause problems though, as HTTP will be loaded *after* OSS, 
 	// and if OSS holds on to resources allocated by it, this will cause crash (modules are being unloaded in LIFO order with no dependency tracking).
 	// Loading HTTP before OSS works around this problem by making ModuleManager unload HTTP after OSS, at the cost of extra module for the few OSS (like Null) that don't use it.
-	FModuleManager::Get().LoadModule(TEXT("XMPP"));
+	if(FModuleManager::Get().ModuleExists(TEXT("XMPP")))
+	{
+		FModuleManager::Get().LoadModule(TEXT("XMPP"));
+	}
 	FModuleManager::Get().LoadModule(TEXT("HTTP"));
 	FModuleManager::Get().LoadModule(TEXT("OnlineSubsystem"));
 	FModuleManager::Get().LoadModule(TEXT("OnlineSubsystemUtils"));

@@ -103,14 +103,29 @@ public:
 	virtual const TSharedRef<const FOnlinePartyId>& GetPartyId() const = 0;
 
 	/**
-	 * @return id of the client app associated with the sender of the party invite
+	 * @return id of the client app associated with the sender of the party invite 
 	 */
 	virtual const FString& GetClientId() const = 0;
 
 	/**
-	 * @return the ReservationKey for this invite
+	 * @return whether or not the party is accepting members
 	 */
-	virtual const FString& GetReservationKey() const = 0;
+	virtual bool GetIsAcceptingMembers() const = 0;
+
+	/**
+	 * @return why the party is not accepting members
+	 */
+	virtual int32 GetNotAcceptingReason() const = 0;
+
+	/**
+	 * @return true if the join info cannot be used to join a party
+	 */
+	virtual bool IsInvalidForJoin() const = 0;
+
+	/**
+	 * @return true if the join info cannot be used to request an invite
+	 */
+	virtual bool IsInvalidForInviteRequest() const = 0;
 };
 
 /**
@@ -150,6 +165,22 @@ namespace EPartyPermissions
 		/** invite required to join the party */
 		Private
 	};
+
+	inline const TCHAR* ToString(EPartyPermissions::Type PartyPermissions)
+	{
+		switch (PartyPermissions)
+		{
+		case Public:
+		{
+			return TEXT("Public");
+		}
+		case Private:
+		{
+			return TEXT("Private");
+		}
+		}
+		return TEXT("");
+	}
 }
 
 /**
@@ -159,10 +190,13 @@ struct FPartyConfiguration : public TSharedFromThis<FPartyConfiguration>
 {
 	FPartyConfiguration()
 		: Permissions(EPartyPermissions::Public)
-		, bShouldPublishToPresence(true)
+		, bShouldPublishToPresence(false)
 		, bCanNonLeaderPublishToPresence(false)
+		, bCanNonLeaderInviteToParty(false)
 		, bShouldRemoveOnDisconnection(false)
-		, MaxMembers(5)
+		, bIsAcceptingMembers(false)
+		, NotAcceptingMembersReason(0)
+		, MaxMembers(0)
 	{}
 
 	/** Permission for configuring party */
@@ -171,8 +205,14 @@ struct FPartyConfiguration : public TSharedFromThis<FPartyConfiguration>
 	bool bShouldPublishToPresence;
 	/** should publish info to presence */
 	bool bCanNonLeaderPublishToPresence;
+	/** can non-leaders send an invite to people */
+	bool bCanNonLeaderInviteToParty;
 	/** should remove on disconnection */
 	bool bShouldRemoveOnDisconnection;
+	/** is accepting members */
+	bool bIsAcceptingMembers;
+	/** not accepting members reason */
+	int32 NotAcceptingMembersReason;
 	/** clients can add whatever data they want for configuration options */
 	FOnlinePartyData ClientConfigData;
 	/** Maximum active members allowed. 0 means no maximum. */
@@ -183,6 +223,22 @@ struct FPartyConfiguration : public TSharedFromThis<FPartyConfiguration>
 	FString Description;
 	/** Human readable password for party. */
 	FString Password;
+
+	FString DumpState() const
+	{
+		return FString::Printf(TEXT("Permissions: %s Publish: L(%d) NL(%d) NL Invite(%d) RemoveOnDisconnect: %d Accepting: %d Not Accepting Reason(%d) MaxMembers: %d Nickname: %s Description: %s Password: %s"),
+			ToString(Permissions),
+			bShouldPublishToPresence,
+			bCanNonLeaderPublishToPresence,
+			bCanNonLeaderInviteToParty,
+			bShouldRemoveOnDisconnection,
+			bIsAcceptingMembers,
+			NotAcceptingMembersReason,
+			MaxMembers,
+			*Nickname,
+			*Description,
+			Password.IsEmpty() ? TEXT("not set") : TEXT("set"));
+	}
 };
 
 struct EPartyState
@@ -276,6 +332,26 @@ enum class EMemberChangedReason
 	Promoted
 };
 
+inline const TCHAR* ToString(EMemberChangedReason Reason)
+{
+	switch (Reason)
+	{
+	case EMemberChangedReason::Disconnected:
+	{
+		return TEXT("Disconnected");
+	}
+	case EMemberChangedReason::Rejoined:
+	{
+		return TEXT("Rejoined");
+	}
+	case EMemberChangedReason::Promoted:
+	{
+		return TEXT("Promoted");
+	}
+	}
+	return TEXT("");
+}
+
 enum class EMemberExitedReason
 {
 	Unknown,
@@ -284,6 +360,27 @@ enum class EMemberExitedReason
 	Disbanded,
 	Kicked
 };
+
+const TCHAR* ToString(EMemberExitedReason Reason);
+
+enum class EJoinPartyCompletionResult
+{
+	UnknownClientFailure = -100,
+	JoinInfoInvalid,
+	AlreadyInParty,
+	UnknownLocalUser,
+	FailedToJoinChatRoom,
+	MessagingFailure,
+	NoSpace,
+	NotApproved,
+	RequesteeNotMember,
+	RequesteeNotLeader,
+	UnknownTransportFailure,
+	UnknownInternalFailure = 0,
+	Succeeded = 1
+};
+
+const TCHAR* ToString(EJoinPartyCompletionResult Reason);
 
 // Completion delegates
 
@@ -392,115 +489,131 @@ DECLARE_DELEGATE_FiveParams(FOnPromotePartyMemberComplete, const FUniqueNetId& /
 // Notification delegates
 
 /**
-* notification when a party is joined
-* @param LocalUserId - id associated with this notification
-* @param PartyId - id associated with the party
-*/
+ * notification when a party is joined
+ * @param LocalUserId - id associated with this notification
+ * @param PartyId - id associated with the party
+ */
 DECLARE_MULTICAST_DELEGATE_TwoParams(F_PREFIX(OnPartyJoined), const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/);
 PARTY_DECLARE_DELEGATETYPE(OnPartyJoined);
 
 /**
-* Notification when player promotion is locked out.
-* @param LocalUserId - id associated with this notification
-* @param PartyId - id associated with the party
-* @param bLockoutState - if promotion is currently locked out
-*/
+ * Notification when player promotion is locked out.
+ * @param LocalUserId - id associated with this notification
+ * @param PartyId - id associated with the party
+ * @param bLockoutState - if promotion is currently locked out
+ */
 DECLARE_MULTICAST_DELEGATE_ThreeParams(F_PREFIX(OnPartyPromotionLockoutChanged), const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/, const bool /*bLockoutState*/);
 PARTY_DECLARE_DELEGATETYPE(OnPartyPromotionLockoutChanged);
 
 /**
-* Notification when party data is updated
-* @param LocalUserId - id associated with this notification
-* @param PartyId - id associated with the party
-* @param PartyData - party data that was updated
-*/
+ * Notification when party data is updated
+ * @param LocalUserId - id associated with this notification
+ * @param PartyId - id associated with the party
+ * @param PartyConfig - party whose config was updated
+ */
+DECLARE_MULTICAST_DELEGATE_ThreeParams(F_PREFIX(OnPartyConfigChanged), const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/, const TSharedRef<FPartyConfiguration>& /*PartyConfig*/);
+PARTY_DECLARE_DELEGATETYPE(OnPartyConfigChanged);
+
+/**
+ * Notification when party data is updated
+ * @param LocalUserId - id associated with this notification
+ * @param PartyId - id associated with the party
+ * @param PartyData - party data that was updated
+ */
 DECLARE_MULTICAST_DELEGATE_ThreeParams(F_PREFIX(OnPartyDataReceived), const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/, const TSharedRef<FOnlinePartyData>& /*PartyData*/);
 PARTY_DECLARE_DELEGATETYPE(OnPartyDataReceived);
 
 /**
-* Notification when a member changes in a party
-* @param LocalUserId - id associated with this notification
-* @param PartyId - id associated with the party
-* @param MemberId - id of member that joined
-* @param Reason - how the member changed
-*/
+ * Notification when a member changes in a party
+ * @param LocalUserId - id associated with this notification
+ * @param PartyId - id associated with the party
+ * @param MemberId - id of member that joined
+ * @param Reason - how the member changed
+ */
 DECLARE_MULTICAST_DELEGATE_FourParams(F_PREFIX(OnPartyMemberChanged), const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*MemberId*/, const EMemberChangedReason /*Reason*/);
 PARTY_DECLARE_DELEGATETYPE(OnPartyMemberChanged);
 
 /**
-* Notification when a member exits a party
-* @param LocalUserId - id associated with this notification
-* @param PartyId - id associated with the party
-* @param MemberId - id of member that joined
-* @param Reason - why the member was removed
-*/
+ * Notification when a member exits a party
+ * @param LocalUserId - id associated with this notification
+ * @param PartyId - id associated with the party
+ * @param MemberId - id of member that joined
+ * @param Reason - why the member was removed
+ */
 DECLARE_MULTICAST_DELEGATE_FourParams(F_PREFIX(OnPartyMemberExited), const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*MemberId*/, const EMemberExitedReason /*Reason*/);
 PARTY_DECLARE_DELEGATETYPE(OnPartyMemberExited);
 
 /**
-* Notification when a member joins the party
-* @param LocalUserId - id associated with this notification
-* @param PartyId - id associated with the party
-* @param MemberId - id of member that joined
-*/
+ * Notification when a member joins the party
+ * @param LocalUserId - id associated with this notification
+ * @param PartyId - id associated with the party
+ * @param MemberId - id of member that joined
+ */
 DECLARE_MULTICAST_DELEGATE_ThreeParams(F_PREFIX(OnPartyMemberJoined), const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*MemberId*/);
 PARTY_DECLARE_DELEGATETYPE(OnPartyMemberJoined);
 
 /**
-* Notification when party member data is updated
-* @param LocalUserId - id associated with this notification
-* @param PartyId - id associated with the party
-* @param MemberId - id of member that had updated data
-* @param PartyMemberData - party member data that was updated
-*/
+ * Notification when party member data is updated
+ * @param LocalUserId - id associated with this notification
+ * @param PartyId - id associated with the party
+ * @param MemberId - id of member that had updated data
+ * @param PartyMemberData - party member data that was updated
+ */
 DECLARE_MULTICAST_DELEGATE_FourParams(F_PREFIX(OnPartyMemberDataReceived), const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*MemberId*/, const TSharedRef<FOnlinePartyData>& /*PartyMemberData*/);
 PARTY_DECLARE_DELEGATETYPE(OnPartyMemberDataReceived);
 
 /**
-* Notification when a request for an invite has been received
-* @param LocalUserId - id associated with this notification
-* @param PartyId - id associated with the party
-* @param SenderId - id of user that sent the invite
-* @param RequestForId - id of user that sender is requesting the invite for - invalid if the sender is requesting the invite
-*/
+ * Notification when an invite list has changed for a party
+ * @param LocalUserId - user that is associated with this notification
+ */
+DECLARE_MULTICAST_DELEGATE_OneParam(F_PREFIX(OnPartyInvitesChanged), const FUniqueNetId& /*LocalUserId*/);
+PARTY_DECLARE_DELEGATETYPE(OnPartyInvitesChanged);
+
+/**
+ * Notification when a request for an invite has been received
+ * @param LocalUserId - id associated with this notification
+ * @param PartyId - id associated with the party
+ * @param SenderId - id of user that sent the invite
+ * @param RequestForId - id of user that sender is requesting the invite for - invalid if the sender is requesting the invite
+ */
 DECLARE_MULTICAST_DELEGATE_FourParams(F_PREFIX(OnPartyInviteRequestReceived), const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*SenderId*/, const FUniqueNetId& /*RequestForId*/);
 PARTY_DECLARE_DELEGATETYPE(OnPartyInviteRequestReceived);
 
 /**
-* Notification when a new invite is received
-* @param LocalUserId - id associated with this notification
-* @param PartyId - id associated with the party
-* @param SenderId - id of member that sent the invite
-*/
+ * Notification when a new invite is received
+ * @param LocalUserId - id associated with this notification
+ * @param PartyId - id associated with the party
+ * @param SenderId - id of member that sent the invite
+ */
 DECLARE_MULTICAST_DELEGATE_ThreeParams(F_PREFIX(OnPartyInviteReceived), const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*SenderId*/);
 PARTY_DECLARE_DELEGATETYPE(OnPartyInviteReceived);
 
 /**
-* Notification when a new invite is received
-* @param LocalUserId - id associated with this notification
-* @param PartyId - id associated with the party
-* @param SenderId - id of member that sent the invite
-* @param bWasAccepted - whether or not the invite was accepted
-*/
+ * Notification when a new invite is received
+ * @param LocalUserId - id associated with this notification
+ * @param PartyId - id associated with the party
+ * @param SenderId - id of member that sent the invite
+ * @param bWasAccepted - whether or not the invite was accepted
+ */
 DECLARE_MULTICAST_DELEGATE_FourParams(F_PREFIX(OnPartyInviteResponseReceived), const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*SenderId*/, bool /*bWasAccepted*/);
 PARTY_DECLARE_DELEGATETYPE(OnPartyInviteResponseReceived);
 
 /**
-* Notification when a new reservation request is received
-* @param LocalUserId - id associated with this notification
-* @param PartyId - id associated with the party
-* @param SenderId - id of member that sent the request
-*/
+ * Notification when a new reservation request is received
+ * @param LocalUserId - id associated with this notification
+ * @param PartyId - id associated with the party
+ * @param SenderId - id of member that sent the request
+ */
 DECLARE_MULTICAST_DELEGATE_ThreeParams(F_PREFIX(OnPartyJoinRequestReceived), const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*SenderId*/);
 PARTY_DECLARE_DELEGATETYPE(OnPartyJoinRequestReceived);
 
 /**
-* Notification when an invite is accepted
-* @param LocalUserId - id associated with this notification
-* @param PartyId - id associated with the party
-* @param MemberId - id of member that accepted the invite
-* @param bWasAccepted - whether or not the invite was accepted
-*/
+ * Notification when an invite is accepted
+ * @param LocalUserId - id associated with this notification
+ * @param PartyId - id associated with the party
+ * @param MemberId - id of member that accepted the invite
+ * @param bWasAccepted - whether or not the invite was accepted
+ */
 DECLARE_MULTICAST_DELEGATE_FourParams(F_PREFIX(OnPartyJoinRequestResponseReceived), const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*MemberId*/, bool /*bWasAccepted*/);
 PARTY_DECLARE_DELEGATETYPE(OnPartyJoinRequestResponseReceived);
 
@@ -537,7 +650,7 @@ public:
 	 *
 	 * @return true if task was started
 	 */
-	virtual bool UpdateParty(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, const FPartyConfiguration& PartyConfig, bool bShouldRegenerateAccessToken = false, const FOnUpdatePartyComplete& Delegate = FOnUpdatePartyComplete()) = 0;
+	virtual bool UpdateParty(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, const FPartyConfiguration& PartyConfig, bool bShouldRegenerateReservationKey = false, const FOnUpdatePartyComplete& Delegate = FOnUpdatePartyComplete()) = 0;
 
 	/**
 	 * Destroy an existing party. Party members will be disbanded
@@ -562,7 +675,7 @@ public:
 	 *
 	 * @return true if task was started
 	 */
-	virtual bool JoinParty(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, const FUniqueNetId& RecipientId, const FString& ReservationKey, const FOnJoinPartyComplete& Delegate = FOnJoinPartyComplete()) = 0;
+	virtual bool JoinParty(const FUniqueNetId& LocalUserId, const IOnlinePartyJoinInfo& OnlinePartyJoinInfo, const FOnJoinPartyComplete& Delegate = FOnJoinPartyComplete()) = 0;
 
 	/**
 	 * Leave an existing party
@@ -582,6 +695,7 @@ public:
 	* @param LocalUserId - user making the request
 	* @param PartyId - id of an existing party
 	* @param RecipientId - id of the user being invited
+	* @param DeniedResultCode - client defined value to return when leader denies approval
 	*
 	* @return true if task was started
 	*/
@@ -700,6 +814,15 @@ public:
 	virtual bool IsMemberLeader(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, const FUniqueNetId& MemberId) const = 0;
 
 	/**
+	 * returns the number of players in a given party
+	 *
+	 * @param LocalUserId - user making the request
+	 * @param PartyId     - id of an existing party
+	 *
+	 */
+	virtual uint32 GetPartyMemberCount(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId) const = 0;
+
+	/**
 	 * Get info associated with a party
 	 *
 	 * @param LocalUserId - user making the request
@@ -809,15 +932,35 @@ public:
 	virtual bool GetPendingInvitedUsers(const FUniqueNetId& LocalUserId, const FOnlinePartyId& PartyId, TArray<TSharedRef<const FUniqueNetId>>& OutPendingInvitedUserArray) const = 0;
 
 	/**
-	 * List of all subscribeable notifications
+	 * Creates a command line token from a IOnlinePartyJoinInfo object
+	 *
+	 * @param JoinInfo - the IOnlinePartyJoinInfo object to convert
+	 *
+	 * return the new IOnlinePartyJoinInfo object
+	 */
+	virtual FString MakeTokenFromJoinInfo(const IOnlinePartyJoinInfo& JoinInfo) const = 0;
+
+	/**
+	* Creates a IOnlinePartyJoinInfo object from a command line token
+	*
+	* @param Token - the token string
+	*
+	* return the new IOnlinePartyJoinInfo object
+	*/
+	virtual TSharedRef<IOnlinePartyJoinInfo> MakeJoinInfoFromToken(const FString& Token) const = 0;
+
+	/**
+	 * List of all subscribe-able notifications
 	 *
 	 * OnPartyJoined
 	 * OnPartyPromotionLockoutStateChanged
+	 * OnPartyConfigChanged
 	 * OnPartyDataChanged
 	 * OnPartyMemberChanged
-	 * OnPartyMemberRemoved
+	 * OnPartyMemberExited
 	 * OnPartyMemberJoined
 	 * OnPartyMemberDataChanged
+	 * OnPartyInvitesChanged
 	 * OnPartyInviteRequestReceived
 	 * OnPartyInviteReceived
 	 * OnPartyInviteResponseReceived
@@ -840,6 +983,14 @@ public:
 	* @param bLockoutState - if promotion is currently locked out
 	*/
 	DEFINE_ONLINE_DELEGATE_THREE_PARAM(OnPartyPromotionLockoutChanged, const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/, const bool /*bLockoutState*/);
+
+	/**
+	 * Notification when party data is updated
+	 * @param LocalUserId - id associated with this notification
+	 * @param PartyId - id associated with the party
+	 * @param PartyConfig - party whose config was updated
+	 */
+	DEFINE_ONLINE_DELEGATE_THREE_PARAM(OnPartyConfigChanged, const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/, const TSharedRef<FPartyConfiguration>& /*PartyConfig*/);
 
 	/**
 	 * Notification when party data is updated
@@ -883,6 +1034,12 @@ public:
 	 * @param PartyMemberData - party member data that was updated
 	 */
 	DEFINE_ONLINE_DELEGATE_FOUR_PARAM(OnPartyMemberDataReceived, const FUniqueNetId& /*LocalUserId*/, const FOnlinePartyId& /*PartyId*/, const FUniqueNetId& /*MemberId*/, const TSharedRef<FOnlinePartyData>& /*PartyMemberData*/);
+
+	/**
+	 * Notification when an invite list has changed for a party
+	 * @param LocalUserId - user that is associated with this notification
+	 */
+	DEFINE_ONLINE_DELEGATE_ONE_PARAM(OnPartyInvitesChanged, const FUniqueNetId& /*LocalUserId*/);
 
 	/**
 	* Notification when a request for an invite has been received
@@ -935,3 +1092,87 @@ public:
 };
 
 typedef TSharedPtr<IOnlineParty, ESPMode::ThreadSafe> IOnlinePartyPtr;
+
+inline const TCHAR* ToString(EMemberExitedReason Reason)
+{
+	switch (Reason)
+	{
+	case EMemberExitedReason::Unknown:
+	{
+		return TEXT("Unknown");
+	}
+	case EMemberExitedReason::Left:
+	{
+		return TEXT("Left");
+	}
+	case EMemberExitedReason::Removed:
+	{
+		return TEXT("Removed");
+	}
+	case EMemberExitedReason::Disbanded:
+	{
+		return TEXT("Disbanded");
+	}
+	case EMemberExitedReason::Kicked:
+	{
+		return TEXT("Kicked");
+	}
+	}
+	return TEXT("");
+}
+
+inline const TCHAR* ToString(EJoinPartyCompletionResult Reason)
+{
+	switch (Reason)
+	{
+	case EJoinPartyCompletionResult::UnknownClientFailure:
+	{
+		return TEXT("UnknownClientFailure");
+	}
+	case EJoinPartyCompletionResult::JoinInfoInvalid:
+	{
+		return TEXT("JoinInfoInvalid");
+	}
+	case EJoinPartyCompletionResult::AlreadyInParty:
+	{
+		return TEXT("AlreadyInParty");
+	}
+	case EJoinPartyCompletionResult::UnknownLocalUser:
+	{
+		return TEXT("UnknownLocalUser");
+	}
+	case EJoinPartyCompletionResult::FailedToJoinChatRoom:
+	{
+		return TEXT("FailedToJoinChatRoom");
+	}
+	case EJoinPartyCompletionResult::MessagingFailure:
+	{
+		return TEXT("MessagingFailure");
+	}
+	case EJoinPartyCompletionResult::NoSpace:
+	{
+		return TEXT("NoSpace");
+	}
+	case EJoinPartyCompletionResult::NotApproved:
+	{
+		return TEXT("NotApproved");
+	}
+	case EJoinPartyCompletionResult::RequesteeNotMember:
+	{
+		return TEXT("RequesteeNotMember");
+	}
+	case EJoinPartyCompletionResult::RequesteeNotLeader:
+	{
+		return TEXT("RequesteeNotLeader");
+	}
+	case EJoinPartyCompletionResult::UnknownInternalFailure:
+	{
+		return TEXT("UnknownInternalFailure");
+	}
+	case EJoinPartyCompletionResult::Succeeded:
+	{
+		return TEXT("Succeeded");
+	}
+	}
+	return TEXT("");
+}

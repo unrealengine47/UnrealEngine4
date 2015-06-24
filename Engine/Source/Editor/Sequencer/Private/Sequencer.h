@@ -297,6 +297,11 @@ protected:
 	void OnViewRangeChanged( TRange<float> NewViewRange, EViewRangeInterpolation Interpolation = EViewRangeInterpolation::Animated );
 
 	/**
+	 * Calculates the amount of encroachment the specified time has into the autoscroll region, if any
+	 */
+	TOptional<float> CalculateAutoscrollEncroachment(float NewTime) const;
+
+	/**
 	 * Called when the scrub position is changed by the user
 	 * This will stop any playback from happening
 	 *
@@ -304,12 +309,22 @@ protected:
 	 */
 	void OnScrubPositionChanged( float NewScrubPosition, bool bScrubbing );
 
+	/** Called when the user has begun scrubbing */
+	void OnBeginScrubbing();
+
+	/** Called when the user has finished scrubbing */
+	void OnEndScrubbing();
+
 	/**
 	 * Called when auto-key is toggled by a user
 	 *
 	 * @param bInAllowAutoKey	The new auto key state
 	 */
 	void OnToggleAutoKey();
+
+	/** Called to toggle auto-scroll on and off */
+	void OnToggleAutoScroll();
+	bool GetAutoScrollEnabled() const { return bAutoScrollEnabled; }
 
 	/** Called via UEditorEngine::GetActorRecordingStateEvent to check to see whether we need to record actor state */
 	void GetActorRecordingState( bool& bIsRecording /* In+Out */ ) const;
@@ -399,6 +414,10 @@ private:
 	TRange<float> TargetViewRange;
 	/** The last time range that was viewed */
 	TRange<float> LastViewRange;
+	/** The amount of autoscroll pan offset that is currently being applied */
+	TOptional<float> AutoscrollOffset;
+	/** Whether or not we are allowing autoscroll */
+	bool bAutoScrollEnabled;
 
 	/** Zoom smoothing curves */
 	FCurveSequence ZoomAnimation;

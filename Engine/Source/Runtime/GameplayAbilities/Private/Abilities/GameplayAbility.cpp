@@ -418,8 +418,8 @@ bool UGameplayAbility::CanBeCanceled() const
 		return bIsCancelable;
 	}
 
-	// Non instanced are always cancelable
-	return true;
+	// Non instanced are always cancelable if they are active
+	return bIsActive;
 }
 
 void UGameplayAbility::SetCanBeCanceled(bool bCanBeCanceled)
@@ -1006,18 +1006,18 @@ FGameplayAbilityTargetingLocationInfo UGameplayAbility::MakeTargetLocationInfoFr
 
 //----------------------------------------------------------------------
 
-UGameplayTasksComponent* UGameplayAbility::GetGameplayTasksComponent()
+UGameplayTasksComponent* UGameplayAbility::GetGameplayTasksComponent(const UGameplayTask& Task) const
 {
 	return GetCurrentActorInfo() ? GetCurrentActorInfo()->AbilitySystemComponent.Get() : nullptr;
 }
 
-AActor* UGameplayAbility::GetOwnerActor() const
+AActor* UGameplayAbility::GetOwnerActor(const UGameplayTask* Task) const
 {
 	const FGameplayAbilityActorInfo* Info = GetCurrentActorInfo();
 	return Info ? Info->OwnerActor.Get() : nullptr;
 }
 
-AActor* UGameplayAbility::GetAvatarActor() const
+AActor* UGameplayAbility::GetAvatarActor(const UGameplayTask* Task) const
 {
 	const FGameplayAbilityActorInfo* Info = GetCurrentActorInfo();
 	return Info ? Info->AvatarActor.Get() : nullptr;

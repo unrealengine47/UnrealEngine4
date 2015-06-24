@@ -1286,7 +1286,7 @@ protected:
 	friend class FStaticMeshComponentRecreateRenderStateContext;
 
 	// Begin USceneComponent Interface
-	virtual void OnUpdateTransform(bool bSkipPhysicsMove, bool bTeleport = false) override;
+	virtual void OnUpdateTransform(bool bSkipPhysicsMove, ETeleportType Teleport = ETeleportType::None) override;
 
 	/** Event called when AttachParent changes, to allow the scene to update its attachment state. */
 	virtual void OnAttachmentChanged() override;
@@ -1341,7 +1341,7 @@ protected:
 	virtual void UpdatePhysicsToRBChannels();
 
 	/** Called to send a transform update for this component to the physics engine */
-	void SendPhysicsTransform(bool bTeleport);
+	void SendPhysicsTransform(ETeleportType Teleport);
 
 	/** Ensure physics state created **/
 	void EnsurePhysicsStateCreated();
@@ -1384,13 +1384,22 @@ public:
 	//Begin USceneComponent Interface
 
 protected:
-	virtual bool MoveComponentImpl(const FVector& Delta, const FQuat& NewRotation, bool bSweep, FHitResult* OutHit = NULL, EMoveComponentFlags MoveFlags = MOVECOMP_NoFlags) override;
+	virtual bool MoveComponentImpl(const FVector& Delta, const FQuat& NewRotation, bool bSweep, FHitResult* OutHit = NULL, EMoveComponentFlags MoveFlags = MOVECOMP_NoFlags, ETeleportType Teleport = ETeleportType::None) override;
 	
 public:
 	virtual bool IsWorldGeometry() const override;
+
+
 	virtual ECollisionEnabled::Type GetCollisionEnabled() const override;
+
+	/** Gets the response type given a specific channel */
+	UFUNCTION(BlueprintCallable, Category="Physics")
 	virtual ECollisionResponse GetCollisionResponseToChannel(ECollisionChannel Channel) const override;
+
+	/** Gets the collision object type */
+	UFUNCTION(BlueprintCallable, Category="Physics")
 	virtual ECollisionChannel GetCollisionObjectType() const override;
+
 	virtual const FCollisionResponseContainer& GetCollisionResponseToChannels() const override;
 	virtual FVector GetComponentVelocity() const override;
 	//End USceneComponent Interface

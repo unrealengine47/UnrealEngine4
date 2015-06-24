@@ -1589,7 +1589,7 @@ static bool IsTimeLimitExceeded( const TCHAR* CurrentTask, double StartTime, ULe
 	// We don't spread work across several frames in the Editor to avoid potential side effects.
 	if( Level->OwningWorld->IsGameWorld() == true )
 	{
-		double TimeLimit = GetDefault<UStreamingSettings>()->LevelStreamingActorsUpdateTimeLimit;
+		double TimeLimit = GLevelStreamingActorsUpdateTimeLimit;
 		double CurrentTime	= FPlatformTime::Seconds();
 		// Delta time in ms.
 		double DeltaTime	= (CurrentTime - StartTime) * 1000;
@@ -1791,7 +1791,7 @@ void UWorld::AddToWorld( ULevel* Level, const FTransform& LevelTransform )
 		const bool bRerunConstructionScript = !(FPlatformProperties::RequiresCookedData() || (IsGameWorld() && (Level->bWasDuplicatedForPIE || !bRerunConstructionDuringEditorStreaming)));
 		
 		// Incrementally update components.
-		int32 NumComponentsToUpdate = GetDefault<UStreamingSettings>()->LevelStreamingComponentsRegistrationGranularity;
+		int32 NumComponentsToUpdate = GLevelStreamingComponentsRegistrationGranularity;
 		do
 		{
 			Level->IncrementalUpdateComponents( (!IsGameWorld() || IsRunningCommandlet()) ? 0 : NumComponentsToUpdate, bRerunConstructionScript );
@@ -2349,7 +2349,7 @@ void UWorld::UpdateLevelStreamingInner(ULevelStreaming* StreamingLevel)
 	bool bHasVisibilityRequestPending	= StreamingLevel->GetLoadedLevel() && StreamingLevel->GetLoadedLevel() == CurrentLevelPendingVisibility;
 		
 	// Figure out whether level should be loaded, visible and block on load if it should be loaded but currently isn't.
-	bool bShouldBeLoaded = bHasVisibilityRequestPending || (!GetDefault<UStreamingSettings>()->bUseBackgroundLevelStreaming && !bShouldForceUnloadStreamingLevels && !StreamingLevel->bIsRequestingUnloadAndRemoval);
+	bool bShouldBeLoaded = bHasVisibilityRequestPending || (!GUseBackgroundLevelStreaming && !bShouldForceUnloadStreamingLevels && !StreamingLevel->bIsRequestingUnloadAndRemoval);
 	bool bShouldBeVisible	= bHasVisibilityRequestPending || bShouldForceVisibleStreamingLevels;
 	bool bShouldBlockOnLoad	= StreamingLevel->bShouldBlockOnLoad || StreamingLevel->ShouldBeAlwaysLoaded();
 
@@ -2382,7 +2382,7 @@ void UWorld::UpdateLevelStreamingInner(ULevelStreaming* StreamingLevel)
 	// See whether level is already loaded
 	if (bShouldBeLoaded)
 	{
-		const bool bBlockOnLoad = (!IsGameWorld() || !GetDefault<UStreamingSettings>()->bUseBackgroundLevelStreaming || bShouldBlockOnLoad);
+		const bool bBlockOnLoad = (!IsGameWorld() || !GUseBackgroundLevelStreaming || bShouldBlockOnLoad);
 		// Request to load or duplicate existing level
 		StreamingLevel->RequestLevel(this, bAllowLevelLoadRequests, bBlockOnLoad);
 	}
@@ -3026,8 +3026,6 @@ void UWorld::InitializeActorsForPlay(const FURL& InURL, bool bResetTime)
 	{
 		UE_LOG(LogWorld, Log, TEXT("Bringing up level for play took: %f"), FPlatformTime::Seconds() - StartTime );
 	}
-
-	STAT_ADD_CUSTOMMESSAGE_NAME( STAT_NamedMarker, *(InURL.Map + TEXT( " - Bringing Up" )) );
 }
 
 void UWorld::BeginPlay()
@@ -4302,6 +4300,8 @@ void FSeamlessTravelHandler::SeamlessTravelLoadCallback(const FName& PackageName
 
 		SetHandlerLoadedData(LevelPackage, World);
 	}
+
+	STAT_ADD_CUSTOMMESSAGE_NAME( STAT_NamedMarker, *(FString( TEXT( "StartTravelComplete - " ) + PackageName.ToString() )) );
 }
 
 bool FSeamlessTravelHandler::StartTravel(UWorld* InCurrentWorld, const FURL& InURL, const FGuid& InGuid)
@@ -4403,6 +4403,7 @@ bool FSeamlessTravelHandler::StartTravel(UWorld* InCurrentWorld, const FURL& InU
 				UWorld::WorldTypePreLoadMap.FindOrAdd(*TransitionMap) = CurrentWorld->WorldType;
 
 				// first, load the entry level package
+				STAT_ADD_CUSTOMMESSAGE_NAME( STAT_NamedMarker, *(FString( TEXT( "StartTravel - " ) + TransitionMap )) );
 				LoadPackageAsync(TransitionMap, 
 					FLoadPackageAsyncDelegate::CreateRaw(this, &FSeamlessTravelHandler::SeamlessTravelLoadCallback),
 					0, 
@@ -5615,6 +5616,15 @@ void UWorld::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const
 			OutTags.Add(FAssetRegistryTag("FiB", FString(), FAssetRegistryTag::TT_Hidden));
 		}
 	}
+
+	// Get the full file path with extension
+	const FString FullFilePath = FPackageName::LongPackageNameToFilename(GetOutermost()->GetName(), FPackageName::GetMapPackageExtension());
+
+	// Save/Display the file size and modify date
+	FDateTime AssetDateModified = IFileManager::Get().GetTimeStamp(*FullFilePath);
+	OutTags.Add(FAssetRegistryTag("DateModified", FText::AsDate(AssetDateModified, EDateTimeStyle::Short).ToString(), FAssetRegistryTag::TT_Dimensional));
+	OutTags.Add(FAssetRegistryTag("MapFileSize", FText::AsMemory(IFileManager::Get().FileSize(*FullFilePath)).ToString(), FAssetRegistryTag::TT_Numerical));
+
 	FWorldDelegates::GetAssetTags.Broadcast(this, OutTags);
 }
 #endif

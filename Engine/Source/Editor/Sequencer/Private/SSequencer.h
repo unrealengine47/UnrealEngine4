@@ -58,6 +58,10 @@ public:
 		SLATE_ATTRIBUTE( float, ScrubPosition )
 		/** Called when the user changes the view range */
 		SLATE_EVENT( FOnViewRangeChanged, OnViewRangeChanged )
+		/** Called when the user has begun scrubbing */
+		SLATE_EVENT( FSimpleDelegate, OnBeginScrubbing )
+		/** Called when the user has finished scrubbing */
+		SLATE_EVENT( FSimpleDelegate, OnEndScrubbing )
 		/** Called when the user changes the scrub position */
 		SLATE_EVENT( FOnScrubPositionChanged, OnScrubPositionChanged )
 		/** Called to populate the add combo button in the toolbar. */
@@ -91,6 +95,10 @@ public:
 	/** Expand or collapse selected nodes out of the sequencer node tree */
 	void ToggleExpandCollapseSelectedNodes(bool bDescendants = false);
 	void ExpandCollapseNode(TSharedRef<FSequencerDisplayNode> SelectedNode, bool bDescendants, bool bExpand);
+
+	/** Whether the user is selecting. Ignore selection changes from the level when the user is selecting. */
+	void SetUserIsSelecting(bool bUserIsSelectingIn) { bUserIsSelecting = bUserIsSelectingIn; }
+	bool UserIsSelecting() { return bUserIsSelecting; }
 
 private:
 	/** Empty active timer to ensure Slate ticks during Sequencer playback */
@@ -190,6 +198,12 @@ private:
 	 */
 	void OnActorsDropped( class FActorDragDropGraphEdOp& DragDropOp ); 
 	
+	/**
+	* Delegate used when actor selection changes in the level
+	*
+	*/	
+	void OnActorSelectionChanged( UObject* obj );
+
 	/** Called when a breadcrumb is clicked on in the sequencer */
 	void OnCrumbClicked(const FSequencerBreadcrumb& Item);
 
@@ -207,6 +221,9 @@ private:
 
 	/** Called when a column fill percentage is changed by a splitter slot. */
 	void OnColumnFillCoefficientChanged(float FillCoefficient, int32 ColumnIndex);
+
+	/** Called when the curve editor is shown or hidden */
+	void OnCurveEditorVisibilityChanged();
 
 private:
 
@@ -226,6 +243,8 @@ private:
 	float ColumnFillCoefficients[2];
 	/** Whether the active timer is currently registered */
 	bool bIsActiveTimerRegistered;
+	/** Whether the user is selecting. Ignore selection changes from the level when the user is selecting. */
+	bool bUserIsSelecting;
 
 	FOnGetAddMenuContent OnGetAddMenuContent;
 };

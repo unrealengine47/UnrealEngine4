@@ -91,8 +91,6 @@ void FStats::AdvanceFrame( bool bDiscardCallstack, const FOnAdvanceRenderingThre
 
 /* Todo
 
-FStatsThreadState::FStatsThreadState(FString const& Filename) - needs to be more careful about files that are "cut off". Should look for < 16 bytes left OR next 8 bytes are zero. Bad files will end with zeros and it can't be a valid record.
-
 ST_int64 combined with IsPackedCCAndDuration is fairly bogus, ST_uint32_pair should probably be a first class type. IsPackedCCAndDuration can stay, it says what kind of data is in the pair. remove FromPackedCallCountDuration_Duration et al
 
 averages stay as int64, it might be better if they were floats, but then we would probably want a ST_float_pair too.
@@ -904,7 +902,7 @@ void FThreadStats::CheckEnable()
 	}
 }
 
-void FThreadStats::Flush(bool bHasBrokenCallstacks /*= false*/, bool bForceFlush /*= false*/)
+void FThreadStats::Flush( bool bHasBrokenCallstacks /*= false*/, bool bForceFlush /*= false*/ )
 {
 	if (bMasterDisableForever)
 	{

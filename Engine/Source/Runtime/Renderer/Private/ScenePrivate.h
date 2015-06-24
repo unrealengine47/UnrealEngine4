@@ -486,6 +486,7 @@ public:
 	TRefCountPtr<IPooledRenderTarget> SeparateTranslucencyRT;
 	// Temporal AA result of last frame
 	TRefCountPtr<IPooledRenderTarget> TemporalAAHistoryRT;
+	TRefCountPtr<IPooledRenderTarget> PendingTemporalAAHistoryRT;
 	// Temporal AA result for DOF of last frame
 	TRefCountPtr<IPooledRenderTarget> DOFHistoryRT;
 	TRefCountPtr<IPooledRenderTarget> DOFHistoryRT2;
@@ -584,7 +585,7 @@ public:
 	void CreateLightPropagationVolumeIfNeeded(ERHIFeatureLevel::Type InFeatureLevel);
 
 	// @return can return 0 (if globally disabled)
-	FLightPropagationVolume* GetLightPropagationVolume() const { return LightPropagationVolume; }
+	FLightPropagationVolume* GetLightPropagationVolume(ERHIFeatureLevel::Type InFeatureLevel) const;
 
 	/** Default constructor. */
 	FSceneViewState();
@@ -678,6 +679,7 @@ public:
 		EyeAdaptationRT.SafeRelease();
 		SeparateTranslucencyRT.SafeRelease();
 		TemporalAAHistoryRT.SafeRelease();
+		PendingTemporalAAHistoryRT.SafeRelease();
 		DOFHistoryRT.SafeRelease();
 		DOFHistoryRT2.SafeRelease();
 		SSRHistoryRT.SafeRelease();

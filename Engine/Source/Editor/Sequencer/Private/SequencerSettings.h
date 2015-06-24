@@ -27,6 +27,7 @@ public:
 	GENERATED_UCLASS_BODY()
 
 	DECLARE_MULTICAST_DELEGATE( FOnCurveVisibilityChanged );
+	DECLARE_MULTICAST_DELEGATE( FOnShowCurveEditorChanged );
 
 	/** Gets whether or not snapping is enabled. */
 	bool GetIsSnapEnabled() const;
@@ -78,6 +79,11 @@ public:
 	/** Sets whether or not the 'Clean View' is enabled. In 'Clean View' mode only global tracks are displayed when no filter is applied. */
 	void SetIsUsingCleanView(bool InbIsUsingCleanView);
 
+	/** Gets whether or not auto-scroll is enabled. */
+	bool GetAutoScrollEnabled() const;
+	/** Sets whether or not auto-scroll is enabled. */
+	void SetAutoScrollEnabled(bool bInAutoScrollEnabled);
+
 	/** Gets whether or not the curve editor should be shown. */
 	bool GetShowCurveEditor() const;
 	/** Sets whether or not the curve editor should be shown. */
@@ -98,6 +104,9 @@ public:
 
 	/** Gets the multicast delegate which is run whenever the CurveVisibility value changes. */
 	FOnCurveVisibilityChanged* GetOnCurveVisibilityChanged();
+
+	/** Gets the multicast delegate which is run whenever the curve editor is shown/hidden. */
+	FOnShowCurveEditorChanged* GetOnShowCurveEditorChanged();
 
 protected:
 	UPROPERTY( config )
@@ -131,6 +140,9 @@ protected:
 	bool bIsUsingCleanView;
 
 	UPROPERTY( config )
+	bool bAutoScrollEnabled;
+
+	UPROPERTY( config )
 	bool bShowCurveEditor;
 
 	UPROPERTY( config )
@@ -140,4 +152,5 @@ protected:
 	TEnumAsByte<ESequencerCurveVisibility::Type> CurveVisibility;
 
 	FOnCurveVisibilityChanged OnCurveVisibilityChanged;
+	FOnShowCurveEditorChanged OnShowCurveEditorChanged;
 };

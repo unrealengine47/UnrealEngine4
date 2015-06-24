@@ -1922,7 +1922,7 @@ public:
 	static FGraphEventRef RenderThreadTaskFence();
 	static void WaitOnRenderThreadTaskFence(FGraphEventRef& Fence);
 	static bool AnyRenderThreadTasksOutstanding();
-	FGraphEventRef RHIThreadFence();
+	FGraphEventRef RHIThreadFence(bool bSetLockFence = false);
 
 	FORCEINLINE void GpuTimeBegin(uint32 Hash,bool bCompute)
 	{
@@ -2601,7 +2601,7 @@ class RHI_API FRHICommandListExecutor
 public:
 	enum
 	{
-		DefaultBypass = 1
+		DefaultBypass = PLATFORM_RHITHREAD_DEFAULT_BYPASS
 	};
 	FRHICommandListExecutor()
 		: bLatchedBypass(!!DefaultBypass)
@@ -2618,7 +2618,7 @@ public:
 
 	FORCEINLINE_DEBUGGABLE bool Bypass()
 	{
-#if !UE_BUILD_SHIPPING
+#if !UE_BUILD_SHIPPING || PLATFORM_CAN_TOGGLE_RHITHREAD_IN_SHIPPING
 		return bLatchedBypass;
 #else
 		return !!DefaultBypass;

@@ -4,6 +4,7 @@
 
 #include "Tickable.h"
 #include "AIPerceptionTypes.h"
+#include "AISense.h"
 #include "AIPerceptionSystem.generated.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(LogAIPerception, Warning, All);
@@ -137,7 +138,7 @@ public:
 
 	static UAIPerceptionSystem* GetCurrent(UObject* WorldContextObject);
 
-	static void MakeNoiseImpl(AActor* NoiseMaker, float Loudness, APawn* NoiseInstigator, const FVector& NoiseLocation);
+	static void MakeNoiseImpl(AActor* NoiseMaker, float Loudness, APawn* NoiseInstigator, const FVector& NoiseLocation, float MaxRange, FName Tag);
 
 	UFUNCTION(BlueprintCallable, Category = "AI|Perception", meta = (HidePin = "WorldContext", DefaultToSelf = "WorldContext"))
 	static bool RegisterPerceptionStimuliSource(UObject* WorldContext, TSubclassOf<UAISense> Sense, AActor* Target);

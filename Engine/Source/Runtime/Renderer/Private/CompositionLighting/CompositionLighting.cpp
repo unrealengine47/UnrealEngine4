@@ -55,13 +55,16 @@ static bool IsLpvIndirectPassRequired(FPostprocessContext& Context)
 
 	if(ViewState)
 	{
-		FLightPropagationVolume* LightPropagationVolume = ViewState->GetLightPropagationVolume();
+		FLightPropagationVolume* LightPropagationVolume = ViewState->GetLightPropagationVolume(Context.View.GetFeatureLevel());
 
-		const FLightPropagationVolumeSettings& LPVSettings = Context.View.FinalPostProcessSettings.BlendableManager.GetSingleFinalDataConst<FLightPropagationVolumeSettings>();
-
-		if(LightPropagationVolume && LPVSettings.LPVIntensity > 0.0f)
+		if(LightPropagationVolume)
 		{
-			return true; 
+			const FLightPropagationVolumeSettings& LPVSettings = Context.View.FinalPostProcessSettings.BlendableManager.GetSingleFinalDataConst<FLightPropagationVolumeSettings>();
+
+			if(LPVSettings.LPVIntensity > 0.0f)
+			{
+				return true;
+			}
 		}
 	}
 
@@ -276,8 +279,9 @@ void FCompositionLighting::ProcessAfterBasePass(FRHICommandListImmediate& RHICmd
 
 		// Add the passes we want to add to the graph ----------
 		
-		if( Context.View.Family->EngineShowFlags.Decals)
+		if(Context.View.Family->EngineShowFlags.Decals && !Context.View.Family->EngineShowFlags.ShaderComplexity)
 		{
+			// DRS_AfterBasePass is for Volumetric decals which don't support ShaderComplexity yet
 			FRenderingCompositePass* Pass = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessDeferredDecals(DRS_AfterBasePass));
 			Pass->SetInput(ePId_Input0, Context.FinalOutput);
 

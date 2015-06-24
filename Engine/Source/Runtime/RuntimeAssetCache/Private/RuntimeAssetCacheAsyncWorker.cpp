@@ -24,8 +24,8 @@ FRuntimeAssetCacheAsyncWorker::FRuntimeAssetCacheAsyncWorker(IRuntimeAssetCacheB
 	, const FOnRuntimeAssetCacheAsyncComplete& InCompletionCallback)
 	: CacheBuilder(InCacheBuilder)
 	, Buckets(InBuckets)
-	, Handle(InHandle)
 	, CompletionCallback(InCompletionCallback)
+	, Handle(InHandle)
 	, bFiredCompletionDelegate(false)
 { }
 
@@ -131,7 +131,7 @@ void FRuntimeAssetCacheAsyncWorker::DoWork()
 	{
 		DECLARE_SCOPE_CYCLE_COUNTER(TEXT("RAC async put time"), STAT_RAC_PutTime, STATGROUP_RAC)
 		FDateTime Now = FDateTime::Now();
-		FCacheEntryMetadata* Metadata = CurrentBucket->GetMetadata(*CacheKey);
+		Metadata = CurrentBucket->GetMetadata(*CacheKey);
 		if (Metadata)
 		{
 			Metadata->SetLastAccessTime(Now);
