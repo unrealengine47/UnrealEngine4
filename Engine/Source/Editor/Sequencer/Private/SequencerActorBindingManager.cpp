@@ -291,11 +291,35 @@ void FSequencerActorBindingManager::GetRuntimeObjects( const TSharedRef<FMovieSc
 		OutRuntimeObjects.Reset();
 		OutRuntimeObjects.Add( FoundSpawnedObject );
 	}
-	else if( PlayMovieSceneNode.IsValid() )
+	else
 	{
 		// Possessable
-		OutRuntimeObjects = PlayMovieSceneNode->FindBoundObjects( ObjectGuid );
+		if (!PlayMovieSceneNode.IsValid())
+		{
+			BindToPlayMovieSceneNode(false);
+		}
+	
+		if (PlayMovieSceneNode.IsValid())
+		{
+			OutRuntimeObjects = PlayMovieSceneNode->FindBoundObjects( ObjectGuid );
+		}
 	}
+}
+
+bool FSequencerActorBindingManager::TryGetObjectBindingDisplayName(const TSharedRef<FMovieSceneInstance>& MovieSceneInstance, const FGuid& ObjectGuid, FText& DisplayName) const
+{
+	TArray< UObject*> RuntimeObjects;
+	GetRuntimeObjects(MovieSceneInstance, ObjectGuid, RuntimeObjects);
+	for (int32 ObjIndex = 0; ObjIndex < RuntimeObjects.Num(); ++ObjIndex)
+	{
+		AActor* Actor = Cast<AActor>(RuntimeObjects[ObjIndex]);
+		if (Actor)
+		{
+			DisplayName = FText::FromString(Actor->GetActorLabel());
+			return true;
+		}
+	}
+	return false;
 }
 
 UK2Node_PlayMovieScene* FSequencerActorBindingManager::FindPlayMovieSceneNodeInLevelScript( const UMovieScene* MovieScene ) const
