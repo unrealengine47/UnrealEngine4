@@ -1,4 +1,4 @@
-﻿// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -538,6 +538,10 @@ enum EUnrealEngineObjectUE4Version
 	VER_UE4_FIXED_DEFAULT_ORIENTATION_OF_WIDGET_COMPONENT,
 	// Removed bUsedWithUI flag from UMaterial and replaced it with a new material domain for UI
 	VER_UE4_REMOVED_MATERIAL_USED_WITH_UI_FLAG,
+	// Added braking friction separate from turning friction.
+	VER_UE4_CHARACTER_MOVEMENT_ADD_BRAKING_FRICTION,
+	// Removed TTransArrays from UModel
+	VER_UE4_BSP_UNDO_FIX,
 	// -----<new versions can be added before this line>-------------------------------------------------
 	// - this needs to be the last line (see note below)
 	VER_UE4_AUTOMATIC_VERSION_PLUS_ONE,

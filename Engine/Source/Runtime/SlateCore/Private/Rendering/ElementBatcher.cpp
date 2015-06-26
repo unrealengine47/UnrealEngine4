@@ -55,7 +55,7 @@ FSlateRotatedClipRectType ToSnappedRotatedRect(const FSlateRect& ClipRectInLayou
 static FColor GetElementColor( const FLinearColor& InColor, const FSlateBrush* InBrush )
 {
 	// Pass the color through
-	return InColor.ToFColor(false);
+	return InColor.ToFColor(true);
 }
 
 FSlateElementBatcher::FSlateElementBatcher( TSharedRef<FSlateRenderingPolicy> InRenderingPolicy )
@@ -286,9 +286,20 @@ void FSlateElementBatcher::AddBoxElement( const FSlateDrawElement& DrawElement )
 			// Texel offset
 			HalfTexel = FVector2D( PixelCenterOffset/TextureWidth, PixelCenterOffset/TextureHeight );
 
-			SizeUV = ResourceProxy->SizeUV;
-			StartUV = ResourceProxy->StartUV + HalfTexel;
-			EndUV = StartUV + ResourceProxy->SizeUV;
+			FBox2D BrushUV = BrushResource->GetUVRegion();
+			//In case brush has valid UV region - use it instead of proxy UV
+			if (BrushUV.bIsValid)
+			{
+				SizeUV = BrushUV.GetSize();
+				StartUV = BrushUV.Min + HalfTexel;
+				EndUV = StartUV + SizeUV;
+			}
+			else
+			{
+				SizeUV = ResourceProxy->SizeUV;
+				StartUV = ResourceProxy->StartUV + HalfTexel;
+				EndUV = StartUV + ResourceProxy->SizeUV;
+			}
 		}
 		else
 		{

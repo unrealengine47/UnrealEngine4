@@ -20,9 +20,6 @@ Description:Description and rundown of the user interface for the Content Browse
 
 [TOC(start:2 end:2)]
 
-
-## Overview
-
 Here is a brief rundown of the key areas of the **Content Browser's** interface:
 
 ![](ContentBrowser_12_10_2013.png)
@@ -57,7 +54,7 @@ When the list of folders extends beyond the bottom of the panel, you can use the
 
 | Number | Name | Description |
 | -------- | ----------- | -------- |
-| **1** | **Search Bar** | This field allows you to narrow down the list of available folders by entering search criteria. Each character entered will filter the **Sources** panel to show only folders including the entered string. |
+| **1** | **Search Bar** | This field allows you to narrow down the list of available folders by entering search criteria. Each character entered will filter the Sources panel to show only folders including the entered string. |
 | **2** | **Asset Tree** | This hierarchical list shows all folders currently in your game project. Each folder is expandable and collapsible with the small triangle next to its name. |
 
 
@@ -75,7 +72,7 @@ The **Collections** panel provides a quick-access list of all the Collections cr
 
 | Number | Name | Description |
 | -------- | ----------- | -------- |
-| **1** | **Collapse/Expand Button** | This triangular button allows you to quickly collapse and expand the Collections area, useful for more space while using the **Sources** panel. |
+| **1** | **Collapse/Expand Button** | This triangular button allows you to quickly collapse and expand the Collections area, useful for more space while using the Sources panel. |
 | **2** | **Collections List** | Provides an alphabetical list of all Collections in this project. |
 | **3** | **Add Collections Button** | Clicking this button allows you to create a new Collection. |
 
@@ -98,7 +95,7 @@ For more information on working with filters, see [](Engine/Content/Browser\User
 | **1** | **New Asset Button** | Clicking this brings up a context menu with all of the types of assets you can create. |
 | **2** | **Filters Button** | This opens up the filter selection panel, where you can choose what filters you would like to apply to the Asset View. |
 | **3** | **Save Button** | Allows you to save all new and edited assets. |
-| **4** | **Search Bar** | This field allows you to narrow down the list of available assets by entering search criteria. Each character entered will reduce the **Sources** panel to show only assets including the entered string. |
+| **4** | **Search Bar** | This field allows you to narrow down the list of available assets by entering search criteria. Each character entered will reduce the Sources panel to show only assets including the entered string. |
 | **5** | **Filters Bar** | Shows all active filters on the current folder of assets. |
 
 For more information on creating and saving assets, see [](Engine/Content/Browser\UserGuide\BrowserAssetCreation).

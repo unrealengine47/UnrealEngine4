@@ -273,6 +273,7 @@ void SMultiLineEditableText::Construct( const FArguments& InArgs )
 	OnTextCommitted = InArgs._OnTextCommitted;
 	OnCursorMoved = InArgs._OnCursorMoved;
 	bSelectAllTextWhenFocused = InArgs._SelectAllTextWhenFocused;
+	bClearTextSelectionOnFocusLoss = InArgs._ClearTextSelectionOnFocusLoss;
 	bClearKeyboardFocusOnCommit = InArgs._ClearKeyboardFocusOnCommit;
 	OnContextMenuOpening = InArgs._OnContextMenuOpening;
 	bRevertTextOnEscape = InArgs._RevertTextOnEscape;
@@ -613,7 +614,7 @@ void SMultiLineEditableText::OnFocusLost( const FFocusEvent& InFocusEvent )
 		}
 
 		// Clear selection unless activating a new window (otherwise can't copy and past on right click)
-		if (InFocusEvent.GetCause() != EFocusCause::WindowActivate)
+		if (bClearTextSelectionOnFocusLoss.Get() && InFocusEvent.GetCause() != EFocusCause::WindowActivate)
 		{
 			ClearSelection();
 		}
@@ -2598,7 +2599,7 @@ void SMultiLineEditableText::CacheDesiredSize(float LayoutScaleMultiplier)
 
 	TextLayout->SetScale( LayoutScaleMultiplier );
 	TextLayout->SetWrappingWidth( WrappingWidth );
-	TextLayout->SetMargin( Margin.Get() * TextLayout->GetScale() );
+	TextLayout->SetMargin( Margin.Get() );
 	TextLayout->SetLineHeightPercentage( LineHeightPercentage.Get() );
 	TextLayout->SetJustification( Justification.Get() );
 	TextLayout->SetVisibleRegion( CachedSize, ScrollOffset * TextLayout->GetScale() );

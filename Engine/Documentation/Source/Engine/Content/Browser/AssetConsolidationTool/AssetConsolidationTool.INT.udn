@@ -44,11 +44,7 @@ Description:Tool that removes duplicate assets by consolidating multiple assets 
 
 [TOC(start:2)]
 
-
-
-## Overview
-
-The Replace References Tool provides a simple way within the editor to combine multiple assets into one asset. As an example, consider a texture that has become duplicated numerous times over the course of development, resulting in a waste of resources by storing multiple copies of what amounts to the exact same texture. The Replace References Tool allows the user to select all such uses as desired and have them all point to one particular instance of the texture instead.
+The **Replace References Tool** provides a simple way within the editor to combine multiple assets into one asset. As an example, consider a texture that has become duplicated numerous times over the course of development, resulting in a waste of resources by storing multiple copies of what amounts to the exact same texture. The Replace References Tool allows the user to select all such uses as desired and have them all point to one particular instance of the texture instead.
 
 While this has been greatly reduced by the Unreal Engine's ability to just re-import the source asset, if you attempt to add the exact same file twice (same name and path), it can still happen with multiple people working on a game.
 
@@ -59,15 +55,15 @@ The asset consolidation is fairly simple to use, but caution must be exercised t
 
 ### Invoking the Replace References Tool
 
-To gain access to the tool, you simply select at least one asset you wish to use in the consolidation process within the **Content Browser**. Afterwards, **right-click**, and within the context menu that appears, click "**Replace References**." The **Replace References** dialog will appear, populated with all of the assets that were selected while summoning the tool. You can add additional assets by dragging them from the **Content Browser** into the main part of the dialog.
+To gain access to the tool, you simply select at least one asset you wish to use in the consolidation process within the **Content Browser**. Afterwards, **right-click**, and within the context menu that appears, click "**Replace References**." The Replace References dialog will appear, populated with all of the assets that were selected while summoning the tool. You can add additional assets by dragging them from the **Content Browser** into the main part of the dialog.
 
 [REGION:note]
-Consolidation is generally restricted to selected objects of the same type, with some exceptions allowed for Textures and Materials. If you do not see the **Replace References** option, or a drag-drop operation was not allowed, you should make sure you have only selected assets of the same type! If you have accidentally added an asset that you did not intend, you can remove it from the dialog by selecting it and pressing the **Delete** key on your keyboard.
+Consolidation is generally restricted to selected objects of the same type, with some exceptions allowed for Textures and Materials. If you do not see the Replace References option, or a drag-drop operation was not allowed, you should make sure you have only selected assets of the same type! If you have accidentally added an asset that you did not intend, you can remove it from the dialog by selecting it and pressing the **Delete** key on your keyboard.
 [/REGION]
 
 ![Consolidate1.png](Consolidate1.png)
 
-Here a texture has been duplicated many times! Selecting them all and **right-clicking** grants the option to **Replace References**.
+Here a texture has been duplicated many times! Selecting them all and **right-clicking** grants the option to Replace References.
 
 
 ### Consolidating Assets
@@ -75,16 +71,16 @@ Here a texture has been duplicated many times! Selecting them all and **right-cl
 Once you have populated the dialog with all of the assets you would like to use in the consolidation process, select one of the assets to serve as the "asset to consolidate to" and then click **Consolidate Assets**. All references to the assets you did not choose from the list will be replaced with references to the asset you did, deleting the non-chosen assets in the process.
 
 [REGION:note]
-The **Consolidate Assets** button is grayed out (and unavailable) until at least two assets are in the dialog and at least one is selected.
+The Consolidate Assets button is grayed out (and unavailable) until at least two assets are in the dialog and at least one is selected.
 [/REGION]
 
 ![Consolidate2.PNG](Consolidate2.PNG)
 
-Inside the **Replace References** dialog, selecting an asset marks it as the "asset to consolidate to."
+Inside the Replace References dialog, selecting an asset marks it as the "asset to consolidate to."
 
 ![Consolidate2.1.PNG](Consolidate2.1.PNG)
 
-Upon clicking **Consolidate Assets**, you will be prompted with a **Delete Assets** dialog, which enables you to remove assets that are no longer referenced and thus no longer necessary.  Click **Delete**.
+Upon clicking Consolidate Assets, you will be prompted with a Delete Assets dialog, which enables you to remove assets that are no longer referenced and thus no longer necessary.  Click **Delete**.
 
 ![Consolidate3.png](Consolidate3.png)
 
@@ -92,7 +88,7 @@ All of the duplicates have been consolidated to the chosen asset!
 
 ### Saving Dirtied Packages
 
-The consolidation dialog provides the option to **Save dirtied packages**, in the lower-left corner. If you check this option, you will be prompted upon the completion of a consolidation operation to save any of the UAssets dirtied by the process. This is a handy way to ensure that all of the UAssets affected by consolidation are properly saved without having to find them all in the **Content Browser** yourself. If, for whatever reason, a consolidation is unsuccessful or an error occurs, the UAssets will not be saved and you will be warned appropriately.
+The consolidation dialog provides the option to Save dirtied packages, in the lower-left corner. If you check this option, you will be prompted upon the completion of a consolidation operation to save any of the UAssets dirtied by the process. This is a handy way to ensure that all of the UAssets affected by consolidation are properly saved without having to find them all in the **Content Browser** yourself. If, for whatever reason, a consolidation is unsuccessful or an error occurs, the UAssets will not be saved and you will be warned appropriately.
 
 
 ## How the Replace References Tool Works
@@ -111,7 +107,7 @@ The actual consolidation process occurs in multiple steps. First, for any valid 
 
 * While the Replace References Tool will attempt to forcibly replace references to Objects to consolidate in UAssets/maps that are currently loaded and in memory, it is best to maximize the chance of a successful consolidation by having as few things referencing the Objects to consolidate as possible while using the tool. In particular, it is extremely ill-advised to have sub-editors (such as the Blueprint Editor or the Static Mesh Editor) open and utilizing assets that are about to be consolidated.
 
-* The Replace References Tool makes heavy use of [object redirectors](Engine/Basics/Redirectors), meaning it is a good idea to occasionally make use of the Fixup Redirects Commandlet some time after the use of the Replace References Tool.
+* The Replace References Tool makes heavy use of [object redirectors](Engine/Basics/Redirectors), meaning it is a good idea to occasionally make use of the Fixup Redirects Commandlet sometime after the use of the Replace References Tool.
 
 
 

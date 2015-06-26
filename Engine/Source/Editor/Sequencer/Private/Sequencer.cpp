@@ -590,6 +590,17 @@ void FSequencer::SetGlobalTime( float NewTime )
 	ScrubPosition = NewTime;
 
 	RootMovieSceneInstance->Update( ScrubPosition, LastTime, *this );
+
+	for(FLevelEditorViewportClient* LevelVC : GEditor->LevelViewportClients)
+	{
+		if (LevelVC && LevelVC->IsPerspective())
+		{
+			if (!LevelVC->IsRealtime())
+			{
+				LevelVC->Invalidate();
+			}
+		}
+	}
 }
 
 TOptional<float> FSequencer::CalculateAutoscrollEncroachment(float NewTime) const
@@ -1127,13 +1138,9 @@ void FSequencer::AddSubMovieScene( UMovieScene* SubMovieScene )
 
 	OwnerMovieScene->Modify();
 
-	UMovieSceneTrack* Type = OwnerMovieScene->FindMasterTrack( USubMovieSceneTrack::StaticClass() ) ;
-	if( !Type )
-	{
-		Type = OwnerMovieScene->AddMasterTrack( USubMovieSceneTrack::StaticClass() );
-	}
+	UMovieSceneTrack* NewTrack = OwnerMovieScene->AddMasterTrack( USubMovieSceneTrack::StaticClass() );
 
-	USubMovieSceneTrack* SubMovieSceneType = CastChecked<USubMovieSceneTrack>( Type );
+	USubMovieSceneTrack* SubMovieSceneType = CastChecked<USubMovieSceneTrack>( NewTrack );
 
 	SubMovieSceneType->AddMovieSceneSection( SubMovieScene, ScrubPosition );
 }
